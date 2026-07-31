@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .vault/
+# The knowledge vault is its own git repo (see server/vault/.git), synced
+# independently via VAULT_REPO — not versioned as part of this repo.
+server/vault/
 *.log
 .env
 .env.local

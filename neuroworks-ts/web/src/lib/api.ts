@@ -479,6 +479,31 @@ export const api = {
     req<{ status: "pending" | "complete" | "error" | "expired"; error?: string }>(
       `/api/connectors/${encodeURIComponent(id)}/oauth/poll`, { method: "POST", body: JSON.stringify({ flowId }) }),
 
+  // Personal to-do list.
+  myTaskLists: () => req<{ lists: MyTaskList[] }>("/api/my-tasks/lists"),
+  addMyTaskList: (name: string) => req<{ list: MyTaskList }>("/api/my-tasks/lists", { method: "POST", body: JSON.stringify({ name }) }),
+  renameMyTaskList: (id: string, name: string) => req<{ list: MyTaskList }>(`/api/my-tasks/lists/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  removeMyTaskList: (id: string) => req<{ ok: true }>(`/api/my-tasks/lists/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  myTaskItems: (filter?: { listId?: string; myDay?: boolean; important?: boolean; completed?: boolean }) => {
+    const p = new URLSearchParams();
+    if (filter?.listId) p.set("listId", filter.listId);
+    if (filter?.myDay) p.set("myDay", "1");
+    if (filter?.important) p.set("important", "1");
+    if (filter?.completed !== undefined) p.set("completed", filter.completed ? "1" : "0");
+    const qs = p.toString();
+    return req<{ items: MyTaskItem[] }>(`/api/my-tasks/items${qs ? `?${qs}` : ""}`);
+  },
+  addMyTaskItem: (body: { listId?: string; title: string; notes?: string; dueDate?: string; reminderAt?: string; repeat?: RepeatRule | null; important?: boolean; myDay?: boolean }) =>
+    req<{ item: MyTaskItem }>("/api/my-tasks/items", { method: "POST", body: JSON.stringify(body) }),
+  updateMyTaskItem: (id: string, patch: Partial<{ title: string; notes: string; dueDate: string | null; reminderAt: string | null; repeat: RepeatRule | null; important: boolean; listId: string }>) =>
+    req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  removeMyTaskItem: (id: string) => req<{ ok: true }>(`/api/my-tasks/items/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  toggleMyTaskItem: (id: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(id)}/toggle`, { method: "POST" }),
+  setMyTaskItemMyDay: (id: string, on: boolean) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(id)}/my-day`, { method: "POST", body: JSON.stringify({ on }) }),
+  addMyTaskStep: (itemId: string, title: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/steps`, { method: "POST", body: JSON.stringify({ title }) }),
+  toggleMyTaskStep: (itemId: string, stepId: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/steps/${encodeURIComponent(stepId)}`, { method: "PATCH" }),
+  removeMyTaskStep: (itemId: string, stepId: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/steps/${encodeURIComponent(stepId)}`, { method: "DELETE" }),
+
   // Payments (Stripe gateway).
   paymentStatus: () => req<PaymentGatewayStatus>("/api/payments/status"),
   createPaymentLink: (body: { amount: number; description: string; currency?: string; productName?: string }) =>
@@ -699,6 +724,17 @@ export type ConnectorInput = {
   writeEnabled?: boolean;
   skipApprovalForReads?: boolean;
 };
+// Personal to-do list (native, offline — distinct from the agent job queue's Tasks page).
+export type TaskStep = { id: string; title: string; done: boolean };
+export type RepeatRule = { freq: "daily" | "weekly" | "monthly"; interval: number };
+export type MyTaskItem = {
+  id: string; listId: string; title: string; notes?: string; steps: TaskStep[];
+  dueDate?: string; reminderAt?: string; repeat?: RepeatRule | null;
+  important: boolean; myDay?: string; completed: boolean; completedAt?: string;
+  createdAt: string; order: number;
+};
+export type MyTaskList = { id: string; name: string; color?: string; order: number; createdAt: string };
+
 export type ConnectorTemplate = {
   id: string; label: string; description: string;
   baseUrl: string; auth: ConnectorInput["auth"]; writeEnabled: boolean; skipApprovalForReads?: boolean; endpoints: ConnectorEndpoint[];

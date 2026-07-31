@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import {
   Zap, LayoutDashboard, Target, BarChart2,
   Cpu, Settings, MessageSquare,
-  LogOut, Activity, Network
+  LogOut, Activity, Network, Sparkles
 } from 'lucide-react'
 import { clearToken, getUser } from '@/lib/auth'
 import api from '@/lib/api'
@@ -54,6 +54,7 @@ export default function Sidebar() {
 
   const NAV: NavItem[] = [
     { href: '/chat',     label: 'Agentic Hub',     icon: MessageSquare, accent: '#00A3FF' },
+    { href: '/jarvis',   label: 'JARVIS',          icon: Sparkles, accent: '#A78BFA' },
     { href: '/', label: 'Overview',         icon: LayoutDashboard },
     { href: '/goals',    label: 'Tasks',       icon: Target, badge: awaitingCount || undefined },
     { href: '/analytics',label: 'Analytics',        icon: BarChart2 },

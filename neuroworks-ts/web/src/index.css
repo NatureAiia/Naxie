@@ -209,6 +209,49 @@ body::after {                               /* blueprint glow — light from abo
   50%      { transform: scaleY(1); }
 }
 
+/* JARVIS orb (pages/Jarvis.tsx) — two counter-rotating rings + a breathing
+   glow core, CSS-only (same "no gif/video asset" rule as the mic waveform
+   above — see nw-mic-wave's comment). */
+@keyframes nw-orb-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes nw-orb-spin-reverse {
+  from { transform: rotate(360deg); }
+  to   { transform: rotate(0deg); }
+}
+@keyframes nw-orb-glow {
+  0%, 100% { opacity: 0.6; transform: scale(0.96); }
+  50%      { opacity: 1;   transform: scale(1.04); }
+}
+.nw-orb-ring-a { animation: nw-orb-spin 7s linear infinite; }
+.nw-orb-ring-b { animation: nw-orb-spin-reverse 10s linear infinite; }
+.nw-orb-glow { animation: nw-orb-glow 3.2s ease-in-out infinite; }
+.nw-orb-glow.is-active { animation-duration: 1.1s; }
+
+/* Listening — a radial "equalizer" ring of bars around the orb (the
+   waveform-visualizer look, without the 6MB+ gif: same reasoning as
+   nw-mic-wave above, just arranged in a circle instead of a row). Each bar
+   is a wrapper (static rotate+offset, set inline per-bar in Jarvis.tsx) plus
+   this inner scaling animation; --d staggers the start per bar. */
+@keyframes nw-radial-wave {
+  0%, 100% { transform: scaleY(0.4); opacity: 0.55; }
+  50%      { transform: scaleY(1.15); opacity: 1; }
+}
+.nw-radial-bar { animation: nw-radial-wave 0.9s ease-in-out infinite; animation-delay: var(--d, 0s); }
+
+/* Thinking — a conic "radar sweep" spinning faster than the idle rings, to
+   read as active processing rather than idle ambience. */
+.nw-orb-scan { animation: nw-orb-spin 1.6s linear infinite; }
+
+/* Speaking — concentric rings expanding outward and fading, like sound
+   leaving the orb. --d staggers each ring's start. */
+@keyframes nw-orb-pulse-out {
+  0%   { transform: scale(0.6); opacity: 0.55; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+.nw-orb-pulse-out { animation: nw-orb-pulse-out 1.6s ease-out infinite; animation-delay: var(--d, 0s); }
+
 /* Noise Background — slow diagonal pan of the multi-colour gradient behind a
    button/label. Paired with a grain overlay in NoiseBackground.tsx. */
 @keyframes nw-noise-pan {
@@ -347,7 +390,9 @@ body::after {                               /* blueprint glow — light from abo
   .nw-status-dot.is-running, .nw-status-dot.is-succeeded,
   .nw-toast, .nw-copy-flash, .nw-card-hover, .nw-press,
   .nw-thinking-dots > span, .nw-thinking-bar::before,
-  .nw-avatar-active, .nw-shiny-pill::after, .nw-tw-cursor {
+  .nw-avatar-active, .nw-shiny-pill::after, .nw-tw-cursor,
+  .nw-orb-ring-a, .nw-orb-ring-b, .nw-orb-glow,
+  .nw-radial-bar, .nw-orb-scan, .nw-orb-pulse-out {
     animation: none !important;
     transition: none !important;
   }

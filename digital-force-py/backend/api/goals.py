@@ -86,13 +86,20 @@ async def run_planning_agent(goal_id: str, goal_description: str, initial_state:
                 goal.status = "awaiting_approval"
                 goal.approval_token = secrets.token_urlsafe(32)
 
-                # Log agent messages
+                # Log agent messages — by this point the graph has coerced
+                # "messages" into real LangChain message objects (HumanMessage/
+                # AIMessage/...), not the plain dicts it started as, so we read
+                # .type/.content rather than dict .get().
                 for msg in final_state.get("messages", []):
+                    if isinstance(msg, dict):
+                        role, content = msg.get("role", "system"), msg.get("content", "")
+                    else:
+                        role, content = getattr(msg, "type", "system"), getattr(msg, "content", "")
                     log = LogModel(
                         goal_id=goal_id,
-                        agent=msg.get("role", "system"),
+                        agent=role,
                         level="info",
-                        thought=msg.get("content", ""),
+                        thought=str(content),
                     )
                     db.add(log)
 

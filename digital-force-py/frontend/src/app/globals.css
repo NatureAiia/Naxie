@@ -413,6 +413,25 @@ html, body {
   box-shadow: 0 0 0 3px rgba(0, 163, 255, 0.08);
 }
 
+/* ─── JARVIS orb (app/jarvis/page.tsx) — two counter-rotating rings + a
+   breathing glow core, CSS-only (no gif/video asset). ─── */
+@keyframes nw-orb-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes nw-orb-spin-reverse {
+  from { transform: rotate(360deg); }
+  to   { transform: rotate(0deg); }
+}
+@keyframes nw-orb-glow {
+  0%, 100% { opacity: 0.6; transform: scale(0.96); }
+  50%      { opacity: 1;   transform: scale(1.04); }
+}
+.nw-orb-ring-a { animation: nw-orb-spin 7s linear infinite; }
+.nw-orb-ring-b { animation: nw-orb-spin-reverse 10s linear infinite; }
+.nw-orb-glow { animation: nw-orb-glow 3.2s ease-in-out infinite; }
+.nw-orb-glow.is-active { animation-duration: 1.1s; }
+
 /* ─── Agent log entry ──────────────────────────────────── */
 .agent-log {
   display: flex;

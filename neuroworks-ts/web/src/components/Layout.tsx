@@ -4,11 +4,11 @@ import { ToastRack } from "./Card";
 import {
   LayoutDashboard, MessageSquare, Users, ListChecks, FileText, BookOpen,
   CheckCircle2, Activity as ActivityIcon, Library, Settings as SettingsIcon,
-  ShieldCheck, Plus, Sun, Moon, Search as SearchIcon, ChevronRight,
+  ShieldCheck, Sun, Moon, Search as SearchIcon, ChevronRight,
   Calendar, Shield,   CalendarDays, FileEdit, Database,
   Terminal as TerminalIcon, FolderKanban, Wrench, Plug, Eye, Sparkles,
   Boxes, CreditCard, LogOut, LogIn, Contact, Zap, ThumbsUp, BarChart, DollarSign, ScrollText, Hammer, GitBranch,
-  Workflow, Cpu, Inbox,
+  Workflow, Cpu, Inbox, CheckSquare,
   type LucideIcon,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
@@ -42,6 +42,7 @@ const workspaceNav: NavItem[] = [
   // person's handoffs, the deliverables, and editing all live in one place.
   // Moved out of Watch (hidden from staff) so staff can reach their own work.
   { to: "/my-work", label: "My Work", icon: Inbox },
+  { to: "/my-tasks", label: "My Tasks", icon: CheckSquare },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
   { to: "/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/daily-reports", label: "Daily Reports", icon: BookOpen },
@@ -192,9 +193,13 @@ export function Layout({ children }: { children: ReactNode }) {
     );
   };
 
+  // JARVIS wants a clear, uncluttered backdrop for the orb (no ambient
+  // starfield competing with it) instead of the app-wide GlitterBackground.
+  const clearBackground = location.pathname.startsWith("/jarvis");
+
   return (
     <div className="flex h-full">
-      <GlitterBackground />
+      {!clearBackground && <GlitterBackground />}
       <aside className="w-60 shrink-0 bg-ink-900 border-r border-ink-800 flex flex-col">
         <div className="px-5 py-5">
           <Link to="/dashboard" className="flex items-center gap-2.5">
@@ -211,8 +216,8 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <div className="px-3 pb-3">
-          <Link to="/chat" className="w-full flex items-center justify-center gap-1.5 bg-ink-800 hover:bg-ink-700 border border-ink-700 hover:border-violet-500/40 rounded-md py-2 text-sm text-cream-100 transition-colors">
-            <Plus size={14} className="text-violet-400" /> New chat
+          <Link to="/jarvis" onMouseEnter={() => preloadRoute("/jarvis")} onFocus={() => preloadRoute("/jarvis")} className="w-full flex items-center justify-center gap-1.5 bg-ink-800 hover:bg-ink-700 border border-ink-700 hover:border-violet-500/40 rounded-md py-2 text-sm text-cream-100 transition-colors">
+            <Sparkles size={14} className="text-violet-400" /> JARVIS
           </Link>
         </div>
 

@@ -9,6 +9,7 @@ import { securityWatch, securityStatus, unblockIp } from "./lib/security-watch.j
 import { reposRouter } from "./routes/repos.js";
 import { brainRouter } from "./routes/brain.js";
 import { tasksRouter } from "./routes/tasks.js";
+import { myTasksRouter } from "./routes/my-tasks.js";
 import { templatesRouter } from "./routes/templates.js";
 import { chatRouter } from "./routes/chat.js";
 import { personasRouter } from "./routes/personas.js";
@@ -190,6 +191,7 @@ app.use("/api/status", statusRouter);
 app.use("/api/repos", reposRouter);
 app.use("/api/brain", brainRouter);
 app.use("/api/tasks", tasksRouter);
+app.use("/api/my-tasks", myTasksRouter); // operator's personal to-do list — distinct from the agent job queue above
 app.use("/api/templates", templatesRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/personas", personasRouter);

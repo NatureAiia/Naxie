@@ -35,6 +35,7 @@ import { Login } from "./pages/Login";
 import { Onboarding } from "./pages/Onboarding";
 const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
 const Tasks = lazy(() => import("./pages/Tasks").then(m => ({ default: m.Tasks })));
+const MyTasks = lazy(() => import("./pages/MyTasks").then(m => ({ default: m.MyTasks })));
 const Templates = lazy(() => import("./pages/Templates").then(m => ({ default: m.Templates })));
 const Approvals = lazy(() => import("./pages/Approvals").then(m => ({ default: m.Approvals })));
 const Security = lazy(() => import("./pages/Security").then(m => ({ default: m.Security })));
@@ -71,6 +72,7 @@ const SkillForge = lazy(() => import("./pages/SkillForge").then(m => ({ default:
 const Orchestrate = lazy(() => import("./pages/Orchestrate").then(m => ({ default: m.Orchestrate })));
 const DailyReports = lazy(() => import("./pages/DailyReports").then(m => ({ default: m.DailyReports })));
 const MyWork = lazy(() => import("./pages/MyWork").then(m => ({ default: m.MyWork })));
+const Jarvis = lazy(() => import("./pages/Jarvis").then(m => ({ default: m.Jarvis })));
 
 // Lightweight, layout-shift-free placeholder while a route chunk downloads —
 // on a warm cache this never has time to paint; on a cold load it beats a
@@ -101,9 +103,11 @@ function AppShell() {
         <Route path="/" element={<Navigate to="/chat" />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/chat" element={<Chat />} />
+        <Route path="/jarvis" element={<Jarvis />} />
         <Route path="/team" element={<Team />} />
         <Route path="/presets" element={<Presets />} />
         <Route path="/tasks" element={<Tasks />} />
+        <Route path="/my-tasks" element={<MyTasks />} />
         <Route path="/results" element={<ResultsIndex />} />
         <Route path="/results/:jobId" element={<Results />} />
         <Route path="/daily-reports" element={<DailyReports />} />
