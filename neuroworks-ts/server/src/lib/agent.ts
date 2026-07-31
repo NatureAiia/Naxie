@@ -116,13 +116,39 @@ const SOCIAL_TASK_RE = new RegExp(`\\b${SOCIAL_ACTION}\\b[^]{0,60}?\\b${SOCIAL_P
 // gated here too as defence-in-depth for when they're enabled.
 export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "email.send", "payment.link", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "heygen.create_video"]);
 
+// connector.call is gated by default (see SENSITIVE_APPROVAL_TOOLS above), but
+// a READ (GET/HEAD, or no method → GET default) against a connector the
+// operator has explicitly opted in via `skipApprovalForReads` skips the gate —
+// e.g. the operator's own Microsoft To Do list can't expose anything they
+// don't already see by opening the app, so pausing "what's on my list" for
+// manual sign-off is pure friction with no safety benefit. This is opt-in per
+// connector and read-only-only: writes, and every connector that hasn't opted
+// in (finance systems, admin APIs, ...), stay gated exactly as before —
+// mirrors why db.query stays gated even for SELECTs (comment above).
+async function isConnectorCallExempt(args: Record<string, unknown> | undefined): Promise<boolean> {
+  const method = String(args?.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return false;
+  const ref = String(args?.connector ?? "").trim();
+  if (!ref) return false;
+  const { listConnectors } = await import("./connectors.js");
+  const key = ref.toLowerCase();
+  const conn = listConnectors().find((c: any) => c.id === ref || String(c.label ?? "").toLowerCase() === key);
+  return !!(conn as any)?.skipApprovalForReads;
+}
+
 // The sensitive-tool steps in a plan (deduped by tool name). Used both by the
 // in-agent checkpoint and by the chat router to re-park a DELEGATED plan whose
 // worker hit the gate — the primary can't approve a worker's job, so it adopts
 // the plan and runs the approved version locally.
-export function planSensitiveTools(plan?: { steps?: { tool: string }[] } | null): string[] {
+export async function planSensitiveTools(plan?: { steps?: { tool: string; args?: Record<string, unknown> }[] } | null): Promise<string[]> {
   if (!plan?.steps) return [];
-  return [...new Set(plan.steps.map(s => s.tool).filter(t => SENSITIVE_APPROVAL_TOOLS.has(t)))];
+  const tools = new Set<string>();
+  for (const s of plan.steps) {
+    if (!SENSITIVE_APPROVAL_TOOLS.has(s.tool)) continue;
+    if (s.tool === "connector.call" && await isConnectorCallExempt(s.args)) continue;
+    tools.add(s.tool);
+  }
+  return [...tools];
 }
 
 // Parse a SELF-CONTAINED send: an explicit recipient address + an explicit
@@ -909,8 +935,9 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
             && ((result as any).status === "awaiting-approval" || (result as any).approvalRequired)) {
           const ar = (result as any).approvalRequired;
           const subPlan = (result as any).plan;
+          const fallbackTools = Array.isArray(ar?.tools) && ar.tools.length ? ar.tools : await planSensitiveTools(subPlan);
           delegatedApproval = {
-            tools: Array.isArray(ar?.tools) && ar.tools.length ? ar.tools : planSensitiveTools(subPlan),
+            tools: fallbackTools,
             plan: subPlan,
           };
           aborted = true;
@@ -1953,7 +1980,12 @@ export async function planAndExecute(
   // a caller explicitly opts out (opts.skipApprovalGate) — e.g. an internal
   // pipeline that has already gated the action upstream.
   if (!opts.skipApprovalGate) {
-    const sensitiveSteps = p.steps.filter(s => SENSITIVE_APPROVAL_TOOLS.has(s.tool));
+    const sensitiveSteps: typeof p.steps = [];
+    for (const s of p.steps) {
+      if (!SENSITIVE_APPROVAL_TOOLS.has(s.tool)) continue;
+      if (s.tool === "connector.call" && await isConnectorCallExempt(s.args as any)) continue;
+      sensitiveSteps.push(s);
+    }
     if (sensitiveSteps.length > 0) {
       const tools = [...new Set(sensitiveSteps.map(s => s.tool))];
       push(`This plan includes ${tools.join(", ")} — ${tools.length === 1 ? "an action" : "actions"} that need your approval before running. Parking the task for sign-off on the Approvals page.`);

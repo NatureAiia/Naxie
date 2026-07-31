@@ -118,6 +118,7 @@ export function Connectors() {
                       {c.writeEnabled
                         ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-coral-500/15 text-coral-300 inline-flex items-center gap-1"><Unlock size={9} /> writes on</span>
                         : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/60 inline-flex items-center gap-1"><Lock size={9} /> read-only</span>}
+                      {c.skipApprovalForReads && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300" title="Reads skip the approval gate">instant reads</span>}
                       {(c.endpoints?.length ?? 0) > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/60">{c.endpoints!.length} endpoint{c.endpoints!.length === 1 ? "" : "s"}</span>}
                     </div>
                     {c.description && <div className="text-[12px] text-cream-300/60 mt-0.5">{c.description}</div>}
@@ -179,6 +180,7 @@ function ConnectorModal({ authTypes, existing, template, onClose, onSaved }: {
   const [clientId, setClientId] = useState(existing?.auth.clientId ?? template?.auth?.clientId ?? "");
   const [scope, setScope] = useState(existing?.auth.scope ?? template?.auth?.scope ?? "");
   const [writeEnabled, setWriteEnabled] = useState(existing?.writeEnabled ?? template?.writeEnabled ?? false);
+  const [skipApprovalForReads, setSkipApprovalForReads] = useState(existing?.skipApprovalForReads ?? template?.skipApprovalForReads ?? false);
   const [endpointsJson, setEndpointsJson] = useState(
     existing?.endpoints ? JSON.stringify(existing.endpoints, null, 2) : template?.endpoints ? JSON.stringify(template.endpoints, null, 2) : "");
   const [headersJson, setHeadersJson] = useState(existing?.headers ? JSON.stringify(existing.headers, null, 2) : "");
@@ -204,7 +206,7 @@ function ConnectorModal({ authTypes, existing, template, onClose, onSaved }: {
     else if (authType === "header") { auth.name = authName; if (secret) auth.value = secret; }
     else if (authType === "oauth2") { auth.tenant = tenant; auth.clientId = clientId; auth.scope = scope; }
 
-    const body: ConnectorInput = { label, baseUrl, description: description || undefined, auth, headers, endpoints, writeEnabled };
+    const body: ConnectorInput = { label, baseUrl, description: description || undefined, auth, headers, endpoints, writeEnabled, skipApprovalForReads };
     setSaving(true);
     try {
       if (existing) await api.updateConnector(existing.id, body);
@@ -319,6 +321,13 @@ function ConnectorModal({ authTypes, existing, template, onClose, onSaved }: {
           <label className="flex items-center gap-2 text-[13px] text-cream-200 cursor-pointer">
             <input type="checkbox" checked={writeEnabled} onChange={e => setWriteEnabled(e.target.checked)} className="accent-coral-500" />
             Allow write methods (POST/PUT/PATCH/DELETE) — off keeps agents read-only on this system
+          </label>
+          <label className="flex items-start gap-2 text-[13px] text-cream-200 cursor-pointer">
+            <input type="checkbox" checked={skipApprovalForReads} onChange={e => setSkipApprovalForReads(e.target.checked)} className="accent-coral-500 mt-0.5" />
+            <span>
+              Skip approval for reads (GET/HEAD) — agents can query this connector instantly without pausing for
+              sign-off. Only enable for low-sensitivity data (e.g. your own task list); writes always stay gated.
+            </span>
           </label>
         </div>
 

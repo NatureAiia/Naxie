@@ -681,6 +681,7 @@ export type Connector = {
   headers?: Record<string, string>;
   endpoints?: ConnectorEndpoint[];
   writeEnabled: boolean;
+  skipApprovalForReads?: boolean;
   createdAt: string;
   lastTest?: { ok: boolean; detail: string; at: string };
 };
@@ -696,10 +697,11 @@ export type ConnectorInput = {
   headers?: Record<string, string>;
   endpoints?: ConnectorEndpoint[];
   writeEnabled?: boolean;
+  skipApprovalForReads?: boolean;
 };
 export type ConnectorTemplate = {
   id: string; label: string; description: string;
-  baseUrl: string; auth: ConnectorInput["auth"]; writeEnabled: boolean; endpoints: ConnectorEndpoint[];
+  baseUrl: string; auth: ConnectorInput["auth"]; writeEnabled: boolean; skipApprovalForReads?: boolean; endpoints: ConnectorEndpoint[];
 };
 export type ConnectorCallResult = {
   ok: boolean; status: number; url: string; method: string;

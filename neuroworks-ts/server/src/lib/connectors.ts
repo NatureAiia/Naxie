@@ -77,6 +77,13 @@ export type Connector = {
   headers?: Record<string, string>;   // static non-secret headers sent on every call
   endpoints?: ConnectorEndpoint[];
   writeEnabled: boolean;              // allow non-GET/HEAD methods
+  // Operator opt-in: GET/HEAD calls to THIS connector skip the agent's
+  // sensitive-action approval gate (agent.ts SENSITIVE_APPROVAL_TOOLS). Off by
+  // default — only meaningful for low-sensitivity personal data (e.g. the
+  // operator's own Microsoft To Do list) where pausing every read for manual
+  // sign-off is pure friction. Writes are never exempted by this flag; that's
+  // still gated by writeEnabled + the approval checkpoint regardless.
+  skipApprovalForReads?: boolean;
   createdAt: string;
   lastTest?: { ok: boolean; detail: string; at: string };
 };
@@ -234,7 +241,7 @@ function normalizeHeaders(input: any): Record<string, string> | undefined {
 
 export function addConnector(input: {
   label: string; baseUrl: string; description?: string;
-  auth?: any; headers?: any; endpoints?: any; writeEnabled?: boolean;
+  auth?: any; headers?: any; endpoints?: any; writeEnabled?: boolean; skipApprovalForReads?: boolean;
 }): ConnectorPublic {
   const label = String(input.label ?? "").trim();
   const baseUrl = String(input.baseUrl ?? "").trim();
@@ -254,6 +261,7 @@ export function addConnector(input: {
     headers: normalizeHeaders(input.headers),
     endpoints: normalizeEndpoints(input.endpoints),
     writeEnabled: input.writeEnabled === true,
+    skipApprovalForReads: input.skipApprovalForReads === true,
     createdAt: new Date().toISOString(),
   };
   const list = load();
@@ -264,7 +272,7 @@ export function addConnector(input: {
 
 export function updateConnector(id: string, patch: {
   label?: string; baseUrl?: string; description?: string;
-  auth?: any; headers?: any; endpoints?: any; writeEnabled?: boolean;
+  auth?: any; headers?: any; endpoints?: any; writeEnabled?: boolean; skipApprovalForReads?: boolean;
 }): ConnectorPublic | null {
   const list = load();
   const c = list.find(x => x.id === id);
@@ -291,6 +299,7 @@ export function updateConnector(id: string, patch: {
   if (patch.headers !== undefined) c.headers = normalizeHeaders(patch.headers);
   if (patch.endpoints !== undefined) c.endpoints = normalizeEndpoints(patch.endpoints);
   if (patch.writeEnabled !== undefined) c.writeEnabled = patch.writeEnabled === true;
+  if (patch.skipApprovalForReads !== undefined) c.skipApprovalForReads = patch.skipApprovalForReads === true;
   save(list);
   return toPublic(c);
 }
@@ -636,7 +645,7 @@ export async function testConnector(id: string): Promise<{ ok: boolean; detail: 
 // discoverable without hand-typing endpoint manifests.
 export type ConnectorTemplate = {
   id: string; label: string; description: string;
-  baseUrl: string; auth: any; writeEnabled: boolean; endpoints: ConnectorEndpoint[];
+  baseUrl: string; auth: any; writeEnabled: boolean; skipApprovalForReads?: boolean; endpoints: ConnectorEndpoint[];
 };
 
 const CONNECTOR_TEMPLATES: ConnectorTemplate[] = [
@@ -648,6 +657,10 @@ const CONNECTOR_TEMPLATES: ConnectorTemplate[] = [
     baseUrl: "https://graph.microsoft.com/v1.0",
     auth: { type: "oauth2", tenant: "consumers", clientId: "", scope: "Tasks.ReadWrite offline_access" },
     writeEnabled: true,
+    // Pre-checked: this is explicitly the operator's own personal task list —
+    // "what's on my list" shouldn't need manual sign-off every time. Still
+    // just a default; the operator can uncheck it in the form before saving.
+    skipApprovalForReads: true,
     endpoints: [
       { name: "list-lists",  method: "GET",    path: "/me/todo/lists",                         description: "List all To Do task lists" },
       { name: "list-tasks",  method: "GET",    path: "/me/todo/lists/{listId}/tasks",          description: "List tasks in a list" },

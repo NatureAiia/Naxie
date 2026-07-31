@@ -985,7 +985,7 @@ async function handleChat(req: any, res: any) {
       // approved from here. Re-park on the PRIMARY carrying the worker's plan;
       // approving replays it locally (the primary has the same primitives, and
       // outbound actions should run from the audited primary anyway).
-      const sensitiveInPlan = planSensitiveTools(r.plan);
+      const sensitiveInPlan = await planSensitiveTools(r.plan);
       const sensitiveRan = Array.isArray(r.runs) && r.runs.some((rn: any) => SENSITIVE_APPROVAL_TOOLS.has(rn.step?.tool) && rn.ok === true);
       if ((r.approvalRequired || (sensitiveInPlan.length > 0 && !sensitiveRan))) {
         const tools = (r.approvalRequired?.tools?.length ? r.approvalRequired.tools : sensitiveInPlan);
