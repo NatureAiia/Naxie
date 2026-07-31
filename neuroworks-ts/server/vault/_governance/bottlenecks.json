@@ -1,4 +1,15 @@
 {
-  "updatedAt": "2026-07-30T11:52:15.585Z",
-  "entries": {}
+  "updatedAt": "2026-07-31T11:32:44.044Z",
+  "entries": {
+    "reflection:daily": {
+      "template": "reflection:daily",
+      "totalRuns": 1,
+      "totalFailed": 0,
+      "failureRate": 0,
+      "avgDurationSec": 0,
+      "topError": "",
+      "remedy": "prior runs of this type failed ~0% of the time — add a quality.check/verification step and confirm the deliverable matches every part of the request before finishing.",
+      "lastSeen": "2026-07-30"
+    }
+  }
 }
