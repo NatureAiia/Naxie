@@ -1,7 +1,0 @@
-{"type":"node","id":"reflections-2026-07-30-ms8v5dr6:reflection:daily","label":"reflection:daily","props":{"date":"2026-07-30","template":"reflection:daily","total":1,"succeeded":1,"failed":0,"success_rate":1,"avg_duration_sec":0,"top_failure":null},"confidence":0.875,"hash":"d0c54cc73bbd84def5dd28b752e2c04cae480f7b885772d2c34f2053d70cb1d4"}
-{"type":"edge","from":"reflections-2026-07-30-ms8v5dr6:reflection:daily","rel":"date","to":"2026-07-30"}
-{"type":"edge","from":"reflections-2026-07-30-ms8v5dr6:reflection:daily","rel":"total","to":"1"}
-{"type":"edge","from":"reflections-2026-07-30-ms8v5dr6:reflection:daily","rel":"succeeded","to":"1"}
-{"type":"edge","from":"reflections-2026-07-30-ms8v5dr6:reflection:daily","rel":"failed","to":"0"}
-{"type":"edge","from":"reflections-2026-07-30-ms8v5dr6:reflection:daily","rel":"success_rate","to":"1"}
-{"type":"edge","from":"reflections-2026-07-30-ms8v5dr6:reflection:daily","rel":"avg_duration_sec","to":"0"}
