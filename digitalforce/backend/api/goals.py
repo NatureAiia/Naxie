@@ -230,7 +230,9 @@ async def create_goal(
     }
 
     # Fire the planning agent in background
+    logger.info(f"[DEBUG] about to add_task for goal {goal.id}")
     background_tasks.add_task(run_planning_agent, goal.id, body.description, initial_state)
+    logger.info(f"[DEBUG] add_task called for goal {goal.id}")
 
     return {
         "id": goal.id,
