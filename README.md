@@ -1,16 +1,12 @@
 <div align="center">
 
-<img src="assets/jarvis-reference/stark-hud-background.jpg" alt="Stark HUD-style dashboard aesthetic that inspired this project" width="100%" />
-
 # NaxionAI Powered by Neuroworks
 
-<img src="assets/jarvis-reference/jarvis-mascot.gif" alt="JARVIS mascot" width="160" />
+<img src="assets/jarvis-reference/jarvis-waveform.gif" alt="Voice/agent waveform" height="550" />
 
 **NaxionAI Powered by Neuroworks** — inspired by Mr Magaya and JARVIS.
 
 </div>
-
----
 
 ## NeuroWorks Shell
 
@@ -27,7 +23,7 @@ It contains two systems that can run independently or together:
   frontend + Qdrant + Postgres), `http://localhost:8000` / `:3000`.
 
 <p align="center">
-  <img src="assets/jarvis-reference/jarvis-waveform.gif" alt="Voice/agent waveform" height="60" />
+ 
   <br/>
   <sub>Voice-assistant lineage — see <a href="#-inspiration">Inspiration</a> below. The live mic-listening
   indicator in the app itself (<code>VoiceDiscussion</code>) is a few CSS-animated bars, not a video asset —
@@ -73,4 +69,7 @@ are reference assets from that lineage, not screenshots of this app.
 
 ## License
 
-See `neuroworks-ts/LICENSE`.
+See `neuroworks/LICENSE`.
+
+<br>
+<img src="assets/jarvis-reference/stark-hud-background.jpg" alt="Stark HUD-style dashboard aesthetic that inspired this project" width="100%" />
