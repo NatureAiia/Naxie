@@ -1,4 +1,8 @@
-# NeuroWorks Shell
+# NaxionAI Powered by Neuroworks
+
+NaxionAI Powered by Neuroworks, inspired by Mr Magaya and Javaris.
+
+## NeuroWorks Shell
 
 An **empty-state, UAT-ready** package of the NeuroWorks platform. Full
 functionality, **none of the operator's data** — no users, no connectors, no
