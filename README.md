@@ -1,6 +1,16 @@
+<div align="center">
+
+<img src="assets/jarvis-reference/stark-hud-background.jpg" alt="Stark HUD-style dashboard aesthetic that inspired this project" width="100%" />
+
 # NaxionAI Powered by Neuroworks
 
-NaxionAI Powered by Neuroworks, inspired by Mr Magaya and Javaris.
+<img src="assets/jarvis-reference/jarvis-mascot.gif" alt="JARVIS mascot" width="160" />
+
+**NaxionAI Powered by Neuroworks** — inspired by Mr Magaya and JARVIS.
+
+</div>
+
+---
 
 ## NeuroWorks Shell
 
@@ -15,6 +25,12 @@ It contains two systems that can run independently or together:
   port, `http://localhost:7471`.
 - **`digital-force-py/`** — the Python build (FastAPI backend + Next.js
   frontend + Qdrant + Postgres), `http://localhost:8000` / `:3000`.
+
+<p align="center">
+  <img src="assets/jarvis-reference/jarvis-waveform.gif" alt="Voice/agent waveform" height="60" />
+  <br/>
+  <sub>Voice-assistant lineage — see <a href="#-inspiration">Inspiration</a> below.</sub>
+</p>
 
 ## Start here
 
@@ -43,6 +59,15 @@ Then open the app and **create the first account** — it becomes the workspace
 | Every real secret (`.env`, tokens, DB dumps)  | `.env.example` templates                              |
 
 No `.git` history is included (so no embedded tokens travel with the bundle).
+
+## 🎬 Inspiration
+
+The look and feel here nods to the "build your own JARVIS" lineage of
+open-source voice assistants — a single-user, single-machine loop that
+listens, thinks, and talks. NeuroWorks Shell takes that same premise (an AI
+that acts on your behalf) and scales it into a multi-agent workforce with
+memory, governance, and network reach. The Stark-HUD banner and mascot above
+are reference assets from that lineage, not screenshots of this app.
 
 ## License
 
