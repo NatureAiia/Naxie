@@ -28,11 +28,12 @@ const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
 const CONFIG_PATH = resolve(CONFIG_DIR, "connectors.json");
 
 // ─── Types ───
-export type ConnectorAuthType = "none" | "apiKey" | "bearer" | "basic" | "header";
+export type ConnectorAuthType = "none" | "apiKey" | "bearer" | "basic" | "header" | "oauth2";
 
 // Auth carries both structural (non-secret) fields and secret fields. On disk
-// the secret fields (value/token/password) are encrypted; everything else is
-// plaintext so the redacted public view can describe the scheme.
+// the secret fields (value/token/password/accessToken/refreshToken) are
+// encrypted; everything else is plaintext so the redacted public view can
+// describe the scheme.
 export type ConnectorAuth = {
   type: ConnectorAuthType;
   // apiKey: where the key goes + its parameter name (e.g. header "X-API-Key" or query "api_key")
@@ -44,9 +45,19 @@ export type ConnectorAuth = {
   value?: string;    // apiKey / header value
   token?: string;    // bearer token
   password?: string; // basic password
+  // oauth2: device-code flow (e.g. Microsoft identity platform / Graph).
+  // tenant/clientId/scope are operator-entered and non-secret; accessToken/
+  // refreshToken are obtained via the device-code flow (see startOAuthDeviceFlow
+  // / pollOAuthDeviceFlow below) and kept fresh automatically before each call.
+  tenant?: string;         // e.g. "consumers" (personal MSA), "common", or a tenant GUID
+  clientId?: string;
+  scope?: string;          // space-separated scopes, e.g. "Tasks.ReadWrite offline_access"
+  accessToken?: string;    // secret — short-lived
+  refreshToken?: string;   // secret — used to silently mint new access tokens
+  expiresAt?: number;      // epoch ms; non-secret, drives the refresh check
 };
 
-const SECRET_AUTH_FIELDS = ["value", "token", "password"] as const;
+const SECRET_AUTH_FIELDS = ["value", "token", "password", "accessToken", "refreshToken"] as const;
 
 export type ConnectorEndpoint = {
   name: string;            // short id agents reference, e.g. "list_invoices"
@@ -72,7 +83,10 @@ export type Connector = {
 
 // What the API/UI sees — secrets reduced to a boolean.
 export type ConnectorPublic = Omit<Connector, "auth"> & {
-  auth: { type: ConnectorAuthType; in?: "header" | "query"; name?: string; username?: string; secretSet: boolean };
+  auth: {
+    type: ConnectorAuthType; in?: "header" | "query"; name?: string; username?: string; secretSet: boolean;
+    tenant?: string; clientId?: string; scope?: string; expiresAt?: number;
+  };
 };
 
 // ─── Persistence (secrets encrypted at rest; legacy plaintext migrated on load) ───
@@ -123,7 +137,10 @@ function toPublic(c: Connector): ConnectorPublic {
   const secretSet = SECRET_AUTH_FIELDS.some(f => typeof c.auth?.[f] === "string" && (c.auth[f] as string).length > 0);
   return {
     ...c,
-    auth: { type: c.auth?.type ?? "none", in: c.auth?.in, name: c.auth?.name, username: c.auth?.username, secretSet },
+    auth: {
+      type: c.auth?.type ?? "none", in: c.auth?.in, name: c.auth?.name, username: c.auth?.username, secretSet,
+      tenant: c.auth?.tenant, clientId: c.auth?.clientId, scope: c.auth?.scope, expiresAt: c.auth?.expiresAt,
+    },
   };
 }
 
@@ -159,7 +176,7 @@ function findConnector(idOrLabel: string): Connector | undefined {
 }
 
 function normalizeAuth(input: any): ConnectorAuth {
-  const type = (["none", "apiKey", "bearer", "basic", "header"].includes(input?.type) ? input.type : "none") as ConnectorAuthType;
+  const type = (["none", "apiKey", "bearer", "basic", "header", "oauth2"].includes(input?.type) ? input.type : "none") as ConnectorAuthType;
   const auth: ConnectorAuth = { type };
   if (type === "apiKey") {
     auth.in = input?.in === "query" ? "query" : "header";
@@ -173,6 +190,14 @@ function normalizeAuth(input: any): ConnectorAuth {
   } else if (type === "header") {
     auth.name = String(input?.name ?? "").trim() || "Authorization";
     if (input?.value) auth.value = String(input.value);
+  } else if (type === "oauth2") {
+    // tenant/clientId/scope come from the operator's form. accessToken/
+    // refreshToken/expiresAt are NEVER set here — they only ever come from
+    // startOAuthDeviceFlow/pollOAuthDeviceFlow/ensureFreshOAuthToken below, so
+    // a PATCH from the UI can't clobber a working token with a blank one.
+    auth.tenant = String(input?.tenant ?? "").trim() || "common";
+    auth.clientId = String(input?.clientId ?? "").trim();
+    auth.scope = String(input?.scope ?? "").trim() || "offline_access";
   }
   return auth;
 }
@@ -257,6 +282,10 @@ export function updateConnector(id: string, patch: {
     for (const f of SECRET_AUTH_FIELDS) {
       if (!next[f] && c.auth?.[f]) next[f] = c.auth[f];
     }
+    // oauth2 tokens travel as a pair with their expiry — editing tenant/
+    // clientId/scope must not silently detach a still-valid token from its
+    // expiresAt (that would force a needless refresh on every call).
+    if (next.type === "oauth2" && next.accessToken && c.auth?.expiresAt) next.expiresAt = c.auth.expiresAt;
     c.auth = next;
   }
   if (patch.headers !== undefined) c.headers = normalizeHeaders(patch.headers);
@@ -324,10 +353,134 @@ function applyAuth(auth: ConnectorAuth, url: URL, headers: Record<string, string
     case "header":
       if (auth.name && auth.value) headers[auth.name] = auth.value;
       break;
+    case "oauth2":
+      if (auth.accessToken) headers["authorization"] = `Bearer ${auth.accessToken}`;
+      break;
     case "none":
     default:
       break;
   }
+}
+
+// ─── OAuth2 device-code flow (Microsoft identity platform) ───
+// Public clients (no client secret) use the device-code grant: the server asks
+// Microsoft for a user_code + verification URL, the operator visits it in any
+// browser and signs in, and the server polls the token endpoint until it
+// either gets tokens or the flow expires/is declined. Works for Microsoft
+// Graph APIs (Microsoft To Do, Outlook Calendar, ...) without a redirect URI,
+// which this backend has no browser session to receive.
+const MS_LOGIN_BASE = "https://login.microsoftonline.com";
+
+type DeviceFlow = { connectorId: string; deviceCode: string; interval: number; expiresAt: number };
+// In-memory only — a device-code flow lives a few minutes and is meaningless
+// after a restart; no reason to persist it to disk.
+const deviceFlows = new Map<string, DeviceFlow>();
+
+export async function startOAuthDeviceFlow(connectorId: string): Promise<{
+  flowId: string; userCode: string; verificationUri: string; message: string; expiresIn: number; interval: number;
+}> {
+  const conn = load().find(c => c.id === connectorId);
+  if (!conn) throw new Error("connector not found");
+  if (conn.auth.type !== "oauth2") throw new Error(`connector "${conn.label}" is not configured for OAuth2`);
+  const clientId = (conn.auth.clientId ?? "").trim();
+  if (!clientId) throw new Error("connector is missing an OAuth Client ID — set it in the connector's auth fields first");
+  const tenant = (conn.auth.tenant ?? "common").trim();
+  const scope = (conn.auth.scope ?? "offline_access").trim();
+
+  const res = await fetch(`${MS_LOGIN_BASE}/${encodeURIComponent(tenant)}/oauth2/v2.0/devicecode`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: clientId, scope }),
+  });
+  const data: any = await res.json().catch(() => ({}));
+  if (!res.ok || !data.device_code) {
+    throw new Error(data?.error_description || data?.error || `device-code request failed (HTTP ${res.status})`);
+  }
+
+  const flowId = randomUUID();
+  deviceFlows.set(flowId, {
+    connectorId,
+    deviceCode: data.device_code,
+    interval: Number(data.interval ?? 5),
+    expiresAt: Date.now() + Number(data.expires_in ?? 900) * 1000,
+  });
+  return {
+    flowId,
+    userCode: data.user_code,
+    verificationUri: data.verification_uri ?? `${MS_LOGIN_BASE}/common/oauth2/deviceauth`,
+    message: data.message ?? `Go to ${data.verification_uri} and enter code ${data.user_code}`,
+    expiresIn: Number(data.expires_in ?? 900),
+    interval: Number(data.interval ?? 5),
+  };
+}
+
+export async function pollOAuthDeviceFlow(flowId: string): Promise<{
+  status: "pending" | "complete" | "error" | "expired"; error?: string;
+}> {
+  const flow = deviceFlows.get(flowId);
+  if (!flow) return { status: "error", error: "unknown or already-completed flow" };
+  if (Date.now() > flow.expiresAt) { deviceFlows.delete(flowId); return { status: "expired" }; }
+
+  const list = load();
+  const conn = list.find(c => c.id === flow.connectorId);
+  if (!conn) { deviceFlows.delete(flowId); return { status: "error", error: "connector no longer exists" }; }
+  const clientId = (conn.auth.clientId ?? "").trim();
+  const tenant = (conn.auth.tenant ?? "common").trim();
+
+  const res = await fetch(`${MS_LOGIN_BASE}/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      client_id: clientId,
+      device_code: flow.deviceCode,
+    }),
+  });
+  const data: any = await res.json().catch(() => ({}));
+
+  if (res.ok && data.access_token) {
+    conn.auth.accessToken = data.access_token;
+    if (data.refresh_token) conn.auth.refreshToken = data.refresh_token;
+    conn.auth.expiresAt = Date.now() + Number(data.expires_in ?? 3600) * 1000;
+    save(list);
+    deviceFlows.delete(flowId);
+    return { status: "complete" };
+  }
+  if (data.error === "authorization_pending") return { status: "pending" };
+  if (data.error === "slow_down") { flow.interval += 5; return { status: "pending" }; }
+  if (data.error === "expired_token") { deviceFlows.delete(flowId); return { status: "expired" }; }
+  // authorization_declined or anything unrecognized — stop polling.
+  deviceFlows.delete(flowId);
+  return { status: "error", error: data.error_description || data.error || `token request failed (HTTP ${res.status})` };
+}
+
+// Refreshes an oauth2 connector's access token in place when it's within 60s
+// of expiry (or already expired) and a refresh token is on hand. Best-effort:
+// a failed refresh is swallowed here and surfaces naturally as a 401 from the
+// downstream API call, which callConnector reports normally.
+async function ensureFreshOAuthToken(conn: Connector): Promise<void> {
+  if (conn.auth.type !== "oauth2" || !conn.auth.refreshToken) return;
+  const skewMs = 60_000;
+  if (conn.auth.expiresAt && conn.auth.expiresAt - skewMs > Date.now()) return;
+
+  const clientId = (conn.auth.clientId ?? "").trim();
+  const tenant = (conn.auth.tenant ?? "common").trim();
+  const scope = (conn.auth.scope ?? "offline_access").trim();
+  try {
+    const res = await fetch(`${MS_LOGIN_BASE}/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "refresh_token", client_id: clientId, refresh_token: conn.auth.refreshToken, scope }),
+    });
+    const data: any = await res.json().catch(() => ({}));
+    if (!res.ok || !data.access_token) return;
+    conn.auth.accessToken = data.access_token;
+    if (data.refresh_token) conn.auth.refreshToken = data.refresh_token;
+    conn.auth.expiresAt = Date.now() + Number(data.expires_in ?? 3600) * 1000;
+    const list = load();
+    const idx = list.findIndex(c => c.id === conn.id);
+    if (idx >= 0) { list[idx] = conn; save(list); }
+  } catch { /* best-effort — the call below will fail with a clear 401 if this didn't work */ }
 }
 
 // Produce a display-safe URL string with any credential material removed, so a
@@ -370,6 +523,8 @@ export async function callConnector(idOrLabel: string, input: CallInput): Promis
   let url: URL;
   try { url = resolveUrl(conn.baseUrl, input.path ?? ""); }
   catch (e: any) { return { ok: false, status: 0, url: "", method, body: null, error: String(e?.message ?? e) }; }
+
+  await ensureFreshOAuthToken(conn);
 
   if (input.query) for (const [k, v] of Object.entries(input.query)) url.searchParams.set(k, String(v));
 
@@ -470,6 +625,43 @@ export async function testConnector(id: string): Promise<{ ok: boolean; detail: 
       : `reachable (HTTP ${r.status})`;
   recordTest(id, { ok, detail });
   return { ok, detail };
+}
+
+// ─── Templates ───
+// One-click connector starting points the "Add connector" UI can offer —
+// distinct from seeding (below): a template just prefills the add-connector
+// form, it does NOT write anything until the operator confirms (and, for
+// oauth2, completes the device-code sign-in). This keeps a fresh shell
+// instance empty-state-clean while still making common integrations
+// discoverable without hand-typing endpoint manifests.
+export type ConnectorTemplate = {
+  id: string; label: string; description: string;
+  baseUrl: string; auth: any; writeEnabled: boolean; endpoints: ConnectorEndpoint[];
+};
+
+const CONNECTOR_TEMPLATES: ConnectorTemplate[] = [
+  {
+    id: "microsoft-todo",
+    label: "Microsoft To Do",
+    description:
+      "Task lists via Microsoft Graph. Requires a free Azure AD app registration (public client, no secret) — set its Application (client) ID below, then use \"Connect\" on the saved connector to sign in via device code.",
+    baseUrl: "https://graph.microsoft.com/v1.0",
+    auth: { type: "oauth2", tenant: "consumers", clientId: "", scope: "Tasks.ReadWrite offline_access" },
+    writeEnabled: true,
+    endpoints: [
+      { name: "list-lists",  method: "GET",    path: "/me/todo/lists",                         description: "List all To Do task lists" },
+      { name: "list-tasks",  method: "GET",    path: "/me/todo/lists/{listId}/tasks",          description: "List tasks in a list" },
+      { name: "get-task",    method: "GET",    path: "/me/todo/lists/{listId}/tasks/{taskId}", description: "Get a single task" },
+      { name: "create-task", method: "POST",   path: "/me/todo/lists/{listId}/tasks",          description: "Create a task", body: "{ title, dueDateTime?: { dateTime, timeZone }, reminderDateTime?: { dateTime, timeZone }, body? }" },
+      { name: "update-task", method: "PATCH",  path: "/me/todo/lists/{listId}/tasks/{taskId}", description: "Update a task, e.g. mark done with { status: \"completed\" }", body: "{ status?, title?, dueDateTime?, reminderDateTime? }" },
+      { name: "delete-task", method: "DELETE", path: "/me/todo/lists/{listId}/tasks/{taskId}", description: "Delete a task" },
+      { name: "create-list", method: "POST",   path: "/me/todo/lists",                         description: "Create a new task list", body: "{ displayName }" },
+    ],
+  },
+];
+
+export function listConnectorTemplates(): ConnectorTemplate[] {
+  return CONNECTOR_TEMPLATES;
 }
 
 // ─── Seeding ───

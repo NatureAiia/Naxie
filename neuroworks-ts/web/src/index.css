@@ -200,6 +200,15 @@ body::after {                               /* blueprint glow — light from abo
   50%      { opacity: 0.55; }
 }
 
+/* Mic-listening waveform — a few CSS-only bars, no gif/video asset. Replaces
+   the old jarvis-waveform.gif approach (6MB+ for a looping clip) with a
+   couple hundred bytes of keyframe. Each bar staggers via animation-delay set
+   inline by the component (see MicWaveform in VoiceDiscussion.tsx). */
+@keyframes nw-mic-wave {
+  0%, 100% { transform: scaleY(0.25); }
+  50%      { transform: scaleY(1); }
+}
+
 /* Noise Background — slow diagonal pan of the multi-colour gradient behind a
    button/label. Paired with a grain overlay in NoiseBackground.tsx. */
 @keyframes nw-noise-pan {

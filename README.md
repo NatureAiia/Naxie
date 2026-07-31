@@ -29,7 +29,9 @@ It contains two systems that can run independently or together:
 <p align="center">
   <img src="assets/jarvis-reference/jarvis-waveform.gif" alt="Voice/agent waveform" height="60" />
   <br/>
-  <sub>Voice-assistant lineage — see <a href="#-inspiration">Inspiration</a> below.</sub>
+  <sub>Voice-assistant lineage — see <a href="#-inspiration">Inspiration</a> below. The live mic-listening
+  indicator in the app itself (<code>VoiceDiscussion</code>) is a few CSS-animated bars, not a video asset —
+  see <code>MicWaveform</code> in <code>neuroworks-ts/web/src/components/VoiceDiscussion.tsx</code>.</sub>
 </p>
 
 ## Start here

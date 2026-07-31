@@ -13,6 +13,25 @@ import { useAudioRecorder } from "../lib/useAudioRecorder";
 
 type Turn = { q: string; a: string };
 
+// Mic-listening indicator — a handful of CSS-animated bars, staggered by
+// animation-delay. Replaces a looping gif/video asset (which cost multiple
+// MB for this exact visual) with a few DOM nodes and one shared keyframe
+// (nw-mic-wave in index.css).
+function MicWaveform({ className = "" }: { className?: string }) {
+  const bars = [0, 0.12, 0.24, 0.12, 0];
+  return (
+    <span className={`inline-flex items-end gap-[2px] h-3.5 ${className}`} aria-hidden="true">
+      {bars.map((delay, i) => (
+        <span
+          key={i}
+          className="w-[3px] h-full rounded-full bg-coral-400 origin-bottom"
+          style={{ animation: "nw-mic-wave 0.9s ease-in-out infinite", animationDelay: `${delay}s` }}
+        />
+      ))}
+    </span>
+  );
+}
+
 export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: string; personaId?: string; personaName?: string }) {
   const [status, setStatus] = useState<{ realtime: boolean; localTts: boolean } | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -319,6 +338,7 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
             {rec.recording ? <Square size={15} /> : busy ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
           </button>
         )}
+        {rec.recording && <MicWaveform />}
         {!rec.supported && live !== "on" && <MicOff size={15} className="text-cream-300/30" />}
         <Button onClick={() => ask(q)} disabled={busy || !q.trim()}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} {live === "on" ? "Send" : "Ask"}

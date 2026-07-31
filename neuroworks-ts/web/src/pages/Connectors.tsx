@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { Boxes, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Pencil, Lock, Unlock } from "lucide-react";
-import { api, type Connector, type ConnectorAuthCatalog, type ConnectorAuthType, type ConnectorInput, type ConnectorCallResult } from "../lib/api";
+import { useEffect, useRef, useState } from "react";
+import { Boxes, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Pencil, Lock, Unlock, Plug, Sparkles } from "lucide-react";
+import { api, type Connector, type ConnectorAuthCatalog, type ConnectorAuthType, type ConnectorInput, type ConnectorCallResult, type ConnectorTemplate } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 
 // Connectors — register the company's existing systems (any HTTP API) so agents
@@ -20,13 +20,18 @@ function relTime(iso?: string): string {
 export function Connectors() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [authTypes, setAuthTypes] = useState<ConnectorAuthCatalog[]>([]);
+  const [templates, setTemplates] = useState<ConnectorTemplate[]>([]);
   const [editing, setEditing] = useState<Connector | "new" | null>(null);
+  const [template, setTemplate] = useState<ConnectorTemplate | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [trying, setTrying] = useState<Connector | null>(null);
+  const [connecting, setConnecting] = useState<Connector | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   async function refresh() {
     try { const l = await api.listConnectors(); setConnectors(l.connectors); } catch {}
     try { const c = await api.connectorsCatalog(); setAuthTypes(c.authTypes); } catch {}
+    try { const t = await api.connectorTemplates(); setTemplates(t.templates); } catch {}
   }
   useEffect(() => { void refresh(); }, []);
 
@@ -57,8 +62,28 @@ export function Connectors() {
         </p>
       </div>
 
-      <div className="flex justify-end">
-        <Button onClick={() => setEditing("new")}><Plus size={14} /> Add connector</Button>
+      <div className="flex justify-end gap-2 relative">
+        {templates.length > 0 && (
+          <div className="relative">
+            <Button variant="subtle" onClick={() => setShowTemplates(s => !s)}><Sparkles size={14} /> Quick add</Button>
+            {showTemplates && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowTemplates(false)} />
+                <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-ink-900 border border-ink-700 rounded-xl p-1.5 shadow-xl">
+                  {templates.map(t => (
+                    <button key={t.id} type="button"
+                      onClick={() => { setTemplate(t); setEditing("new"); setShowTemplates(false); }}
+                      className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-ink-800 text-sm text-cream-100">
+                      <div>{t.label}</div>
+                      <div className="text-[11px] text-cream-300/60 line-clamp-2">{t.description}</div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        <Button onClick={() => { setTemplate(null); setEditing("new"); }}><Plus size={14} /> Add connector</Button>
       </div>
 
       {connectors.length === 0 ? (
@@ -85,6 +110,11 @@ export function Connectors() {
                       {c.label}
                       <span className="font-mono text-[11px] text-cream-300/50">{c.baseUrl}</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/70">{c.auth.type}</span>
+                      {c.auth.type === "oauth2" && (
+                        c.auth.secretSet
+                          ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-leaf-500/15 text-leaf-400 inline-flex items-center gap-1"><Plug size={9} /> connected</span>
+                          : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-300 inline-flex items-center gap-1"><Plug size={9} /> not connected</span>
+                      )}
                       {c.writeEnabled
                         ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-coral-500/15 text-coral-300 inline-flex items-center gap-1"><Unlock size={9} /> writes on</span>
                         : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/60 inline-flex items-center gap-1"><Lock size={9} /> read-only</span>}
@@ -98,6 +128,11 @@ export function Connectors() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    {c.auth.type === "oauth2" && (
+                      <Button variant="subtle" onClick={() => setConnecting(c)}>
+                        <Plug size={13} /> {c.auth.secretSet ? "Reconnect" : "Connect"}
+                      </Button>
+                    )}
                     <Button variant="subtle" onClick={() => setTrying(c)}><Play size={13} /> Try</Button>
                     <Button variant="subtle" onClick={() => test(c.id)} disabled={testing === c.id}>
                       {testing === c.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Test
@@ -116,35 +151,41 @@ export function Connectors() {
         <ConnectorModal
           authTypes={authTypes}
           existing={editing === "new" ? null : editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); refresh(); }}
+          template={editing === "new" ? template : null}
+          onClose={() => { setEditing(null); setTemplate(null); }}
+          onSaved={() => { setEditing(null); setTemplate(null); refresh(); }}
         />
       )}
       {trying && <TryModal connector={trying} onClose={() => setTrying(null)} />}
+      {connecting && <ConnectModal connector={connecting} onClose={() => setConnecting(null)} onConnected={() => { setConnecting(null); refresh(); }} />}
     </div>
   );
 }
 
 const FIELD = "w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/60 placeholder:text-cream-300/30";
 
-function ConnectorModal({ authTypes, existing, onClose, onSaved }: {
-  authTypes: ConnectorAuthCatalog[]; existing: Connector | null; onClose: () => void; onSaved: () => void;
+function ConnectorModal({ authTypes, existing, template, onClose, onSaved }: {
+  authTypes: ConnectorAuthCatalog[]; existing: Connector | null; template?: ConnectorTemplate | null; onClose: () => void; onSaved: () => void;
 }) {
-  const [label, setLabel] = useState(existing?.label ?? "");
-  const [baseUrl, setBaseUrl] = useState(existing?.baseUrl ?? "");
-  const [description, setDescription] = useState(existing?.description ?? "");
-  const [authType, setAuthType] = useState<ConnectorAuthType>(existing?.auth.type ?? "none");
-  const [authIn, setAuthIn] = useState<"header" | "query">(existing?.auth.in ?? "header");
-  const [authName, setAuthName] = useState(existing?.auth.name ?? "");
+  const [label, setLabel] = useState(existing?.label ?? template?.label ?? "");
+  const [baseUrl, setBaseUrl] = useState(existing?.baseUrl ?? template?.baseUrl ?? "");
+  const [description, setDescription] = useState(existing?.description ?? template?.description ?? "");
+  const [authType, setAuthType] = useState<ConnectorAuthType>(existing?.auth.type ?? template?.auth?.type ?? "none");
+  const [authIn, setAuthIn] = useState<"header" | "query">(existing?.auth.in ?? template?.auth?.in ?? "header");
+  const [authName, setAuthName] = useState(existing?.auth.name ?? template?.auth?.name ?? "");
   const [username, setUsername] = useState(existing?.auth.username ?? "");
   const [secret, setSecret] = useState(""); // blank = keep existing on edit
-  const [writeEnabled, setWriteEnabled] = useState(existing?.writeEnabled ?? false);
-  const [endpointsJson, setEndpointsJson] = useState(existing?.endpoints ? JSON.stringify(existing.endpoints, null, 2) : "");
+  const [tenant, setTenant] = useState(existing?.auth.tenant ?? template?.auth?.tenant ?? "common");
+  const [clientId, setClientId] = useState(existing?.auth.clientId ?? template?.auth?.clientId ?? "");
+  const [scope, setScope] = useState(existing?.auth.scope ?? template?.auth?.scope ?? "");
+  const [writeEnabled, setWriteEnabled] = useState(existing?.writeEnabled ?? template?.writeEnabled ?? false);
+  const [endpointsJson, setEndpointsJson] = useState(
+    existing?.endpoints ? JSON.stringify(existing.endpoints, null, 2) : template?.endpoints ? JSON.stringify(template.endpoints, null, 2) : "");
   const [headersJson, setHeadersJson] = useState(existing?.headers ? JSON.stringify(existing.headers, null, 2) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const needsSecret = authType !== "none";
+  const needsSecret = authType !== "none" && authType !== "oauth2";
   const secretLabel = authType === "bearer" ? "Token" : authType === "basic" ? "Password" : "Key / value";
   const showName = authType === "apiKey" || authType === "header";
 
@@ -161,13 +202,14 @@ function ConnectorModal({ authTypes, existing, onClose, onSaved }: {
     else if (authType === "bearer") { if (secret) auth.token = secret; }
     else if (authType === "basic") { auth.username = username; if (secret) auth.password = secret; }
     else if (authType === "header") { auth.name = authName; if (secret) auth.value = secret; }
+    else if (authType === "oauth2") { auth.tenant = tenant; auth.clientId = clientId; auth.scope = scope; }
 
     const body: ConnectorInput = { label, baseUrl, description: description || undefined, auth, headers, endpoints, writeEnabled };
     setSaving(true);
     try {
       if (existing) await api.updateConnector(existing.id, body);
       else await api.addConnector(body);
-      showToast(existing ? "Connector updated" : "Connector added", "success");
+      showToast(existing ? "Connector updated" : "Connector added — click “Connect” to sign in", "success");
       onSaved();
     } catch (e: any) { setErr(e?.message ?? String(e)); }
     finally { setSaving(false); }
@@ -225,6 +267,28 @@ function ConnectorModal({ authTypes, existing, onClose, onSaved }: {
             <div>
               <label className="block text-[11px] text-cream-300/70 mb-1">Username</label>
               <input value={username} onChange={e => setUsername(e.target.value)} className={`${FIELD} font-mono`} autoComplete="off" />
+            </div>
+          )}
+          {authType === "oauth2" && (
+            <div className="space-y-3">
+              <div className="text-[11px] text-cream-300/60 bg-ink-950/40 border border-ink-800 rounded-lg px-3 py-2">
+                Requires a free Azure AD app registration (public client, no secret). Save this connector, then use
+                “Connect” on its row to sign in via device code.
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-cream-300/70 mb-1">Tenant</label>
+                  <input value={tenant} onChange={e => setTenant(e.target.value)} placeholder="consumers" className={`${FIELD} font-mono`} spellCheck={false} />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-cream-300/70 mb-1">Application (client) ID <span className="text-coral-400">*</span></label>
+                  <input value={clientId} onChange={e => setClientId(e.target.value)} className={`${FIELD} font-mono`} spellCheck={false} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] text-cream-300/70 mb-1">Scopes</label>
+                <input value={scope} onChange={e => setScope(e.target.value)} placeholder="Tasks.ReadWrite offline_access" className={`${FIELD} font-mono`} spellCheck={false} />
+              </div>
             </div>
           )}
           {needsSecret && (
@@ -325,6 +389,81 @@ function TryModal({ connector, onClose }: { connector: Connector; onClose: () =>
             <pre className="text-[11px] text-cream-200/90 font-mono whitespace-pre-wrap break-words max-h-72 overflow-auto">
               {typeof result.body === "string" ? result.body : JSON.stringify(result.body, null, 2)}
             </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// OAuth2 device-code sign-in. Kicks off the flow, shows the user code +
+// verification link, then polls until the server reports the tokens landed
+// (or the flow errors/expires). The device code itself never reaches the
+// browser — only the short user-facing code and the Microsoft URL do.
+function ConnectModal({ connector, onClose, onConnected }: { connector: Connector; onClose: () => void; onConnected: () => void }) {
+  const [state, setState] = useState<"starting" | "pending" | "error" | "expired">("starting");
+  const [info, setInfo] = useState<{ userCode: string; verificationUri: string; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopped = useRef(false);
+
+  useEffect(() => {
+    stopped.current = false;
+    (async () => {
+      try {
+        const flow = await api.startConnectorOAuth(connector.id);
+        if (stopped.current) return;
+        setInfo({ userCode: flow.userCode, verificationUri: flow.verificationUri, message: flow.message });
+        setState("pending");
+        const intervalMs = Math.max(2, flow.interval) * 1000;
+        const poll = async () => {
+          if (stopped.current) return;
+          try {
+            const r = await api.pollConnectorOAuth(connector.id, flow.flowId);
+            if (stopped.current) return;
+            if (r.status === "complete") { showToast(`Connected “${connector.label}”`, "success"); onConnected(); return; }
+            if (r.status === "pending") { pollTimer.current = setTimeout(poll, intervalMs); return; }
+            setState(r.status === "expired" ? "expired" : "error");
+            setError(r.error ?? null);
+          } catch (e: any) {
+            if (stopped.current) return;
+            setState("error"); setError(e?.message ?? String(e));
+          }
+        };
+        pollTimer.current = setTimeout(poll, intervalMs);
+      } catch (e: any) {
+        if (stopped.current) return;
+        setState("error"); setError(e?.message ?? String(e));
+      }
+    })();
+    return () => { stopped.current = true; if (pollTimer.current) clearTimeout(pollTimer.current); };
+  }, [connector.id]);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>
+      <div className="w-full max-w-sm bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg text-cream-50 font-medium">Connect — {connector.label}</h2>
+          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
+        </div>
+
+        {state === "starting" && (
+          <div className="flex items-center gap-2 text-sm text-cream-300/70"><Loader2 size={14} className="animate-spin" /> Requesting a sign-in code…</div>
+        )}
+
+        {state === "pending" && info && (
+          <div className="space-y-3 text-center">
+            <div className="text-[12px] text-cream-300/70">Go to</div>
+            <a href={info.verificationUri} target="_blank" rel="noreferrer" className="text-sm text-violet-300 underline break-all">{info.verificationUri}</a>
+            <div className="text-[12px] text-cream-300/70">and enter this code:</div>
+            <div className="text-2xl font-mono tracking-widest text-cream-50 bg-ink-950/60 border border-ink-800 rounded-lg py-2">{info.userCode}</div>
+            <div className="flex items-center justify-center gap-2 text-[12px] text-cream-300/60"><Loader2 size={12} className="animate-spin" /> Waiting for sign-in…</div>
+          </div>
+        )}
+
+        {(state === "error" || state === "expired") && (
+          <div className="text-[12px] text-coral-400 flex items-center gap-1.5">
+            <AlertTriangle size={13} /> {state === "expired" ? "Code expired — try again." : (error ?? "Sign-in failed.")}
           </div>
         )}
       </div>

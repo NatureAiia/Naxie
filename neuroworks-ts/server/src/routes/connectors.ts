@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   listConnectors, getConnectorPublic, addConnector, updateConnector,
   removeConnector, testConnector, callConnector,
+  listConnectorTemplates, startOAuthDeviceFlow, pollOAuthDeviceFlow,
 } from "../lib/connectors.js";
 
 // Company-system connectors API — the operator registers external HTTP APIs
@@ -21,9 +22,18 @@ const AUTH_TYPES = [
   ] },
   { type: "basic", label: "Basic auth", fields: [{ name: "username", label: "Username", secret: false }, { name: "password", label: "Password", secret: true }] },
   { type: "header", label: "Custom header", fields: [{ name: "name", label: "Header name", secret: false }, { name: "value", label: "Header value", secret: true }] },
+  { type: "oauth2", label: "OAuth2 (device code — Microsoft)", fields: [
+    { name: "tenant", label: "Tenant (consumers / common / tenant ID)", secret: false },
+    { name: "clientId", label: "Application (client) ID", secret: false },
+    { name: "scope", label: "Scopes", secret: false },
+  ] },
 ];
 
 connectorsRouter.get("/catalog", (_req, res) => res.json({ authTypes: AUTH_TYPES }));
+
+// Prefill templates for the "Add connector" UI (Microsoft To Do, etc.) — see
+// listConnectorTemplates in the lib for why this is separate from seeding.
+connectorsRouter.get("/templates", (_req, res) => res.json({ templates: listConnectorTemplates() }));
 
 connectorsRouter.get("/", (_req, res) => res.json({ connectors: listConnectors() }));
 
@@ -58,6 +68,27 @@ connectorsRouter.delete("/:id", (req, res) => {
   const ok = removeConnector(String(req.params.id));
   if (!ok) return res.status(404).json({ error: "connector not found" });
   res.json({ ok: true });
+});
+
+// Start an OAuth2 device-code sign-in for an oauth2-type connector. Returns a
+// user code + verification URL for the operator to complete in any browser,
+// plus a flowId the UI polls until the server has tokens (or it expires).
+connectorsRouter.post("/:id/oauth/start", async (req, res) => {
+  try {
+    res.json(await startOAuthDeviceFlow(String(req.params.id)));
+  } catch (e: any) {
+    res.status(400).json({ error: String(e?.message ?? e) });
+  }
+});
+
+connectorsRouter.post("/:id/oauth/poll", async (req, res) => {
+  try {
+    const flowId = String((req.body ?? {}).flowId ?? "");
+    if (!flowId) return res.status(400).json({ error: "flowId is required" });
+    res.json(await pollOAuthDeviceFlow(flowId));
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
 });
 
 connectorsRouter.post("/:id/test", async (req, res) => {

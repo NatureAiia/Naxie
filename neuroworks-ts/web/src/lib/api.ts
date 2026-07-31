@@ -462,6 +462,7 @@ export const api = {
 
   // Company-system connectors (outbound authenticated HTTP to existing systems).
   connectorsCatalog: () => req<{ authTypes: ConnectorAuthCatalog[] }>("/api/connectors/catalog"),
+  connectorTemplates: () => req<{ templates: ConnectorTemplate[] }>("/api/connectors/templates"),
   listConnectors: () => req<{ connectors: Connector[] }>("/api/connectors"),
   getConnector: (id: string) => req<{ connector: Connector }>(`/api/connectors/${encodeURIComponent(id)}`),
   addConnector: (body: ConnectorInput) => req<{ connector: Connector }>("/api/connectors", { method: "POST", body: JSON.stringify(body) }),
@@ -471,6 +472,12 @@ export const api = {
   testConnector: (id: string) => req<{ ok: boolean; detail: string }>(`/api/connectors/${encodeURIComponent(id)}/test`, { method: "POST" }),
   callConnector: (id: string, body: { method?: string; path: string; query?: Record<string, any>; body?: any; headers?: Record<string, string> }) =>
     req<{ result: ConnectorCallResult }>(`/api/connectors/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(body) }),
+  startConnectorOAuth: (id: string) =>
+    req<{ flowId: string; userCode: string; verificationUri: string; message: string; expiresIn: number; interval: number }>(
+      `/api/connectors/${encodeURIComponent(id)}/oauth/start`, { method: "POST" }),
+  pollConnectorOAuth: (id: string, flowId: string) =>
+    req<{ status: "pending" | "complete" | "error" | "expired"; error?: string }>(
+      `/api/connectors/${encodeURIComponent(id)}/oauth/poll`, { method: "POST", body: JSON.stringify({ flowId }) }),
 
   // Payments (Stripe gateway).
   paymentStatus: () => req<PaymentGatewayStatus>("/api/payments/status"),
@@ -659,7 +666,7 @@ export type SecurityEvent = {
 export type SecurityStatus = { events: SecurityEvent[]; blocked: { ip: string; until: string; score: number }[]; watching: number };
 export type LoginEvent = { at: string; userId?: string; email: string; name?: string; ok: boolean; reason?: string; ip?: string; userAgent?: string };
 
-export type ConnectorAuthType = "none" | "apiKey" | "bearer" | "basic" | "header";
+export type ConnectorAuthType = "none" | "apiKey" | "bearer" | "basic" | "header" | "oauth2";
 export type ConnectorAuthCatalog = { type: ConnectorAuthType; label: string; fields: { name: string; label: string; secret: boolean }[] };
 export type ConnectorEndpoint = { name: string; method: string; path: string; description?: string; query?: string[]; body?: string };
 export type Connector = {
@@ -667,7 +674,10 @@ export type Connector = {
   label: string;
   baseUrl: string;
   description?: string;
-  auth: { type: ConnectorAuthType; in?: "header" | "query"; name?: string; username?: string; secretSet: boolean };
+  auth: {
+    type: ConnectorAuthType; in?: "header" | "query"; name?: string; username?: string; secretSet: boolean;
+    tenant?: string; clientId?: string; scope?: string; expiresAt?: number;
+  };
   headers?: Record<string, string>;
   endpoints?: ConnectorEndpoint[];
   writeEnabled: boolean;
@@ -678,10 +688,18 @@ export type ConnectorInput = {
   label: string;
   baseUrl: string;
   description?: string;
-  auth?: { type: ConnectorAuthType; in?: "header" | "query"; name?: string; username?: string; value?: string; token?: string; password?: string };
+  auth?: {
+    type: ConnectorAuthType; in?: "header" | "query"; name?: string; username?: string;
+    value?: string; token?: string; password?: string;
+    tenant?: string; clientId?: string; scope?: string;
+  };
   headers?: Record<string, string>;
   endpoints?: ConnectorEndpoint[];
   writeEnabled?: boolean;
+};
+export type ConnectorTemplate = {
+  id: string; label: string; description: string;
+  baseUrl: string; auth: ConnectorInput["auth"]; writeEnabled: boolean; endpoints: ConnectorEndpoint[];
 };
 export type ConnectorCallResult = {
   ok: boolean; status: number; url: string; method: string;

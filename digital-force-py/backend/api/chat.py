@@ -80,7 +80,15 @@ async def chat_stream(
                 .order_by(desc(ChatMessage.created_at)).limit(10)
             )
             hist = hist_result.scalars().all()
-            hist_msgs = [{"role": m.role, "content": m.content} for m in reversed(hist)]
+            # LangGraph's add_messages reducer only accepts LangChain-recognized
+            # roles (human/user/ai/assistant/system/tool/...) — our own "agent"
+            # role (how we label the responder in the DB) must be remapped or
+            # every background graph invocation raises ValueError and silently
+            # dies as an unretrieved task exception.
+            hist_msgs = [
+                {"role": m.role if m.role in ("user", "assistant") else "assistant", "content": m.content}
+                for m in reversed(hist)
+            ]
             
             initial_state = {
                 "created_by": user_id,

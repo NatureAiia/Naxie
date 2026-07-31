@@ -44,6 +44,10 @@ def _get_ollama_chat(temperature: float = 0.7):
         model=settings.ollama_model,
         base_url=settings.ollama_host,
         temperature=temperature,
+        # Without this, structured outputs (e.g. the strategist's campaign-plan
+        # JSON) truncate mid-object and fail to parse — num_predict is Ollama's
+        # max-tokens equivalent, unset it defaults far too low for long JSON.
+        num_predict=settings.groq_max_tokens,
     )
 
 
