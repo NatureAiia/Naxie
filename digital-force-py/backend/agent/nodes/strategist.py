@@ -1,0 +1,108 @@
+"""
+Digital Force — Strategist Agent Node
+Creates full campaign plans from mission briefs + research.
+"""
+
+import json
+import logging
+from pathlib import Path
+from datetime import datetime, timedelta
+from agent.state import AgentState
+from agent.llm import generate_json
+from agent.chat_push import chat_push, agent_thought_push
+
+logger = logging.getLogger(__name__)
+
+_PROMPT = (Path(__file__).parent.parent / "prompts" / "strategist.md").read_text()
+
+
+async def strategist_node(state: AgentState) -> dict:
+    """
+    Takes the parsed goal + research findings, produces a full campaign plan
+    with concrete tasks for every piece of content to be created and published.
+    """
+    goal_id = state['goal_id']
+    user_id = state.get('created_by', '')
+    logger.info(f"[Strategist] Creating campaign plan for goal {goal_id}")
+
+    await agent_thought_push(
+        user_id=user_id,
+        context="synthesizing research and building the full campaign strategy blueprint",
+        agent_name="strategist",
+        goal_id=goal_id,
+    )
+
+    deadline = state.get("deadline") or (datetime.utcnow() + timedelta(days=7)).isoformat()
+    research = state.get("research_findings", {})
+
+    # Fetch Episodic Memory to learn from past runs
+    try:
+        from rag.retriever import retrieve
+        memory_results = await retrieve(
+            query=f"{state['goal_description']} {state.get('platforms', [])}", 
+            collection="knowledge", 
+            top_k=3,
+            filter_metadata={"category": "episodic_memory"}
+        )
+        memories = [m["text"] for m in memory_results]
+    except Exception as e:
+        logger.warning(f"[Strategist] Could not fetch episodic memory: {e}")
+        memories = []
+        
+    episodic_memory_text = "\n".join([f"- {m}" for m in memories]) if memories else "No past lessons available."
+
+    prompt = f"""
+MISSION:
+- Goal: {state['goal_description']}
+- Platforms: {state.get('platforms', [])}
+- Deadline: {deadline}
+- Success Metrics: {json.dumps(state.get('success_metrics', {}))}
+- Constraints: {json.dumps(state.get('constraints', {}))}
+- Media Assets Available: {state.get('asset_ids', [])}
+- Today's Date: {datetime.utcnow().strftime('%Y-%m-%d')}
+
+RESEARCH FINDINGS:
+{json.dumps(research, indent=2) if research else 'No research conducted.'}
+
+EPISODIC MEMORIES (Critical lessons from past campaigns):
+{episodic_memory_text}
+You MUST NOT repeat past failures. Adapt your strategy to respect these memories.
+
+Create a comprehensive, detailed campaign plan with ALL tasks specified.
+Each task must have enough detail for the Content Director to act without clarification.
+"""
+
+    try:
+        plan = await generate_json(prompt, _PROMPT, prefer_reasoning=True)
+
+        tasks = plan.get("tasks", [])
+        duration = plan.get('duration_days', 7)
+        logger.info(f"[Strategist] Generated plan with {len(tasks)} tasks")
+
+        await agent_thought_push(
+            user_id=user_id,
+            context=f"finalized the entire campaign strategy consisting of {len(tasks)} tasks over {duration} days and halting for human command approval",
+            agent_name="strategist",
+            goal_id=goal_id,
+            metadata={"task_count": len(tasks), "duration_days": duration},
+        )
+
+        return {
+            "campaign_plan": plan,
+            "tasks": tasks,
+            "messages": [{"role": "assistant", "name": "strategist", "content": f"Plan created: {len(tasks)} tasks over {duration} days"}],
+            "next_agent": "manager",
+        }
+
+    except Exception as e:
+        logger.error(f"[Strategist] Error: {e}")
+        await agent_thought_push(
+            user_id=user_id,
+            context=f"encountered a critical logic fault while building the plan and triggering a fallback",
+            agent_name="strategist",
+            goal_id=goal_id,
+        )
+        return {
+            "error": str(e),
+            "next_agent": "manager",
+        }

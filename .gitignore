@@ -1,0 +1,69 @@
+# ==========================
+# Secrets / environment
+# ==========================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+secrets/
+skills-lock.json
+
+# ==========================
+# Node / TypeScript
+# ==========================
+node_modules/
+dist/
+build/
+out/
+.next/
+.turbo/
+*.tsbuildinfo
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# ==========================
+# Python
+# ==========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ==========================
+# Docker / logs
+# ==========================
+*.log
+logs/
+
+# ==========================
+# Local app data / vault
+# ==========================
+neuroworks-ts/.neuroworks/
+neuroworks-ts/vault/*
+!neuroworks-ts/vault/README.md
+
+# ==========================
+# IDE / OS
+# ==========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ==========================
+# Claude Code local state
+# ==========================
+.claude/settings.local.json

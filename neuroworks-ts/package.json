@@ -1,0 +1,39 @@
+{
+  "name": "neuroworks",
+  "version": "0.2.0",
+  "description": "NeuroWorks local-first AI workforce platform (clawbot cron worker + web console).",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "digest": "tsx src/digest.ts",
+    "publish-folder": "tsx src/publish-folder.ts",
+    "dev": "concurrently -n server,web -c cyan,magenta \"pnpm -F neuroworks-server dev\" \"pnpm -F neuroworks-web dev\"",
+    "dev:docker": "concurrently -n server,web -c cyan,magenta \"pnpm -F neuroworks-server dev\" \"pnpm -F neuroworks-web dev -- --host 0.0.0.0\"",
+    "neuroworks": "pnpm dev",
+    "secondary": "cross-env NEUROWORKS_NAME=secondary NEUROWORKS_ROLE=persona-shifter NEUROWORKS_PORT=7473 NEUROWORKS_PEERS=http://127.0.0.1:7471 NEUROWORKS_SUBAGENT_BUDGET=4 NEUROWORKS_IO_BUDGET=8 pnpm -F neuroworks-server dev"
+  },
+  "dependencies": {
+    "@octokit/rest": "^21.0.2",
+    "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "concurrently": "^9.0.1",
+    "cross-env": "^10.1.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "pnpm": {
+    "overrides": {
+      "qs": ">=6.15.2",
+      "undici": ">=7.28.0",
+      "linkify-it": ">=5.0.1",
+      "nodemailer": ">=9.0.1"
+    }
+  }
+}

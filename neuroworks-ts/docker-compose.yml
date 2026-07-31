@@ -1,0 +1,57 @@
+# NeuroWorks — containerized with explicit storage control.
+#
+# The whole point of this compose file is STORAGE: every byte the platform
+# writes goes to a named volume you can inspect, back up, prune, or relocate
+# independently of the container. Nothing durable lives in the container layer.
+#
+#   neuroworks_state → /app/.neuroworks   (jobs journal, users/sessions, data
+#                       sources, department data, hand-off runs, personas)
+#   neuroworks_vault → /data/vault        (the Obsidian "second brain")
+#
+# Quick start:
+#   docker compose up --build           # build + run, app on http://localhost:7471
+#   docker compose down                 # stop (volumes persist)
+#   docker volume ls | grep neuroworks  # see your storage
+#   docker run --rm -v clawbot_neuroworks_vault:/v alpine du -sh /v   # vault size
+#
+# To put storage on a specific host disk instead of a Docker-managed volume,
+# swap the named volume for a bind mount, e.g.:
+#   volumes:
+#     - "D:/Main brain:/data/vault"
+#     - "./.neuroworks:/app/.neuroworks"
+
+services:
+  neuroworks:
+    build: .
+    image: neuroworks:local
+    container_name: neuroworks
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7471:7471"   # web UI + API (single port). Published on localhost only.
+    environment:
+      VAULT_PATH: /data/vault
+      NEUROWORKS_PORT: "7471"
+      NEUROWORKS_BIND_HOST: "0.0.0.0"
+      SERVE_WEB: "1"
+      # The container binds 0.0.0.0 so the published port is reachable, but the
+      # port is mapped to localhost only (127.0.0.1:7471 below). This UAT shell
+      # opts into that with ALLOW_INSECURE_BIND. For a real multi-user deploy on
+      # a network, DROP this line and instead set NEUROWORKS_ENTERPRISE_MODE=1
+      # (mint a "machine:full" API key) or sit behind an authenticating proxy.
+      NEUROWORKS_ALLOW_INSECURE_BIND: "1"
+      # Accessing via localhost:7471 works out of the box. Behind your own
+      # domain/reverse proxy, add it so the Host allow-list (DNS-rebind defense)
+      # accepts it, e.g. NEUROWORKS_ALLOWED_HOSTS: "neuroworks.example.com"
+      # Pass real secrets via an .env file rather than committing them here.
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - neuroworks_state:/app/.neuroworks
+      - neuroworks_vault:/data/vault
+
+volumes:
+  neuroworks_state:
+    name: clawbot_neuroworks_state
+  neuroworks_vault:
+    name: clawbot_neuroworks_vault

@@ -1,0 +1,169 @@
+"""
+Digital Force — Voice API
+Local speech-to-text (faster-whisper) and local text-to-speech (Piper if a
+voice model is installed on disk, falling back to the OS-provided pyttsx3
+voices otherwise — no cloud API key required for either direction).
+"""
+
+import io
+import logging
+import os
+import tempfile
+import wave
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel
+
+from auth import get_current_user
+from config import get_settings
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
+router = APIRouter(prefix="/api/voice", tags=["voice"])
+
+MAX_TTS_CHARS = 2000
+
+_PIPER_VOICES_DIR = Path(__file__).resolve().parent.parent / "media" / "tts_voices"
+
+# --- STT: faster-whisper, loaded once as a module-level singleton (model load
+# takes several seconds — must not happen per-request). ---
+_whisper_model = None
+
+
+def _get_whisper_model():
+    global _whisper_model
+    if _whisper_model is None:
+        from faster_whisper import WhisperModel
+        logger.info(f"[Voice] Loading faster-whisper model '{settings.whisper_model_size}' (CPU, int8)...")
+        _whisper_model = WhisperModel(settings.whisper_model_size, device="cpu", compute_type="int8")
+    return _whisper_model
+
+
+class SpeakBody(BaseModel):
+    text: str
+    voice: Optional[str] = None
+
+
+@router.post("/transcribe")
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Transcribe an uploaded audio clip (mic recording) to text using local Whisper."""
+    suffix = Path(file.filename or "audio.webm").suffix or ".webm"
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty audio upload")
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(data)
+        tmp_path = tmp.name
+
+    try:
+        model = _get_whisper_model()
+        segments, _info = model.transcribe(tmp_path, beam_size=1)
+        text = "".join(segment.text for segment in segments).strip()
+        return {"text": text}
+    except Exception as e:
+        logger.error(f"[Voice] Transcription failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Transcription failed: {e}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+# --- TTS: Piper if a voice model is on disk, else pyttsx3 fallback ---
+_piper_voice = None
+_piper_load_attempted = False
+
+
+def _get_piper_voice():
+    """Lazily load a Piper voice model from disk. Returns None if unavailable
+    (missing package or missing .onnx model file) so callers fall back to pyttsx3."""
+    global _piper_voice, _piper_load_attempted
+    if _piper_load_attempted:
+        return _piper_voice
+    _piper_load_attempted = True
+
+    model_path = _PIPER_VOICES_DIR / f"{settings.piper_voice}.onnx"
+    if not model_path.exists():
+        logger.info(
+            f"[Voice] Piper voice model not found at {model_path} — falling back to pyttsx3. "
+            f"For better quality TTS, download a Piper voice (e.g. from "
+            f"https://huggingface.co/rhasspy/piper-voices) into {_PIPER_VOICES_DIR} as "
+            f"'{settings.piper_voice}.onnx' (+ matching '.onnx.json' config)."
+        )
+        return None
+
+    try:
+        from piper import PiperVoice
+        _piper_voice = PiperVoice.load(str(model_path))
+        logger.info(f"[Voice] Loaded Piper voice '{settings.piper_voice}'.")
+    except Exception as e:
+        logger.warning(f"[Voice] Failed to load Piper voice, falling back to pyttsx3: {e}")
+        _piper_voice = None
+
+    return _piper_voice
+
+
+def _synthesize_piper(text: str) -> bytes:
+    voice = _get_piper_voice()
+    if voice is None:
+        raise RuntimeError("Piper voice unavailable")
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav_file:
+        voice.synthesize_wav(text, wav_file)
+    return buf.getvalue()
+
+
+def _synthesize_pyttsx3(text: str) -> bytes:
+    import pyttsx3
+    engine = pyttsx3.init()
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = tmp.name
+        engine.save_to_file(text, tmp_path)
+        engine.runAndWait()
+        with open(tmp_path, "rb") as f:
+            return f.read()
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+@router.post("/speak")
+async def speak_text(
+    body: SpeakBody,
+    user: dict = Depends(get_current_user),
+):
+    """Synthesize speech for the given text using local TTS (Piper if a voice
+    model is installed, else the OS-provided pyttsx3 voices)."""
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Empty text")
+    if len(text) > MAX_TTS_CHARS:
+        text = text[:MAX_TTS_CHARS]
+
+    audio_bytes = None
+    if settings.tts_engine == "piper":
+        try:
+            audio_bytes = _synthesize_piper(text)
+        except Exception as e:
+            logger.warning(f"[Voice] Piper synthesis failed, falling back to pyttsx3: {e}")
+
+    try:
+        if audio_bytes is None:
+            audio_bytes = _synthesize_pyttsx3(text)
+        return Response(content=audio_bytes, media_type="audio/wav")
+    except Exception as e:
+        logger.error(f"[Voice] Speech synthesis failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Speech synthesis failed: {e}")
