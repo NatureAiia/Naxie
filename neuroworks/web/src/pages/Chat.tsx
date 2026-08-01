@@ -75,7 +75,6 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "plan", label: "Action plan", hint: "steps, owners, dates", prefix: "Turn this into a step-by-step action plan with owners and by-when dates: " },
   { cmd: "table", label: "Make a table", hint: "structured markdown table", prefix: "Present this as a clean, well-labelled markdown table: " },
   { cmd: "factcheck", label: "Fact-check", hint: "verify a claim", prefix: "Fact-check the following claim against reliable sources and give a verdict: " },
-  { cmd: "translate", label: "Translate", hint: "to another language", prefix: "Translate the following (ask which language if unclear): " },
   { cmd: "code", label: "Write code", hint: "with a short explanation", prefix: "Write code for the following, with a short explanation: " },
   { cmd: "speak", label: "Speak (TTS)", hint: "text-to-speech audio", prefix: "Use media.tts to generate spoken audio of the following text: " },
   { cmd: "video", label: "Make a video", hint: "short video clip", prefix: "Use media.video to generate a short video of: " },

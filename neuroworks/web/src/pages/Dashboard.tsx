@@ -14,7 +14,7 @@ import { lazy, Suspense } from "react";
 // three.js is ~600KB — the globe loads as its own chunk only when the
 // Workforce card actually renders, so the dashboard's initial JS stays flat.
 const WorkforceGlobe = lazy(() => import("../components/WorkforceGlobe").then(m => ({ default: m.WorkforceGlobe })));
-import { t, loadSavedLanguage } from "../lib/i18n";
+import { t } from "../lib/i18n";
 import { MapPin, Building2, Globe, BookOpen, Plug, Zap, ShieldCheck, Server, Flag, Users, User as UserIcon } from "lucide-react";
 import type { SectorInfo, KnowledgePack } from "../lib/api";
 
@@ -172,7 +172,6 @@ export function Dashboard() {
       } catch { /* cache is best-effort */ }
       if (ob.state) {
         setOnboarding(ob.state);
-        loadSavedLanguage();
         if (ob.state.sector) {
           api.getOnboardingContext(ob.state.sector).then(ctx => setSectorContext(ctx.context)).catch(() => {});
           // Sector "name" in the label pill: for the free-text "custom"

@@ -23,11 +23,11 @@ export type DepartmentTemplate = {
     // unset. Both are optional: a department with neither set produces
     // agents that follow the org-wide onboarding language (unchanged
     // default behavior for every existing template).
-    language?: "en" | "sn" | "nd";
+    language?: "en";
   }[];
   // Department-level default language new agents inherit unless they set
   // their own `language` above.
-  defaultLanguage?: "en" | "sn" | "nd";
+  defaultLanguage?: "en";
   recommendedIntegrations: string[];
   recommendedTemplates: string[];
   schedule?: {             // optional daily briefing

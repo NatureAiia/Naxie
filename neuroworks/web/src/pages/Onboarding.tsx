@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type OnboardingData, type SectorInfo } from "../lib/api";
-import { t, setLanguage, type Language } from "../lib/i18n";
+import { t } from "../lib/i18n";
 import {
   Building2, Sprout, HeartPulse, GraduationCap, ShoppingCart, HandHeart, Pickaxe,
   Palmtree, Landmark, Cpu, Store, MoreHorizontal,
@@ -19,9 +19,9 @@ function SectorIcon({ icon, size = 24 }: { icon: string; size?: number }) {
   return <Icon size={size} />;
 }
 
-const STEPS = ["sector", "language", "org"] as const;
+const STEPS = ["sector", "org"] as const;
 type Step = (typeof STEPS)[number];
-const STEP_LABELS: Record<Step, string> = { sector: "Sector", language: "Language", org: "Organization" };
+const STEP_LABELS: Record<Step, string> = { sector: "Sector", org: "Organization" };
 
 export function Onboarding() {
   const navigate = useNavigate();
@@ -30,7 +30,6 @@ export function Onboarding() {
   const [step, setStep] = useState<Step>("sector");
   const [sectorId, setSectorId] = useState("");
   const [customSectorName, setCustomSectorName] = useState("");
-  const [lang, setLang] = useState<Language>("en");
   const [orgName, setOrgName] = useState("");
 
   useEffect(() => {
@@ -38,7 +37,6 @@ export function Onboarding() {
       setSectors(r.sectors);
       if (r.state?.sector) setSectorId(r.state.sector);
       if (r.state?.customSectorName) setCustomSectorName(r.state.customSectorName);
-      if (r.state?.language) setLang(r.state.language as Language);
       if (r.state?.orgName) setOrgName(r.state.orgName);
     }).catch(() => {});
   }, []);
@@ -49,12 +47,10 @@ export function Onboarding() {
   async function handleFinish() {
     setBusy(true);
     try {
-      setLanguage(lang);
       await api.setOnboarding({
         completed: true,
         sector: sectorId || undefined,
         customSectorName: sectorId === "custom" ? (customSectorName.trim() || undefined) : undefined,
-        language: lang,
         orgName: orgName || undefined,
       });
       navigate("/dashboard");
@@ -64,7 +60,7 @@ export function Onboarding() {
   }
 
   async function handleSkip() {
-    try { setLanguage("en"); await api.setOnboarding({ completed: true }); } catch {}
+    try { await api.setOnboarding({ completed: true }); } catch {}
     navigate("/dashboard");
   }
 
@@ -101,7 +97,7 @@ export function Onboarding() {
                   return (
                     <button
                       key={s.id}
-                      onClick={() => { setSectorId(s.id); setTimeout(() => setStep("language"), 300); }}
+                      onClick={() => { setSectorId(s.id); setTimeout(() => setStep("org"), 300); }}
                       className={`text-left p-4 rounded-xl border transition-all ${
                         selected
                           ? "bg-violet-500/10 border-violet-500/50 ring-1 ring-violet-500/30"
@@ -120,33 +116,7 @@ export function Onboarding() {
             </div>
           )}
 
-          {step === "language" && (
-            <div className="space-y-6">
-              <div className="text-center">
-                <Globe size={28} className="text-violet-400 mx-auto mb-3" />
-                <h1 className="font-display text-2xl text-cream-50">{t("onboarding.language")}</h1>
-                <p className="text-sm text-cream-300/70 mt-1">{t("onboarding.languageDesc")}</p>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {(["en", "sn", "nd"] as Language[]).map(code => (
-                  <button
-                    key={code}
-                    onClick={() => { setLang(code); setLanguage(code); }}
-                    className={`p-4 rounded-xl border text-center transition-all ${
-                      lang === code
-                        ? "bg-violet-500/10 border-violet-500/50 ring-1 ring-violet-500/30"
-                        : "bg-ink-800/50 border-ink-700 hover:border-violet-500/30"
-                    }`}
-                  >
-                    <div className="font-display text-lg text-cream-50">{t(`onboarding.language.${code}`)}</div>
-                    <div className="text-xs text-cream-300/60 mt-1">
-                      {code === "en" ? "English" : code === "sn" ? "chiShona" : "isiNdebele"}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* language step removed — onboarding proceeds from sector -> org */}
 
           {step === "org" && (
             <div className="space-y-6">

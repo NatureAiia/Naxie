@@ -121,7 +121,6 @@ export type QualityFlag = {
   rating: "up" | "down";
   note?: string;
   category?: string;
-  language?: "en" | "sn" | "nd";
   persona?: string;
   template?: string;
   ts: string;
@@ -161,7 +160,7 @@ export const api = {
   unblockIp: (ip: string) => req<{ ok: boolean; unblocked: boolean }>("/api/security/unblock", { method: "POST", body: JSON.stringify({ ip }) }),
   addHumanWork: (body: { rows?: { email: string; date: string; hours: number; description?: string }[]; csv?: string; source?: "upload" | "connector" | "manual" }) =>
     req<{ added: number; errors: { row: number; error: string }[] }>("/api/cost/human-work", { method: "POST", body: JSON.stringify(body) }),
-  updatePersona: (id: string, patch: { workMode?: WorkMode; tone?: string; description?: string; role?: string; language?: "en" | "sn" | "nd" }) =>
+  updatePersona: (id: string, patch: { workMode?: WorkMode; tone?: string; description?: string; role?: string }) =>
     req<{ persona: any }>(`/api/personas/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
   // First-run bootstrap: is the org empty (no accounts yet)?
   authState: () => req<{ needsBootstrap: boolean }>("/api/auth/state"),
@@ -308,7 +307,7 @@ export const api = {
   brainEnsureSidecar: (path: string, force = false) => req<{ ok: true; sidecarPath: string; sourcePath: string; regenerated: boolean; reason?: string; bytes?: number }>("/api/brain/ensure-sidecar", { method: "POST", body: JSON.stringify({ path, force }) }),
   // Onboarding.
   getOnboarding: () => req<OnboardingData>("/api/onboarding"),
-  setOnboarding: (body: { completed: boolean; sector?: string; customSectorName?: string; language?: string; orgName?: string }) =>
+  setOnboarding: (body: { completed: boolean; sector?: string; customSectorName?: string; orgName?: string }) =>
     req<{ state: OnboardingState }>("/api/onboarding", { method: "PUT", body: JSON.stringify(body) }),
   getOnboardingContext: (sector?: string) =>
     req<{ sector: string; context: string }>(`/api/onboarding/context${sector ? `?sector=${encodeURIComponent(sector)}` : ""}`),
@@ -543,7 +542,7 @@ export const api = {
   datasetOutputUrl: (id: string, kind: "csv" | "jsonl" | "rag" | "card") =>
     `/api/datasets/${encodeURIComponent(id)}/output/${kind}`,
   // Quality dashboard.
-  submitQualityFlag: (body: { jobId: string; rating: "up" | "down"; note?: string; category?: string; language?: "en" | "sn" | "nd"; persona?: string; template?: string; score?: number }) =>
+  submitQualityFlag: (body: { jobId: string; rating: "up" | "down"; note?: string; category?: string; persona?: string; template?: string; score?: number }) =>
     req<{ ok: true; flag: QualityFlag }>("/api/quality/flag", { method: "POST", body: JSON.stringify(body) }),
   getQualitySummary: () => req<QualitySummary>("/api/quality/summary"),
   getQualityFlags: (since?: string) =>

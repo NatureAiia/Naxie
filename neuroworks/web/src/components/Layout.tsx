@@ -136,8 +136,34 @@ export function Layout({ children }: { children: ReactNode }) {
   // space. Sticky across reloads like the theme choice.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
+    // Default to previous user preference, but we'll override on small
+    // viewports so the shell becomes compact on tablet/smaller devices.
     return localStorage.getItem("neuroworks.sidebarCollapsed") === "1";
   });
+
+  // Responsive: keep the sidebar collapsed on tablet and smaller screens by
+  // default, and expand on larger viewports. We listen for resize so the
+  // layout adapts when the user resizes the window.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia(`(max-width: 819px)`);
+    const apply = () => {
+      // If the viewport is tablet/smaller, force collapsed; otherwise restore
+      // the user's saved preference (or expanded by default).
+      if (mql.matches) {
+        setCollapsed(true);
+      } else {
+        setCollapsed(localStorage.getItem("neuroworks.sidebarCollapsed") === "1");
+      }
+    };
+    apply();
+    mql.addEventListener?.("change", apply);
+    window.addEventListener("resize", apply);
+    return () => {
+      mql.removeEventListener?.("change", apply);
+      window.removeEventListener("resize", apply);
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -236,7 +262,7 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="flex h-full">
       <GlitterBackground />
       <aside className={`shrink-0 bg-ink-900 border-r border-ink-800 flex flex-col transition-[width] duration-200 overflow-hidden ${collapsed ? "w-16" : "w-60"}`}>
-        <div className={`flex items-center ${collapsed ? "flex-col gap-2 px-2 py-4" : "justify-between px-5 py-5"}`}>
+        <div className={`flex items-center ${collapsed ? "flex-col gap-2 px-2 py-4" : "justify-between px-4 py-4 tablet:px-5 tablet:py-5"}`}>
           <Link to="/dashboard" className={`flex items-center gap-2.5 min-w-0 ${collapsed ? "justify-center" : ""}`}>
             <BrandMark size={26} />
             {!collapsed && (
@@ -268,14 +294,14 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
 
         {!collapsed && (
-          <div className="px-5 pb-4">
+          <div className="px-4 pb-4 tablet:px-5">
             <div className="w-full aspect-square rounded-full overflow-hidden border border-ink-700">
               <img src="/brand/logo.jpg" alt="NeuroWorks" className="w-full h-full object-cover" />
             </div>
           </div>
         )}
 
-        <div className={collapsed ? "px-2 pb-3" : "px-3 pb-3"}>
+        <div className={collapsed ? "px-2 pb-3" : "px-2 pb-3 tablet:px-3"}>
           <Link to="/jarvis" onMouseEnter={() => preloadRoute("/jarvis")} onFocus={() => preloadRoute("/jarvis")} title={collapsed ? "NaxionAI" : undefined} className="w-full flex items-center justify-center gap-1.5 bg-ink-800 hover:bg-ink-700 border border-ink-700 hover:border-violet-500/40 rounded-md py-2 text-sm text-cream-100 transition-colors">
             <Sparkles size={14} className="text-violet-400" /> {!collapsed && "NaxionAI"}
           </Link>
@@ -310,7 +336,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="flex items-center justify-between px-8 py-3 border-b border-ink-800">
+        <header className="flex items-center justify-between px-8 py-3 tablet:px-6 tablet:py-2 border-b border-ink-800">
           <div className="flex items-center gap-2.5">
             {user ? (
               <>
@@ -357,7 +383,11 @@ export function Layout({ children }: { children: ReactNode }) {
               column — it hosts the knowledge-graph "brain", not prose. */}
           <div
             key={location.pathname.split("/")[1] || "/"}
-            className={clearBackground ? "h-full px-6 py-5 nw-page-enter" : "max-w-6xl mx-auto px-8 py-7 nw-page-enter"}
+            className={
+              clearBackground
+                ? "h-full px-4 py-5 tablet:px-6 tablet:py-5 nw-page-enter"
+                : "max-w-6xl mx-auto px-6 py-6 tablet:px-8 tablet:py-7 nw-page-enter"
+            }
           >
             {children}
           </div>

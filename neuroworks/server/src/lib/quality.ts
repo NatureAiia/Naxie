@@ -11,11 +11,9 @@ export type QualityFlag = {
   score?: number;
   category?: "accuracy" | "relevance" | "tone" | "completeness" | "formatting" | "localization" | "other";
   // Language the flagged output was actually IN, as observed by the operator
-  // flagging it — not inferred (a persona's language pin can change after the
-  // job ran, and the org default can differ from what a specific job used).
-  // Lets Quality Dashboard / Mission Control filter to "Shona/Ndebele outputs
-  // flagged for improvement" for the native-speaker review process.
-  language?: "en" | "sn" | "nd";
+  // flagging it — not inferred. The product has been trimmed to English-only,
+  // so this field will only carry "en" when present.
+  language?: "en";
   // Where the flag came from: "operator" = a human thumbs (feedback.jsonl / the
   // manual flag control); "auto" = the agent's own quality.check verdict logged
   // at job end. Lets the dashboard separate machine QA from human satisfaction.

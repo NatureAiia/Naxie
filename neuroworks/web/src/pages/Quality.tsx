@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { api } from "../lib/api";
 import { Loader2, ThumbsUp, ThumbsDown, TrendingUp, TrendingDown, AlertTriangle, BarChart3 } from "lucide-react";
 
-const LANG_LABEL: Record<string, string> = { en: "English", sn: "chiShona", nd: "isiNdebele" };
 const AXIS_LABEL: Record<string, string> = {
   factuality_risk: "factual accuracy",
   citation_coverage: "citation coverage",
@@ -16,7 +15,6 @@ export function Quality() {
   const [lowQuality, setLowQuality] = useState<any[]>([]);
   const [signals, setSignals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [langFilter, setLangFilter] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -134,20 +132,12 @@ export function Quality() {
       <div className="bg-ink-900 rounded-lg border p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-semibold">Recent Feedback</h2>
-          {flags.some((f: any) => f.language) && (
-            <select value={langFilter} onChange={e => setLangFilter(e.target.value)} title="Filter recent feedback by language" className="bg-ink-950 border border-ink-800 text-xs text-cream-200 rounded px-2 py-1">
-              <option value="">All languages</option>
-              <option value="en">English</option>
-              <option value="sn">chiShona</option>
-              <option value="nd">isiNdebele</option>
-            </select>
-          )}
         </div>
         {flags.length === 0 ? (
           <p className="text-sm text-cream-300/60">No feedback recorded yet. Flag outputs as good/bad from the results page.</p>
         ) : (
           <div className="space-y-2">
-            {flags.filter((f: any) => !langFilter || f.language === langFilter).slice(0, 20).map((f: any) => (
+            {flags.slice(0, 20).map((f: any) => (
               <div key={`${f.jobId}-${f.ts}`} className="flex items-start gap-3 p-2 border-b last:border-0">
                 {f.rating === "up" ? (
                   <ThumbsUp className="w-4 h-4 text-leaf-400 mt-0.5 shrink-0" />
@@ -159,7 +149,6 @@ export function Quality() {
                   {f.note && <div className="text-xs text-cream-300/60 truncate">{f.note}</div>}
                   <div className="text-xs text-cream-300/50">{new Date(f.ts).toLocaleString()}</div>
                 </div>
-                {f.language && <span className="text-xs px-2 py-0.5 rounded bg-violet-500/15 text-violet-300">{LANG_LABEL[f.language] ?? f.language}</span>}
                 {f.category && <span className="text-xs capitalize px-2 py-0.5 rounded bg-ink-800">{f.category}</span>}
               </div>
             ))}

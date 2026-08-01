@@ -27,7 +27,7 @@ export type Persona = {
   // default (see sector-packs.ts OnboardingState.language). Absent = follow
   // the org default. Department templates can set a default that flows down
   // to their agents at apply-time (see department-templates.ts).
-  language?: "en" | "sn" | "nd";
+  language?: "en";
   createdAt: string;
 };
 

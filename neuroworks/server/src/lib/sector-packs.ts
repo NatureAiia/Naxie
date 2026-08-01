@@ -24,7 +24,7 @@ export type Sector = {
   contextNote: string;
 };
 
-export type Language = "en" | "sn" | "nd";
+export type Language = "en";
 
 export type OnboardingState = {
   completed: boolean;

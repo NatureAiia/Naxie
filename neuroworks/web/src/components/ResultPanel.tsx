@@ -232,7 +232,6 @@ function QualityFlagControl({ job }: { job: any }) {
   const [sent, setSent] = useState(false);
   const [rating, setRating] = useState<"up" | "down">("down");
   const [category, setCategory] = useState<(typeof QUALITY_CATEGORIES)[number]>("localization");
-  const [language, setLanguage] = useState<"" | "en" | "sn" | "nd">("");
   const [note, setNote] = useState("");
 
   async function submit() {
@@ -243,7 +242,6 @@ function QualityFlagControl({ job }: { job: any }) {
         jobId: job.id,
         rating,
         category,
-        language: language || undefined,
         note: note.trim() || undefined,
         persona: job.personaName,
         template: job.template,
@@ -273,12 +271,6 @@ function QualityFlagControl({ job }: { job: any }) {
           </span>
           <select value={category} onChange={e => setCategory(e.target.value as any)} title="Flag category" className="bg-ink-950 border border-ink-800 rounded px-1.5 py-1 text-cream-100">
             {QUALITY_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select value={language} onChange={e => setLanguage(e.target.value as any)} title="Language observed in this output" className="bg-ink-950 border border-ink-800 rounded px-1.5 py-1 text-cream-100">
-            <option value="">language observed (optional)</option>
-            <option value="en">English</option>
-            <option value="sn">chiShona</option>
-            <option value="nd">isiNdebele</option>
           </select>
           <input
             value={note}

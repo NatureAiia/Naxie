@@ -2,6 +2,10 @@
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
+    screens: {
+      // tablet breakpoint used by the app for a compact/tablet layout
+      tablet: "820px",
+    },
     extend: {
       // Each token is a CSS var so light mode can override at the :root[data-theme="light"]
       // level without rewriting every className across 17 components in one go. Existing

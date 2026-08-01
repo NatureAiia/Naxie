@@ -5,7 +5,6 @@ import { Card, Button } from "../components/Card";
 type Persona = {
   id: string; name: string; role: string; description: string; jobDescription: string;
   tone?: string; responsibilities: string[]; createdAt: string;
-  language?: "en" | "sn" | "nd";
 };
 
 export function Personas() {
@@ -190,20 +189,6 @@ export function Personas() {
                   <option value="agent">agent</option>
                   <option value="hybrid">hybrid</option>
                   <option value="human">human</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-[10px] text-cream-300/50 uppercase tracking-wider">language</span>
-                <select
-                  value={p.language ?? ""}
-                  onChange={async e => { try { await api.updatePersona(p.id, { language: (e.target.value || undefined) as any }); await load(); } catch (er: any) { setErr(er.message); } }}
-                  className="bg-ink-800 border border-ink-700 text-[11px] text-cream-200 rounded px-1.5 py-0.5"
-                  title="Pin this agent's output language, overriding the org-wide default set in Settings"
-                >
-                  <option value="">org default</option>
-                  <option value="en">English</option>
-                  <option value="sn">chiShona</option>
-                  <option value="nd">isiNdebele</option>
                 </select>
               </div>
               {p.responsibilities.length > 0 && (
