@@ -48,69 +48,17 @@ Ports are disjoint — the two systems can run at the same time.
 - OR, for the bare-metal path: **Node 20+ & pnpm 9** (System A) and
   **Python 3.11+** (System B).
 
-Pick ONE path: **Docker (§2, recommended)** or **bare metal (§4)**.
+Pick the bare-metal path: run the services locally without Docker (see §2).
 
 ---
 
-## 2. Docker path (recommended)
+## 2. Local (no Docker)
 
-### 2.1 Create env files from templates
+This repository no longer includes Docker orchestration files. Use the
+bare-metal/local instructions to run the components directly on your machine.
 
-```bash
-cp neuroworks-ts/.env.example      neuroworks-ts/.env
-cp digital-force-py/.env.example   digital-force-py/.env
-```
-
-### 2.2 Set the required Digital-Force secrets
-
-Digital-Force **refuses to start in production** with placeholder secrets (this
-is a security fail-fast, not a bug). Generate strong values and put them in
-`digital-force-py/.env`:
-
-```bash
-# JWT signing key (any long random string)
-echo "JWT_SECRET_KEY=$(openssl rand -hex 32)"        >> digital-force-py/.env
-# Encryption key — MUST be exactly 32 bytes for the credential vault
-echo "ENCRYPTION_KEY=$(openssl rand -base64 24 | cut -c1-32)" >> digital-force-py/.env
-```
-
-> On Windows PowerShell, instead run:
-> `-join ((1..32) | % { '{0:x}' -f (Get-Random -Max 16) })` for each, or use any
-> 32-char random string. The ENCRYPTION_KEY must be **exactly 32 characters**.
-
-### 2.3 (Optional) Add LLM / provider keys
-
-The apps boot without these, but agents can't call a model until at least one
-provider key is set. Add whichever you have:
-
-- **System A** (`neuroworks-ts/.env`): `OPENROUTER_API_KEY=` or point at a local
-  Ollama (`OLLAMA_HOST=http://host.docker.internal:11434`). See its `.env.example`.
-- **System B** (`digital-force-py/.env`): `GROQ_API_KEY_1=` (primary LLM),
-  optional `TAVILY_API_KEY=` (web search), `QDRANT_URL=`/`QDRANT_API_KEY=`
-  (else the bundled Qdrant container is used).
-
-### 2.4 Bring the stack up
-
-```bash
-# From the neuroworks.shell/ root — builds and starts BOTH systems:
-docker compose up --build
-```
-
-Or one system at a time:
-
-```bash
-docker compose -f neuroworks-ts/docker-compose.yml     up --build
-docker compose -f digital-force-py/docker-compose.yml  up --build
-```
-
-### 2.5 Verify
-
-```bash
-curl -fsS http://localhost:7471/api/health   && echo "  A OK"   # System A
-curl -fsS http://localhost:8000/api/health    && echo "  B OK"   # System B
-```
-
-Both must return HTTP 200. Then open the UIs (§3).
+Refer to §4 for component-specific local startup steps (Node/pnpm for
+`neuroworks`; Python/venv for `digital-force-py`).
 
 ---
 

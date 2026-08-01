@@ -39,8 +39,8 @@ zero. The short version:
 ```bash
 cp neuroworks-ts/.env.example    neuroworks-ts/.env
 cp digital-force-py/.env.example digital-force-py/.env
-# set JWT_SECRET_KEY + ENCRYPTION_KEY in digital-force-py/.env (see AI-STARTUP.md §2.2)
-docker compose up --build
+# set JWT_SECRET_KEY + ENCRYPTION_KEY in digital-force-py/.env (see AI-STARTUP.md §2)
+# Run the components locally per AI-STARTUP.md (no Docker)
 ```
 
 Then open the app and **create the first account** — it becomes the workspace
