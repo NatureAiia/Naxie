@@ -43,12 +43,10 @@ import { exportsRouter } from "./routes/exports.js";
 import { calendarRouter } from "./routes/calendar.js";
 import { dataSourcesRouter } from "./routes/data-sources.js";
 import { terminalRouter } from "./routes/terminal.js";
-import { sttRouter } from "./routes/stt.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { presetsRouter } from "./routes/presets.js";
 import { connectorsRouter } from "./routes/connectors.js";
 import { seedAiiAWebsiteConnector, seedPublicApiConnectors } from "./lib/connectors.js";
-import { paymentsRouter } from "./routes/payments.js";
 import { executorRouter } from "./routes/executor.js";
 import { primitivesRouter } from "./routes/primitives.js";
 import { usersRouter } from "./routes/users.js";
@@ -85,15 +83,6 @@ const app = express();
 // request, not just the initial page load, and stateless per-request so it
 // doesn't interact with horizontal scale-out at all.
 app.use(compression());
-// Stripe webhook needs the RAW request body to verify the signature — mount a
-// raw parser for that ONE path BEFORE the JSON parser (body-parser sets
-// req._body once read, so the JSON parser below then skips it).
-app.use("/api/payments/webhook", express.raw({ type: "*/*", limit: "2mb" }));
-// Paynow posts its result webhook as application/x-www-form-urlencoded — the
-// JSON parser leaves req.body empty there, which made the SHA-512 hash check
-// reject EVERY legitimate status update. Mount a urlencoded parser for that
-// one path (found in the security/bug sweep, 2026-07-04).
-app.use("/api/payments/paynow/result", express.urlencoded({ extended: false, limit: "64kb" }));
 // JSON body, but also accept text/plain (navigator.sendBeacon defaults to
 // it when given a plain JSON Blob) so the chat unmount-save reaches us.
 // 25 MB limit accommodates base64-encoded document uploads (a 15 MB PDF
@@ -222,11 +211,9 @@ app.use("/api/exports", exportsRouter);
 app.use("/api/calendar", calendarRouter);
 app.use("/api/data-sources", requireLayer("superadmin"), dataSourcesRouter); // external DB credentials (secrets tier, like connectors)
 app.use("/api/terminal", requireLayer("superadmin"), terminalRouter); // shell access
-app.use("/api/stt", sttRouter);
 app.use("/api/integrations", requireLayer("superadmin"), integrationsRouter); // service secrets
 app.use("/api/presets", presetsRouter);
 app.use("/api/connectors", requireLayer("superadmin"), connectorsRouter); // connector credentials
-app.use("/api/payments", paymentsRouter);
 app.use("/api/executor", requireLayer("admin"), executorRouter); // flips who/what executes tasks (spend implications)
 // Primitives bridge executes real tools (email.send, db.query, publishes) —
 // built for TOKEN-LESS machine callers (Hermes/MCP), which still pass. A

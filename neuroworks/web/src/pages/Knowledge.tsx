@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { marked } from "marked";
-import { Folder, FileText, Upload, AlertTriangle, CheckCircle2, Download } from "lucide-react";
+import { Upload, AlertTriangle, CheckCircle2, Download } from "lucide-react";
+import { FileIcon } from "../components/FileIcon";
 import { api } from "../lib/api";
 import { Card } from "../components/Card";
 
@@ -156,11 +157,10 @@ export function Knowledge() {
         <Card title="Files" action={<VaultUpload subPath={subPath} onUploaded={() => { api.brainTree(subPath).then(r => setTree(r.entries)).catch(() => {}); }} />}>
           <ul>
             {tree.map(e => {
-              const Icon = e.type === "dir" ? Folder : FileText;
               return (
                 <li key={e.path} className="flex items-center gap-1 group">
                   <button type="button" onClick={() => nav("/knowledge/" + e.path)} className="flex-1 flex items-center gap-2 text-left px-2 py-1.5 rounded hover:bg-ink-800 text-sm font-mono">
-                    <Icon size={14} className={e.type === "dir" ? "text-violet-400 shrink-0" : "text-cream-300/60 shrink-0"} />
+                    <FileIcon path={e.name} isDirectory={e.type === "dir"} size={16} className="shrink-0" />
                     <span className={e.type === "dir" ? "text-violet-400" : "text-cream-200"}>{e.name}</span>
                   </button>
                   {e.type !== "dir" && (

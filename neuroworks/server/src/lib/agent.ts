@@ -110,11 +110,9 @@ const SOCIAL_TASK_RE = new RegExp(`\\b${SOCIAL_ACTION}\\b[^]{0,60}?\\b${SOCIAL_P
 // approving runs the exact plan the operator reviewed — no re-planning, no
 // second gate. db.query is read-only (SELECT/WITH) but still gated: a DB check
 // can surface sensitive records, and the operator asked for it to be reviewed.
-// payment.link creates a LIVE Stripe billing link → must be operator-approved
-// like the other money/data tools (payment.paynow_link already parks on its own
-// path). code.exec / browser.harness_exec run arbitrary code/automation and are
+// code.exec / browser.harness_exec run arbitrary code/automation and are
 // gated here too as defence-in-depth for when they're enabled.
-export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "email.send", "payment.link", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "heygen.create_video"]);
+export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "heygen.create_video"]);
 
 // connector.call is gated by default (see SENSITIVE_APPROVAL_TOOLS above), but
 // a READ (GET/HEAD, or no method → GET default) against a connector the

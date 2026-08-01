@@ -187,6 +187,113 @@ brainRouter.get("/search", (req, res) => {
   res.json({ q, results: searchVault(q) });
 });
 
+// GET /api/brain/graph — the vault as a node graph (Obsidian-style): one
+// node per note, plus a node per frontmatter tag, linked by [[wikilinks]]
+// and shared tags. Used by the JARVIS page's knowledge-graph visualization.
+// Walk + parsing kept intentionally simple (regex over raw markdown, no
+// dependency on the search index) since this only needs to run per page-load.
+const GRAPH_HIDDEN_PREFIXES = [".git", ".obsidian", "node_modules"];
+const GRAPH_TEXT_EXTS = new Set([".md", ".markdown"]);
+
+type GraphDoc = { path: string; title: string; tags: string[]; body: string };
+
+function* walkGraphVault(root: string): Generator<string> {
+  let entries: any[];
+  try { entries = readdirSync(root, { withFileTypes: true }); } catch { return; }
+  for (const e of entries) {
+    if (GRAPH_HIDDEN_PREFIXES.some(p => e.name.startsWith(p))) continue;
+    const full = join(root, e.name);
+    if (e.isDirectory()) yield* walkGraphVault(full);
+    else if (GRAPH_TEXT_EXTS.has(extname(e.name).toLowerCase())) yield full;
+  }
+}
+
+function parseFrontmatterTags(body: string): string[] {
+  const fm = body.match(/^---\n([\s\S]*?)\n---/);
+  if (!fm) return [];
+  const tags: string[] = [];
+  const inline = fm[1].match(/^tags:\s*\[([^\]]*)\]/m);
+  if (inline) {
+    for (const t of inline[1].split(",")) {
+      const v = t.trim().replace(/^["']|["']$/g, "");
+      if (v) tags.push(v);
+    }
+    return tags;
+  }
+  const list = fm[1].match(/^tags:\s*\n((?:\s*-\s*.+\n?)+)/m);
+  if (list) {
+    for (const line of list[1].split("\n")) {
+      const m = line.match(/-\s*(.+)/);
+      if (m) { const v = m[1].trim().replace(/^["']|["']$/g, ""); if (v) tags.push(v); }
+    }
+  }
+  return tags;
+}
+
+brainRouter.get("/graph", (req, res) => {
+  if (!requireVault(res)) return;
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 1500) || 1500, 1), 3000);
+  try {
+    const vaultRoot = resolve(config.vaultPath);
+    const docs: GraphDoc[] = [];
+    for (const full of walkGraphVault(vaultRoot)) {
+      if (docs.length >= limit) break;
+      let body: string;
+      try {
+        if (statSync(full).size > 500_000) continue;
+        body = readFileSync(full, "utf8");
+      } catch { continue; }
+      const rel = relative(vaultRoot, full).split(sep).join("/");
+      const stem = basename(full).replace(/\.(md|markdown)$/i, "");
+      const h1 = body.match(/^#\s+(.+)$/m);
+      const fmTitle = body.match(/^title:\s*"?([^"\n]+?)"?\s*$/m);
+      const title = (h1?.[1] ?? fmTitle?.[1] ?? stem).trim().slice(0, 120);
+      docs.push({ path: rel, title, tags: parseFrontmatterTags(body), body });
+    }
+
+    // Resolve [[wikilinks]] by filename stem or extracted title (Obsidian's
+    // own resolution order), case-insensitively.
+    const byKey = new Map<string, string>();
+    for (const d of docs) {
+      const stem = basename(d.path).replace(/\.(md|markdown)$/i, "");
+      byKey.set(stem.toLowerCase(), d.path);
+      byKey.set(d.title.toLowerCase(), d.path);
+    }
+
+    const nodes: { id: string; label: string; group: string; kind: "note" | "tag" }[] = [];
+    const links: { source: string; target: string }[] = [];
+    for (const d of docs) {
+      nodes.push({ id: d.path, label: d.title, group: d.path.split("/")[0] || "root", kind: "note" });
+    }
+
+    const tagNodeIds = new Set<string>();
+    const linkSeen = new Set<string>();
+    for (const d of docs) {
+      const linkRe = /\[\[([^\]|#]+)/g;
+      let m: RegExpExecArray | null;
+      while ((m = linkRe.exec(d.body))) {
+        const target = byKey.get(m[1].trim().toLowerCase());
+        if (target && target !== d.path) {
+          const key = `${d.path} ${target}`;
+          if (!linkSeen.has(key)) { linkSeen.add(key); links.push({ source: d.path, target }); }
+        }
+      }
+      for (const t of d.tags) {
+        const tagId = `#${t}`;
+        if (!tagNodeIds.has(tagId)) {
+          tagNodeIds.add(tagId);
+          nodes.push({ id: tagId, label: t, group: "tag", kind: "tag" });
+        }
+        links.push({ source: d.path, target: tagId });
+      }
+    }
+
+    res.json({ nodes, links, docCount: docs.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? String(e) });
+  }
+});
+
 brainRouter.get("/digest/latest", (req, res) => {
   if (!requireVault(res)) return;
   try { res.json({ content: readVaultFile("_clawbot/latest.md") }); }

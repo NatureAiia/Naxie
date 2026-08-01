@@ -67,13 +67,6 @@ export const ALLOWED_ORIGINS = new Set<string>(
 const EXEMPT_PATHS = new Set<string>([
   "/api/health",
   "/api/peers/self",
-  // Stripe webhook — posts from Stripe's servers (cross-host, no browser
-  // Origin). Authenticity is enforced by the signature check in the handler,
-  // which is strictly stronger than a Host/Origin allow-list here.
-  "/api/payments/webhook",
-  // Paynow posts result updates server-to-server; authenticity is the SHA-512
-  // hash over the integration key, not the request origin.
-  "/api/payments/paynow/result",
 ]);
 
 const DISABLED = process.env.NEUROWORKS_ORIGIN_GUARD === "0";

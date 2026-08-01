@@ -58,6 +58,48 @@ async function reportContext(jobId: string, personaId?: string): Promise<{ repor
   };
 }
 
+// POST /api/voice/converse — NaxionAI's general-purpose conversation. Unlike
+// /api/chat (which runs the full task/template/planner pipeline — right for
+// the Chat page, wrong for a voice assistant that should just answer),
+// this is a direct passthrough to the model: no calculator shortcut, no
+// template matching, no persona auto-routing, no task creation. Every
+// reply is genuinely generated, never a canned string. `model` lets the
+// caller force a specific locally-pulled Ollama model for this turn; a
+// cloud-provider model is selected by activating that provider first
+// (POST /api/models/providers/:id/activate) and omitting `model` here so
+// normal profile routing picks it up.
+voiceRouter.post("/converse", async (req, res) => {
+  const messages: { role: string; content: string }[] = Array.isArray(req.body?.messages) ? req.body.messages : [];
+  const model = typeof req.body?.model === "string" ? req.body.model.trim() : "";
+  const trimmed = messages.slice(-16).map(m => ({
+    role: m?.role === "assistant" ? "NaxionAI" : "User",
+    content: String(m?.content ?? "").slice(0, 3000),
+  }));
+  const last = trimmed.pop();
+  if (!last || !last.content.trim()) return res.status(400).json({ error: "messages required" });
+  try {
+    const { llmGenerateWithMeta } = await import("../lib/llm.js");
+    const { injectLanguagePrompt } = await import("../lib/language-prompts.js");
+    const system = injectLanguagePrompt(
+      "You are NaxionAI, a helpful, concise voice assistant. Speak naturally, the way a person would say it out loud — " +
+      "short sentences, no markdown, no headings, no bullet lists, no code fences unless the user explicitly asks for code. " +
+      "Answer directly from your own knowledge; never claim you can't help without actually trying.",
+      "direct",
+    );
+    const convo = trimmed.map(m => `${m.role}: ${m.content}`).join("\n");
+    const prompt = (convo ? `${convo}\n` : "") + `User: ${last.content}\nNaxionAI:`;
+    const opts: { profile: "balanced"; maxTokens: number; model?: string } = { profile: "balanced", maxTokens: 500 };
+    // Only an explicit LOCAL model is safe to force here — cloud provider
+    // model ids don't all carry the "provider/model" shape llm.ts uses to
+    // detect an explicit remote model, so forcing one could misroute.
+    if (model && !model.includes("/")) opts.model = model;
+    const result = await llmGenerateWithMeta(prompt, system, opts);
+    res.json({ text: result.text.trim(), model: result.model });
+  } catch (e: any) {
+    res.status(400).json({ error: String(e?.message ?? e) });
+  }
+});
+
 voiceRouter.post("/ask", async (req, res) => {
   const jobId = String(req.body?.jobId ?? "").trim();
   const question = String(req.body?.question ?? "").trim().slice(0, 2000);

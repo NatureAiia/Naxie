@@ -12,18 +12,35 @@
    text-cream-* class re-skins without component edits. */
 :root, [data-theme="dark"] {
   color-scheme: dark;
-  --c-ink-950: #05060f;   /* Midnight Ink — canvas */
-  --c-ink-900: #0c111c;   /* panel (sidebar, rails) */
-  --c-ink-850: #141a28;   /* card */
-  --c-ink-800: #1f2736;   /* elevated / hover surface */
-  --c-ink-700: #3f4959;   /* Steel Border — hairlines, dividers */
-  --c-ink-600: #5c687c;   /* muted structural lines */
-  --c-cream-50:  #d8ecf8; /* Glacier — headings, brightest text */
-  --c-cream-100: #c7d3ea; /* Moonlight — body */
-  --c-cream-200: #9da7ba; /* Pebble — secondary */
-  --c-cream-300: #81899b; /* Fog — de-emphasized */
-  --bg-glow: rgba(152, 192, 239, 0.10);      /* Blueprint Glow wash */
-  --bg-grid: rgba(186, 215, 247, 0.04);      /* 1px architectural grid */
+  /* Atom One Dark, shifted 35% darker (lightness × 0.65) for a moodier,
+     lower-glare canvas. ink = surface ramp, cream = text ramp. */
+  --c-ink-950: #15181c;   /* canvas */
+  --c-ink-900: #1a1d22;   /* panel (sidebar, rails) */
+  --c-ink-850: #1d2027;   /* card */
+  --c-ink-800: #262931;   /* elevated / hover surface */
+  --c-ink-700: #282c35;   /* hairlines, dividers */
+  --c-ink-600: #3c4049;   /* muted structural lines */
+  /* Bold off-white text ramp (brighter than plain One Dark foreground, per
+     request — every className already carrying font-medium/semibold/bold
+     stays as-is; the base font-weight bump lives on `body` below). */
+  --c-cream-50:  #f5f5f4; /* headings, brightest text */
+  --c-cream-100: #e2e4e8; /* body */
+  --c-cream-200: #b8bcc4; /* secondary */
+  --c-cream-300: #8b8f99; /* de-emphasized */
+  --bg-glow: rgba(97, 175, 239, 0.10);       /* One Dark blue wash */
+  --bg-grid: rgba(171, 178, 191, 0.04);      /* 1px architectural grid */
+  /* One Dark syntax accents, replacing the previous Midnight-blueprint set. */
+  --c-flame-400: #e06c75; /* One Dark red */
+  --c-flame-500: #c9636c;
+  --c-flame-600: #b0525a;
+  --c-coral-400: #d19a66; /* One Dark orange */
+  --c-coral-500: #c48a52;
+  --c-coral-600: #a8703e;
+  --c-violet-400: #c678dd; /* One Dark purple */
+  --c-violet-500: #b361cf;
+  --c-violet-600: #9a4eb8;
+  --c-leaf-400: #98c379;  /* One Dark green */
+  --c-leaf-500: #7fb563;
 }
 [data-theme="light"] {
   color-scheme: light;
@@ -38,12 +55,26 @@
   --c-ink-800: #c2cddf;
   --c-ink-700: #a2b1c9;
   --c-ink-600: #74809a;
-  --c-cream-50:  #0d1320;
-  --c-cream-100: #232c3d;
-  --c-cream-200: #47536a;
-  --c-cream-300: #67748c;
+  /* Bold dark-grey text ramp (plain grey, not the previous navy tint). */
+  --c-cream-50:  #24262b;
+  --c-cream-100: #34363c;
+  --c-cream-200: #52555c;
+  --c-cream-300: #6e7178;
   --bg-glow: rgba(2, 125, 234, 0.035);
   --bg-grid: rgba(63, 73, 89, 0.05);
+  /* Original Midnight-blueprint accents — unchanged, so light mode keeps its
+     existing look while dark mode moves to Atom One Dark. */
+  --c-flame-400: #e46d4c;
+  --c-flame-500: #d05a3a;
+  --c-flame-600: #b04727;
+  --c-coral-400: #ff7657;
+  --c-coral-500: #ee5a3c;
+  --c-coral-600: #c94327;
+  --c-violet-400: #7d57f6;
+  --c-violet-500: #663af3;
+  --c-violet-600: #5128d6;
+  --c-leaf-400: #3fb3a0;
+  --c-leaf-500: #269684;
 }
 
 :root {
@@ -53,6 +84,10 @@
   letter-spacing: normal;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Bolden all text by default. Elements with an explicit Tailwind
+     font-weight utility (font-medium/semibold/bold, etc.) still win —
+     this only raises the baseline for text that doesn't set its own. */
+  font-weight: 600;
 }
 html { background: var(--c-ink-950); }
 html, body, #root { height: 100%; }
@@ -134,7 +169,7 @@ body::after {                               /* blueprint glow — light from abo
 .prose-result strong { @apply text-cream-50; }
 .prose-result code { @apply text-[0.92em]; }
 .prose-result pre { @apply my-5; }
-.prose-result a { @apply no-underline border-b border-violet-500/40 hover:border-violet-500 hover:text-violet-300 transition-colors; }
+.prose-result a { @apply no-underline border-b hover:border-violet-500 hover:text-violet-300 transition-colors; border-color: color-mix(in srgb, var(--c-violet-500) 40%, transparent); }
 .prose-result hr { @apply my-8; }
 
 .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }

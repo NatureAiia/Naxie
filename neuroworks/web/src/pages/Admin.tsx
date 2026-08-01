@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
-import { api, type User, type UserRole, type WorkMode } from "../lib/api";
-import { Card, StatusDot, Button, showToast } from "../components/Card";
+import { api } from "../lib/api";
+import { Card, StatusDot } from "../components/Card";
+
+type ModelInfo = {
+  name: string;
+  family: string;
+  paramSize?: string;
+  sizeGB?: number;
+  capabilities: { jsonStrict: number; reasoning: number; longForm: number; speed: number; cost: number };
+};
 
 export function Admin() {
   const [status, setStatus] = useState<any>(null);
@@ -28,11 +36,8 @@ export function Admin() {
     <div className="space-y-6">
       <div>
         <h1 className="font-display text-3xl text-cream-50">Admin</h1>
-        <p className="text-sm text-cream-300/70 mt-1">Workforce health, agents, and integrations.</p>
+        <p className="text-sm text-cream-300/70 mt-1">Workforce health, agents, local models, and system configuration.</p>
       </div>
-
-      {/* Organization management — sign-up approvals, live sessions, headcount. */}
-      <OrgManagement />
 
       {!status ? <Card><div className="text-sm text-cream-300/60">Loading…</div></Card> : (
         <>
@@ -74,6 +79,30 @@ export function Admin() {
 
           <Card title="Vault sync">
             <VaultSyncBlock stats={vaultStats} vaultPath={status.vaultPath} />
+          </Card>
+
+          <ModelsSection />
+
+          <Card title="Configuration">
+            <div className="text-xs text-cream-300/70 mb-3">NeuroWorks reads its config from <span className="font-mono">clawbot/.env</span>. Edit there and restart to apply changes durably.</div>
+            <ul className="text-xs space-y-1.5 font-mono text-cream-200">
+              <li><span className="text-cream-300/50">VAULT_PATH</span> — local Obsidian vault location</li>
+              <li><span className="text-cream-300/50">VAULT_REPO</span> — GitHub repo for the vault</li>
+              <li><span className="text-cream-300/50">GITHUB_TOKEN</span> — fine-grained PAT for Neuro</li>
+              <li><span className="text-cream-300/50">OLLAMA_MODEL</span> — default model (overridable above at runtime)</li>
+              <li><span className="text-cream-300/50">OLLAMA_PLAN_MODEL</span> — pin a model for planning (skips capability scorer)</li>
+              <li><span className="text-cream-300/50">OLLAMA_SYNTH_MODEL</span> — pin a model for synthesis</li>
+              <li><span className="text-cream-300/50">OLLAMA_TRIAGE_MODEL</span> — pin a model for triage / direct-answer classification</li>
+              <li><span className="text-cream-300/50">OLLAMA_EXTRACT_MODEL</span> — pin a model for JSON extraction (personas, quality)</li>
+              <li><span className="text-cream-300/50">NEUROWORKS_TRIAGE</span> — set to <span className="text-cream-300/40">0</span> to disable the direct-answer shortcut</li>
+              <li><span className="text-cream-300/50">NEUROWORKS_PEERS</span> — comma-separated peer URLs for delegation + review</li>
+              <li><span className="text-cream-300/50">NEUROWORKS_AUTO_REVIEW</span> — set to <span className="text-cream-300/40">0</span> to disable post-synthesis peer review</li>
+              <li><span className="text-cream-300/50">NEUROWORKS_OVERLOAD_THRESHOLD</span> — local in-flight count that triggers peer hand-off (default 2)</li>
+              <li><span className="text-cream-300/50">NEUROWORKS_VAULT_SCAN</span> — set to <span className="text-cream-300/40">0</span> to disable secret-scan gate on vault writes</li>
+              <li><span className="text-cream-300/50">NEUROWORKS_AUTO_REBASE_RECOVERY</span> — set to <span className="text-cream-300/40">1</span> to enable post-push rebase recovery (off by default — risky)</li>
+              <li><span className="text-cream-300/50">NEUROWORKS_NO_WARMUP</span> — set to <span className="text-cream-300/40">1</span> to skip Ollama pre-warm at boot</li>
+              <li><span className="text-cream-300/50">NEUROWORKS_PORT</span> — backend bind port</li>
+            </ul>
           </Card>
 
           <Card title="Workforce">
@@ -442,144 +471,121 @@ function ExternalAgentRow({ agent }: { agent: any }) {
   );
 }
 
-// ── Organization management ────────────────────────────────────────────────
-// The org-admin half of the Admin page: approve/reject self-signups (setting
-// the access layer + department at approval time), see who's signed in and
-// revoke sessions, and the headline headcount numbers. All backed by the
-// admin-gated /api/users/* org-management endpoints.
+function ModelsSection() {
+  const [data, setData] = useState<{ default: string; models: ModelInfo[]; recommendations: Record<string, string>; profiles: Record<string, Record<string, number>> } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
 
-function OrgManagement() {
-  const [pending, setPending] = useState<User[]>([]);
-  const [sessions, setSessions] = useState<{ id: string; name?: string; email?: string; role?: UserRole; createdAt: string; lastSeenAt: string }[]>([]);
-  const [overview, setOverview] = useState<any>(null);
-  const [denied, setDenied] = useState(false);
-
-  async function refresh() {
-    try {
-      const [p, se, ov] = await Promise.all([api.listPendingUsers(), api.listSessions(), api.orgOverview()]);
-      setPending(p.pending); setSessions(se.sessions); setOverview(ov);
-    } catch (e: any) {
-      if (e?.status === 403) setDenied(true);
-    }
+  async function load() {
+    try { setData(await api.listModels()); } catch (e: any) { setErr(e.message); }
   }
-  useEffect(() => { refresh(); const i = setInterval(refresh, 8000); return () => clearInterval(i); }, []);
+  useEffect(() => { load(); }, []);
 
-  if (denied) return null; // staff who somehow reach /admin see nothing here
-
-  return (
-    <div className="space-y-4">
-      {overview && (
-        <Card title="Organization">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-            <OrgStat label="People" value={overview.total} />
-            <OrgStat label="Pending approval" value={overview.pending} tone={overview.pending > 0 ? "warn" : "default"} />
-            <OrgStat label="Signed in now" value={sessions.length} />
-            <OrgStat label="Disabled" value={overview.disabled} />
-          </div>
-          <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-cream-300/60">
-            <span>Layers: <span className="text-cream-200">{overview.byLayer.superadmin} super · {overview.byLayer.admin} admin · {overview.byLayer.staff} staff</span></span>
-            <span>Work modes: <span className="text-cream-200">{overview.byWorkMode.agent} agent · {overview.byWorkMode.hybrid} hybrid · {overview.byWorkMode.human + overview.byWorkMode.unset} human</span></span>
-            <span>Departments: <span className="text-cream-200">{overview.byDepartment.slice(0, 5).map((d: any) => `${d.department} (${d.count})`).join(" · ")}</span></span>
-          </div>
-        </Card>
-      )}
-
-      {pending.length > 0 && (
-        <Card title={`Pending sign-ups (${pending.length})`}>
-          <div className="space-y-2">
-            {pending.map(u => <PendingRow key={u.id} u={u} onDone={refresh} />)}
-          </div>
-        </Card>
-      )}
-
-      <Card title={`Active sessions (${sessions.length})`}>
-        {sessions.length === 0 ? (
-          <div className="text-sm text-cream-300/60">Nobody is signed in right now.</div>
-        ) : (
-          <div className="space-y-1.5">
-            {sessions.map(se => (
-              <div key={se.id} className="flex items-center gap-3 py-1.5 px-2 rounded-lg bg-ink-950/50 border border-ink-800 text-[12px]">
-                <span className="w-1.5 h-1.5 rounded-full bg-leaf-500 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <span className="text-cream-100">{se.name ?? se.email ?? se.id}</span>
-                  <span className="text-cream-300/40 ml-2">{se.role ?? ""}</span>
-                </div>
-                <span className="text-cream-300/40 shrink-0">active {relAgo(se.lastSeenAt)}</span>
-                <button type="button" onClick={async () => { try { await api.revokeSession(se.id); showToast("Session revoked", "success"); refresh(); } catch (e: any) { showToast(e?.message ?? String(e), "error"); } }}
-                  className="text-[11px] text-cream-300/50 hover:text-coral-400 shrink-0">Revoke</button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-function relAgo(iso: string): string {
-  const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60); if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
-
-function OrgStat({ label, value, tone = "default" }: { label: string; value: any; tone?: "default" | "warn" }) {
-  return (
-    <div className={`rounded-lg border px-3 py-2 ${tone === "warn" ? "border-amber-400/30 bg-amber-400/10" : "border-ink-800 bg-ink-950/50"}`}>
-      <div className="text-[10px] uppercase tracking-wider text-cream-300/50">{label}</div>
-      <div className={`text-lg font-semibold ${tone === "warn" ? "text-amber-300" : "text-cream-100"}`}>{value}</div>
-    </div>
-  );
-}
-
-// One pending sign-up: the approver sets the access layer, department, and
-// work mode right on the card, then Approve activates in one click.
-function PendingRow({ u, onDone }: { u: User; onDone: () => void }) {
-  const [role, setRole] = useState<UserRole>("staff");
-  const [department, setDepartment] = useState(u.department ?? "");
-  const [workMode, setWorkMode] = useState<WorkMode>("human");
-  const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
-
-  async function approve() {
-    setBusy("approve");
+  async function setDefault(name: string) {
+    setBusy(name); setErr(""); setMsg("");
     try {
-      await api.approveUser(u.id, { role, department: department.trim() || undefined, workMode });
-      showToast(`${u.name} approved as ${role}`, "success");
-      onDone();
-    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
-    finally { setBusy(null); }
-  }
-  async function reject() {
-    if (!confirm(`Reject and delete the sign-up from ${u.name} (${u.email})?`)) return;
-    setBusy("reject");
-    try { await api.rejectUser(u.id); showToast("Sign-up rejected", "success"); onDone(); }
-    catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+      const r = await api.setDefaultModel(name);
+      setMsg(`Default is now ${r.default}. ${r.hint}`);
+      await load();
+    } catch (e: any) { setErr(e.message); }
     finally { setBusy(null); }
   }
 
-  const SEL = "bg-ink-950 border border-ink-800 text-[11px] text-cream-200 rounded px-1.5 py-1";
+  if (!data) {
+    return <Card title="Local models"><div className="text-sm text-cream-300/60">Loading models from Ollama…</div></Card>;
+  }
+
+  // Sort by score against a "balanced" need vector so the most useful model
+  // surfaces first. Simple heuristic: capabilities sum minus cost weight.
+  const ranked = [...data.models].sort((a, b) => {
+    const sa = a.capabilities.jsonStrict + a.capabilities.reasoning + a.capabilities.longForm + a.capabilities.speed - a.capabilities.cost * 0.5;
+    const sb = b.capabilities.jsonStrict + b.capabilities.reasoning + b.capabilities.longForm + b.capabilities.speed - b.capabilities.cost * 0.5;
+    return sb - sa;
+  });
+
+  // Reverse map: model → which profiles recommend it
+  const profileByModel: Record<string, string[]> = {};
+  for (const [profile, model] of Object.entries(data.recommendations)) {
+    (profileByModel[model] ??= []).push(profile);
+  }
+
   return (
-    <div className="rounded-lg border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2.5">
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex-1 min-w-[180px]">
-          <div className="text-sm text-cream-100">{u.name}</div>
-          <div className="text-[11px] text-cream-300/50">{u.email} · requested {relAgo(u.createdAt)}</div>
-        </div>
-        <select value={role} onChange={e => setRole(e.target.value as UserRole)} className={SEL} title="Access layer">
-          <option value="staff">staff</option>
-          <option value="admin">admin</option>
-          <option value="superadmin">super admin</option>
-        </select>
-        <input value={department} onChange={e => setDepartment(e.target.value)} placeholder="Department" className={`${SEL} w-32`} />
-        <select value={workMode} onChange={e => setWorkMode(e.target.value as WorkMode)} className={SEL} title="Work mode">
-          <option value="human">human</option>
-          <option value="hybrid">hybrid</option>
-          <option value="agent">agent</option>
-        </select>
-        <Button onClick={approve} disabled={busy !== null}>{busy === "approve" ? "Approving…" : "Approve"}</Button>
-        <button type="button" onClick={reject} disabled={busy !== null} className="text-[11px] text-cream-300/50 hover:text-coral-400">Reject</button>
+    <Card title="Local models">
+      <div className="text-xs text-cream-300/70 mb-3">
+        These are pulled into Ollama. The router scores each against the active task profile and picks the best fit per call.
+        Default model: <span className="font-mono text-cream-100">{data.default}</span>
       </div>
+      {msg && <div className="text-xs text-leaf-400 bg-leaf-500/10 border border-leaf-500/30 rounded-md px-3 py-2 mb-3">{msg}</div>}
+      {err && <div className="text-xs text-coral-400 bg-coral-500/10 border border-coral-500/30 rounded-md px-3 py-2 mb-3">{err}</div>}
+
+      <div className="space-y-2">
+        {ranked.map(m => (
+          <div key={m.name} className={`bg-ink-950 border rounded-lg p-3 ${m.name === data.default ? "border-violet-500/50" : "border-ink-800"}`}>
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="min-w-0">
+                <div className="font-mono text-sm text-cream-50">
+                  {m.name}
+                  {m.name === data.default && <span className="ml-2 text-[10px] uppercase tracking-wider bg-violet-500/20 text-violet-300 px-1.5 py-0.5 rounded border border-violet-500/30">default</span>}
+                </div>
+                <div className="text-[11px] text-cream-300/60 mt-0.5">
+                  {m.family}{m.paramSize ? ` · ${m.paramSize}` : ""}{m.sizeGB ? ` · ${m.sizeGB} GB` : ""}
+                </div>
+                {profileByModel[m.name] && (
+                  <div className="text-[10px] text-cream-300/50 mt-1">
+                    Picked for: {profileByModel[m.name].map(p => <span key={p} className="font-mono text-violet-400 mr-2">{p}</span>)}
+                  </div>
+                )}
+              </div>
+              {m.name !== data.default && (
+                <button
+                  onClick={() => setDefault(m.name)}
+                  disabled={busy === m.name}
+                  className="text-xs text-cream-100 bg-ink-800 hover:bg-ink-700 border border-ink-700 px-3 py-1 rounded-md disabled:opacity-50"
+                >
+                  {busy === m.name ? "…" : "Set default"}
+                </button>
+              )}
+            </div>
+            <CapabilityBars cap={m.capabilities} />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-ink-800">
+        <div className="text-[10px] uppercase tracking-wider text-cream-300/50 mb-2">Profile → Model routing</div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] font-mono">
+          {Object.entries(data.recommendations).map(([profile, model]) => (
+            <div key={profile} className="flex justify-between gap-3">
+              <span className="text-cream-300/60">{profile}</span>
+              <span className="text-cream-100 truncate">{model}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function CapabilityBars({ cap }: { cap: { jsonStrict: number; reasoning: number; longForm: number; speed: number; cost: number } }) {
+  const rows: { label: string; value: number; max: number; color: string; invert?: boolean }[] = [
+    { label: "JSON strict", value: cap.jsonStrict, max: 10, color: "bg-violet-500" },
+    { label: "Reasoning", value: cap.reasoning, max: 10, color: "bg-leaf-500" },
+    { label: "Long-form", value: cap.longForm, max: 10, color: "bg-flame-500" },
+    { label: "Speed", value: cap.speed, max: 10, color: "bg-cream-300" },
+    { label: "Cost", value: cap.cost, max: 10, color: "bg-coral-500", invert: true },
+  ];
+  return (
+    <div className="grid grid-cols-5 gap-2">
+      {rows.map(r => (
+        <div key={r.label} className="text-[10px]">
+          <div className="text-cream-300/60 mb-0.5">{r.label}{r.invert ? " (lower = better)" : ""}</div>
+          <div className="h-1 bg-ink-800 rounded overflow-hidden">
+            <div className={`h-full ${r.color}`} style={{ width: `${(r.value / r.max) * 100}%` }} />
+          </div>
+          <div className="text-cream-300/40 mt-0.5 font-mono">{r.value}/{r.max}</div>
+        </div>
+      ))}
     </div>
   );
 }

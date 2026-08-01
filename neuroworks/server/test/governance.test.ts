@@ -31,11 +31,10 @@ function constraint(over: Partial<ExtractedConstraint> = {}): ExtractedConstrain
 }
 
 describe("CONSEQUENTIAL_TOOLS", () => {
-  it("includes side-effecting tools that were the actual incident vector (email, vault write, github, payments)", () => {
+  it("includes side-effecting tools that were the actual incident vector (email, vault write, github)", () => {
     expect(CONSEQUENTIAL_TOOLS.has("email.send")).toBe(true);
     expect(CONSEQUENTIAL_TOOLS.has("vault.write")).toBe(true);
     expect(CONSEQUENTIAL_TOOLS.has("github.create_issue")).toBe(true);
-    expect(CONSEQUENTIAL_TOOLS.has("payment.link")).toBe(true);
     expect(CONSEQUENTIAL_TOOLS.has("code.exec")).toBe(true);
   });
 

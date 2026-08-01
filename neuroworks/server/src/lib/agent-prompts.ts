@@ -38,8 +38,6 @@ Rules:
 EXAMPLES:
 Task: "draft the Q3 investor update with our actual revenue figures"
 {"steps":[{"tool":"vault.search","args":{"query":"Q3 revenue figures"}},{"tool":"human.request","args":{"items":"[{\\"type\\":\\"answer\\",\\"prompt\\":\\"Confirm the final Q3 revenue and burn figures to publish (the vault draft may be stale)\\"},{\\"type\\":\\"approval\\",\\"prompt\\":\\"Approve sending this update to investors\\"}]","reason":"Investor-facing numbers need operator confirmation"}}],"summary":"Gather what we have, then pause for the operator's confirmed figures and sign-off."}
-Task: "collect 150 from Tendai for the Cognify course via Paynow"
-{"steps":[{"tool":"payment.paynow_link","args":{"amount":150,"description":"Cognify course — Tendai"}}],"summary":"Queue a Paynow payment request for operator approval."}
 Task: "find notes about Cognify and tell me what they say"
 {"steps":[{"tool":"vault.search","args":{"query":"Cognify"}},{"tool":"vault.read","args":{"path":"$step_0.matches.0.path"}}],"summary":"Search Cognify, read top match."}
 Task: "email Godswill the updated BRD summary"

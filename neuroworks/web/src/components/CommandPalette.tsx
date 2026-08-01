@@ -1,20 +1,29 @@
 import { Command } from "cmdk";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  MessageSquare, Users, ListChecks, FileText, CheckCircle2, Activity as ActivityIcon,
-  ShieldCheck, BookOpen, Library, Settings as SettingsIcon, Wrench, Sparkles,
-  UserCircle, PlusCircle, Search as SearchIcon, LayoutDashboard, Calendar, Shield,
-  Terminal as TerminalIcon, Plug,
-  type LucideIcon,
+  MessageSquare, Users, ListChecks, CheckCircle2,
+  BookOpen, Wrench, Sparkles,
+  UserCircle, PlusCircle, Search as SearchIcon, LayoutDashboard, Calendar,
+  Plug,
 } from "lucide-react";
 import { Kbd, MetaKey } from "./Kbd";
+import { matIcon } from "./FileIcon";
+
+// Same Atom Material icon matches used in Layout.tsx's nav rail, applied
+// here so the command palette reads as the same reskinned system.
+const ChangelogIcon = matIcon("changelog");
+const LogIcon = matIcon("log");
+const TemplateIcon = matIcon("template");
+const CertificateIcon = matIcon("certificate");
+const AdminFolderIcon = matIcon("folder-admin");
+const ConsoleIcon = matIcon("console");
 
 type Item = {
   id: string;
   label: string;
   group: "Navigate" | "Actions" | "Library";
-  icon: LucideIcon;
+  icon: ComponentType<{ size?: number | string; className?: string }>;
   onSelect: () => void;
   keywords?: string;
   shortcut?: string;
@@ -44,14 +53,14 @@ export function CommandPalette() {
   const items: Item[] = [
     { id: "n-dashboard", group: "Navigate", label: "Dashboard", icon: LayoutDashboard, onSelect: go("/dashboard"), keywords: "home overview" },
     { id: "n-chat", group: "Navigate", label: "Chat", icon: MessageSquare, onSelect: go("/chat"), keywords: "talk message" },
-    { id: "n-jarvis", group: "Navigate", label: "JARVIS", icon: Sparkles, onSelect: go("/jarvis"), keywords: "voice assistant mic talk speak" },
+    { id: "n-jarvis", group: "Navigate", label: "NaxionAI", icon: Sparkles, onSelect: go("/jarvis"), keywords: "voice assistant mic talk speak jarvis" },
     { id: "n-team", group: "Navigate", label: "Focus Team", icon: Users, onSelect: go("/team"), keywords: "team personas employees dispatch" },
     { id: "n-presets", group: "Navigate", label: "Hire a worker (Presets)", icon: Sparkles, onSelect: go("/presets"), keywords: "preset role hire onboard setup wizard sdr assistant recruiter" },
     { id: "n-tasks", group: "Navigate", label: "Tasks", icon: ListChecks, onSelect: go("/tasks"), keywords: "jobs queue" },
-    { id: "n-reports", group: "Navigate", label: "Reports", icon: FileText, onSelect: go("/results"), keywords: "results outputs" },
+    { id: "n-reports", group: "Navigate", label: "Reports", icon: ChangelogIcon, onSelect: go("/results"), keywords: "results outputs" },
     { id: "n-knowledge", group: "Navigate", label: "Knowledge vault", icon: BookOpen, onSelect: go("/knowledge"), keywords: "vault notes search" },
     { id: "n-approvals", group: "Navigate", label: "Approvals", icon: CheckCircle2, onSelect: go("/approvals"), keywords: "review pending" },
-    { id: "n-activity", group: "Navigate", label: "Activity feed", icon: ActivityIcon, onSelect: go("/activity"), keywords: "live log" },
+    { id: "n-activity", group: "Navigate", label: "Activity feed", icon: LogIcon, onSelect: go("/activity"), keywords: "live log" },
     { id: "n-my-work", group: "Navigate", label: "My Work", icon: Users, onSelect: go("/my-work"), keywords: "handoffs assignments human loop upload submit delegate" },
     { id: "n-schedules", group: "Navigate", label: "Schedules", icon: Calendar, onSelect: go("/schedules"), keywords: "cron recurring schedule" },
 
@@ -60,14 +69,13 @@ export function CommandPalette() {
     { id: "a-search-vault", group: "Actions", label: "Search the vault", icon: SearchIcon, onSelect: go("/knowledge") },
     { id: "a-new-schedule", group: "Actions", label: "Create a schedule", icon: Calendar, onSelect: go("/schedules"), keywords: "recurring template fire" },
 
-    { id: "l-templates", group: "Library", label: "Templates", icon: Library, onSelect: go("/templates") },
+    { id: "l-templates", group: "Library", label: "Templates", icon: TemplateIcon, onSelect: go("/templates") },
     { id: "l-skills", group: "Library", label: "Skills", icon: Sparkles, onSelect: go("/skills") },
     { id: "l-personas", group: "Library", label: "Employees", icon: UserCircle, onSelect: go("/personas"), keywords: "personas roles" },
-    { id: "l-governance", group: "Library", label: "Governance", icon: Shield, onSelect: go("/governance"), keywords: "policy guardrail compliance" },
-    { id: "l-admin", group: "Library", label: "Admin", icon: ShieldCheck, onSelect: go("/admin") },
+    { id: "l-governance", group: "Library", label: "Instructions and Policies", icon: CertificateIcon, onSelect: go("/governance"), keywords: "policy guardrail compliance governance" },
+    { id: "l-admin", group: "Library", label: "Admin", icon: AdminFolderIcon, onSelect: go("/admin") },
     { id: "l-integrations", group: "Library", label: "Integrations", icon: Plug, onSelect: go("/integrations"), keywords: "connect slack telegram github notion social oauth api" },
-    { id: "l-terminal", group: "Library", label: "Terminal", icon: TerminalIcon, onSelect: go("/terminal"), keywords: "shell command console run" },
-    { id: "l-settings", group: "Library", label: "Settings", icon: SettingsIcon, onSelect: go("/settings") },
+    { id: "l-terminal", group: "Library", label: "Terminal", icon: ConsoleIcon, onSelect: go("/terminal"), keywords: "shell command console run" },
     { id: "l-tools", group: "Library", label: "Tools", icon: Wrench, onSelect: go("/admin"), keywords: "config" },
   ];
 

@@ -34,8 +34,7 @@ import { verifyApiKey, keyHasScope } from "./api-keys.js";
 
 // Mirrors origin-guard's exemption list, plus the extra surfaces that already
 // carry their own strictly-stronger auth (dispatch API keys, finance sync
-// token, Stripe/Paynow signature checks) or that must stay reachable to log
-// in at all.
+// token) or that must stay reachable to log in at all.
 //
 // IMPORTANT: only the specific auth endpoints needed to OBTAIN a session are
 // exempt (login/signup/session-check/logout) — NOT the whole /api/auth/
@@ -46,8 +45,6 @@ import { verifyApiKey, keyHasScope } from "./api-keys.js";
 const EXEMPT_PATHS = new Set<string>([
   "/api/health",
   "/api/peers/self",
-  "/api/payments/webhook",
-  "/api/payments/paynow/result",
   "/api/auth/login",
   "/api/auth/signup",
   "/api/auth/session",

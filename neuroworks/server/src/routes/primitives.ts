@@ -71,11 +71,6 @@ const DEFAULT_ALLOWLIST = [
   "web.search", "web.fetch", "web.scrape", "web.firecrawl",
   // Document text extraction (read-only)
   "doc.ocr",
-  // Payments — status/reporting, plus Paynow REQUESTS. paynow_link is safe to
-  // expose: since 2026-07-04 it never moves money itself — it queues an
-  // awaiting-approval job the operator must confirm on the Approvals page.
-  // (payment.link — Stripe — still charges directly, so it stays excluded.)
-  "payment.status", "payment.list", "payment.paynow_link", "payment.paynow_poll",
 ];
 
 function allowlist(): Set<string> {

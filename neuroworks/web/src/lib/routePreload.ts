@@ -39,17 +39,14 @@ const preloaders: Record<string, Thunk> = {
   "/skill-forge": () => import("../pages/SkillForge"),
   "/orchestrate": () => import("../pages/Orchestrate"),
   "/knowledge": () => import("../pages/Knowledge"),
-  "/users": () => import("../pages/Users"),
   "/data-sources": () => import("../pages/DataSources"),
   "/data-pipeline": () => import("../pages/DataPipeline"),
   "/models": () => import("../pages/Models"),
   "/connectors": () => import("../pages/Connectors"),
   "/integrations": () => import("../pages/Integrations"),
-  "/payments": () => import("../pages/Payments"),
   "/terminal": () => import("../pages/Terminal"),
   "/governance": () => import("../pages/Governance"),
   "/admin": () => import("../pages/Admin"),
-  "/settings": () => import("../pages/Settings"),
 };
 
 const warmed = new Set<string>();

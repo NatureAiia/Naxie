@@ -24,14 +24,13 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Route-level code splitting. Login/Onboarding load eagerly (they're the
-// first thing an unauthenticated visitor sees); everything behind the app
-// shell is fetched on demand — a user opening the app to check one page
-// shouldn't download all 30+ pages' worth of JS up front. Each page becomes
-// its own fingerprinted chunk (see vite.config.ts's manualChunks for the
-// vendor split that pairs with this), so a change to one page doesn't bust
-// the cache for the others either.
-import { Login } from "./pages/Login";
+// Route-level code splitting. Onboarding loads eagerly (it's the first thing
+// a fresh workspace sees); everything behind the app shell is fetched on
+// demand — a user opening the app to check one page shouldn't download all
+// 30+ pages' worth of JS up front. Each page becomes its own fingerprinted
+// chunk (see vite.config.ts's manualChunks for the vendor split that pairs
+// with this), so a change to one page doesn't bust the cache for the others
+// either.
 import { Onboarding } from "./pages/Onboarding";
 const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
 const Tasks = lazy(() => import("./pages/Tasks").then(m => ({ default: m.Tasks })));
@@ -42,7 +41,6 @@ const Security = lazy(() => import("./pages/Security").then(m => ({ default: m.S
 const Activity = lazy(() => import("./pages/Activity").then(m => ({ default: m.Activity })));
 const Knowledge = lazy(() => import("./pages/Knowledge").then(m => ({ default: m.Knowledge })));
 const Admin = lazy(() => import("./pages/Admin").then(m => ({ default: m.Admin })));
-const Settings = lazy(() => import("./pages/Settings").then(m => ({ default: m.Settings })));
 const Chat = lazy(() => import("./pages/Chat").then(m => ({ default: m.Chat })));
 const Personas = lazy(() => import("./pages/Personas").then(m => ({ default: m.Personas })));
 const Team = lazy(() => import("./pages/Team").then(m => ({ default: m.Team })));
@@ -57,9 +55,7 @@ const DataSources = lazy(() => import("./pages/DataSources").then(m => ({ defaul
 const Terminal = lazy(() => import("./pages/Terminal").then(m => ({ default: m.Terminal })));
 const Integrations = lazy(() => import("./pages/Integrations").then(m => ({ default: m.Integrations })));
 const Connectors = lazy(() => import("./pages/Connectors").then(m => ({ default: m.Connectors })));
-const Payments = lazy(() => import("./pages/Payments").then(m => ({ default: m.Payments })));
 const Presets = lazy(() => import("./pages/Presets").then(m => ({ default: m.Presets })));
-const Users = lazy(() => import("./pages/Users").then(m => ({ default: m.Users })));
 const Workforce = lazy(() => import("./pages/Workforce").then(m => ({ default: m.Workforce })));
 const Departments = lazy(() => import("./pages/Departments").then(m => ({ default: m.Departments })));
 const KnowledgePacks = lazy(() => import("./pages/KnowledgePacks").then(m => ({ default: m.KnowledgePacks })));
@@ -127,8 +123,6 @@ function AppShell() {
         <Route path="/terminal" element={<Terminal />} />
         <Route path="/integrations" element={<Integrations />} />
         <Route path="/connectors" element={<Connectors />} />
-        <Route path="/payments" element={<Payments />} />
-        <Route path="/users" element={<Users />} />
         <Route path="/workforce" element={<Workforce />} />
         <Route path="/departments" element={<Departments />} />
         <Route path="/knowledge-packs" element={<KnowledgePacks />} />
@@ -141,7 +135,6 @@ function AppShell() {
         <Route path="/orchestrate" element={<Orchestrate />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/personas" element={<Personas />} />
-        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/dashboard" />} />
       </Routes>
       </Suspense>
@@ -150,10 +143,9 @@ function AppShell() {
 }
 
 export default function App() {
-  // /login and /onboarding render bare (no sidebar/header); everything else inside the app shell.
+  // /onboarding renders bare (no sidebar/header); everything else inside the app shell.
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
       <Route path="/onboarding" element={<Onboarding />} />
       <Route path="*" element={<AppShell />} />
     </Routes>

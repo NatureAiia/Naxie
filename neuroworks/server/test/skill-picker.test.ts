@@ -117,15 +117,6 @@ describe("skill picker", () => {
     expect(picks.map(p => p.name)).not.toContain("human-handoff");
   });
 
-  it("routes 'send a Paynow payment link' to payment-collection", () => {
-    const picks = suggestSkillsForTask(
-      "collect payment from Tendai — send a payment link for the course",
-      undefined,
-      1,
-    );
-    expect(picks[0].name).toBe("payment-collection");
-  });
-
   it("routes 'publish this dataset to Intellinexus' to dataset-publish", () => {
     const picks = suggestSkillsForTask(
       "publish this data to Intellinexus so the other agents can use it",

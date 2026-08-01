@@ -85,9 +85,9 @@ export function Governance() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-cream-50">Governance</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-cream-50">Instructions and Policies</h1>
         <p className="text-sm text-cream-300/70 mt-1">
-          Upload company policies, codes of conduct, data-handling rules, brand voice guides. Every file here becomes a guardrail prepended to Neuro's system prompt on every task.
+          Upload policies, codes of conduct, data-handling rules, brand voice guides. These are the rules and regulations Neuro follows before working in the system — every file here becomes a guardrail prepended to its system prompt on every task.
         </p>
       </div>
 

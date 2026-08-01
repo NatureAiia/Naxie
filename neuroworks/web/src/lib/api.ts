@@ -163,10 +163,6 @@ export const api = {
     req<{ added: number; errors: { row: number; error: string }[] }>("/api/cost/human-work", { method: "POST", body: JSON.stringify(body) }),
   updatePersona: (id: string, patch: { workMode?: WorkMode; tone?: string; description?: string; role?: string; language?: "en" | "sn" | "nd" }) =>
     req<{ persona: any }>(`/api/personas/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
-  // Paynow (Zimbabwe) gateway — sits alongside Stripe.
-  paynowStatus: () => req<{ enabled: boolean; provider: "paynow"; integrationId?: string; detail?: string }>("/api/payments/paynow/status"),
-  createPaynowLink: (body: { amount: number; description: string; reference?: string; email?: string }) =>
-    req<{ payment: { reference: string; amount: number; browserUrl: string; pollUrl: string; status: string } }>("/api/payments/paynow/links", { method: "POST", body: JSON.stringify(body) }),
   // First-run bootstrap: is the org empty (no accounts yet)?
   authState: () => req<{ needsBootstrap: boolean }>("/api/auth/state"),
   // Self-signup + admin approval + org management (Admin page). On first run the
@@ -187,8 +183,6 @@ export const api = {
   removeRestriction: (id: string) => req<{ ok: true }>(`/api/users/restrictions/${encodeURIComponent(id)}`, { method: "DELETE" }),
   // Layer bundles — what each access level sees (Add-user modal preview).
   accessLayers: () => req<{ layers: Record<AccessLayer, { label: string; sees: string[]; hidden: string[] }> }>("/api/auth/layers"),
-  paynowPoll: (pollUrl: string) =>
-    req<{ status: { reference?: string; paynowReference?: string; amount?: number; status: string; paid: boolean; hashValid: boolean } }>("/api/payments/paynow/poll", { method: "POST", body: JSON.stringify({ pollUrl }) }),
   approveJob: (id: string, editedPlan?: any) =>
     req<{ jobId: string; status: string }>(`/api/templates/jobs/${id}/approve`, {
       method: "POST",
@@ -204,6 +198,7 @@ export const api = {
   // Relative URL — downloads through the Vite proxy (same-origin). Works for text + binary.
   brainDownloadUrl: (path: string) => `/api/brain/download?path=${encodeURIComponent(path)}`,
   brainSearch: (q: string) => req<{ q: string; results: { path: string; line: number; preview: string }[] }>(`/api/brain/search?q=${encodeURIComponent(q)}`),
+  brainGraph: () => req<{ nodes: { id: string; label: string; group: string; kind: "note" | "tag" }[]; links: { source: string; target: string }[]; docCount: number }>("/api/brain/graph"),
   brainLatestDigest: () => req<{ content: string }>("/api/brain/digest/latest"),
   brainPromote: (path: string, opts?: { title?: string; tags?: string; keepOriginal?: boolean }) => req<{ promoted: true; from: string; to: string; archived: boolean }>("/api/brain/promote", { method: "POST", body: JSON.stringify({ path, ...opts }) }),
   brainDiscard: (path: string) => req<{ deleted: string[]; count: number }>("/api/brain/discard", { method: "POST", body: JSON.stringify({ path }) }),
@@ -429,6 +424,12 @@ export const api = {
   voiceStatus: () => req<{ realtime: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean }>("/api/voice/status"),
   voiceAsk: (jobId: string, question: string, personaId?: string, history?: { q: string; a: string }[]) =>
     req<{ text: string; personaName: string }>("/api/voice/ask", { method: "POST", body: JSON.stringify({ jobId, question, personaId, history }) }),
+  // JARVIS's general conversation — a direct model passthrough (no task
+  // planner, no template matching, no canned strings). `model` forces a
+  // specific locally-pulled Ollama model for this turn; omit it to use
+  // whatever model/provider is currently active.
+  voiceConverse: (messages: { role: "user" | "assistant"; content: string }[], model?: string) =>
+    req<{ text: string; model: string }>("/api/voice/converse", { method: "POST", body: JSON.stringify({ messages, ...(model ? { model } : {}) }) }),
   voiceTts: async (text: string, personaId?: string): Promise<Blob> => {
     const token = getToken();
     const r = await fetch("/api/voice/tts", {
@@ -445,9 +446,6 @@ export const api = {
   // spend lands in the Cost monitor — the server can't observe WebRTC traffic.
   voiceReportUsage: (model: string, inputTokens: number, outputTokens: number) =>
     req<{ ok: boolean; recorded: boolean; costUsd?: number }>("/api/voice/usage", { method: "POST", body: JSON.stringify({ model, inputTokens, outputTokens }) }),
-  sttStatus: () => req<{ enabled: boolean; provider: string; hint?: string }>("/api/stt/status"),
-  transcribe: (audioBase64: string) => req<{ ok: true; text: string; language: string | null }>("/api/stt", { method: "POST", body: JSON.stringify({ audioBase64 }) }),
-  sttRealtimeToken: () => req<{ token: string; expiresInSeconds: number; sampleRate: number }>("/api/stt/realtime-token"),
   terminalStatus: () => req<{ enabled: boolean; cwd: string; shell: "powershell" | "bash"; platform: string; hint?: string }>("/api/terminal/status"),
   terminalExec: (command: string, cwd?: string) => req<{
     ok: true;
@@ -503,17 +501,6 @@ export const api = {
   addMyTaskStep: (itemId: string, title: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/steps`, { method: "POST", body: JSON.stringify({ title }) }),
   toggleMyTaskStep: (itemId: string, stepId: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/steps/${encodeURIComponent(stepId)}`, { method: "PATCH" }),
   removeMyTaskStep: (itemId: string, stepId: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/steps/${encodeURIComponent(stepId)}`, { method: "DELETE" }),
-
-  // Payments (Stripe gateway).
-  paymentStatus: () => req<PaymentGatewayStatus>("/api/payments/status"),
-  createPaymentLink: (body: { amount: number; description: string; currency?: string; productName?: string }) =>
-    req<{ link: PaymentLink }>("/api/payments/links", { method: "POST", body: JSON.stringify(body) }),
-  listPrices: () => req<{ prices: PaymentPrice[] }>("/api/payments/prices"),
-  createCheckout: (body: { priceId: string; mode?: "subscription" | "payment"; customerEmail?: string; quantity?: number }) =>
-    req<{ session: { id: string; url: string } }>("/api/payments/checkout", { method: "POST", body: JSON.stringify(body) }),
-  billingPortal: (body: { customerId: string; returnUrl?: string }) =>
-    req<{ session: { id: string; url: string } }>("/api/payments/portal", { method: "POST", body: JSON.stringify(body) }),
-  listPayments: (limit = 20) => req<{ payments: PaymentRecord[] }>(`/api/payments/payments?limit=${limit}`),
 
   // Auth (identity layer) + Users directory.
   login: (email: string, password: string) =>
@@ -743,14 +730,6 @@ export type ConnectorCallResult = {
   ok: boolean; status: number; url: string; method: string;
   contentType?: string; body: any; truncated?: boolean; error?: string;
 };
-
-export type PaymentGatewayStatus = {
-  enabled: boolean; provider: "stripe"; currency: string;
-  publishableKey?: string; livemode?: boolean; account?: string; detail?: string;
-};
-export type PaymentLink = { id: string; url: string; amount: number; currency: string; description: string };
-export type PaymentPrice = { id: string; nickname?: string; productName?: string; unitAmount: number | null; currency: string; interval?: string };
-export type PaymentRecord = { id: string; amount: number; currency: string; status: string; description?: string; created: number; receiptEmail?: string };
 
 export type IntegrationProvider = {
   id: string;

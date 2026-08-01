@@ -22,14 +22,13 @@ export default {
           200: "var(--c-cream-200)",
           300: "var(--c-cream-300)",
         },
-        // Midnight-blueprint accents (AuthKit reference). Electric Iris is the
-        // ONLY first-class action colour; Ember is the warm alternative accent;
-        // Cipher Mint covers success. Saturated fills stay on actions only —
-        // everything else is ghost/hairline/neutral.
-        flame: { 400: "#e46d4c", 500: "#d05a3a", 600: "#b04727" },   // Ember
-        coral: { 400: "#ff7657", 500: "#ee5a3c", 600: "#c94327" },
-        violet: { 400: "#7d57f6", 500: "#663af3", 600: "#5128d6" },  // Electric Iris
-        leaf: { 400: "#3fb3a0", 500: "#269684" },                    // Cipher Mint
+        // Accent tokens as CSS vars (see index.css) so dark mode can carry
+        // Atom One Dark's syntax palette while light mode keeps the original
+        // Midnight-blueprint accents unchanged.
+        flame: { 400: "var(--c-flame-400)", 500: "var(--c-flame-500)", 600: "var(--c-flame-600)" },
+        coral: { 400: "var(--c-coral-400)", 500: "var(--c-coral-500)", 600: "var(--c-coral-600)" },
+        violet: { 400: "var(--c-violet-400)", 500: "var(--c-violet-500)", 600: "var(--c-violet-600)" },
+        leaf: { 400: "var(--c-leaf-400)", 500: "var(--c-leaf-500)" },
       },
       fontFamily: {
         // Display face = Playfair Display (2026-07-13) — a transitional serif

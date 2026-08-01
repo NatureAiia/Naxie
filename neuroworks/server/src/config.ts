@@ -97,30 +97,6 @@ const muapiBaseUrl = pick("MUAPI_BASE_URL", "https://api.muapi.ai");
 // Ideogram (quality) then Muapi (breadth); or pin "ideogram" | "muapi".
 const studioImageProvider = pick("STUDIO_IMAGE_PROVIDER", "auto").toLowerCase();
 
-// Payments — Stripe gateway for outbound billing (agents create payment links
-// to bill clients) AND platform subscriptions (checkout sessions + billing
-// portal). Implemented over the Stripe REST API via fetch — no SDK dependency.
-// Gated on STRIPE_SECRET_KEY; absent = payments simply aren't offered. The
-// webhook secret authenticates inbound Stripe events (signature, not origin).
-const stripeSecretKey = pick("STRIPE_SECRET_KEY", "");
-const stripePublishableKey = pick("STRIPE_PUBLISHABLE_KEY", "");
-const stripeWebhookSecret = pick("STRIPE_WEBHOOK_SECRET", "");
-// Default settlement currency. ZAR — rubiem.com is a South African operation.
-const paymentsCurrency = pick("PAYMENTS_CURRENCY", "zar").toLowerCase();
-// Where Stripe-hosted checkout returns the payer after success/cancel.
-const paymentsSuccessUrl = pick("PAYMENTS_SUCCESS_URL", "https://neuroworks.local/paid");
-const paymentsCancelUrl = pick("PAYMENTS_CANCEL_URL", "https://neuroworks.local/cancelled");
-
-// Paynow (Zimbabwe) gateway — local-market payments (EcoCash, OneMoney, cards,
-// bank). Gated on both credentials being present; sits alongside Stripe, not
-// instead of it. resulturl is where Paynow POSTs status updates (must be
-// publicly reachable in production); returnurl is where the payer lands after.
-const paynowIntegrationId = pick("PAYNOW_INTEGRATION_ID", "");
-const paynowIntegrationKey = pick("PAYNOW_INTEGRATION_KEY", "");
-const paynowMerchantEmail = pick("PAYNOW_MERCHANT_EMAIL", "");
-const paynowResultUrl = pick("PAYNOW_RESULT_URL", "https://neuroworks.local/api/payments/paynow/result");
-const paynowReturnUrl = pick("PAYNOW_RETURN_URL", "https://neuroworks.local/paid");
-
 // Hermes executor — when the primary executor is switched to Hermes (runtime
 // toggle, see executor-mode.ts), tasks run through the Hermes CLI instead of
 // clawbot's plan/execute pipeline. Hermes's own configured default model
@@ -213,20 +189,6 @@ export const config = {
   // OpenRouter key applied at runtime by an active provider (the zero-config
   // path that makes image generation live out of the box).
   studioImageEnabled: ideogramApiKey.length > 0 || muapiApiKey.length > 0 || openrouterApiKey.length > 0,
-  stripeSecretKey,
-  stripePublishableKey,
-  stripeWebhookSecret,
-  paymentsCurrency,
-  paymentsSuccessUrl,
-  paymentsCancelUrl,
-  paymentsEnabled: stripeSecretKey.length > 0,
-  paymentsProvider: "stripe" as const,
-  paynowIntegrationId,
-  paynowIntegrationKey,
-  paynowMerchantEmail,
-  paynowResultUrl,
-  paynowReturnUrl,
-  paynowEnabled: paynowIntegrationId.length > 0 && paynowIntegrationKey.length > 0,
   hermesModel,
   hermesProvider,
   hermesLocalModel,

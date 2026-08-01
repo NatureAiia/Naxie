@@ -342,29 +342,6 @@ templatesRouter.post("/jobs/:id/approve", requireLayer("admin"), async (req, res
   j.log.push(`[${j.approvedAt}] approved`);
   res.json({ jobId: j.id, status: "approved" });
 
-  // Agent-requested Paynow payment: money moves ONLY here, after the operator
-  // clicked approve. The primitive queued the amount/description; approval
-  // executes the real gateway call and the pay link lands in the job result
-  // (visible on Reports + pollable via payment.paynow_poll).
-  if (j.kind === "payments:paynow-approval") {
-    void runJob(j, async (push) => {
-      const inputs: any = j.inputs ?? {};
-      push(`Approved — creating Paynow payment: ${Number(inputs.amount).toFixed(2)} (${String(inputs.description ?? "")})`);
-      const { createPaynowPayment } = await import("../lib/paynow.js");
-      const p = await createPaynowPayment({
-        amount: Number(inputs.amount),
-        description: String(inputs.description ?? ""),
-        reference: inputs.reference ? String(inputs.reference) : undefined,
-        email: inputs.email ? String(inputs.email) : undefined,
-      });
-      push(`Payment created — reference ${p.reference}.`);
-      return {
-        answer: `**Paynow payment created** (approved by operator)\n\n- Pay link (send to the client): ${p.browserUrl}\n- Reference: \`${p.reference}\`\n- Amount: ${p.amount.toFixed(2)}\n\nStatus can be checked any time with payment.paynow_poll or the Payments page.`,
-        payment: p,
-      };
-    });
-    return;
-  }
   // Plan-approval job: execute the EXACT plan the user reviewed (no re-planning),
   // then let planAndExecute finish the loop (synthesise → answer). Empty plans
   // fall through to the normal plan/synth path.

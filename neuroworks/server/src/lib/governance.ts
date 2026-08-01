@@ -396,7 +396,6 @@ export const CONSEQUENTIAL_TOOLS = new Set([
   "github.create_issue", "github.comment_on_issue", "github.update_issue", "github.request_review",
   "webhook.post", "slack.post", "telegram.send", "discord.post", "msteams.post", "googlechat.post",
   "connector.call",
-  "payment.link", "payment.paynow_link",
   "db.write",
   "code.exec",
 ]);

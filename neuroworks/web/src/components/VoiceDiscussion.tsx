@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { Button, showToast } from "./Card";
 import { Mic, MicOff, Square, Loader2, Volume2, VolumeX, Phone, PhoneOff, Send, MessageCircle } from "lucide-react";
-import { useAudioRecorder } from "../lib/useAudioRecorder";
+import { useSpeechRecognition } from "../lib/useSpeechRecognition";
 
 // Talk to the employee about their report. Three tiers, best available wins:
 //   A. Live call — WebRTC full-duplex with the provider (server mints a
 //      short-lived secret; report preloaded as session context).
 //   B. Ask → answer spoken by the LOCAL TTS sidecar (/api/voice/tts).
 //   C. Ask → answer spoken by the browser's own speechSynthesis.
-// Question input is typed or spoken (mic → /api/stt) in tiers B/C.
+// Question input is typed or spoken (browser SpeechRecognition, no key) in tiers B/C.
 
 type Turn = { q: string; a: string };
 
@@ -39,8 +39,9 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [live, setLive] = useState<"off" | "connecting" | "on">("off");
-  const [sttOn, setSttOn] = useState(false);
-  const rec = useAudioRecorder();
+  const mic = useSpeechRecognition();
+  const micTextRef = useRef("");
+  const micWasActiveRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const liveStreamRef = useRef<MediaStream | null>(null);
@@ -56,10 +57,21 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
 
   useEffect(() => {
     api.voiceStatus().then(setStatus).catch(() => setStatus({ realtime: false, localTts: false }));
-    api.sttStatus().then(r => setSttOn(r.enabled)).catch(() => {});
     return () => { stopSpeaking(); endCall(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
+
+  // Mic stopped (button tap or the browser auto-ending recognition) — send
+  // whatever final transcript accumulated during this listening session.
+  useEffect(() => {
+    if (micWasActiveRef.current && !mic.active) {
+      const text = micTextRef.current.trim();
+      micTextRef.current = "";
+      if (text) void ask(text);
+    }
+    micWasActiveRef.current = mic.active;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mic.active]);
 
   function stopSpeaking() {
     try { window.speechSynthesis?.cancel(); } catch { /* not supported */ }
@@ -116,19 +128,17 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
   }
 
   async function micAsk() {
-    if (rec.recording) {
-      const blob = await rec.stop();
-      if (!blob) return;
-      setBusy(true);
-      try {
-        const b64 = await blobToDataUrl(blob);
-        const t = await api.transcribe(b64);
-        if (t.text.trim()) await ask(t.text);
-        else showToast("Didn't catch that — try again", "error");
-      } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
-      finally { setBusy(false); }
-    } else {
-      await rec.start();
+    if (mic.active) {
+      mic.stop();
+      return;
+    }
+    micTextRef.current = "";
+    try {
+      await mic.start((transcript, isFinal) => {
+        if (isFinal) micTextRef.current = (micTextRef.current ? micTextRef.current.replace(/\s+$/, "") + " " : "") + transcript;
+      });
+    } catch (e: any) {
+      showToast(e?.message ?? String(e), "error");
     }
   }
 
@@ -327,32 +337,23 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
           disabled={busy}
           className="flex-1 bg-ink-950 border border-ink-800 rounded-lg px-3 py-2.5 text-sm text-cream-100 focus:outline-none focus:border-violet-500/60 disabled:opacity-50"
         />
-        {sttOn && rec.supported && live !== "on" && (
+        {mic.supported && live !== "on" && (
           <button
             type="button"
             onClick={micAsk}
             disabled={busy}
-            title={rec.recording ? "Stop and send" : "Ask by voice"}
-            className={`p-2.5 rounded-lg border transition-colors ${rec.recording ? "bg-coral-500/15 border-coral-500/50 text-coral-400 animate-pulse" : "bg-ink-950 border-ink-800 text-cream-300/70 hover:border-violet-500/40"}`}
+            title={mic.active ? "Stop and send" : "Ask by voice"}
+            className={`p-2.5 rounded-lg border transition-colors ${mic.active ? "bg-coral-500/15 border-coral-500/50 text-coral-400 animate-pulse" : "bg-ink-950 border-ink-800 text-cream-300/70 hover:border-violet-500/40"}`}
           >
-            {rec.recording ? <Square size={15} /> : busy ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
+            {mic.active ? <Square size={15} /> : busy ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
           </button>
         )}
-        {rec.recording && <MicWaveform />}
-        {!rec.supported && live !== "on" && <MicOff size={15} className="text-cream-300/30" />}
+        {mic.active && <MicWaveform />}
+        {!mic.supported && live !== "on" && <MicOff size={15} className="text-cream-300/30" />}
         <Button onClick={() => ask(q)} disabled={busy || !q.trim()}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} {live === "on" ? "Send" : "Ask"}
         </Button>
       </div>
     </section>
   );
-}
-
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result));
-    fr.onerror = () => reject(fr.error);
-    fr.readAsDataURL(blob);
-  });
 }

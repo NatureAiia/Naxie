@@ -10,10 +10,9 @@ import { useEffect, useRef } from "react";
 // Page Visibility API when the tab isn't visible, and skips the RAF loop
 // entirely under prefers-reduced-motion (paints one settled frame instead).
 //
-// Tuned down from the demo defaults (500 particles, full brightness/glitter)
-// to read as ambient depth behind content, not a foreground attraction —
-// this sits behind text on every page. Palette pulled from the app's own
-// accent tokens (tailwind.config.js) instead of the demo's white/red/yellow.
+// Uses the Originkit "Glitter Wrap" preset (751 particles, violet/green/cyan,
+// full brightness/glitter) as shipped — a denser, brighter field than the
+// app's previous ambient tuning.
 
 function parseColor(input: string): [number, number, number, number] {
   if (!input) return [255, 255, 255, 1];
@@ -49,21 +48,19 @@ type GlitterBackgroundProps = {
 };
 
 export function GlitterBackground({
-  // Glacier (cream-50) — the bulk of the field, matches heading text colour.
-  color1 = "#d8ecf8",
-  // Electric Iris (violet-400) — the app's one first-class action colour.
-  color2 = "#7d57f6",
-  // Ember (flame-400) — the warm secondary accent.
-  color3 = "#e46d4c",
-  particleCount = 160,
-  speed = 2.2,
-  density = 100,
-  starSize = 9,
+  // Originkit "Glitter Wrap" preset — violet/green/cyan sparkle field.
+  color1 = "#8800CF",
+  color2 = "#00FF17",
+  color3 = "#00C8E3",
+  particleCount = 751,
+  speed = 6,
+  density = 90,
+  starSize = 15,
   focalDepth = 13,
-  turbulence = 0.6,
-  brightness = 42,
-  glitterIntensity = 1.2,
-  trailAmount = 88,
+  turbulence = 10,
+  brightness = 75, // dimmed 25% off the Originkit preset's full 100 — techy, not blinding
+  glitterIntensity = 5,
+  trailAmount = 75,
   reverse = false,
 }: GlitterBackgroundProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -82,9 +79,9 @@ export function GlitterBackground({
 
   const colorCacheRef = useRef({
     color1: "" as string, color2: "" as string, color3: "" as string,
-    parsed1: [255, 255, 255, 1] as [number, number, number, number],
-    parsed2: [125, 87, 246, 1] as [number, number, number, number],
-    parsed3: [228, 109, 76, 1] as [number, number, number, number],
+    parsed1: [136, 0, 207, 1] as [number, number, number, number],
+    parsed2: [0, 255, 23, 1] as [number, number, number, number],
+    parsed3: [0, 200, 227, 1] as [number, number, number, number],
   });
   const getCachedColors = () => {
     const p = propsRef.current;

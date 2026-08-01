@@ -315,7 +315,7 @@ export function Dashboard() {
               secondary row under "Where time goes". */}
           {orgStatus && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Link to="/users" className="bg-ink-900 border border-ink-800 hover:border-violet-500/40 rounded-xl p-4 transition-colors">
+            <Link to="/workforce" className="bg-ink-900 border border-ink-800 hover:border-violet-500/40 rounded-xl p-4 transition-colors">
               <div className="flex items-center gap-2 text-xs text-cream-300/60 mb-1.5"><Users size={13} /> The organization</div>
               <div className="font-display text-2xl text-cream-50">{liveNeuros} <span className="text-sm text-cream-300/50">neuros</span> · {org?.total ?? 0} <span className="text-sm text-cream-300/50">humans</span></div>
               <div className="text-[11px] text-cream-300/50 mt-1 truncate">{(org?.byWorkMode?.human ?? 0) + (org?.byWorkMode?.hybrid ?? 0)} hands-on · {personas.length} roles defined</div>
@@ -752,7 +752,7 @@ function ClawbotFleet({ fleet, externalAgents, running, templatesCount, tasksTod
               <span className="text-[10px] font-mono shrink-0 text-cream-300/50 flex items-center gap-1"><UserIcon size={9} />{u.workMode === "human" ? "hands-on" : u.workMode === "hybrid" ? "hybrid" : "person"}</span>
             </div>
           ))}
-          {users.length > 8 && <Link to="/users" className="block text-center text-[11px] text-violet-400 hover:text-violet-300 pt-1">+{users.length - 8} more · manage people →</Link>}
+          {users.length > 8 && <Link to="/workforce" className="block text-center text-[11px] text-violet-400 hover:text-violet-300 pt-1">+{users.length - 8} more · manage people →</Link>}
         </div>
       )}
 

@@ -2,19 +2,27 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, Square, Loader2, Send, VolumeX, Sparkles } from "lucide-react";
 import { api } from "../lib/api";
 import { Button, showToast } from "../components/Card";
-import { useAudioRecorder } from "../lib/useAudioRecorder";
+import { useSpeechRecognition } from "../lib/useSpeechRecognition";
+import { KnowledgeGraph } from "../components/KnowledgeGraph";
 
 // A general-purpose, always-listening-by-push-to-talk voice assistant, styled
 // as a HUD orb (Iron Man / JARVIS inspiration — see assets/jarvis-reference
-// at the repo root and the linked README section). Talks to the same
-// /api/chat the text Chat page uses — this is a voice front end for the
-// same assistant, not a separate agent. Unlike VoiceDiscussion.tsx (which is
-// scoped to one job's report and needs a jobId), this page has no job
+// at the repo root and the linked README section). Talks over
+// /api/voice/converse — a direct model passthrough, NOT the task/template
+// pipeline the text Chat page uses, so every reply is genuinely generated
+// (no calculator shortcut, no template matching, no canned strings). Unlike
+// VoiceDiscussion.tsx (scoped to one job's report), this page has no job
 // context: it's a standalone conversation, kept in sessionStorage only.
+//
+// Layout: the app's own left nav (Layout.tsx) is the first section; this
+// page then splits into the vault's knowledge graph — the "brain" — filling
+// the center, with the JARVIS panel on the right, Obsidian-style.
 
 type Turn = { role: "user" | "assistant"; text: string };
+type ModelOption = { value: string; label: string; kind: "ollama" | "provider" };
 
 const STORAGE_KEY = "neuroworks.jarvis.turns";
+const MODEL_KEY = "neuroworks.jarvis.model";
 
 function loadTurns(): Turn[] {
   try {
@@ -24,13 +32,8 @@ function loadTurns(): Turn[] {
   return [];
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result));
-    fr.onerror = () => reject(fr.error);
-    fr.readAsDataURL(blob);
-  });
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 export function Jarvis() {
@@ -39,20 +42,66 @@ export function Jarvis() {
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [voice, setVoice] = useState<{ realtime: boolean; localTts: boolean } | null>(null);
-  const rec = useAudioRecorder();
+  // Speech-to-text — the browser's own recognition, no server key needed.
+  const mic = useSpeechRecognition();
+  const micTextRef = useRef("");
+  // Live caption while listening — the "write it so I can see" ask: interim
+  // text updates on screen as the user talks, Whisper-Flow style, not just
+  // after they stop.
+  const [liveCaption, setLiveCaption] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
+  // Model access — every locally-pulled Ollama model plus every configured
+  // cloud provider, so JARVIS isn't pinned to one hardcoded model.
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    try { return localStorage.getItem(MODEL_KEY) ?? ""; } catch { return ""; }
+  });
+
   useEffect(() => {
     api.voiceStatus().then(setVoice).catch(() => setVoice({ realtime: false, localTts: false }));
+    refreshModels();
     return () => stopSpeaking();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => { if (mic.error) showToast(mic.error, "error"); }, [mic.error]);
 
   useEffect(() => {
     try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(turns.slice(-40))); } catch { /* ignore */ }
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [turns]);
+
+  async function refreshModels() {
+    try {
+      const [m, p] = await Promise.all([api.listModels(), api.listModelProviders()]);
+      const options: ModelOption[] = [
+        ...m.models.map(mo => ({ value: `ollama:${mo.name}`, label: `${mo.name}${mo.name === m.default ? " (default)" : ""}`, kind: "ollama" as const })),
+        ...p.providers.map(pr => ({ value: `provider:${pr.id}`, label: `${pr.label} — ${pr.model}${pr.active ? " (active)" : ""}`, kind: "provider" as const })),
+      ];
+      setModelOptions(options);
+      setSelectedModel(prev => {
+        if (prev && options.some(o => o.value === prev)) return prev;
+        const activeProvider = p.providers.find(pr => pr.active);
+        const fallback = activeProvider ? `provider:${activeProvider.id}` : `ollama:${m.default}`;
+        try { localStorage.setItem(MODEL_KEY, fallback); } catch { /* ignore */ }
+        return fallback;
+      });
+    } catch { /* Models page unreachable — JARVIS still works on the current default. */ }
+  }
+
+  async function selectModel(value: string) {
+    setSelectedModel(value);
+    try { localStorage.setItem(MODEL_KEY, value); } catch { /* ignore */ }
+    if (value.startsWith("provider:")) {
+      const id = value.slice("provider:".length);
+      try { await api.activateModelProvider(id); await refreshModels(); }
+      catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    }
+  }
+
+  const currentModelLabel = modelOptions.find(o => o.value === selectedModel)?.label ?? "model";
 
   function stopSpeaking() {
     try { window.speechSynthesis?.cancel(); } catch { /* not supported */ }
@@ -95,7 +144,8 @@ export function Jarvis() {
     const next = [...turns, { role: "user" as const, text: question }];
     setTurns(next);
     try {
-      const r = await api.chat(next.map(t => ({ role: t.role, content: t.text })));
+      const modelParam = selectedModel.startsWith("ollama:") ? selectedModel.slice("ollama:".length) : undefined;
+      const r = await api.voiceConverse(next.map(t => ({ role: t.role, content: t.text })), modelParam);
       setTurns(prev => [...prev, { role: "assistant", text: r.text }]);
       void speak(r.text);
     } catch (e: any) {
@@ -105,32 +155,65 @@ export function Jarvis() {
     }
   }
 
-  // Push-to-talk: tap to start recording, tap again to stop + transcribe +
-  // ask. Mirrors VoiceDiscussion's micAsk, minus the jobId dependency.
-  async function micToggle() {
-    if (rec.recording) {
-      const blob = await rec.stop();
-      if (!blob) return;
-      setBusy(true);
-      try {
-        const b64 = await blobToDataUrl(blob);
-        const t = await api.transcribe(b64);
-        setBusy(false);
-        if (t.text.trim()) await ask(t.text);
-        else showToast("Didn't catch that — try again", "error");
-      } catch (e: any) {
-        setBusy(false);
-        showToast(e?.message ?? String(e), "error");
-      }
-    } else {
-      stopSpeaking();
-      await rec.start();
-      if (rec.error) showToast(rec.error, "error");
-    }
+  // Voice-driven model switching — "switch to llama3.1", "use qwen 7b",
+  // "change model to <provider>". Matched against installed models/providers
+  // by loose substring match (spoken model names rarely land exactly).
+  // Returns true if it handled the command (caller should NOT also ask()).
+  function tryVoiceModelSwitch(text: string): boolean {
+    const m = text.match(/^(?:switch|change|use)\s+(?:to\s+)?(?:model\s+)?(?:to\s+)?(.+)$/i);
+    if (!m) return false;
+    const wanted = normalize(m[1]);
+    if (wanted.length < 2) return false;
+    const hit = modelOptions.find(o => {
+      const n = normalize(o.label);
+      return n.includes(wanted) || wanted.includes(n.replace(/default|active/g, ""));
+    });
+    if (!hit) return false;
+    void selectModel(hit.value);
+    showToast(`Switched NaxionAI to ${hit.label}`, "success");
+    return true;
   }
 
+  // Push-to-talk: tap to start listening, tap again to stop + ask. Browser
+  // speech recognition — no key, no setup. Live text is composed onto
+  // liveCaption as interim results arrive (Whisper-Flow style).
+  async function micToggle() {
+    if (mic.active) {
+      mic.stop();
+      return;
+    }
+    stopSpeaking();
+    micTextRef.current = "";
+    setLiveCaption("");
+    try {
+      await mic.start((transcript, isFinal) => {
+        if (isFinal) {
+          micTextRef.current = (micTextRef.current ? micTextRef.current.replace(/\s+$/, "") + " " : "") + transcript;
+          setLiveCaption(micTextRef.current);
+        } else {
+          const base = micTextRef.current;
+          setLiveCaption(base ? base.replace(/\s+$/, "") + " " + transcript : transcript);
+        }
+      });
+    } catch { /* mic.error already set for display */ }
+  }
+
+  // Mic stopped — send whatever final transcript accumulated while listening
+  // (unless it was a "switch model" voice command, which is handled inline).
+  const micWasActiveRef = useRef(false);
+  useEffect(() => {
+    if (micWasActiveRef.current && !mic.active) {
+      const text = micTextRef.current.trim();
+      micTextRef.current = "";
+      setLiveCaption("");
+      if (text && !tryVoiceModelSwitch(text)) void ask(text);
+    }
+    micWasActiveRef.current = mic.active;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mic.active]);
+
   const orbState: "listening" | "thinking" | "speaking" | "idle" =
-    rec.recording ? "listening" : busy ? "thinking" : speaking ? "speaking" : "idle";
+    mic.active ? "listening" : busy ? "thinking" : speaking ? "speaking" : "idle";
 
   // Border colour + glow accent per state — orbColor drives the ring/border
   // classes, orbAccent is the same colour as an rgba() for the glow's
@@ -139,15 +222,24 @@ export function Jarvis() {
   const orbColor = {
     idle: "border-violet-500/50",
     listening: "border-coral-500/70",
-    thinking: "border-cream-300/50",
+    thinking: "border-leaf-500/70",
     speaking: "border-leaf-500/70",
   }[orbState];
   const orbAccent = {
     idle: "rgba(125,87,246,0.55)",
     listening: "rgba(255,118,87,0.6)",
-    thinking: "rgba(216,236,248,0.4)",
+    thinking: "rgba(63,179,160,0.6)",
     speaking: "rgba(63,179,160,0.6)",
   }[orbState];
+  // Listening gets a second, violet-tinted glow layered under the orange —
+  // "orange with a bit of purple", the techy dual-tone HUD look. Thinking
+  // and speaking share the same dual-tone treatment in green instead of a
+  // single flat colour, since both are "the assistant is active" states.
+  const orbShadow = orbState === "listening"
+    ? "0 0 34px 10px rgba(255,118,87,0.55), 0 0 60px 20px rgba(125,87,246,0.4)"
+    : orbState === "thinking" || orbState === "speaking"
+    ? "0 0 34px 10px rgba(63,179,160,0.55), 0 0 60px 20px rgba(34,197,94,0.4)"
+    : `0 0 40px 10px ${orbAccent}`;
 
   const orbLabel = {
     idle: "Standing by",
@@ -164,126 +256,147 @@ export function Jarvis() {
     speaking: "Speaking the response out loud.",
   }[orbState];
 
-  const RADIAL_BARS = 16;
-
   return (
-    <div className="flex flex-col h-full max-w-3xl mx-auto">
-      <div className="flex items-center gap-2 pt-2 pb-4">
-        <Sparkles size={18} className="text-violet-400" />
-        <div>
-          <div className="text-lg font-semibold text-cream-50">JARVIS</div>
-          <div className="text-xs text-cream-300/60">Voice assistant — talk or type</div>
-        </div>
+    <div className="flex h-full gap-6">
+      <div className="flex-1 min-w-0 h-full py-2">
+        <KnowledgeGraph />
       </div>
 
-      <div className="flex flex-col items-center justify-center gap-4 py-8">
-        <div className="relative w-48 h-48 grid place-items-center">
-          {/* Idle base — two counter-rotating rings, dimmed while another
-              state's visual (waveform/scan/pulse) is layered on top. */}
-          <div className={`nw-orb-ring-a absolute inset-0 rounded-full border-2 ${orbColor} ${orbState !== "idle" ? "opacity-40" : ""}`} />
-          <div className={`nw-orb-ring-b absolute inset-6 rounded-full border ${orbColor} opacity-70`} />
-
-          {/* Listening — a radial waveform: bars arranged in a circle,
-              each scaling independently. The "audio visualizer" look,
-              built from ~16 DOM nodes instead of the heavy waveform gif. */}
-          {orbState === "listening" && (
-            <div className="absolute inset-0" aria-hidden>
-              {Array.from({ length: RADIAL_BARS }).map((_, i) => {
-                const angle = (360 / RADIAL_BARS) * i;
-                const delay = (i % 4) * 0.09;
-                return (
-                  <span key={i} className="absolute left-1/2 top-1/2" style={{ transform: `rotate(${angle}deg) translateY(-64px)` }}>
-                    <span className="nw-radial-bar block w-[3px] h-5 rounded-full origin-bottom bg-coral-400" style={{ "--d": `${delay}s` } as React.CSSProperties} />
-                  </span>
-                );
-              })}
+      <div className="flex flex-col h-full w-[380px] shrink-0">
+        <div className="flex items-center justify-between gap-2 pt-2 pb-4">
+          <div className="flex items-center gap-2">
+            <Sparkles size={18} className="text-violet-400" />
+            <div>
+              <div className="text-lg font-semibold text-cream-50">NaxionAI</div>
+              <div className="text-xs text-cream-300/60">Voice assistant — talk or type</div>
             </div>
-          )}
-
-          {/* Thinking — a conic "radar sweep", the mascot-gif's energy
-              (something visibly working) without importing an actual mascot
-              asset — same "recreate the effect in CSS" call the codebase
-              already made for the mic waveform. */}
-          {orbState === "thinking" && (
-            <div
-              className="nw-orb-scan absolute inset-1 rounded-full"
-              aria-hidden
-              style={{ background: "conic-gradient(from 0deg, rgba(216,236,248,0.4), transparent 45%)" }}
-            />
-          )}
-
-          {/* Speaking — concentric rings expanding outward and fading, like
-              sound leaving the orb. */}
-          {orbState === "speaking" && (
-            <>
-              {[0, 0.5, 1].map(d => (
-                <div key={d} className="nw-orb-pulse-out absolute inset-6 rounded-full border-2 border-leaf-500/60" aria-hidden style={{ "--d": `${d}s` } as React.CSSProperties} />
-              ))}
-            </>
-          )}
-
-          <div
-            className={`nw-orb-glow ${orbState !== "idle" ? "is-active" : ""} absolute inset-12 rounded-full bg-gradient-to-br from-violet-500/30 to-transparent border ${orbColor}`}
-            style={{ boxShadow: `0 0 40px 10px ${orbAccent}` }}
-          />
+          </div>
         </div>
 
-        {/* Status — always written out below the orb, not overlaid on it. */}
-        <div className="text-center">
-          <div className="text-[10px] uppercase tracking-[0.25em] text-cream-300/70">{orbLabel}</div>
-          <div className="text-sm text-cream-200 mt-1 max-w-xs mx-auto">{orbDescription}</div>
-        </div>
-
-        <button
-          type="button"
-          onClick={micToggle}
-          disabled={busy && !rec.recording}
-          title={rec.recording ? "Stop and send" : "Talk to JARVIS"}
-          className={`p-4 rounded-full border transition-colors ${
-            rec.recording
-              ? "bg-coral-500/15 border-coral-500/60 text-coral-400 animate-pulse"
-              : "bg-ink-800 border-ink-700 text-cream-100 hover:border-violet-500/50"
-          }`}
-        >
-          {rec.recording ? <Square size={20} /> : busy ? <Loader2 size={20} className="animate-spin" /> : <Mic size={20} />}
-        </button>
-        {!rec.supported && <div className="text-[11px] text-cream-300/40">Mic capture isn't supported in this browser — type below instead.</div>}
-      </div>
-
-      {turns.length > 0 && (
-        <div ref={logRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin space-y-2.5 px-1 pb-3">
-          {turns.map((t, i) => (
-            <div key={i} className={`flex ${t.role === "user" ? "justify-end" : "justify-start"}`}>
-              {t.role === "user" ? (
-                <div className="text-xs text-cream-300/70 bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 w-fit max-w-[85%]">{t.text}</div>
-              ) : (
-                <div className="text-sm text-cream-100 bg-violet-500/5 border border-violet-500/20 rounded-lg px-3 py-2 w-fit max-w-[85%] flex items-start gap-2">
-                  <button type="button" title="Replay" onClick={() => speak(t.text)} className="text-violet-400 hover:text-violet-300 mt-0.5 shrink-0">
-                    <Sparkles size={13} />
-                  </button>
-                  <span>{t.text}</span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="flex items-center gap-2 py-3 border-t border-ink-800">
-        {speaking && (
-          <Button variant="subtle" onClick={stopSpeaking}><VolumeX size={13} /> Stop</Button>
+        {modelOptions.length > 0 && (
+          <label className="flex items-center gap-2 text-[11px] text-cream-300/50 mb-3">
+            <span className="shrink-0">Model</span>
+            <select
+              value={selectedModel}
+              onChange={e => void selectModel(e.target.value)}
+              title={currentModelLabel}
+              className="flex-1 min-w-0 bg-ink-950 border border-ink-800 rounded-md px-2 py-1.5 text-[11px] text-cream-200 focus:outline-none focus:border-violet-500/60"
+            >
+              {modelOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
         )}
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") void ask(input); }}
-          placeholder="Ask JARVIS anything…"
-          disabled={busy}
-          className="flex-1 bg-ink-950 border border-ink-800 rounded-lg px-3 py-2.5 text-sm text-cream-100 focus:outline-none focus:border-violet-500/60 disabled:opacity-50"
-        />
-        <Button onClick={() => ask(input)} disabled={busy || !input.trim()}>
-          {busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Ask
-        </Button>
+
+        <div className="flex flex-col items-center justify-center gap-4 py-4">
+          <div className="relative w-48 h-48 grid place-items-center">
+            {/* Idle base — two counter-rotating rings, dimmed while another
+                state's visual (waveform/scan/pulse) is layered on top. */}
+            <div className={`nw-orb-ring-a absolute inset-0 rounded-full border-2 ${orbColor} ${orbState !== "idle" ? "opacity-40" : ""}`} />
+            <div className={`nw-orb-ring-b absolute inset-6 rounded-full border ${orbColor} opacity-70`} />
+
+            {/* Listening — the JARVIS mascot gif, replacing the old CSS radial
+                waveform bars. */}
+            {orbState === "listening" && (
+              <img
+                src="/jarvis/jarvis-mascot.gif"
+                alt=""
+                aria-hidden
+                className="absolute inset-0 w-full h-full object-contain rounded-full"
+              />
+            )}
+
+            {/* Thinking — the JARVIS waveform gif, shown while the request is
+                in flight and the assistant is generating a reply. */}
+            {orbState === "thinking" && (
+              <img
+                src="/jarvis/jarvis-waveform.gif"
+                alt=""
+                aria-hidden
+                className="absolute inset-0 w-full h-full object-contain rounded-full"
+              />
+            )}
+
+            {/* Speaking — the same waveform gif as thinking, since JARVIS is
+                now the one making sound. */}
+            {orbState === "speaking" && (
+              <img
+                src="/jarvis/jarvis-waveform.gif"
+                alt="Voice/agent waveform"
+                className="absolute inset-0 w-full h-full object-contain rounded-full"
+              />
+            )}
+
+            <div
+              className={`nw-orb-glow ${orbState !== "idle" ? "is-active" : ""} absolute inset-12 rounded-full bg-gradient-to-br from-violet-500/30 to-transparent border ${orbColor}`}
+              style={{ boxShadow: orbShadow }}
+            />
+          </div>
+
+          {/* Status — always written out below the orb, not overlaid on it. */}
+          <div className="text-center">
+            <div className="text-[10px] uppercase tracking-[0.25em] text-cream-300/70">{orbLabel}</div>
+            <div className="text-sm text-cream-200 mt-1 max-w-xs mx-auto">{orbDescription}</div>
+          </div>
+
+          {/* Whisper-Flow-style live caption — the words appear as you say
+              them, not just after you stop. */}
+          {orbState === "listening" && (
+            <div className="min-h-[2.5rem] max-w-xs text-center text-sm text-cream-100/90 bg-ink-950/70 border border-coral-500/20 rounded-lg px-3 py-2">
+              {liveCaption || <span className="text-cream-300/40">Say something…</span>}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={micToggle}
+            disabled={(busy && !mic.active) || !mic.supported}
+            title={mic.active ? "Stop and send" : "Talk to NaxionAI"}
+            className={`p-4 rounded-full border transition-colors ${
+              mic.active
+                ? "bg-coral-500/15 border-coral-500/60 text-coral-400 animate-pulse"
+                : "bg-ink-800 border-ink-700 text-cream-100 hover:border-violet-500/50"
+            }`}
+          >
+            {mic.active ? <Square size={20} /> : busy ? <Loader2 size={20} className="animate-spin" /> : <Mic size={20} />}
+          </button>
+          {!mic.supported && <div className="text-[11px] text-cream-300/40">Mic capture isn't supported in this browser — type below instead.</div>}
+        </div>
+
+        {turns.length > 0 && (
+          <div ref={logRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin space-y-2.5 px-1 pb-3">
+            {turns.map((t, i) => (
+              <div key={i} className={`flex ${t.role === "user" ? "justify-end" : "justify-start"}`}>
+                {t.role === "user" ? (
+                  <div className="text-xs text-cream-300/70 bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 w-fit max-w-[85%]">{t.text}</div>
+                ) : (
+                  <div className="text-sm text-cream-100 bg-violet-500/5 border border-violet-500/20 rounded-lg px-3 py-2 w-fit max-w-[85%] flex items-start gap-2">
+                    <button type="button" title="Replay" onClick={() => speak(t.text)} className="text-violet-400 hover:text-violet-300 mt-0.5 shrink-0">
+                      <Sparkles size={13} />
+                    </button>
+                    <span>{t.text}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 py-3 border-t border-ink-800">
+          {speaking && (
+            <Button variant="subtle" onClick={stopSpeaking}><VolumeX size={13} /> Stop</Button>
+          )}
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") void ask(input); }}
+            placeholder="Ask NaxionAI anything…"
+            disabled={busy}
+            className="flex-1 bg-ink-950 border border-ink-800 rounded-lg px-3 py-2.5 text-sm text-cream-100 focus:outline-none focus:border-violet-500/60 disabled:opacity-50"
+          />
+          <Button onClick={() => ask(input)} disabled={busy || !input.trim()}>
+            <span title="Ask NaxionAI">{busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}</span>
+          </Button>
+        </div>
       </div>
     </div>
   );
