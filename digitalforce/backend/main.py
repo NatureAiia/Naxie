@@ -71,7 +71,14 @@ async def lifespan(app: FastAPI):
 
     # 👻 Start the Ghost Browser (Persistent Session Playwright)
     from agent.browser.ghost import ghost
-    await ghost.start()
+    try:
+        await ghost.start()
+    except Exception as e:
+        logger.warning(f"⚠️  Ghost Browser startup skipped: {e}")
+    if ghost.is_available:
+        logger.info("👻 Ghost Browser ready")
+    else:
+        logger.warning("👻 Ghost Browser OFFLINE — browser-scraping features disabled")
 
     # Hold strong refs to long-lived background tasks. asyncio keeps only weak
     # refs, so an un-referenced create_task() can be GC'd and silently cancelled

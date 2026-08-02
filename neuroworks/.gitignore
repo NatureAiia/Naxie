@@ -38,6 +38,19 @@ server/_desk/
 # Stray experimental static export (not the web/ app). Un-ignore to track it.
 server/neuroworks_site/
 
+# Personal / private content that should stay local and never be published
+personal/
+private/
+personal-uploads/
+my-notes/
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+
 # env backups (may contain secrets)
 .env.bak*
 .env.*.bak

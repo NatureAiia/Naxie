@@ -20,16 +20,37 @@ class GhostBrowser:
         self._playwright: Optional[Playwright] = None
         self._contexts: dict[str, BrowserContext] = {}
         self._lock = asyncio.Lock()
+        self._running = False
+
+    @property
+    def is_available(self) -> bool:
+        return self._running and self._playwright is not None
         
     async def start(self):
-        """Initialise the Playwright engine without immediately launching browsers."""
+        """Initialise the Playwright engine without immediately launching browsers.
+        
+        On Windows with uvicorn --reload, the worker process may not have
+        WindowsProactorEventLoopPolicy set, causing Playwright to fail.
+        We soft-degrade here so the rest of the app still starts.
+        """
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
         try:
             self._playwright = await async_playwright().start()
+            self._running = True
             logger.info("👻 Ghost Browser Playwright engine started (waiting for context requests).")
+        except NotImplementedError:
+            # Windows SelectorEventLoop doesn't support subprocesses.
+            # This is non-fatal — browser-scraping features will be unavailable
+            # but all other agent capabilities work fine.
+            logger.warning(
+                "⚠️  Ghost Browser unavailable: Windows event loop does not support "
+                "subprocesses in this process. Run without --reload to fix, or upgrade "
+                "to Python 3.12+ ProactorEventLoop. Agent will continue without browser."
+            )
+            self._running = False
         except Exception as e:
             logger.error(f"Failed to start Ghost Browser Playwright: {e}")
-            raise
+            self._running = False
             
     async def stop(self):
         """Cleanly shutdown all browser contexts."""
@@ -48,7 +69,7 @@ class GhostBrowser:
         Callers MUST ensure they close the page when done: `await page.close()`
         """
         async with self._lock:
-            if not self._playwright:
+            if not self._running or not self._playwright:
                 raise RuntimeError("GhostBrowser Playwright engine is not running.")
             
             if account_id not in self._contexts:
