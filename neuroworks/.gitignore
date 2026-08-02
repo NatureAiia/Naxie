@@ -41,3 +41,4 @@ server/neuroworks_site/
 # env backups (may contain secrets)
 .env.bak*
 .env.*.bak
+.env
