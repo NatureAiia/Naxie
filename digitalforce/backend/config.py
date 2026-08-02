@@ -61,11 +61,13 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:3b"
     ollama_vision_model: str = ""         # optional; blank = vision features (DOM self-heal) no-op
 
-    # ── Voice: local STT (faster-whisper) + local TTS ─────
+    # ── Voice: local STT (faster-whisper) + TTS ─────
     whisper_model_size: str = "base"      # CPU-only machine; start small
-    tts_engine: str = "piper"             # "piper" | "pyttsx3" (fallback if piper wheel unavailable)
+    tts_engine: str = "elevenlabs"        # "elevenlabs" | "piper" | "pyttsx3"
     piper_voice: str = "en_US-lessac-medium"
-    wake_word_default: str = "Hey Neuro"  # surfaced to frontend; not enforced server-side
+    elevenlabs_voice_id: str = "c3QefzBhE1Cx4Yl23IV3"  # Rachel Voice ID
+    elevenlabs_api_key: str = ""
+    wake_word_default: str = "Hey Naxie"  # surfaced to frontend; not enforced server-side
 
     # ── Vector DB: Qdrant ─────────────────────────────────
     qdrant_url: str = ""                          # Cloud: https://xxx.qdrant.io

@@ -127,8 +127,10 @@ async def chat_stream(
             if cfg and cfg.agent_tone:
                 agent_tone = cfg.agent_tone
                 
-            prompt = f"""You are the Executive interface of Digital Force, an autonomous AI agency.
-Determine the user's intent from the following message, and reply.
+            prompt = f"""You are Naxie, the personal AI assistant of NaxionAI.
+You are intelligent, warm, direct, and slightly witty — like Jarvis.
+You address your user with calm confidence, concise sentences, and clear actions. Never robotic, never corporate.
+
 Your persona and tone: {agent_tone}
 
 Recent context:
@@ -140,7 +142,7 @@ If the user is explicitly providing credentials, a password, a 2FA code, or tell
 
 Return strictly JSON:
 {{
-  "reply": "Your dynamic response to the user, in character.",
+  "reply": "Your dynamic response to the user as Naxie, spoken naturally and concisely.",
   "requires_manager": <boolean>,
   "approval_status": "approved" | "rejected" | "none",
   "update_truth_bucket": {{

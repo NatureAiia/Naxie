@@ -162,17 +162,23 @@ class AudioQueue {
 
 const audioQueue = new AudioQueue()
 
-export async function speak(text: string): Promise<void> {
+export async function synthesizeAudio(text: string, voiceId?: string): Promise<Blob> {
+  const trimmed = text.trim()
+  if (!trimmed) throw new Error('Text is empty')
+  const res = await fetch(`${BASE}/api/voice/speak`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ text: trimmed, voice: voiceId }),
+  })
+  if (!res.ok) throw new Error(`TTS failed with HTTP ${res.status}`)
+  return await res.blob()
+}
+
+export async function speak(text: string, voiceId?: string): Promise<void> {
   const trimmed = text.trim()
   if (!trimmed) return
   try {
-    const res = await fetch(`${BASE}/api/voice/speak`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ text: trimmed }),
-    })
-    if (!res.ok) return
-    const blob = await res.blob()
+    const blob = await synthesizeAudio(trimmed, voiceId)
     audioQueue.enqueue(blob)
   } catch {
     // Voice is best-effort — never let a TTS failure break the chat flow.

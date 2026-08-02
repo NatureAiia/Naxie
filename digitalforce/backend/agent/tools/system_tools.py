@@ -99,4 +99,7 @@ def get_agent_tools(state: dict):
         except Exception as e:
             return f"Database Error: {e}"
 
-    return [execute_python, read_system_context, query_knowledge, push_to_chat, route_to_agent, halt_execution, update_truth_bucket]
+    from agent.tools.pa_tools import get_pa_tools
+    pa_tools = get_pa_tools()
+
+    return [execute_python, read_system_context, query_knowledge, push_to_chat, route_to_agent, halt_execution, update_truth_bucket] + pa_tools

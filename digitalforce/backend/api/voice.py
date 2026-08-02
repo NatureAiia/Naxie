@@ -77,9 +77,37 @@ async def transcribe_audio(
             pass
 
 
-# --- TTS: Piper if a voice model is on disk, else pyttsx3 fallback ---
+# --- TTS: ElevenLabs (Rachel voice ID) -> Piper -> pyttsx3 fallback ---
 _piper_voice = None
 _piper_load_attempted = False
+
+
+def _synthesize_elevenlabs(text: str, voice_id: Optional[str] = None) -> tuple[bytes, str]:
+    import urllib.request
+    import json
+
+    vid = voice_id or getattr(settings, "elevenlabs_voice_id", "c3QefzBhE1Cx4Yl23IV3")
+    api_key = getattr(settings, "elevenlabs_api_key", os.getenv("ELEVENLABS_API_KEY", ""))
+
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{vid}"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["xi-api-key"] = api_key
+
+    data = json.dumps({
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.75
+        }
+    }).encode("utf-8")
+
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        audio = resp.read()
+        media_type = resp.headers.get("Content-Type", "audio/mpeg")
+        return audio, media_type
 
 
 def _get_piper_voice():
@@ -145,8 +173,8 @@ async def speak_text(
     body: SpeakBody,
     user: dict = Depends(get_current_user),
 ):
-    """Synthesize speech for the given text using local TTS (Piper if a voice
-    model is installed, else the OS-provided pyttsx3 voices)."""
+    """Synthesize speech for the given text using ElevenLabs (Rachel voice),
+    Piper local TTS, or the OS-provided pyttsx3 voices."""
     text = body.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Empty text")
@@ -154,16 +182,29 @@ async def speak_text(
         text = text[:MAX_TTS_CHARS]
 
     audio_bytes = None
-    if settings.tts_engine == "piper":
+    media_type = "audio/wav"
+
+    if settings.tts_engine == "elevenlabs" or (body.voice and body.voice.startswith("c3Q")):
+        try:
+            target_voice = body.voice or getattr(settings, "elevenlabs_voice_id", "c3QefzBhE1Cx4Yl23IV3")
+            audio_bytes, media_type = _synthesize_elevenlabs(text, voice_id=target_voice)
+            logger.info(f"[Voice] Synthesized speech via ElevenLabs (Voice ID: {target_voice}).")
+        except Exception as e:
+            logger.warning(f"[Voice] ElevenLabs synthesis failed: {e}. Falling back to local TTS engine...")
+
+    if audio_bytes is None and settings.tts_engine in ("piper", "elevenlabs"):
         try:
             audio_bytes = _synthesize_piper(text)
+            media_type = "audio/wav"
         except Exception as e:
             logger.warning(f"[Voice] Piper synthesis failed, falling back to pyttsx3: {e}")
 
     try:
         if audio_bytes is None:
             audio_bytes = _synthesize_pyttsx3(text)
-        return Response(content=audio_bytes, media_type="audio/wav")
+            media_type = "audio/wav"
+        return Response(content=audio_bytes, media_type=media_type)
     except Exception as e:
         logger.error(f"[Voice] Speech synthesis failed: {e}")
         raise HTTPException(status_code=502, detail=f"Speech synthesis failed: {e}")
+
