@@ -45,15 +45,25 @@ const SHONA_NDEBELE_RE = new RegExp(
   "gi",
 );
 
+// Configurable detection threshold — default 2 markers. Increase to 3 to
+// reduce false positives when needed (set NEUROWORKS_SHONA_THRESHOLD=3).
+const SHONA_NDEBELE_THRESHOLD = Number(process.env.NEUROWORKS_SHONA_THRESHOLD ?? "2");
+
 /** True when the text contains enough Shona/Ndebele markers to treat it as
  *  Shona/Ndebele (or Shona-English code-switched) input, not incidental
- *  overlap with an English word. Requires 2+ distinct marker hits so a
- *  single ambiguous token ("sei" as a rare English name fragment, etc.)
- *  doesn't misfire on ordinary English. */
+ *  overlap with an English word. Uses `NEUROWORKS_SHONA_THRESHOLD` to allow
+ *  runtime tuning without code edits. */
 export function detectsShonaOrNdebele(text: string): boolean {
   if (!text) return false;
   const hits = new Set((text.match(SHONA_NDEBELE_RE) ?? []).map(s => s.toLowerCase()));
-  return hits.size >= 2;
+  return hits.size >= SHONA_NDEBELE_THRESHOLD;
+}
+
+// Return the distinct matched markers (lowercased) for debugging/inspection.
+export function getShonaNdebeleMatches(text: string): string[] {
+  if (!text) return [];
+  const hits = new Set((text.match(SHONA_NDEBELE_RE) ?? []).map(s => s.toLowerCase()));
+  return [...hits];
 }
 
 // Zimbabwe financial/mobile-money intent phrases — real Shona/Ndebele/

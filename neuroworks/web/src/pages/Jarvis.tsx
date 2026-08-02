@@ -221,39 +221,35 @@ export function Jarvis() {
   // color from a separate border-* class, so this is set inline below).
   const orbColor = {
     idle: "border-violet-500/50",
-    listening: "border-coral-500/70",
-    thinking: "border-leaf-500/70",
-    speaking: "border-leaf-500/70",
+    listening: "border-orange-400/80",
+    thinking: "border-emerald-400/80",
+    speaking: "border-fuchsia-400/80",
   }[orbState];
   const orbAccent = {
     idle: "rgba(125,87,246,0.55)",
-    listening: "rgba(255,118,87,0.6)",
-    thinking: "rgba(63,179,160,0.6)",
-    speaking: "rgba(63,179,160,0.6)",
+    listening: "rgba(255,130,60,0.75)",
+    thinking: "rgba(34,197,94,0.72)",
+    speaking: "rgba(192,106,255,0.72)",
   }[orbState];
-  // Listening gets a second, violet-tinted glow layered under the orange —
-  // "orange with a bit of purple", the techy dual-tone HUD look. Thinking
-  // and speaking share the same dual-tone treatment in green instead of a
-  // single flat colour, since both are "the assistant is active" states.
   const orbShadow = orbState === "listening"
-    ? "0 0 34px 10px rgba(255,118,87,0.55), 0 0 60px 20px rgba(125,87,246,0.4)"
-    : orbState === "thinking" || orbState === "speaking"
-    ? "0 0 34px 10px rgba(63,179,160,0.55), 0 0 60px 20px rgba(34,197,94,0.4)"
+    ? "0 0 38px 12px rgba(255,130,60,0.55), 0 0 70px 24px rgba(170,120,255,0.25)"
+    : orbState === "thinking"
+    ? "0 0 38px 12px rgba(34,197,94,0.55), 0 0 70px 24px rgba(110,231,183,0.25)"
+    : orbState === "speaking"
+    ? "0 0 38px 12px rgba(192,106,255,0.65), 0 0 72px 24px rgba(124,58,237,0.28)"
     : `0 0 40px 10px ${orbAccent}`;
 
   const orbLabel = {
     idle: "Standing by",
     listening: "Listening…",
     thinking: "Thinking…",
-    speaking: "Speaking…",
+    speaking: "Peaking…",
   }[orbState];
-  // The sentence under the orb — always says, in plain language, what JARVIS
-  // is doing right now.
   const orbDescription = {
     idle: "Tap the mic and say something, or type a message below.",
     listening: "Listening — speak now, tap the mic again to send.",
     thinking: "Thinking — your question is with the assistant.",
-    speaking: "Speaking the response out loud.",
+    speaking: "Peaking the response with a live voice output.",
   }[orbState];
 
   return (
@@ -288,42 +284,65 @@ export function Jarvis() {
         )}
 
         <div className="flex flex-col items-center justify-center gap-4 py-4">
-          <div className="relative w-48 h-48 grid place-items-center">
-            {/* Idle base — two counter-rotating rings, dimmed while another
-                state's visual (waveform/scan/pulse) is layered on top. */}
+          <div className={`relative w-48 h-48 grid place-items-center ${orbState === "listening" ? "nw-state-listening" : orbState === "thinking" ? "nw-state-thinking" : orbState === "speaking" ? "nw-state-speaking" : ""}`}>
             <div className={`nw-orb-ring-a absolute inset-0 rounded-full border-2 ${orbColor} ${orbState !== "idle" ? "opacity-40" : ""}`} />
             <div className={`nw-orb-ring-b absolute inset-6 rounded-full border ${orbColor} opacity-70`} />
 
-            {/* Listening — the JARVIS mascot gif, replacing the old CSS radial
-                waveform bars. */}
             {orbState === "listening" && (
-              <img
-                src="/jarvis/jarvis-mascot.gif"
-                alt=""
-                aria-hidden
-                className="absolute inset-0 w-full h-full object-contain rounded-full"
-              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="relative w-full h-full">
+                  {[...Array(16)].map((_, index) => (
+                    <span
+                      key={index}
+                      className="nw-radial-bar absolute left-1/2 top-1/2 h-12 w-1 rounded-full bg-orange-400/90"
+                      style={{ transform: `rotate(${index * 22.5}deg) translate(-50%, -140%)`, animationDelay: `${(index % 8) * 0.055}s` }}
+                    />
+                  ))}
+                </div>
+              </div>
             )}
 
-            {/* Thinking — the JARVIS waveform gif, shown while the request is
-                in flight and the assistant is generating a reply. */}
             {orbState === "thinking" && (
-              <img
-                src="/jarvis/jarvis-waveform.gif"
-                alt=""
-                aria-hidden
-                className="absolute inset-0 w-full h-full object-contain rounded-full"
-              />
+              <>
+                <img
+                  src="/jarvis/jarvis-waveform.gif"
+                  alt=""
+                  aria-hidden
+                  className="absolute inset-0 w-full h-full object-contain rounded-full"
+                />
+                <div className="absolute inset-0 grid place-items-center">
+                  <div className="relative w-full h-full">
+                    {[...Array(12)].map((_, index) => (
+                      <span
+                        key={index}
+                        className="nw-radial-bar nw-radial-bar-think absolute left-1/2 top-1/2 h-12 w-1 rounded-full"
+                        style={{ transform: `rotate(${index * 30}deg) translate(-50%, -140%)`, animationDelay: `${index * 0.045}s` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
 
-            {/* Speaking — the same waveform gif as thinking, since JARVIS is
-                now the one making sound. */}
             {orbState === "speaking" && (
-              <img
-                src="/jarvis/jarvis-waveform.gif"
-                alt="Voice/agent waveform"
-                className="absolute inset-0 w-full h-full object-contain rounded-full"
-              />
+              <>
+                <img
+                  src="/jarvis/jarvis-waveform.gif"
+                  alt="Voice/agent waveform"
+                  className="absolute inset-0 w-full h-full object-contain rounded-full"
+                />
+                <div className="absolute inset-0 grid place-items-center">
+                  <div className="relative w-full h-full">
+                    {[...Array(10)].map((_, index) => (
+                      <span
+                        key={index}
+                        className="nw-radial-bar nw-radial-bar-speak absolute left-1/2 top-1/2 h-14 w-1 rounded-full"
+                        style={{ transform: `rotate(${index * 36}deg) translate(-50%, -140%)`, animationDelay: `${(index % 5) * 0.05}s` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
 
             <div

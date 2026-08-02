@@ -270,14 +270,35 @@ body::after {                               /* blueprint glow — light from abo
    is a wrapper (static rotate+offset, set inline per-bar in Jarvis.tsx) plus
    this inner scaling animation; --d staggers the start per bar. */
 @keyframes nw-radial-wave {
-  0%, 100% { transform: scaleY(0.4); opacity: 0.55; }
-  50%      { transform: scaleY(1.15); opacity: 1; }
+  0%, 100% { transform: scaleY(0.35); opacity: 0.55; }
+  40%, 60% { transform: scaleY(1.1); opacity: 1; }
 }
-.nw-radial-bar { animation: nw-radial-wave 0.9s ease-in-out infinite; animation-delay: var(--d, 0s); }
+.nw-radial-bar { animation: nw-radial-wave 0.75s ease-in-out infinite; animation-delay: var(--d, 0s); }
+
+.nw-radial-bar-think { background-color: rgba(34,197,94,0.95); }
+.nw-radial-bar-speak { background-color: rgba(168,85,247,0.88); animation-duration: 0.65s; }
+
+.nw-state-listening .nw-orb-ring-a,
+.nw-state-listening .nw-orb-ring-b,
+.nw-state-listening .nw-radial-bar,
+.nw-state-listening .nw-orb-glow {
+  border-color: rgba(255,138,82,0.95) !important;
+}
+.nw-state-listening .nw-orb-glow {
+  background-image: radial-gradient(circle at center, rgba(255,175,120,0.24), transparent 68%);
+}
 
 /* Thinking — a conic "radar sweep" spinning faster than the idle rings, to
    read as active processing rather than idle ambience. */
 .nw-orb-scan { animation: nw-orb-spin 1.6s linear infinite; }
+.nw-state-thinking .nw-orb-ring-a,
+.nw-state-thinking .nw-orb-ring-b,
+.nw-state-thinking .nw-orb-glow {
+  border-color: rgba(52,211,153,0.9) !important;
+}
+.nw-state-thinking .nw-orb-glow {
+  background-image: radial-gradient(circle at center, rgba(52,211,153,0.18), transparent 72%);
+}
 
 /* Speaking — concentric rings expanding outward and fading, like sound
    leaving the orb. --d staggers each ring's start. */
@@ -286,6 +307,14 @@ body::after {                               /* blueprint glow — light from abo
   100% { transform: scale(1.7); opacity: 0; }
 }
 .nw-orb-pulse-out { animation: nw-orb-pulse-out 1.6s ease-out infinite; animation-delay: var(--d, 0s); }
+.nw-state-speaking .nw-orb-ring-a,
+.nw-state-speaking .nw-orb-ring-b,
+.nw-state-speaking .nw-orb-glow {
+  border-color: rgba(192,106,255,0.95) !important;
+}
+.nw-state-speaking .nw-orb-glow {
+  background-image: radial-gradient(circle at center, rgba(192,106,255,0.25), transparent 70%);
+}
 
 /* Noise Background — slow diagonal pan of the multi-colour gradient behind a
    button/label. Paired with a grain overlay in NoiseBackground.tsx. */

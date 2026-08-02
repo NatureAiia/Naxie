@@ -148,8 +148,8 @@ export default function JarvisPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1.5rem' }}>
             <Sparkles size={20} style={{ color: '#A78BFA' }} />
             <div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#F8FAFC' }}>JARVIS</div>
-              <div style={{ fontSize: '0.75rem', color: 'rgba(226,232,240,0.5)' }}>Voice assistant — talk or type</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#F8FAFC' }}>NAXIE</div>
+              <div style={{ fontSize: '0.75rem', color: 'rgba(226,232,240,0.7)' }}>Voice assistant — talk or type</div>
             </div>
           </div>
 
@@ -174,12 +174,13 @@ export default function JarvisPage() {
               type="button"
               onClick={micToggle}
               disabled={busy && !recording}
-              title={recording ? 'Stop and send' : 'Talk to JARVIS'}
+              title={recording ? 'Stop and send' : 'Talk to NAXIE'}
               style={{
                 padding: '1rem', borderRadius: '50%', cursor: 'pointer',
-                background: recording ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.03)',
-                border: recording ? '1px solid rgba(239,68,68,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                background: recording ? 'rgba(239,68,68,0.14)' : 'rgba(255,255,255,0.08)',
+                border: recording ? '1px solid rgba(239,68,68,0.55)' : '1px solid rgba(255,255,255,0.16)',
                 color: recording ? '#F87171' : '#E2E8F0',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
                 transition: 'all 0.2s',
               }}
             >
@@ -192,11 +193,11 @@ export default function JarvisPage() {
               {turns.map((t, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: t.role === 'user' ? 'flex-end' : 'flex-start' }}>
                   {t.role === 'user' ? (
-                    <div style={{ fontSize: '0.8rem', color: 'rgba(226,232,240,0.7)', background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 10, padding: '0.5rem 0.75rem', maxWidth: '85%' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'rgba(226,232,240,0.9)', background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '0.5rem 0.75rem', maxWidth: '85%' }}>
                       {t.text}
                     </div>
                   ) : (
-                    <div style={{ fontSize: '0.875rem', color: '#F1F5F9', background: 'rgba(167,139,250,0.05)', border: '1px solid rgba(167,139,250,0.2)', borderRadius: 10, padding: '0.5rem 0.75rem', maxWidth: '85%', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <div style={{ fontSize: '0.875rem', color: '#F1F5F9', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.28)', borderRadius: 10, padding: '0.5rem 0.75rem', maxWidth: '85%', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                       <button type="button" title="Replay" onClick={() => speakReply(t.text)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A78BFA', marginTop: 2, flexShrink: 0 }}>
                         <Sparkles size={13} />
                       </button>
@@ -218,10 +219,10 @@ export default function JarvisPage() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') void ask(input) }}
-              placeholder="Ask JARVIS anything…"
+              placeholder="Ask NAXIE anything…"
               disabled={busy}
               style={{
-                flex: 1, background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.08)',
+                flex: 1, background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.16)',
                 borderRadius: 10, padding: '0.65rem 0.875rem', fontSize: '0.875rem', color: '#F1F5F9',
                 outline: 'none', opacity: busy ? 0.5 : 1,
               }}

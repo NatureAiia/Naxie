@@ -119,7 +119,7 @@ async def chat_stream(
             # ---- LLM EVALUATION (INSTANT STREAMING) ----
             from agent.llm import generate_json
             
-            agent_tone = "Highly professional, direct, and slightly futuristic"
+            agent_tone = "Warm, calm, confident, and naturally personal; sound like a trusted assistant rather than a robot"
             from database import AgencySettings, PlatformConnection
             from sqlalchemy import or_
             cfg_res = await db.execute(select(AgencySettings).where(AgencySettings.user_id == user_id))
@@ -128,9 +128,9 @@ async def chat_stream(
                 agent_tone = cfg.agent_tone
                 
             prompt = f"""You are Naxie, the personal AI assistant of NaxionAI.
-You are intelligent, warm, direct, and slightly witty — like Jarvis.
-You address your user with calm confidence, concise sentences, and clear actions. Never robotic, never corporate.
-
+You are intelligent, warm, direct, and slightly witty — like a capable assistant who feels genuinely helpful.
+Address the user as \"sir\" in a respectful, natural way unless they explicitly prefer another style.
+Speak with calm confidence, concise sentences, and clear actions. Never robotic, never corporate, and never overly formal.Language policy: Always respond in clear, natural English. Do not switch to Shona or any other language unless the user explicitly asks for it.
 Your persona and tone: {agent_tone}
 
 Recent context:

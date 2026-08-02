@@ -13,7 +13,7 @@ import { localInflightCount, pickLightestIdlePeer, pickPeerByRole, pickExecutor,
 import { curatePeerOutput } from "../lib/curation.js";
 import { ensureWorker, ensureExtraWorker } from "../lib/worker-manager.js";
 import { isHermesPrimary, getHermesModelOverride } from "../lib/executor-mode.js";
-import { detectsShonaOrNdebele, shonaLanguageDirective } from "../lib/shona-glossary.js";
+import { detectsShonaOrNdebele, shonaLanguageDirective, getShonaNdebeleMatches } from "../lib/shona-glossary.js";
 import { recordChatExchange, listChatHistory } from "../lib/chat-history.js";
 import { loadJobById } from "../lib/job-store.js";
 import { SENSITIVE_APPROVAL_TOOLS, planSensitiveTools } from "../lib/agent.js";
@@ -1717,6 +1717,12 @@ function buildEnrichedTask(
   // greeting ("Mhoro") before any thread context exists. See shona-
   // glossary.ts for provenance (adapted from ZimVoice's static vocabulary).
   if (detectsShonaOrNdebele(text)) {
+    try {
+      const matches = getShonaNdebeleMatches(text);
+      console.info(`[chat] Shona/Ndebele detector fired — matches=${JSON.stringify(matches)} textSnippet="${String(text).slice(0,120).replace(/\n/g, " ")}"`);
+    } catch (err) {
+      console.info(`[chat] Shona/Ndebele detector fired`);
+    }
     parts.push(shonaLanguageDirective());
   }
 

@@ -55,7 +55,7 @@ export default function Sidebar() {
   const NAV: NavItem[] = [
     { href: '/tts',      label: 'TTS Studio',      icon: Volume2,       accent: '#EC4899' },
     { href: '/chat',     label: 'Agentic Hub',     icon: MessageSquare, accent: '#00A3FF' },
-    { href: '/jarvis',   label: 'JARVIS',          icon: Sparkles,      accent: '#A78BFA' },
+    { href: '/jarvis',   label: 'NAXIE',           icon: Sparkles,      accent: '#A78BFA' },
     { href: '/',         label: 'Overview',        icon: LayoutDashboard },
     { href: '/goals',    label: 'Tasks',           icon: Target, badge: awaitingCount || undefined },
     { href: '/analytics',label: 'Analytics',       icon: BarChart2 },
