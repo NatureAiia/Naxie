@@ -86,7 +86,7 @@ def _synthesize_elevenlabs(text: str, voice_id: Optional[str] = None) -> tuple[b
     import urllib.request
     import json
 
-    vid = voice_id or getattr(settings, "elevenlabs_voice_id", "c3QefzBhE1Cx4Yl23IV3")
+    vid = voice_id or getattr(settings, "elevenlabs_voice_id", "EXAVITQu4vr4xnSDxMaL")
     api_key = getattr(settings, "elevenlabs_api_key", os.getenv("ELEVENLABS_API_KEY", ""))
 
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{vid}"
@@ -186,7 +186,7 @@ async def speak_text(
 
     if settings.tts_engine == "elevenlabs" or (body.voice and body.voice.startswith("c3Q")):
         try:
-            target_voice = body.voice or getattr(settings, "elevenlabs_voice_id", "c3QefzBhE1Cx4Yl23IV3")
+            target_voice = body.voice or getattr(settings, "elevenlabs_voice_id", "EXAVITQu4vr4xnSDxMaL")
             audio_bytes, media_type = _synthesize_elevenlabs(text, voice_id=target_voice)
             logger.info(f"[Voice] Synthesized speech via ElevenLabs (Voice ID: {target_voice}).")
         except Exception as e:
