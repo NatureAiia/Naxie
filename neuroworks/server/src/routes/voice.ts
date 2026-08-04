@@ -58,7 +58,7 @@ async function reportContext(jobId: string, personaId?: string): Promise<{ repor
   };
 }
 
-// POST /api/voice/converse — NaxionAI's general-purpose conversation. Unlike
+// POST /api/voice/converse — Naxie's general-purpose conversation. Unlike
 // /api/chat (which runs the full task/template/planner pipeline — right for
 // the Chat page, wrong for a voice assistant that should just answer),
 // this is a direct passthrough to the model: no calculator shortcut, no
@@ -72,7 +72,7 @@ voiceRouter.post("/converse", async (req, res) => {
   const messages: { role: string; content: string }[] = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const model = typeof req.body?.model === "string" ? req.body.model.trim() : "";
   const trimmed = messages.slice(-16).map(m => ({
-    role: m?.role === "assistant" ? "NaxionAI" : "User",
+    role: m?.role === "assistant" ? "Naxie" : "User",
     content: String(m?.content ?? "").slice(0, 3000),
   }));
   const last = trimmed.pop();
@@ -81,13 +81,13 @@ voiceRouter.post("/converse", async (req, res) => {
     const { llmGenerateWithMeta } = await import("../lib/llm.js");
     const { injectLanguagePrompt } = await import("../lib/language-prompts.js");
     const system = injectLanguagePrompt(
-      "You are NaxionAI, a helpful, concise voice assistant. Speak naturally, the way a person would say it out loud — " +
+      "You are Naxie, a helpful, concise voice assistant. Speak naturally, the way a person would say it out loud — " +
       "short sentences, no markdown, no headings, no bullet lists, no code fences unless the user explicitly asks for code. " +
       "Answer directly from your own knowledge; never claim you can't help without actually trying.",
       "direct",
     );
     const convo = trimmed.map(m => `${m.role}: ${m.content}`).join("\n");
-    const prompt = (convo ? `${convo}\n` : "") + `User: ${last.content}\nNaxionAI:`;
+    const prompt = (convo ? `${convo}\n` : "") + `User: ${last.content}\nNaxie:`;
     const opts: { profile: "balanced"; maxTokens: number; model?: string } = { profile: "balanced", maxTokens: 500 };
     // Only an explicit LOCAL model is safe to force here — cloud provider
     // model ids don't all carry the "provider/model" shape llm.ts uses to

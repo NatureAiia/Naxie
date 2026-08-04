@@ -244,7 +244,7 @@ body::after {                               /* blueprint glow — light from abo
   50%      { transform: scaleY(1); }
 }
 
-/* JARVIS orb (pages/Jarvis.tsx) — two counter-rotating rings + a breathing
+/* Naxie orb (pages/Naxie.tsx) — two counter-rotating rings + a breathing
    glow core, CSS-only (same "no gif/video asset" rule as the mic waveform
    above — see nw-mic-wave's comment). */
 @keyframes nw-orb-spin {
@@ -267,7 +267,7 @@ body::after {                               /* blueprint glow — light from abo
 /* Listening — a radial "equalizer" ring of bars around the orb (the
    waveform-visualizer look, without the 6MB+ gif: same reasoning as
    nw-mic-wave above, just arranged in a circle instead of a row). Each bar
-   is a wrapper (static rotate+offset, set inline per-bar in Jarvis.tsx) plus
+   is a wrapper (static rotate+offset, set inline per-bar in Naxie.tsx) plus
    this inner scaling animation; --d staggers the start per bar. */
 @keyframes nw-radial-wave {
   0%, 100% { transform: scaleY(0.35); opacity: 0.55; }

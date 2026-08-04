@@ -253,10 +253,10 @@ export function Layout({ children }: { children: ReactNode }) {
     );
   };
 
-  // JARVIS still gets the full-bleed, no-max-width content treatment (it
+  // Naxie still gets the full-bleed, no-max-width content treatment (it
   // hosts the knowledge-graph "brain", not prose) — but the starfield now
-  // shows on every page, JARVIS included.
-  const clearBackground = location.pathname.startsWith("/jarvis");
+  // shows on every page, Naxie included.
+  const clearBackground = location.pathname.startsWith("/naxie");
 
   return (
     <div className="flex h-full">
@@ -302,8 +302,8 @@ export function Layout({ children }: { children: ReactNode }) {
         )}
 
         <div className={collapsed ? "px-2 pb-3" : "px-2 pb-3 tablet:px-3"}>
-          <Link to="/jarvis" onMouseEnter={() => preloadRoute("/jarvis")} onFocus={() => preloadRoute("/jarvis")} title={collapsed ? "NaxionAI" : undefined} className="w-full flex items-center justify-center gap-1.5 bg-ink-800 hover:bg-ink-700 border border-ink-700 hover:border-violet-500/40 rounded-md py-2 text-sm text-cream-100 transition-colors">
-            <Sparkles size={14} className="text-violet-400" /> {!collapsed && "NaxionAI"}
+          <Link to="/naxie" onMouseEnter={() => preloadRoute("/naxie")} onFocus={() => preloadRoute("/naxie")} title={collapsed ? "Naxie" : undefined} className="w-full flex items-center justify-center gap-1.5 bg-ink-800 hover:bg-ink-700 border border-ink-700 hover:border-violet-500/40 rounded-md py-2 text-sm text-cream-100 transition-colors">
+            <Sparkles size={14} className="text-violet-400" /> {!collapsed && "Naxie"}
           </Link>
         </div>
 
@@ -378,7 +378,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className={`flex-1 scrollbar-thin ${clearBackground ? "overflow-hidden" : "overflow-auto"}`}>
           {/* key re-keys the wrapper on route change, restarting the
               nw-page-enter animation. Reduced-motion users get an instant
-              swap (the keyframe collapses to no-op in CSS). JARVIS gets a
+              swap (the keyframe collapses to no-op in CSS). Naxie gets a
               full-bleed, full-height canvas instead of the max-w-6xl reading
               column — it hosts the knowledge-graph "brain", not prose. */}
           <div

@@ -53,7 +53,7 @@ export function CommandPalette() {
   const items: Item[] = [
     { id: "n-dashboard", group: "Navigate", label: "Dashboard", icon: LayoutDashboard, onSelect: go("/dashboard"), keywords: "home overview" },
     { id: "n-chat", group: "Navigate", label: "Chat", icon: MessageSquare, onSelect: go("/chat"), keywords: "talk message" },
-    { id: "n-jarvis", group: "Navigate", label: "NaxionAI", icon: Sparkles, onSelect: go("/jarvis"), keywords: "voice assistant mic talk speak jarvis" },
+    { id: "n-naxie", group: "Navigate", label: "Naxie", icon: Sparkles, onSelect: go("/naxie"), keywords: "voice assistant mic talk speak naxie jarvis" },
     { id: "n-team", group: "Navigate", label: "Focus Team", icon: Users, onSelect: go("/team"), keywords: "team personas employees dispatch" },
     { id: "n-presets", group: "Navigate", label: "Hire a worker (Presets)", icon: Sparkles, onSelect: go("/presets"), keywords: "preset role hire onboard setup wizard sdr assistant recruiter" },
     { id: "n-tasks", group: "Navigate", label: "Tasks", icon: ListChecks, onSelect: go("/tasks"), keywords: "jobs queue" },

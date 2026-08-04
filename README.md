@@ -67,6 +67,23 @@ that acts on your behalf) and scales it into a multi-agent workforce with
 memory, governance, and network reach. The Stark-HUD banner and mascot above
 are reference assets from that lineage, not screenshots of this app.
 
+## 🏷️ Rebrand
+
+This project was originally built as **Digital Force**, an autonomous
+social-media-agency multi-agent platform, and its voice-assistant page was
+internally named **Jarvis**. Both have since been rebranded:
+
+| Old name | New name | Scope |
+|---|---|---|
+| Digital Force | **NaxionAI** | The overall product/brand |
+| Jarvis | **Naxie** | The voice-assistant persona/page (`/naxie` in both the `neuroworks/` and `digitalforce/` frontends) |
+
+**NeuroWorks** is unaffected by this rebrand and keeps its name. References to
+the fictional Iron Man **JARVIS** as a design inspiration (see
+[Inspiration](#-inspiration) above, and the `jarvis-reference`/`jarvis-*`
+asset filenames) are attribution to that lineage, not the old product name,
+and were intentionally left as-is.
+
 ## License
 
 See `neuroworks/LICENSE`.
