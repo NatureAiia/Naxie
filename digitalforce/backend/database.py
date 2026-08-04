@@ -441,6 +441,10 @@ class AgencySettings(Base):
     daemon_last_ran: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_brief_sent: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_proactive_research: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # Throttle for the chat-inactivity nudge (distinct from the goal-based idle
+    # report above) — last time we proactively pinged the user for going quiet
+    # in chat, regardless of whether any goal/campaign is active.
+    last_idle_chat_nudge: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -518,6 +522,7 @@ def _migrate_add_columns(sync_conn):
         "media_assets": [("uploaded_by", "VARCHAR(36)")],
         "knowledge_items": [("uploaded_by", "VARCHAR(36)")],
         "goals": [("created_by", "VARCHAR(36)")],
+        "agency_settings": [("last_idle_chat_nudge", "DATETIME")],
     }
     insp = sa_inspect(sync_conn)
     for table, cols in wanted.items():

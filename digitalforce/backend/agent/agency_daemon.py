@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 # ─── Intervals ────────────────────────────────────────────────────────────────
 DAEMON_CYCLE_SECONDS   = 300   # 5 minutes between full cycles
 PROACTIVE_RESEARCH_HRS = 2     # Research every 2 hours per user
-IDLE_THRESHOLD_HRS     = 24    # Push opportunity report if no activity for 24h
+IDLE_THRESHOLD_HRS     = 24    # Push opportunity report if no goal activity for 24h
+CHAT_IDLE_THRESHOLD_HRS = 2    # Proactively check in if the user hasn't chatted in 2h
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -256,12 +257,15 @@ async def _process_user(cfg, now: datetime):
         )
         active_goals = result.scalars().all()
 
-    # ── Idle detection ───────────────────────────────────────────────────────
+    # ── Idle detection (goal/campaign inactivity) ─────────────────────────────
     if not active_goals:
         last_ran = cfg.daemon_last_ran
         hours_idle = (now - last_ran).total_seconds() / 3600 if last_ran else IDLE_THRESHOLD_HRS + 1
         if hours_idle >= IDLE_THRESHOLD_HRS:
             await _push_idle_report(user_id, cfg, now)
+
+    # ── Idle detection (chat inactivity) ──────────────────────────────────────
+    await _check_idle_chat_nudge(user_id, cfg, now)
 
     # ── Proactive research every 2 hours ─────────────────────────────────────
     last_research = cfg.last_proactive_research
@@ -365,35 +369,106 @@ Keep under 300 words."""
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _push_idle_report(user_id: str, cfg, now: datetime):
-    """Push an opportunity report when the agency has been idle too long."""
+    """Push a proactive nudge when there's been no active goal/campaign for a while."""
     from agent.llm import generate_completion
     from agent.chat_push import chat_push
+    from database import get_user_preferences
 
     logger.info(f"[Daemon] Pushing idle report for {user_id}")
 
+    prefs = await get_user_preferences(user_id)
+    preferred_name = prefs.get("preferred_name", "")
     industry = cfg.industry or "technology and business"
-    prompt = f"""The Digital Force agency has been idle — no active campaigns.
+    prompt = f"""You are Naxie, {preferred_name or "the user"}'s personal AI assistant.
+There's been no active goal or campaign for a while.
 
 Today is {now.strftime('%A, %B %d %Y')}.
-Industry: {industry}
+Relevant context: {industry}
 
-Generate a short report (under 200 words) that:
-1. States there are currently no active campaigns
-2. Lists 3 specific campaign ideas we could launch this week based on the industry calendar and trends
-3. Suggests which one to prioritise and why
+Write a short, warm check-in (under 150 words) that:
+1. Notes there's nothing in progress right now
+2. Suggests 2-3 specific things worth starting this week, grounded in that context
+3. Ends by inviting them to just say the word to get started
 
-Format it as if you're a marketing director reporting to the business owner."""
+Sound like a capable personal assistant, not a corporate report — no headers, no heavy formatting."""
 
     try:
-        report = await generate_completion(prompt, "You are Digital Force's autonomous marketing director.")
-        await chat_push(
-            user_id,
-            f"🟡 **Agency Status: Idle**\n\n{report}\n\n"
-            f"_Say 'launch [idea]' to get the agents started on any of these._",
-            "orchestrator",
-        )
+        report = await generate_completion(prompt, "You are Naxie, a warm and capable personal AI assistant.")
+        await chat_push(user_id, f"🟡 {report}", "naxie")
     except Exception as e:
         logger.error(f"[Daemon] Idle report failed for {user_id}: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CHAT CHECK-IN — distinct from the goal-based idle report above: this fires
+# purely because the USER has gone quiet, regardless of goal/campaign state.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _check_idle_chat_nudge(user_id: str, cfg, now: datetime):
+    """If the user hasn't sent a chat message in a while, proactively check in.
+    Throttled via cfg.last_idle_chat_nudge so it fires once per idle window,
+    not every 5-minute daemon cycle."""
+    from database import async_session, ChatMessage, AgencySettings
+    from sqlalchemy import select, desc
+
+    async with async_session() as session:
+        last_msg = (await session.execute(
+            select(ChatMessage).where(ChatMessage.user_id == user_id)
+            .order_by(desc(ChatMessage.created_at)).limit(1)
+        )).scalars().first()
+
+    if not last_msg:
+        return  # Never chatted yet — nothing to check in about.
+
+    hours_since_chat = (now - last_msg.created_at).total_seconds() / 3600
+    if hours_since_chat < CHAT_IDLE_THRESHOLD_HRS:
+        return
+
+    last_nudge = cfg.last_idle_chat_nudge
+    hours_since_nudge = (now - last_nudge).total_seconds() / 3600 if last_nudge else CHAT_IDLE_THRESHOLD_HRS + 1
+    if hours_since_nudge < CHAT_IDLE_THRESHOLD_HRS:
+        return  # Already nudged this idle window.
+
+    await _push_chat_checkin(user_id, now, hours_since_chat)
+
+    async with async_session() as session:
+        s = await session.get(AgencySettings, cfg.id)
+        if s:
+            s.last_idle_chat_nudge = now
+            await session.commit()
+
+
+async def _push_chat_checkin(user_id: str, now: datetime, hours_since_chat: float):
+    """Send one short, personal check-in after the user's been quiet for a while."""
+    from agent.llm import generate_completion
+    from agent.chat_push import chat_push
+    from database import get_user_preferences
+
+    logger.info(f"[Daemon] Sending chat check-in to {user_id} (idle {hours_since_chat:.1f}h)")
+
+    prefs = await get_user_preferences(user_id)
+    preferred_name = prefs.get("preferred_name", "")
+    prefs_text = "\n".join(f"- {k}: {v}" for k, v in prefs.items()) or "Nothing saved yet."
+
+    prompt = f"""You are Naxie, {preferred_name or "the user"}'s personal AI assistant.
+It's been about {hours_since_chat:.0f} hours since they last talked to you. Nothing urgent
+is pending — you're just proactively checking in, the way a good assistant would.
+
+What you know about them:
+{prefs_text}
+
+Write ONE short, warm, non-intrusive message (1-3 sentences) that:
+- Doesn't apologize for interrupting or sound needy
+- Optionally references something you know about them if it's genuinely relevant
+- Ends with a light, easy way for them to respond
+
+No preamble, no markdown headers — just the message itself."""
+
+    try:
+        message = await generate_completion(prompt, "You are Naxie, a warm and perceptive personal AI assistant checking in on your user.")
+        await chat_push(user_id, message.strip(), "naxie")
+    except Exception as e:
+        logger.error(f"[Daemon] Chat check-in failed for {user_id}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
