@@ -187,13 +187,26 @@ export interface AnalyticsOverview {
 
 // ─── API client ──────────────────────────────────────────────
 
+export interface AuthUser {
+  id: string
+  username: string
+  email: string
+  role: string
+  layer: 'staff' | 'admin' | 'superadmin'
+  full_name?: string | null
+  status: string
+}
+
 const api = {
   auth: {
+    state: () => GET<{ needs_bootstrap: boolean }>('/api/auth/state'),
     login: (body: { email: string; password: string }) =>
-      POST<{ access_token: string; token_type: string }>('/api/auth/login', body),
-    register: (body: { email: string; password: string; username: string; full_name?: string }) =>
-      POST<{ access_token: string; token_type: string }>('/api/auth/register', body),
-    me: () => GET<{ sub: string; email: string; role: string }>('/api/auth/me'),
+      POST<{ access_token: string; token_type: string; user: AuthUser }>('/api/auth/login', body),
+    signup: (body: { email: string; password: string; username: string; full_name?: string }) =>
+      POST<{ access_token: string; token_type: string; user: AuthUser } | { status: string; message: string }>('/api/auth/signup', body),
+    me: () => GET<{ sub: string; email: string; role: string; username: string; full_name?: string }>('/api/auth/me'),
+    pending: () => GET<AuthUser[]>('/api/auth/pending'),
+    approve: (userId: string) => POST<{ status: string; user: AuthUser }>(`/api/auth/pending/${userId}/approve`, {}),
   },
 
   goals: {

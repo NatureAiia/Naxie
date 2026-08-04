@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import uuid
 
 from database import get_db, PlatformConnection
-from auth import get_current_user
+from auth import get_current_user, layer_of_role
 from encryption import encrypt_value
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
@@ -25,7 +25,7 @@ class AccountUpdate(BaseModel):
     is_enabled: Optional[bool] = None
 
 def _is_admin(user) -> bool:
-    return (user or {}).get("role") in ("admin", "superadmin")
+    return layer_of_role((user or {}).get("role")) in ("admin", "superadmin")
 
 
 def _owner_scope(stmt, current_user):

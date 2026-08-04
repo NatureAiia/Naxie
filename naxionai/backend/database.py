@@ -34,12 +34,29 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
-    role: Mapped[str] = mapped_column(String(50), default="operator")  # admin | operator | viewer
+    # superadmin | admin | staff (legacy operator/viewer resolve to staff — see
+    # auth.layer_of_role()). Real multi-user auth (api/auth.py) is dormant
+    # until settings.require_auth is turned on.
+    role: Mapped[str] = mapped_column(String(50), default="operator")
     full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     avatar_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # ── Multi-user auth fields (Phase 1) ──────────────────────
+    # active | pending | disabled. Bootstrap: the first account to ever set a
+    # real password becomes active/superadmin; every later signup lands
+    # pending until an admin approves it.
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    department: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    title: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    work_mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # agent | hybrid | human
+    salary_monthly: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    reports_to: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    # False for the legacy single-user seed (random unusable password) until
+    # someone actually claims the account via POST /api/auth/signup.
+    has_set_password: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -523,6 +540,15 @@ def _migrate_add_columns(sync_conn):
         "knowledge_items": [("uploaded_by", "VARCHAR(36)")],
         "goals": [("created_by", "VARCHAR(36)")],
         "agency_settings": [("last_idle_chat_nudge", "DATETIME")],
+        "users": [
+            ("status", "VARCHAR(20) DEFAULT 'active'"),
+            ("department", "VARCHAR(120)"),
+            ("title", "VARCHAR(120)"),
+            ("work_mode", "VARCHAR(20)"),
+            ("salary_monthly", "FLOAT"),
+            ("reports_to", "VARCHAR(36)"),
+            ("has_set_password", "BOOLEAN DEFAULT 0"),
+        ],
     }
     insp = sa_inspect(sync_conn)
     for table, cols in wanted.items():

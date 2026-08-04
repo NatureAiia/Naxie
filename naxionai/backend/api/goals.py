@@ -15,14 +15,14 @@ from sqlalchemy import select, desc
 from pydantic import BaseModel
 
 from database import get_db, Goal, AgentLog
-from auth import get_current_user
+from auth import get_current_user, layer_of_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 
 
 def _is_admin(user) -> bool:
-    return (user or {}).get("role") in ("admin", "superadmin")
+    return layer_of_role((user or {}).get("role")) in ("admin", "superadmin")
 
 
 def _require_goal_access(goal, user):

@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { CommandPalette } from '@/components/CommandPalette'
+import { ToastRack } from '@/components/Card'
 
 export const metadata: Metadata = {
   title: 'NaxionAI — Personal AI Assistant',
@@ -20,6 +22,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="bg-surface text-white antialiased min-h-screen">
         {children}
+        <CommandPalette />
+        <ToastRack />
       </body>
     </html>
   )

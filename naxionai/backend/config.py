@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 1440   # 24 hours
     encryption_key: str = _DEFAULT_ENCRYPTION_KEY
+    # Default OFF: get_current_user() keeps returning the single seeded local
+    # user regardless of Authorization header, matching today's behavior.
+    # Flip to true only once the frontend's NEXT_PUBLIC_REAL_AUTH is also on
+    # and a real login has been completed — turning this on first locks
+    # every request out (no valid token exists yet).
+    require_auth: bool = False
 
     # ── Database ─────────────────────────────────────────
     # PostgreSQL for production, SQLite for dev

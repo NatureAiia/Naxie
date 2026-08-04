@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db, KnowledgeItem
-from auth import get_current_user
+from auth import get_current_user, layer_of_role
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB cap; streamed to disk in chunks
 
 
 def _is_admin(user) -> bool:
-    return (user or {}).get("role") in ("admin", "superadmin")
+    return layer_of_role((user or {}).get("role")) in ("admin", "superadmin")
 
 ALLOWED_EXTENSIONS = {
     "pdf", "docx", "doc", "txt", "md",

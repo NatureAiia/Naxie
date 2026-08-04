@@ -8,14 +8,14 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, AgentLog, Goal
-from auth import get_current_user, decode_token
+from auth import get_current_user, decode_token, layer_of_role
 
 router = APIRouter(prefix="/api/stream", tags=["stream"])
 logger = logging.getLogger(__name__)
 
 
 def _is_admin(user) -> bool:
-    return user.get("role") in ("admin", "superadmin")
+    return layer_of_role((user or {}).get("role")) in ("admin", "superadmin")
 
 
 @router.get("/goals/{goal_id}")

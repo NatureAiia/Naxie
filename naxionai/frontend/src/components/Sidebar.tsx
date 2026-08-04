@@ -2,23 +2,51 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ComponentType } from 'react'
 import {
-  Zap, LayoutDashboard, Target, BarChart2,
-  Cpu, Settings, MessageSquare,
-  LogOut, Activity, Network, Sparkles, Volume2
+  LayoutDashboard, Target, BarChart2, Cpu, Settings, MessageSquare,
+  LogOut, Sparkles, Volume2, Network, ChevronRight, Search as SearchIcon,
+  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import { clearToken, getUser } from '@/lib/auth'
 import api from '@/lib/api'
-import { motion } from 'framer-motion'
+import { BrandMark } from './BrandMark'
+import { PixelDriftText } from './PixelDriftText'
+import { Kbd, MetaKey } from './Kbd'
 
-interface NavItem {
+type NavItem = {
   href: string
   label: string
-  icon: React.ElementType
-  badge?: number | string
-  accent?: string
+  icon: ComponentType<{ size?: number; className?: string }>
+  badge?: number
 }
+
+// Primary: the everyday surfaces, always visible. Everything else folds into
+// a collapsible group so the rail stays short as more pages land in later
+// migration phases (see naxionai/frontend Phase 0 plan) — new pages join an
+// existing group instead of the rail growing flat and long.
+const primaryNav: NavItem[] = [
+  { href: '/', label: 'Overview', icon: LayoutDashboard },
+  { href: '/chat', label: 'Chat', icon: MessageSquare },
+  { href: '/naxie', label: 'Naxie', icon: Sparkles },
+]
+
+function makeWorkspaceNav(awaitingCount: number): NavItem[] {
+  return [
+    { href: '/goals', label: 'Tasks', icon: Target, badge: awaitingCount || undefined },
+  ]
+}
+
+const libraryNav: NavItem[] = [
+  { href: '/knowledge', label: 'Knowledge Core', icon: Network },
+  { href: '/skills', label: 'SkillForge', icon: Cpu },
+  { href: '/tts', label: 'TTS Studio', icon: Volume2 },
+]
+
+const systemNav: NavItem[] = [
+  { href: '/analytics', label: 'Analytics', icon: BarChart2 },
+  { href: '/settings', label: 'Settings', icon: Settings },
+]
 
 export default function Sidebar() {
   const pathname = usePathname()
@@ -27,12 +55,16 @@ export default function Sidebar() {
   const [mounted, setMounted] = useState(false)
   const [awaitingCount, setAwaitingCount] = useState(0)
   const [agentStatus, setAgentStatus] = useState<'idle' | 'planning' | 'executing' | 'awaiting'>('idle')
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem('naxionai.sidebarCollapsed') === '1'
+  })
 
   useEffect(() => {
     setMounted(true)
     setUser(getUser())
 
-    // Poll for goal statuses
     const check = async () => {
       try {
         const goals = await api.goals.list()
@@ -52,23 +84,33 @@ export default function Sidebar() {
     return () => clearInterval(interval)
   }, [])
 
-  const NAV: NavItem[] = [
-    { href: '/tts',      label: 'TTS Studio',      icon: Volume2,       accent: '#EC4899' },
-    { href: '/chat',     label: 'Agentic Hub',     icon: MessageSquare, accent: '#00A3FF' },
-    { href: '/naxie',    label: 'NAXIE',           icon: Sparkles,      accent: '#A78BFA' },
-    { href: '/',         label: 'Overview',        icon: LayoutDashboard },
-    { href: '/goals',    label: 'Tasks',           icon: Target, badge: awaitingCount || undefined },
-    { href: '/analytics',label: 'Analytics',       icon: BarChart2 },
-    { href: '/knowledge',label: 'Knowledge Core',  icon: Network },
-    { href: '/skills',   label: 'SkillForge',      icon: Cpu },
-    { href: '/settings', label: 'Settings',        icon: Settings },
-  ]
+  // Responsive: force-collapse under the tablet breakpoint, restore the
+  // saved preference above it — same pattern as neuroworks' Layout.tsx.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mql = window.matchMedia('(max-width: 819px)')
+    const apply = () => {
+      if (mql.matches) setCollapsed(true)
+      else setCollapsed(localStorage.getItem('naxionai.sidebarCollapsed') === '1')
+    }
+    apply()
+    mql.addEventListener?.('change', apply)
+    window.addEventListener('resize', apply)
+    return () => {
+      mql.removeEventListener?.('change', apply)
+      window.removeEventListener('resize', apply)
+    }
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('naxionai.sidebarCollapsed', collapsed ? '1' : '0')
+  }, [collapsed])
 
   const STATUS_CONFIG = {
-    idle:      { label: 'System Idle', color: '#475569', dot: '#94A3B8' },
-    planning:  { label: 'Synthesizing...', color: '#22D3EE', dot: '#67E8F9' },
-    executing: { label: 'Executing', color: '#00A3FF', dot: '#33BAFF' },
-    awaiting:  { label: 'Approval Required', color: '#F59E0B', dot: '#FCD34D' },
+    idle: { label: 'System idle', dot: '#94A3B8' },
+    planning: { label: 'Synthesizing…', dot: '#67E8F9' },
+    executing: { label: 'Executing', dot: '#33BAFF' },
+    awaiting: { label: 'Approval required', dot: '#FCD34D' },
   }
   const st = STATUS_CONFIG[agentStatus]
 
@@ -77,157 +119,130 @@ export default function Sidebar() {
     router.push('/login')
   }
 
+  const openCommandPalette = () => {
+    const ev = new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true, bubbles: true })
+    document.dispatchEvent(ev)
+  }
+
+  const isActive = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(href))
+
+  const renderNavItem = (item: NavItem) => {
+    const Icon = item.icon
+    const active = isActive(item.href)
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        title={collapsed ? item.label : undefined}
+        className={`flex items-center gap-3 py-2 rounded-md text-sm transition-colors ${collapsed ? 'justify-center px-2' : 'px-3'} ${
+          active ? 'bg-ink-800 text-cream-50' : 'text-cream-300 hover:text-cream-50 hover:bg-ink-800/60'
+        }`}
+      >
+        <Icon size={16} className="shrink-0" />
+        {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+        {!collapsed && item.badge ? (
+          <span className="bg-amber-500/20 text-amber-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">{item.badge}</span>
+        ) : null}
+      </Link>
+    )
+  }
+
+  const renderGroup = (key: string, label: string, items: NavItem[]) => {
+    const hasActive = items.some(n => isActive(n.href))
+    const open = openGroups[key] ?? hasActive
+    if (collapsed) return items.map(renderNavItem)
+    return (
+      <div key={key}>
+        <button
+          type="button"
+          onClick={() => setOpenGroups(g => ({ ...g, [key]: !(g[key] ?? hasActive) }))}
+          className="w-full flex items-center gap-3 px-3 py-2 mt-3 rounded-md text-sm text-cream-300 hover:text-cream-50 hover:bg-ink-800/60 transition-colors"
+        >
+          <span className="flex-1 text-left">{label}</span>
+          <ChevronRight size={14} className={`text-cream-300/50 transition-transform ${open ? 'rotate-90' : ''}`} />
+        </button>
+        {open && (
+          <div className="ml-3 pl-3 border-l border-ink-800 space-y-0.5">
+            {items.map(renderNavItem)}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
-    <aside style={{
-      width: 240, minHeight: '100vh', flexShrink: 0,
-      background: 'rgba(8, 11, 18, 0.65)',
-      backdropFilter: 'blur(24px)',
-      WebkitBackdropFilter: 'blur(24px)',
-      borderRight: '1px solid rgba(255,255,255,0.03)',
-      display: 'flex', flexDirection: 'column',
-      position: 'sticky', top: 0, height: '100vh',
-      zIndex: 50,
-    }}>
-      {/* Brand Identity / Logo */}
-      <div style={{ padding: '2.5rem 1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.015)' }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 14, textDecoration: 'none' }}>
-          <div style={{
-            width: 38, height: 38, borderRadius: 10,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.05)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
-            overflow: 'hidden'
-          }}>
-            <img src="/logo.png" alt="NeuroWorks" style={{ width: 18, height: 18, objectFit: 'contain', opacity: 0.95 }} />
-          </div>
-          <div>
-            <div style={{ 
-              fontWeight: 500, fontSize: '1.05rem', 
-              color: '#F5F5F7',
-              lineHeight: 1.1, letterSpacing: '-0.025em',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
-            }}>
-              NeuroWorks
+    <aside
+      className={`shrink-0 bg-ink-900 border-r border-ink-800 flex flex-col transition-[width] duration-200 overflow-hidden ${collapsed ? 'w-16' : 'w-60'}`}
+      style={{ minHeight: '100vh', position: 'sticky', top: 0, height: '100vh', zIndex: 50 }}
+    >
+      <div className={`flex items-center ${collapsed ? 'flex-col gap-2 px-2 py-4' : 'justify-between px-4 py-4 tablet:px-5'}`}>
+        <Link href="/" className={`flex items-center gap-2.5 min-w-0 ${collapsed ? 'justify-center' : ''}`}>
+          <BrandMark size={26} />
+          {!collapsed && (
+            <div className="w-[140px] h-8">
+              <PixelDriftText text="NaxionAI" />
             </div>
-            <div style={{ fontSize: '0.62rem', color: '#86868B', fontWeight: 500, letterSpacing: '0.04em', marginTop: 3 }}>
-              AUTONOMOUS AGENCY
-            </div>
-          </div>
-        </Link>
-      </div>
-
-      {/* Cybernetic Status Indicator */}
-      <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.85rem',
-          borderRadius: 8, background: 'rgba(255,255,255,0.02)',
-          border: '1px solid rgba(255,255,255,0.04)',
-          position: 'relative', overflow: 'hidden'
-        }}>
-          {/* Subtle animated background for active states */}
-          {agentStatus === 'executing' && (
-            <motion.div 
-              style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent, rgba(0,163,255,0.1), transparent)' }}
-              animate={{ x: ['-100%', '100%'] }}
-              transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
-            />
           )}
+        </Link>
+        <button
+          type="button"
+          onClick={() => setCollapsed(c => !c)}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label="Toggle sidebar"
+          className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0"
+        >
+          {collapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+        </button>
+      </div>
 
-          <div style={{
-            width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-            background: st.dot,
-            boxShadow: agentStatus !== 'idle' ? `0 0 12px ${st.dot}` : 'none',
-            animation: agentStatus !== 'idle' ? 'pulse 2s infinite' : 'none',
-            zIndex: 1
-          }} />
-          <div style={{ zIndex: 1 }}>
-            <div style={{ fontSize: '0.72rem', color: st.color, fontWeight: 600, letterSpacing: '0.02em' }}>{st.label}</div>
-            <div style={{ fontSize: '0.62rem', color: '#475569', marginTop: 1 }}>Neural Core Status</div>
-          </div>
-          {agentStatus === 'executing' && <Activity size={14} style={{ color: '#00A3FF', marginLeft: 'auto', zIndex: 1 }} />}
+      {/* Status pill */}
+      <div className={collapsed ? 'px-2 pb-3' : 'px-3 pb-3'}>
+        <div className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-ink-700 bg-ink-850 ${collapsed ? 'justify-center px-2' : ''}`}>
+          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: st.dot, boxShadow: agentStatus !== 'idle' ? `0 0 8px ${st.dot}` : 'none' }} />
+          {!collapsed && <span className="text-cream-300 truncate">{st.label}</span>}
         </div>
       </div>
 
-      {/* Primary Navigation System */}
-      <nav style={{ flex: 1, padding: '1.25rem 0.75rem', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {NAV.map(item => {
-            const Icon = item.icon
-            const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
-            const isChatLink = item.href === '/chat'
-            const navAccent = item.accent || '#00A3FF'
-
-            return (
-              <Link key={item.href} href={item.href} style={{ textDecoration: 'none', position: 'relative' }}>
-                {active && (
-                  <motion.div
-                    layoutId="activeNavIndicator"
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: '100%',
-                      background: isChatLink ? `linear-gradient(90deg, rgba(0,163,255,0.15) 0%, transparent 100%)` : `rgba(255,255,255,0.03)`,
-                      borderRadius: 8,
-                      borderLeft: `2px solid ${navAccent}`,
-                      zIndex: 0
-                    }}
-                    initial={false}
-                    transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                  />
-                )}
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '0.65rem 1rem', borderRadius: 8,
-                  color: active ? '#F8FAFC' : '#94A3B8',
-                  position: 'relative', zIndex: 1,
-                  transition: 'color 0.2s ease',
-                }}>
-                  <Icon size={18} style={{ color: active ? navAccent : 'inherit' }} />
-                  <span style={{ fontSize: '0.85rem', fontWeight: active ? 500 : 400 }}>
-                    {item.label}
-                  </span>
-                  {item.badge ? (
-                    <span style={{
-                      marginLeft: 'auto', minWidth: 20, height: 20, borderRadius: 10, padding: '0 6px',
-                      background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)',
-                      color: '#F59E0B', fontSize: '0.65rem', fontWeight: 700,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      {item.badge}
-                    </span>
-                  ) : null}
-                </div>
-              </Link>
-            )
-          })}
+      {!collapsed && (
+        <div className="px-3 pb-3">
+          <button
+            type="button"
+            onClick={openCommandPalette}
+            className="flex items-center gap-2 text-xs px-3 py-1.5 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors w-full"
+            title="Open command palette"
+          >
+            <SearchIcon size={12} />
+            <span className="flex-1 text-left">Search</span>
+            <span className="flex items-center gap-0.5"><MetaKey /><Kbd>K</Kbd></span>
+          </button>
         </div>
+      )}
+
+      <nav className={`flex-1 space-y-0.5 overflow-y-auto scrollbar-thin ${collapsed ? 'px-2' : 'px-3'}`}>
+        {primaryNav.map(renderNavItem)}
+        {renderGroup('workspace', 'Workspace', makeWorkspaceNav(awaitingCount))}
+        {renderGroup('library', 'Library', libraryNav)}
+        {renderGroup('system', 'System', systemNav)}
       </nav>
 
-      {/* Operator Metadata */}
-      <div style={{ padding: '1rem', borderTop: '1px solid rgba(255,255,255,0.02)' }}>
-        {mounted && user && (
-          <div style={{ padding: '0.6rem 0.75rem', marginBottom: 8, borderRadius: 8, background: 'rgba(255,255,255,0.015)' }}>
-            <div style={{ fontSize: '0.8rem', color: '#F8FAFC', fontWeight: 500 }}>
-              {user.full_name || user.email?.split('@')[0] || 'Operator_01'}
+      <div className={collapsed ? 'px-2 py-3 border-t border-ink-800' : 'px-3 py-3 border-t border-ink-800'}>
+        {mounted && user && !collapsed && (
+          <div className="px-3 py-2 mb-2 rounded-md bg-ink-850">
+            <div className="text-sm text-cream-50 font-medium truncate">
+              {user.full_name || user.email?.split('@')[0] || 'Operator'}
             </div>
-            <div style={{ fontSize: '0.65rem', color: '#64748B', marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {user.role || 'Clearance: Level 1'}
+            <div className="text-[10px] text-cream-300/60 uppercase tracking-wide mt-0.5">
+              {user.role || 'local'}
             </div>
           </div>
         )}
-        <button onClick={handleLogout}
-          style={{
-            width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-            padding: '0.5rem 0.75rem', borderRadius: 8, cursor: 'pointer',
-            background: 'none', border: 'none', color: '#64748B',
-            fontSize: '0.8rem', transition: 'all 0.2s', fontWeight: 500
-          }}
-          onMouseEnter={e => { e.currentTarget.style.color = '#FCA5A5' }}
-          onMouseLeave={e => { e.currentTarget.style.color = '#64748B' }}>
-          <LogOut size={16} /> Disconnect
+        <button
+          onClick={handleLogout}
+          title={collapsed ? 'Log out' : undefined}
+          className={`w-full flex items-center gap-2.5 py-2 rounded-md text-sm text-cream-300/70 hover:text-flame-400 transition-colors ${collapsed ? 'justify-center px-2' : 'px-3'}`}
+        >
+          <LogOut size={16} />
+          {!collapsed && 'Log out'}
         </button>
       </div>
     </aside>

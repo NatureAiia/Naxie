@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from pydantic import BaseModel
 from database import get_db, MediaAsset
-from auth import get_current_user
+from auth import get_current_user, layer_of_role
 from config import get_settings
 
 router = APIRouter(prefix="/api/media", tags=["media"])
@@ -23,7 +23,7 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB cap; streamed to disk in chunks
 
 
 def _is_admin(user) -> bool:
-    return (user or {}).get("role") in ("admin", "superadmin")
+    return layer_of_role((user or {}).get("role")) in ("admin", "superadmin")
 
 @router.post("/upload")
 async def upload_media(
