@@ -18,6 +18,43 @@ from langchain_core.tools import tool
 logger = logging.getLogger(__name__)
 
 
+def _system_control_allowed() -> tuple[bool, str]:
+    """Guard for tools that act directly on the host (launch apps, clipboard).
+    Same reasoning as sandbox.py's _host_exec_allowed: these are driven by LLM
+    output that can be steered by prompt-injected content (chat, RAG, web
+    results), so refuse in production unless the operator opts in."""
+    try:
+        from config import get_settings
+        s = get_settings()
+    except Exception:
+        return True, ""
+    if s.is_production and not s.allow_system_control:
+        return False, (
+            "System control is disabled in production. `system_control` / `manage_clipboard` act "
+            "directly on the host (launch apps, read/write clipboard) and are driven by LLM output "
+            "that can be steered by prompt-injected content. Set ALLOW_SYSTEM_CONTROL=1 to explicitly "
+            "accept this risk."
+        )
+    return True, ""
+
+
+# Only these apps can be launched via system_control('open_app', ...) — the
+# target string comes from LLM output, which can be steered by injected
+# content, so it must resolve through a fixed allowlist rather than being
+# passed straight to a shell.
+_APP_ALLOWLIST = {
+    "calc": "calc.exe", "calculator": "calc.exe",
+    "notepad": "notepad.exe",
+    "explorer": "explorer.exe", "files": "explorer.exe",
+    "chrome": "chrome", "google chrome": "chrome",
+    "edge": "msedge", "microsoft edge": "msedge",
+    "firefox": "firefox",
+    "word": "winword", "excel": "excel", "outlook": "outlook",
+    "paint": "mspaint.exe",
+    "terminal": "wt.exe", "cmd": "cmd.exe",
+}
+
+
 @tool
 async def get_weather(location: str = "auto") -> str:
     """Fetch live weather conditions and forecast for a city or current location (using Open-Meteo free API).
@@ -73,28 +110,32 @@ async def set_reminder(title: str, message: str, delay_seconds: int = 0) -> str:
         async def _trigger():
             if delay_seconds > 0:
                 await asyncio.sleep(delay_seconds)
-            
-            # Windows Toast via PowerShell (built-in, no external library required)
-            ps_cmd = f"""
+
+            # title/message are LLM-controlled text. They used to be spliced
+            # directly into a PowerShell double-quoted here-string, which both
+            # interpolates "$(...)" subexpressions AND can be broken out of
+            # with an embedded newline + '"@' — i.e. arbitrary PowerShell
+            # execution from chat/RAG/web content. Send them over stdin as
+            # JSON instead so they're never parsed as PowerShell source, and
+            # XML-escape before dropping them into the toast markup.
+            ps_cmd = """
+            $data = [Console]::In.ReadToEnd() | ConvertFrom-Json
+            $titleEsc = [System.Security.SecurityElement]::Escape($data.title)
+            $msgEsc = [System.Security.SecurityElement]::Escape($data.message)
             [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
             [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-            $xml = @"
-            <toast>
-                <visual>
-                    <binding template="ToastGeneric">
-                        <text>{title}</text>
-                        <text>{message}</text>
-                    </binding>
-                </visual>
-            </toast>
-            "@
+            $xml = "<toast><visual><binding template='ToastGeneric'><text>$titleEsc</text><text>$msgEsc</text></binding></visual></toast>"
             $toastXml = [Windows.Data.Xml.Dom.XmlDocument]::new()
             $toastXml.LoadXml($xml)
             $toast = [Windows.UI.Notifications.ToastNotification]::new($toastXml)
             [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("NaxionAI").Show($toast)
             """
             try:
-                subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                proc = await asyncio.create_subprocess_exec(
+                    "powershell", "-NoProfile", "-Command", ps_cmd,
+                    stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                )
+                await proc.communicate(input=json.dumps({"title": title, "message": message}).encode())
             except Exception:
                 pass
 
@@ -110,12 +151,22 @@ async def set_reminder(title: str, message: str, delay_seconds: int = 0) -> str:
 def system_control(action: str, target: str = "") -> str:
     """Perform OS system actions on Windows.
     action: 'open_app' (target='calc'|'notepad'|'chrome'|etc), 'take_screenshot', 'volume_mute', 'volume_unmute'."""
+    allowed, reason = _system_control_allowed()
+    if not allowed:
+        return reason
     try:
         act = action.lower().strip()
         if act == "open_app":
             if not target:
                 return "App target name required (e.g. 'notepad', 'calc', 'chrome')."
-            subprocess.Popen(["cmd.exe", "/c", "start", target], shell=True)
+            # target is LLM-controlled; it used to go straight into a shell
+            # command line ("cmd /c start <target>" with shell=True), where
+            # metacharacters like '&' or '|' let injected content chain
+            # arbitrary commands. Resolve through a fixed allowlist instead.
+            exe = _APP_ALLOWLIST.get(target.lower().strip())
+            if not exe:
+                return f"App '{target}' is not in the allowed list: {', '.join(sorted(set(_APP_ALLOWLIST.values())))}."
+            subprocess.Popen(["cmd.exe", "/c", "start", "", exe])
             return f"Launched application '{target}'."
 
         elif act == "take_screenshot":
@@ -147,11 +198,19 @@ def system_control(action: str, target: str = "") -> str:
 def manage_clipboard(action: str = "read", text: str = "") -> str:
     """Read or write text to the Windows Clipboard.
     action: 'read' (returns clipboard text) or 'write' (copies 'text' to clipboard)."""
+    allowed, reason = _system_control_allowed()
+    if not allowed:
+        return reason
     try:
         act = action.lower().strip()
         if act == "write":
-            ps_cmd = f"Set-Clipboard -Value '{text}'"
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True)
+            # text is LLM-controlled; it used to be spliced into the PowerShell
+            # command line inside single quotes ("Set-Clipboard -Value '...'"),
+            # so an embedded quote broke out of the string and let injected
+            # content run arbitrary PowerShell. Send it over stdin instead —
+            # it's then just data, never parsed as script source.
+            ps_cmd = "$t = [Console]::In.ReadToEnd(); Set-Clipboard -Value $t"
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], input=text, text=True, check=True)
             return f"Text successfully copied to clipboard ({len(text)} chars)."
         else:
             ps_cmd = "Get-Clipboard"

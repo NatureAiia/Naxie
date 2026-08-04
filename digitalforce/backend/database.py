@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import (
     String, Float, Boolean, Integer, Text, DateTime,
-    ForeignKey, JSON, BigInteger, Enum
+    ForeignKey, JSON, BigInteger, Enum, UniqueConstraint
 )
 from datetime import datetime
 from typing import Optional
@@ -447,6 +447,25 @@ class AgencySettings(Base):
 
 
 # ═══════════════════════════════════════════════════════════
+# USER PREFERENCES — persistent key/value memory across sessions
+# (e.g. preferred name, "likes bullet-point summaries") so Naxie
+# doesn't start cold every conversation.
+# ═══════════════════════════════════════════════════════════
+
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_user_preference_key"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    key: Mapped[str] = mapped_column(String(100))
+    value: Mapped[str] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════
 # DATABASE ENGINE
 # ═══════════════════════════════════════════════════════════
 
@@ -562,3 +581,33 @@ async def get_db():
             raise
         finally:
             await session.close()
+
+
+async def get_user_preferences(user_id: str) -> dict:
+    """All saved preferences for a user, as a flat {key: value} dict."""
+    from sqlalchemy import select
+
+    async with async_session() as db:
+        rows = (await db.execute(
+            select(UserPreference).where(UserPreference.user_id == user_id)
+        )).scalars().all()
+    return {row.key: row.value for row in rows}
+
+
+async def set_user_preference(user_id: str, key: str, value: str) -> None:
+    """Upsert a single preference. `key` is a short slug like 'preferred_name'
+    or 'summary_style'; `value` is free text."""
+    from sqlalchemy import select
+
+    async with async_session() as db:
+        row = (await db.execute(
+            select(UserPreference).where(
+                UserPreference.user_id == user_id,
+                UserPreference.key == key,
+            )
+        )).scalars().first()
+        if row:
+            row.value = value
+        else:
+            db.add(UserPreference(user_id=user_id, key=key, value=value))
+        await db.commit()

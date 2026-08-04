@@ -124,6 +124,14 @@ class Settings(BaseSettings):
     # or a real isolated sandbox is wired. Dev is permitted so the app runs locally.
     allow_host_code_exec: bool = False
 
+    # ── PA Tools (system control) ─────────────────────────
+    # `system_control` / `manage_clipboard` let the agent launch processes and
+    # read/write the Windows clipboard on this host. Same reasoning as
+    # allow_host_code_exec above: the inputs driving these tools flow through
+    # prompt-injectable text (chat, RAG, web content), so refuse in production
+    # unless the operator explicitly opts in. Dev is permitted by default.
+    allow_system_control: bool = False
+
     # ── Web Research ──────────────────────────────────────
     tavily_api_key: str = ""                  # Tavily Search API
     serpapi_key: str = ""                     # SerpAPI alternative

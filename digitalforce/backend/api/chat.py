@@ -126,12 +126,19 @@ async def chat_stream(
             cfg = cfg_res.scalar_one_or_none()
             if cfg and cfg.agent_tone:
                 agent_tone = cfg.agent_tone
-                
+
+            from database import get_user_preferences
+            prefs = await get_user_preferences(user_id)
+            prefs_text = "\n".join(f"- {k}: {v}" for k, v in prefs.items()) or "None saved yet."
+
             prompt = f"""You are Naxie, the personal AI assistant of NaxionAI.
 You are intelligent, warm, direct, and slightly witty — like a capable assistant who feels genuinely helpful.
 Address the user as \"sir\" in a respectful, natural way unless they explicitly prefer another style.
 Speak with calm confidence, concise sentences, and clear actions. Never robotic, never corporate, and never overly formal.Language policy: Always respond in clear, natural English. Do not switch to Shona or any other language unless the user explicitly asks for it.
 Your persona and tone: {agent_tone}
+
+Things you remember about this user (apply them, don't recite them):
+{prefs_text}
 
 Recent context:
 {json.dumps(hist_msgs[-4:], indent=2)}
@@ -139,6 +146,7 @@ Recent context:
 Determine if the user is asking you to start a task, create a goal, execute something, or analyze data. If yes, it requires the Manager's attention.
 If the user is approving a previously proposed plan, mark approval_status as "approved". If rejecting, mark "rejected". Otherwise "none".
 If the user is explicitly providing credentials, a password, a 2FA code, or telling you to inherently update the 'Truth Bucket' for an account, provide the account name you detect, and the specific text to append to their auth_data bucket.
+If the user states a lasting personal preference or fact about themselves worth remembering across conversations (their name, how they like things summarized, a recurring habit, etc.) — NOT a one-off instruction for this message only — capture it as a short key/value pair.
 
 Return strictly JSON:
 {{
@@ -148,6 +156,10 @@ Return strictly JSON:
   "update_truth_bucket": {{
      "account_name_match": "string matching account name (e.g. 'Acme Corp') or null",
      "text_to_append": "Exact credential string to append safely to DB (e.g. 'Backup pass: 123') or null"
+  }},
+  "remember_preference": {{
+     "key": "short_snake_case_slug (e.g. 'preferred_name') or null",
+     "value": "the fact/preference to remember or null"
   }}
 }}"""
             try:
@@ -178,6 +190,11 @@ Return strictly JSON:
                             updated = f"{current}\n[Agent Auto-Saved Update]: {text_to_append}".strip()
                             conn.auth_data = encrypt_value(updated)
                             await db.commit()
+
+                pref_update = response.get("remember_preference")
+                if pref_update and isinstance(pref_update, dict) and pref_update.get("key") and pref_update.get("value"):
+                    from database import set_user_preference
+                    await set_user_preference(user_id, str(pref_update["key"])[:100], str(pref_update["value"]))
             except Exception as e:
                 reply = "Acknowledged. Routing internal systems to compensate."
                 requires_manager = True

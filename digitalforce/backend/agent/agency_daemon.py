@@ -460,7 +460,7 @@ async def _send_brief(user_id: str, cfg, slot: dict, now: datetime, active_goals
     """Generate and send a scheduled brief to the user's chat."""
     from agent.llm import generate_completion
     from agent.chat_push import chat_push
-    import json as _json
+    from database import get_user_preferences
 
     label = slot.get("label", "Brief")
     logger.info(f"[Daemon] Sending '{label}' to {user_id}")
@@ -478,24 +478,38 @@ async def _send_brief(user_id: str, cfg, slot: dict, now: datetime, active_goals
     else:
         campaigns_text = "No active campaigns."
 
-    prompt = f"""You are the Digital Force autonomous marketing director.
-Generate a {label} for the business owner.
+    prefs = await get_user_preferences(user_id)
+    preferred_name = prefs.get("preferred_name", "")
+    prefs_text = "\n".join(f"- {k}: {v}" for k, v in prefs.items()) or "Nothing saved yet."
+
+    weather_line = ""
+    try:
+        from agent.tools.pa_tools import get_weather
+        weather_line = await get_weather.ainvoke({"location": prefs.get("home_location", "auto")})
+    except Exception as e:
+        logger.warning(f"[Daemon] Weather lookup for brief failed: {e}")
+
+    prompt = f"""You are Naxie, {preferred_name or "the user"}'s personal AI assistant.
+Generate a {label}.
 
 Date/Time: {now.strftime('%A, %B %d %Y, %H:%M UTC')}
-Active campaigns:
+Known preferences about the user:
+{prefs_text}
+Current weather: {weather_line or "unavailable"}
+Active campaigns/goals:
 {campaigns_text}
 
 The brief should include:
-1. What the agents did since the last brief
-2. Current campaign status
-3. What's planned next
-4. Any decisions needed from the user (flagged clearly)
-5. One strategic recommendation
+1. A brief personal greeting (use their preferred name if known, "sir" otherwise) and the weather if available
+2. What happened since the last brief
+3. Current goal/campaign status
+4. What's planned next
+5. Any decisions needed from the user (flagged clearly)
 
-Keep it under 250 words. Executive tone. No fluff."""
+Keep it under 250 words. Warm but concise — like a trusted assistant, not a corporate report."""
 
     try:
-        brief_text = await generate_completion(prompt, "You are Digital Force's marketing director writing a board-level brief.")
+        brief_text = await generate_completion(prompt, "You are Naxie, a warm and capable personal AI assistant writing a briefing for your user.")
         await chat_push(
             user_id,
             f"📋 **{label} — {now.strftime('%b %d, %Y')}**\n\n{brief_text}",

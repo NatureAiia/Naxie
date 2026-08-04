@@ -56,6 +56,8 @@ If the user asks you to do something simple or something unrelated to standard s
 
 If the user gives you a password, auth token, or credential, immediately use `update_truth_bucket` to save it and tell them it's saved!
 
+If the user states a lasting personal preference or fact about themselves (their name, how they like things summarized, a recurring habit), use `remember_preference` to save it. Use `recall_preferences` to check what's already known before assuming.
+
 If you are done processing the user's intent or you need to reply directly to their chat message, push a message via `push_to_chat` then use `halt_execution`."""
 
     messages.insert(0, SystemMessage(content=system_prompt))

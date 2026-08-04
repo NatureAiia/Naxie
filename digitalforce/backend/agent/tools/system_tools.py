@@ -71,6 +71,32 @@ def get_agent_tools(state: dict):
         return "ROUTING_REQUESTED:__end__"
 
     @tool
+    async def remember_preference(key: str, value: str) -> str:
+        """Save a lasting fact or preference about the user (name, communication style,
+        recurring habit) so future conversations don't start cold. Use a short
+        snake_case key (e.g. 'preferred_name') and a free-text value."""
+        try:
+            from database import set_user_preference
+            user_id = state.get("created_by", "")
+            await set_user_preference(user_id, key[:100], value)
+            return f"Remembered: {key} = {value}"
+        except Exception as e:
+            return f"Failed to save preference: {e}"
+
+    @tool
+    async def recall_preferences() -> str:
+        """Return everything saved about the user via remember_preference."""
+        try:
+            from database import get_user_preferences
+            user_id = state.get("created_by", "")
+            prefs = await get_user_preferences(user_id)
+            if not prefs:
+                return "No preferences saved yet."
+            return "\n".join(f"{k}: {v}" for k, v in prefs.items())
+        except Exception as e:
+            return f"Failed to load preferences: {e}"
+
+    @tool
     async def update_truth_bucket(account_name_match: str, text_to_append: str) -> str:
         """Safely appends authentication credentials, passwords, or recovery codes to a managed account's truth bucket in the SQL Database. Use this whenever the user gives you a password!"""
         try:
@@ -102,4 +128,4 @@ def get_agent_tools(state: dict):
     from agent.tools.pa_tools import get_pa_tools
     pa_tools = get_pa_tools()
 
-    return [execute_python, read_system_context, query_knowledge, push_to_chat, route_to_agent, halt_execution, update_truth_bucket] + pa_tools
+    return [execute_python, read_system_context, query_knowledge, push_to_chat, route_to_agent, halt_execution, update_truth_bucket, remember_preference, recall_preferences] + pa_tools
