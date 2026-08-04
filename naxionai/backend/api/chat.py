@@ -132,6 +132,22 @@ async def chat_stream(
             prefs = await get_user_preferences(user_id)
             prefs_text = "\n".join(f"- {k}: {v}" for k, v in prefs.items()) or "None saved yet."
 
+            # Playbook guidance (Phase 2): if the message matches a known
+            # task-shaped playbook strongly enough, fold its guidance into
+            # the prompt — same threshold semantics as skills.ts's
+            # topSkillScoreForTask (score >= 20 == a real intent/keyword
+            # match, not just a stray single-keyword floor hit).
+            playbook_guidance = ""
+            try:
+                import playbook_matcher as matcher
+                from api.playbook_skills import get_all_playbook_skills
+                all_playbooks = await get_all_playbook_skills(db, user)
+                top = matcher.top_skill_score_for_task(all_playbooks, body.message)
+                if top and top[0] >= 20:
+                    playbook_guidance = f"\n\nPLAYBOOK GUIDANCE — \"{top[1].name}\" (apply if relevant, ignore if not):\n{top[1].body}\n"
+            except Exception as e:
+                logger.warning(f"[Chat] Playbook matching failed: {e}")
+
             prompt = f"""You are Naxie, the personal AI assistant of NaxionAI.
 You are intelligent, warm, direct, and slightly witty — like a capable assistant who feels genuinely helpful.
 Address the user as \"sir\" in a respectful, natural way unless they explicitly prefer another style.
@@ -143,7 +159,7 @@ Things you remember about this user (apply them, don't recite them):
 
 Recent context:
 {json.dumps(hist_msgs[-4:], indent=2)}
-
+{playbook_guidance}
 Determine if the user is asking you to start a task, create a goal, execute something, or analyze data. If yes, it requires the Manager's attention.
 If the user is approving a previously proposed plan, mark approval_status as "approved". If rejecting, mark "rejected". Otherwise "none".
 If the user is explicitly providing credentials, a password, a 2FA code, or telling you to inherently update the 'Truth Bucket' for an account, provide the account name you detect, and the specific text to append to their auth_data bucket.

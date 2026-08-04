@@ -31,6 +31,7 @@ from api.agency import router as agency_router
 from api.accounts import router as accounts_router
 from api.voice import router as voice_router
 from api.auth import router as auth_router
+from api.playbook_skills import router as playbook_skills_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -150,6 +151,7 @@ app.include_router(agency_router)
 app.include_router(accounts_router)
 app.include_router(voice_router)
 app.include_router(auth_router)
+app.include_router(playbook_skills_router)
 
 
 @app.get("/api/health")

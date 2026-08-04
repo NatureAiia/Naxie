@@ -487,6 +487,28 @@ class UserPreference(Base):
 
 
 # ═══════════════════════════════════════════════════════════
+# PLAYBOOK SKILLS — markdown prompt-guidance library (Phase 2).
+# Distinct from GeneratedSkill (SkillForge's sandbox-tested Python tools):
+# these are never executed, just injected into a synth prompt to bias output
+# style/structure. 140 builtin playbooks ship as static .md files under
+# backend/skills/; this table holds only user-authored/auto-drafted
+# overrides — see backend/playbook_matcher.py.
+# ═══════════════════════════════════════════════════════════
+
+class PlaybookSkill(Base):
+    __tablename__ = "playbook_skills"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    description: Mapped[str] = mapped_column(Text)
+    applies_to: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list of intent labels
+    body: Mapped[str] = mapped_column(Text)               # markdown body (post-frontmatter)
+    source: Mapped[str] = mapped_column(String(10), default="user")  # user | auto
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════
 # DATABASE ENGINE
 # ═══════════════════════════════════════════════════════════
 
