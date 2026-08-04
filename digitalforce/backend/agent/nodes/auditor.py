@@ -3,6 +3,7 @@ Digital Force — Auditor Node
 Dynamic Risk Vector Topology. Grades risk and enforces thresholds.
 """
 import logging
+import re
 from agent.state import AgentState
 from agent.llm import generate_completion
 from agent.chat_push import agent_thought_push, chat_push
@@ -52,7 +53,14 @@ Output ONLY an integer between 0 and 100.
 """
     try:
         score_str = await generate_completion(prompt, "You output raw integers only.")
-        score = int(''.join(filter(str.isdigit, score_str))) # parse just numbers
+        # Concatenating every digit character in the reply (the old
+        # ''.join(filter(str.isdigit, ...)) approach) turns a verbose reply
+        # like "Risk score: 45 (scale of 100)" into 45100 — always over any
+        # real tolerance. Take the first number token instead, and clamp to
+        # the documented 0-100 range as a safety net either way.
+        match = re.search(r"\d+", score_str)
+        score = int(match.group()) if match else 90
+        score = max(0, min(100, score))
     except Exception as e:
         logger.warning(f"[Auditor] LLM failed to grade risk: {e}. Defaulting to 90.")
         score = 90

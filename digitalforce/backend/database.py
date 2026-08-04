@@ -603,16 +603,32 @@ async def set_user_preference(user_id: str, key: str, value: str) -> None:
     """Upsert a single preference. `key` is a short slug like 'preferred_name'
     or 'summary_style'; `value` is free text."""
     from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
 
-    async with async_session() as db:
-        row = (await db.execute(
+    async def _find(db):
+        return (await db.execute(
             select(UserPreference).where(
                 UserPreference.user_id == user_id,
                 UserPreference.key == key,
             )
         )).scalars().first()
+
+    async with async_session() as db:
+        row = await _find(db)
         if row:
             row.value = value
-        else:
-            db.add(UserPreference(user_id=user_id, key=key, value=value))
-        await db.commit()
+            await db.commit()
+            return
+        db.add(UserPreference(user_id=user_id, key=key, value=value))
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Select-then-insert isn't atomic: two concurrent callers can both
+            # see no existing row and both try to insert for the same
+            # (user_id, key) — the UniqueConstraint on the table lets exactly
+            # one insert win. Whoever lost the race falls back to an update.
+            await db.rollback()
+            row = await _find(db)
+            if row:
+                row.value = value
+                await db.commit()

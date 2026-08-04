@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import Sidebar from '@/components/Sidebar'
@@ -42,6 +42,13 @@ export default function NewGoalPage() {
 
   const togglePlatform = (id: string) =>
     setPlatforms(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit()
+    }
+  }
 
   const handleSubmit = async () => {
     if (!description.trim()) { setError('Please describe your directive.'); return }
@@ -96,9 +103,10 @@ export default function NewGoalPage() {
             <textarea
               className="df-textarea"
               style={{ width: '100%', minHeight: 140, marginBottom: '1.25rem', fontFamily: 'inherit', boxSizing: 'border-box' }}
-              placeholder="e.g. Schedule 50 Facebook posts of our summit flyers this week, grow our LinkedIn following from 1,000 to 5,000 in 30 days, or run a multi-platform video campaign..."
+              placeholder="e.g. Schedule 50 Facebook posts of our summit flyers this week, grow our LinkedIn following from 1,000 to 5,000 in 30 days, or run a multi-platform video campaign... (Shift+Enter for a new line)"
               value={description}
               onChange={e => setDescription(e.target.value)}
+              onKeyDown={handleKeyDown}
             />
             <div>
               <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#334155', letterSpacing: '0.08em', marginBottom: '0.625rem' }}>EXAMPLE DIRECTIVES</div>

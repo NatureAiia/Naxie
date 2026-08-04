@@ -17,10 +17,16 @@ async def manager_node(state: AgentState) -> dict:
     llm = get_tool_llm(temperature=0.2).bind_tools(tools)
     
     # ── Map-Reduce Results Stitching ──
+    # content_director/distribution_manager run fanned out via Send() and
+    # can't safely return the whole "tasks" list themselves (concurrent
+    # branches writing the same unreduced key crashes the graph) — they each
+    # return a small delta via a properly-reduced list field instead, and
+    # this single-writer node folds those deltas into state["tasks"].
     tasks = state.get("tasks", [])
     swarm_res = state.get("content_swarm_results", [])
+    dist_res = state.get("distribution_results", [])
     state_updates = {}
-    if swarm_res:
+    if swarm_res or dist_res:
         new_tasks = []
         has_new = False
         for t in tasks:
@@ -29,6 +35,15 @@ async def manager_node(state: AgentState) -> dict:
                 if res.get("task_id") == t.get("id") and "result" not in t_copy:
                     t_copy["result"] = res["result"]
                     t_copy["task_type"] = "post_content"
+                    has_new = True
+            for res in dist_res:
+                # distribution_results only grows (reduce_list never shrinks a
+                # channel), so without this guard the SAME delta gets
+                # re-applied every time manager_node runs again for this
+                # goal, potentially stomping a newer status/connection_id
+                # set by publisher.py in the meantime.
+                if res.get("id") == t.get("id") and t_copy.get("status") not in ("pending_approval", "failed"):
+                    t_copy.update({k: v for k, v in res.items() if k != "id"})
                     has_new = True
             new_tasks.append(t_copy)
         if has_new:
@@ -87,8 +102,14 @@ If you are done processing the user's intent or you need to reply directly to th
                 try:
                     res = await tool_func.ainvoke(tool_args)
                     res_str = str(res)
-                    # Check if it was a routing command
-                    if "ROUTING_REQUESTED:" in res_str:
+                    # Only route_to_agent/halt_execution are allowed to steer
+                    # routing. Sniffing ANY tool's return string for this
+                    # marker (the old behavior) meant execute_python output
+                    # containing "ROUTING_REQUESTED:" — whether accidental or
+                    # prompt-injected — could hijack the graph route with an
+                    # unvalidated string. route_to_agent itself already
+                    # validates against the routable set before returning it.
+                    if tool_name in ("route_to_agent", "halt_execution") and "ROUTING_REQUESTED:" in res_str:
                         target_next_agent = res_str.split(":")[1].strip()
                         exit_loop = True
                         break

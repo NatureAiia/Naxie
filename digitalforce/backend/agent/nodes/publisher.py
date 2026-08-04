@@ -124,10 +124,16 @@ async def publisher_node(state: AgentState) -> dict:
     tasks = state.get("tasks", [])
     completed = set(state.get("completed_task_ids", []))
     failed = set(state.get("failed_task_ids", []))
+    # failed_task_ids only ever grows — a task marked failed once would be
+    # excluded forever without this. SkillForge marks a fixed task's id in
+    # resolved_task_ids (see state.py) instead of trying to un-fail it, so
+    # treat that as retry-eligible even though the id is still in `failed`.
+    resolved = set(state.get("resolved_task_ids", []))
+    still_failed = failed - resolved
 
     publish_tasks = [
         t for t in tasks
-        if t.get("task_type") == "post_content" and t.get("id") not in completed | failed
+        if t.get("task_type") == "post_content" and t.get("id") not in completed | still_failed
     ]
 
     if not publish_tasks:
@@ -189,17 +195,25 @@ async def publisher_node(state: AgentState) -> dict:
                     # so SkillForge knows to hallucinate a Playwright navigation script.
                     from database import async_session, PlatformConnection
                     from sqlalchemy import select
+                    from encryption import decrypt_value
                     auth_data = ""
                     account_label = task.get("account_label", "Unknown")
                     connection_id = task.get("connection_id")
-                    
+
                     try:
                         async with async_session() as session:
                             if connection_id:
                                 stmt = select(PlatformConnection).where(PlatformConnection.id == connection_id)
                                 conn = (await session.execute(stmt)).scalar_one_or_none()
-                                if conn:
-                                    auth_data = conn.auth_data or ""
+                                if conn and conn.auth_data:
+                                    # auth_data is stored encrypted (see api/accounts.py). This used
+                                    # to hand SkillForge the raw ciphertext, which is useless for
+                                    # actually filling a login form — decrypt it here so the
+                                    # Playwright-fallback credential path can work at all.
+                                    try:
+                                        auth_data = decrypt_value(conn.auth_data)
+                                    except Exception:
+                                        auth_data = ""  # legacy/plaintext/corrupt — don't propagate
                     except Exception as e:
                         logger.error(f"[Publisher] Failed to fetch auth data: {e}")
                     

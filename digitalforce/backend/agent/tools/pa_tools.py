@@ -55,6 +55,57 @@ _APP_ALLOWLIST = {
 }
 
 
+def _win32_focus_window_by_title(substr: str) -> bool:
+    """Bring the first visible top-level window whose title contains `substr`
+    (case-insensitive) to the foreground. Pure ctypes — no pywin32 dependency.
+    Windows refuses SetForegroundWindow from a background process unless its
+    thread input is attached to the current foreground window's thread first,
+    hence the AttachThreadInput dance around it."""
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    found: list = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def _enum_callback(hwnd, _lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length == 0:
+            return True
+        buf = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buf, length + 1)
+        if substr.lower() in buf.value.lower():
+            found.append(hwnd)
+            return False
+        return True
+
+    user32.EnumWindows(_enum_callback, 0)
+    if not found:
+        return False
+
+    hwnd = found[0]
+    SW_RESTORE = 9
+    user32.ShowWindow(hwnd, SW_RESTORE)
+
+    foreground_hwnd = user32.GetForegroundWindow()
+    current_thread_id = kernel32.GetCurrentThreadId()
+    target_thread_id = user32.GetWindowThreadProcessId(hwnd, None)
+    foreground_thread_id = user32.GetWindowThreadProcessId(foreground_hwnd, None) if foreground_hwnd else current_thread_id
+
+    user32.AttachThreadInput(foreground_thread_id, target_thread_id, True)
+    try:
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    finally:
+        user32.AttachThreadInput(foreground_thread_id, target_thread_id, False)
+    return True
+
+
 @tool
 async def get_weather(location: str = "auto") -> str:
     """Fetch live weather conditions and forecast for a city or current location (using Open-Meteo free API).
@@ -150,7 +201,8 @@ async def set_reminder(title: str, message: str, delay_seconds: int = 0) -> str:
 @tool
 def system_control(action: str, target: str = "") -> str:
     """Perform OS system actions on Windows.
-    action: 'open_app' (target='calc'|'notepad'|'chrome'|etc), 'take_screenshot', 'volume_mute', 'volume_unmute'."""
+    action: 'open_app' (target='calc'|'notepad'|'chrome'|etc), 'take_screenshot', 'volume_mute', 'volume_unmute',
+    'focus_window' (target=window title or substring, e.g. 'chrome', 'cursor' — brings a matching open window to the foreground)."""
     allowed, reason = _system_control_allowed()
     if not allowed:
         return reason
@@ -189,7 +241,16 @@ def system_control(action: str, target: str = "") -> str:
             subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd])
             return f"System volume toggled."
 
-        return f"Unknown action: {action}. Supported: 'open_app', 'take_screenshot', 'volume_mute'."
+        elif act == "focus_window":
+            if not target:
+                return "Window title (or substring) required, e.g. 'chrome', 'notepad', 'cursor'."
+            ok = _win32_focus_window_by_title(target)
+            return (
+                f"Brought window matching '{target}' to the foreground."
+                if ok else f"No visible open window found matching '{target}'."
+            )
+
+        return f"Unknown action: {action}. Supported: 'open_app', 'take_screenshot', 'volume_mute', 'focus_window'."
     except Exception as e:
         return f"System control failed: {e}"
 

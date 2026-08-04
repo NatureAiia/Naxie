@@ -79,6 +79,13 @@ export default function ChatPage() {
   const [loading, setLoading]           = useState(false)
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const [lastPollTime, setLastPollTime] = useState<string | null>(null)
+  // The 10s polling interval below is set up once (its effect only depends on
+  // historyLoaded/voiceEnabled, which rarely change) and closes over
+  // lastPollTime at that moment — later setLastPollTime calls update state
+  // but never recreate that closure, so the interval kept reading the
+  // ORIGINAL value forever and re-fetched the entire history every 10s. A
+  // ref is always current regardless of which closure reads it.
+  const lastPollTimeRef = useRef<string | null>(null)
   const [agentsActive, setAgentsActive] = useState(false)
   const [currentActivity, setCurrentActivity] = useState<string | null>(null)
   
@@ -195,13 +202,19 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Keep the ref mirrored to state so the polling closure below always sees
+  // the latest value (see lastPollTimeRef comment above).
+  useEffect(() => {
+    lastPollTimeRef.current = lastPollTime
+  }, [lastPollTime])
+
   // ── Agent push polling (every 10 s + immediately on mount) ──────────────
   useEffect(() => {
     if (!historyLoaded) return
 
     const pollUpdates = async () => {
       try {
-        const data = await api.chat.updates(lastPollTime || undefined)
+        const data = await api.chat.updates(lastPollTimeRef.current || undefined)
         setAgentsActive(data.agents_active)
         setCurrentActivity(data.current_activity)
         
@@ -381,9 +394,19 @@ export default function ChatPage() {
         }
       }
     } catch {
+      // If the fetch itself failed (offline, non-2xx status) before any SSE
+      // event arrived, bubbles was still [] — this used to leave it exactly
+      // that way, so the assistant's turn rendered as a blank row with a
+      // timestamp and no indication anything went wrong. Always leave at
+      // least one visible bubble with error text.
       setMessages(prev => prev.map(m =>
         m.id === assistantId
-          ? { ...m, bubbles: m.bubbles.length > 0 ? m.bubbles.map(b => ({ ...b, isStreaming: false })) : [] }
+          ? {
+              ...m,
+              bubbles: m.bubbles.length > 0
+                ? m.bubbles.map(b => ({ ...b, isStreaming: false }))
+                : [{ id: firstBubbleId, content: 'Connection error — please try again.', isStreaming: false }],
+            }
           : m
       ))
     } finally {

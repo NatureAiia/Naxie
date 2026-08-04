@@ -45,23 +45,41 @@ async def ghost_visual_research(goal: str, platform: str) -> dict:
         url = f"https://www.google.com/search?q=site:{platform}.com+{query}"
         
     try:
-        page = await ghost.get_page()
+        # Isolate by platform so concurrent research across different
+        # platforms doesn't share one browser context/fingerprint. This is
+        # anonymous public-page scraping (no login), so platform-level
+        # isolation is the meaningful boundary here — per-account isolation
+        # matters for the authenticated posting path (skillforge/publisher).
+        page = await ghost.get_page(account_id=f"research_{platform}")
         await page.goto(url, wait_until="networkidle")
         import asyncio
         await asyncio.sleep(4) # Let DOM settle
         await page.evaluate("window.scrollBy(0, document.body.scrollHeight)") # Trigger lazy load
         await asyncio.sleep(2)
         
-        pic = "temp_vision_research.png"
-        await page.screenshot(path=pic)
-        await page.close()
-        
-        settings = get_settings()
-        key = settings.groq_api_key_1 or settings.groq_api_key_2 or settings.groq_api_key_3
-        client = AsyncGroq(api_key=key, max_retries=1)
-        
-        with open(pic, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode()
+        # Fixed filename + in-process write/read (not a subprocess) meant two
+        # concurrent research tasks (different users/goals/platforms, which
+        # the daemon can run at once) could overwrite each other's screenshot
+        # before it was read, corrupting one goal's research with the wrong
+        # platform's image. Use a unique per-call path instead.
+        import tempfile
+        fd, pic = tempfile.mkstemp(suffix=f"_{platform}.png", prefix="vision_research_")
+        os.close(fd)
+        try:
+            await page.screenshot(path=pic)
+            await page.close()
+
+            settings = get_settings()
+            key = settings.groq_api_key_1 or settings.groq_api_key_2 or settings.groq_api_key_3
+            client = AsyncGroq(api_key=key, max_retries=1)
+
+            with open(pic, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+        finally:
+            try:
+                os.unlink(pic)
+            except OSError:
+                pass
             
         prompt = (f"You are a social media researcher. The user's goal is: {goal}. "
                   f"Analyze this screenshot of {platform}. Identify trending topics, visual aesthetics, "

@@ -23,6 +23,12 @@ from auth import get_current_user
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agency", tags=["agency"])
 
+# Hold strong references to fire-and-forget research tasks. asyncio only
+# keeps weak refs, so without this the event loop can garbage-collect a
+# running task mid-execution and silently cancel it (same pattern as
+# chat.py's _BG_TASKS and main.py's background_tasks).
+_BG_TASKS: set = set()
+
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -252,6 +258,8 @@ async def trigger_proactive_research(
     cfg = await _get_or_create_settings(user_id, db)
 
     from agent.agency_daemon import _run_proactive_research
-    asyncio.create_task(_run_proactive_research(user_id, cfg, datetime.utcnow()))
+    _t = asyncio.create_task(_run_proactive_research(user_id, cfg, datetime.utcnow()))
+    _BG_TASKS.add(_t)
+    _t.add_done_callback(_BG_TASKS.discard)
 
     return {"status": "triggered", "message": "Research cycle started — results will appear in your chat shortly."}

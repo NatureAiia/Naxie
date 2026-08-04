@@ -129,13 +129,19 @@ Write compelling, {platform}-native content that drives real engagement.
         return {
             "messages": [{"role": "assistant", "name": "content_director", "content": f"Content written for {platform}: {result.get('hook', '')[:60]}..."}],
             "content_swarm_results": [{"task_id": pending_task.get("id", ""), "result": result}], # Delta
-            "next_agent": "visual_designer", # In swarm mode this is ignored by router
-            "current_task_id": pending_task.get("id"),
+            # next_agent/current_task_id are deliberately NOT returned here: this
+            # node runs fanned out via Send() (parallel branches per task), and
+            # both fields are plain unreduced state channels. Two or more
+            # branches writing the same key in one superstep raises LangGraph's
+            # InvalidUpdateError and crashes the whole run. Control already
+            # returns to "manager" via the static graph edge, so next_agent
+            # isn't needed, and nothing downstream reads current_task_id back
+            # out of the merged state after this node.
         }
 
     except Exception as e:
         logger.error(f"[ContentDirector] Error: {e}")
-        return {
-            "error": str(e),
-            "next_agent": "manager",
-        }
+        # "error" is also a plain unreduced state channel — same crash risk as
+        # next_agent/current_task_id above if two branches fail in the same
+        # superstep. Nothing downstream reads state["error"], so just log it.
+        return {}

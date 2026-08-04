@@ -18,18 +18,27 @@ async def distribution_manager_node(state: AgentState):
     
     current_id = state.get("current_task_id")
     tasks = state.get("tasks", [])
-    
+
+    # This node runs fanned out via Send() (parallel branches, one per task).
+    # next_agent/tasks are plain unreduced state channels — two or more
+    # branches writing the same key in one superstep raises LangGraph's
+    # InvalidUpdateError and crashes the whole run. Control already returns
+    # to "manager" via the static graph edge, so next_agent is never needed
+    # here. Task mutations go out as a delta via distribution_results
+    # (properly reduced) instead of the whole tasks list; manager_node
+    # stitches those deltas back into state["tasks"] the same way it already
+    # does for content_swarm_results.
     if not current_id:
-        return {"next_agent": "manager"}
-    
+        return {}
+
     current_task = next((t for t in tasks if t["id"] == current_id), None)
     if not current_task:
-        return {"next_agent": "manager"}
-        
+        return {}
+
     platform = current_task.get("platform")
     if not platform:
         logger.warning(f"Task {current_id} has no platform. Skipping distribution.")
-        return {"next_agent": "manager"}
+        return {}
 
     from database import async_session
     async with async_session() as session:
@@ -40,17 +49,23 @@ async def distribution_manager_node(state: AgentState):
         
         if not accounts:
             logger.error(f"No active accounts found for platform {platform}.")
-            current_task["status"] = "failed"
-            current_task["result"] = f"Failed to distribute: No attached accounts for {platform} in settings."
-            
+            fail_result = f"Failed to distribute: No attached accounts for {platform} in settings."
+
             # Update DB task
             db_task = await session.get(AgentTask, current_id)
             if db_task:
                 db_task.status = "failed"
-                db_task.result = current_task["result"]
+                db_task.result = fail_result
                 await session.commit()
-                
-            return {"tasks": tasks, "next_agent": "manager", "failed_task_ids": state.get("failed_task_ids", []) + [current_id]}
+
+            # Delta-only: reduce_list folds this against the base state AND
+            # every sibling branch's own delta. Returning state.get(...) + [id]
+            # here (instead of just [id]) would re-include the base list on
+            # every branch and duplicate entries once the reducer merges them.
+            return {
+                "distribution_results": [{"id": current_id, "status": "failed", "result": fail_result}],
+                "failed_task_ids": [current_id],
+            }
         
         # Apply mathematical distribution logic
         # 1. Round robin / random load balancing
@@ -86,10 +101,15 @@ async def distribution_manager_node(state: AgentState):
             await session.commit()
             
     logger.info(f"🕸️ Distributed task {current_id} to [{platform}] account '{account.account_label}'")
-    
-    # Mark distribution phase as completed for this task
-    completed = list(state.get("completed_task_ids", []))
-    if current_id not in completed:
-        completed.append(current_id)
-        
-    return {"tasks": tasks, "completed_task_ids": completed, "next_agent": "manager"}
+
+    return {
+        "distribution_results": [{
+            "id": current_id,
+            "status": "pending_approval",
+            "connection_id": account.id,
+            "account_label": account.account_label,
+            "scheduled_for": current_task.get("scheduled_for"),
+            "time_jittered": current_task.get("time_jittered"),
+        }],
+        "completed_task_ids": [current_id],
+    }

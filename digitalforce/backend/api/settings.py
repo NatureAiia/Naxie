@@ -186,6 +186,12 @@ async def update_settings(
 @router.delete("/overrides")
 async def reset_overrides(user: dict = Depends(get_current_user)):
     """Remove all setting overrides and revert to .env defaults."""
+    # Same admin-only gate as update_settings above — this unconditionally
+    # wipes every admin-configured override (API keys, SMTP creds, CORS,
+    # storage backend, etc.) back to .env defaults, so it needs the same
+    # protection as writing them.
+    if user.get("role") not in ("admin", "superadmin"):
+        raise HTTPException(403, "Only admins can reset settings")
     if SETTINGS_FILE.exists():
         SETTINGS_FILE.unlink()
     return {"status": "reset", "message": "All overrides cleared. Using .env defaults."}

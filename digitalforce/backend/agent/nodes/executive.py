@@ -90,18 +90,31 @@ Return strictly JSON:
             if text_to_append:
                 from database import async_session, PlatformConnection
                 from sqlalchemy import select, or_
+                from encryption import encrypt_value, decrypt_value
                 async with async_session() as session:
-                    match_str = f"%{account_match}%"
+                    # account_match is LLM-generated free text; escape SQL LIKE
+                    # metacharacters before embedding it in the pattern so a
+                    # stray '%'/'_' can't broaden the match to an unintended
+                    # account.
+                    escaped = account_match.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                    match_str = f"%{escaped}%"
                     stmt = select(PlatformConnection).where(
                         or_(
-                            PlatformConnection.account_label.ilike(match_str),
-                            PlatformConnection.display_name.ilike(match_str)
+                            PlatformConnection.account_label.ilike(match_str, escape="\\"),
+                            PlatformConnection.display_name.ilike(match_str, escape="\\")
                         )
                     )
                     conn = (await session.execute(stmt)).scalars().first()
                     if conn:
-                        current = conn.auth_data or ""
-                        conn.auth_data = f"{current}\n[Agent Auto-Saved Update]: {text_to_append}".strip()
+                        # Encrypt at rest, decrypting the existing blob first. The old
+                        # code appended plaintext ONTO an already-encrypted value,
+                        # corrupting it and leaking the new credential in cleartext.
+                        try:
+                            current = decrypt_value(conn.auth_data) if conn.auth_data else ""
+                        except Exception:
+                            current = ""  # legacy/plaintext/corrupt — don't propagate
+                        updated = f"{current}\n[Agent Auto-Saved Update]: {text_to_append}".strip()
+                        conn.auth_data = encrypt_value(updated)
                         await session.commit()
                         logger.info(f"[Executive] Successfully updated Truth Bucket for {conn.account_label}")
     except Exception as e:

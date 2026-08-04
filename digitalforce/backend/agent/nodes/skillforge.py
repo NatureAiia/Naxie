@@ -45,11 +45,11 @@ real Chromium browser. This is available in the E2B sandbox.
 
 Playwright skill example:
 ```python
-async def scrape_linkedin_profile(username: str) -> dict:
+async def scrape_linkedin_profile(username: str, account_id: str = "default") -> dict:
     \"\"\"Scrape a LinkedIn public profile using the Ghost Browser.\"\"\"
     from agent.browser.ghost import ghost
     try:
-        page = await ghost.get_page()
+        page = await ghost.get_page(account_id=account_id)
         await page.goto(f"https://www.linkedin.com/in/{username}/", wait_until="networkidle")
         name = await page.text_content("h1.top-card-layout__title") or "Unknown"
         headline = await page.text_content("h2.top-card-layout__headline") or ""
@@ -75,7 +75,12 @@ async def check_hashtag_trend(hashtag: str, platform: str) -> dict:
 
 When using Playwright:
 - You MUST use `from agent.browser.ghost import ghost`
-- Use `page = await ghost.get_page()` to get an authenticated persistent tab
+- The function MUST accept an `account_id: str` parameter and call
+  `page = await ghost.get_page(account_id=account_id)` — NEVER call
+  `ghost.get_page()` with no argument. Each account/connection gets its own
+  isolated browser context (separate cookies/login state); omitting
+  account_id silently reuses the SAME session across every account and user,
+  which leaks one account's authenticated session into another's actions.
 - NEVER use `async_playwright()`. The Ghost Browser handles persistence and anti-bot mitigation.
 - Use `wait_until="networkidle"` or specific selectors with `page.wait_for_selector`
 - YOU MUST call `await page.close()` before returning to avoid resource leaks
@@ -104,6 +109,15 @@ async def skillforge_node(state: AgentState) -> dict:
     failed_tasks = state.get("failed_task_ids", [])
     tasks = state.get("tasks", [])
     failed_task_details = [t for t in tasks if t.get("id") in failed_tasks]
+    # Decrypted account credentials (task["auth_data"], set by publisher_node's
+    # GUI-fallback path) only get used much later, specifically to fill a login
+    # form. There's no reason to also dump them into the broad analysis_prompt
+    # below via json.dumps(failed_task_details) — that exposes secret material
+    # to the LLM/logs for every failure, including ones that have nothing to do
+    # with credentials at all. Strip it from the general-purpose view.
+    failed_task_details_for_prompt = [
+        {k: v for k, v in t.items() if k != "auth_data"} for t in failed_task_details
+    ]
 
     if not failed_task_details:
         return {
@@ -132,10 +146,13 @@ async def skillforge_node(state: AgentState) -> dict:
                                 agent_name="skillforge",
                                 goal_id=state.get("goal_id")
                             )
-                        current_failed = list(state.get("failed_task_ids", []))
-                        fixed = [t for t in current_failed if t != task.get("id")]
                         return {
-                            "failed_task_ids": fixed,
+                            # Delta-only: failed_task_ids can't be un-set via its
+                            # reducer, so mark this id resolved instead (see
+                            # state.py). publisher_node treats resolved ids as
+                            # retry-eligible even though they're still present
+                            # in failed_task_ids.
+                            "resolved_task_ids": [task.get("id")],
                             "messages": [{"role": "assistant", "name": "skillforge", "content": f"Reused skill: {skill_name}"}],
                             "next_agent": "publisher",
                         }
@@ -231,7 +248,7 @@ Set can_proceed_without=true if either a browser approach OR another library can
     # ── Step 3: Analyze + design the new skill (with web context) ─────────────
     analysis_prompt = f"""
 A social media AI agent encountered failures:
-{json.dumps(failed_task_details, indent=2)}
+{json.dumps(failed_task_details_for_prompt, indent=2)}
 
 Web research found these potential solutions:
 {web_solution}
@@ -275,15 +292,19 @@ Risk level:
     # ── Step 4: Generate the skill code (with web solution as context) ────────
     use_playwright = api_check.get("use_playwright", False)
     
-    # Check if any failing task has injected web credentials from Publisher GUI Fallback
+    # Check if any failing task has injected web credentials from Publisher's
+    # GUI fallback. publisher_node attaches the account's decrypted auth_data
+    # as free text (however it was originally entered/appended — there's no
+    # guaranteed username/password split), not the "web_username"/
+    # "web_password" keys this used to look for, which nothing ever set — so
+    # this branch previously never fired at all.
     creds_injected = ""
     for ft in failed_task_details:
-        if ft.get("web_username") and ft.get("web_password"):
+        if ft.get("auth_data"):
             creds_injected = f"""
-AVAILABLE WEB CREDENTIALS TO USE IN LOGIN FORM:
-username: {ft.get('web_username')}
-password: {ft.get('web_password')}
-IMPORTANT: You MUST physically use page.fill() or page.type() to input these credentials into the platform's login view before publishing.
+AVAILABLE ACCOUNT CREDENTIALS/NOTES FOR '{ft.get('account_label', 'this account')}' TO USE IN THE LOGIN FORM:
+{ft.get('auth_data')}
+IMPORTANT: You MUST physically use page.fill() or page.type() to input the relevant credentials into the platform's login view before publishing.
 """
             use_playwright = True
             break
@@ -402,12 +423,10 @@ Rewrite the ENTIRE Python function `{skill_name}` fixing the selector logic.
                 goal_id=state.get("goal_id")
             )
 
-        current_failed = state.get("failed_task_ids", [])
-        fixed_failed = [t for t in current_failed if t not in [ft.get("id") for ft in failed_task_details]]
-
         return {
             "new_skills_created": new_skills + [skill_name],
-            "failed_task_ids": fixed_failed,
+            # Delta-only — see resolved_task_ids comment in state.py.
+            "resolved_task_ids": [ft.get("id") for ft in failed_task_details],
             "messages": [{"role": "assistant", "name": "skillforge", "content": f"Auto-applied fix via skill: {skill_name}"}],
             "next_agent": "publisher",
         }

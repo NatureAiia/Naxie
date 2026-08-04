@@ -9,9 +9,9 @@ import {
   Brain, Search
 } from 'lucide-react'
 import api from '@/lib/api'
+import { getToken } from '@/lib/auth'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-const getToken = () => typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
 type Tab = 'general' | 'integrations' | 'autonomous' | 'notifications' | 'danger'
 
@@ -139,17 +139,17 @@ export default function SettingsPage() {
         setRiskTolerance(data.risk_tolerance ?? 70)
         setBriefSlots(data.brief_slots || [])
       })
-      .catch(() => {})
+      .catch(() => setError('Failed to load autonomous mode settings.'))
 
     fetch(`${BASE}/api/agency/status`, { headers: authHeaders() })
       .then(r => r.json())
       .then(setDaemonStatus)
-      .catch(() => {})
+      .catch(() => setError('Failed to load daemon status.'))
 
     fetch(`${BASE}/api/accounts`, { headers: authHeaders() })
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setAccounts(data) })
-      .catch(() => {})
+      .catch(() => setError('Failed to load connected accounts.'))
   }, [])
 
   const authHeaders = () => {

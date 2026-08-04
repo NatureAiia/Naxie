@@ -5,6 +5,7 @@ voice model is installed on disk, falling back to the OS-provided pyttsx3
 voices otherwise — no cloud API key required for either direction).
 """
 
+import hashlib
 import io
 import logging
 import os
@@ -13,7 +14,7 @@ import wave
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -27,6 +28,38 @@ router = APIRouter(prefix="/api/voice", tags=["voice"])
 MAX_TTS_CHARS = 2000
 
 _PIPER_VOICES_DIR = Path(__file__).resolve().parent.parent / "media" / "tts_voices"
+_TTS_CACHE_DIR = Path(__file__).resolve().parent.parent / "media" / "tts_cache"
+_TTS_CACHE_EXT_BY_MEDIA_TYPE = {"audio/mpeg": "mp3", "audio/wav": "wav"}
+
+
+def _tts_cache_key(text: str, voice: str, engine: str) -> str:
+    """Content-addressed cache key so repeated speak() calls for the same
+    text+voice+engine (e.g. recurring status phrases, idle-report boilerplate)
+    skip synthesis entirely instead of re-paying for it every time."""
+    raw = f"{text}|{voice}|{engine}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _tts_cache_load(key: str) -> Optional[tuple[bytes, str]]:
+    for media_type, ext in _TTS_CACHE_EXT_BY_MEDIA_TYPE.items():
+        path = _TTS_CACHE_DIR / f"{key}.{ext}"
+        if path.exists():
+            try:
+                return path.read_bytes(), media_type
+            except OSError:
+                return None
+    return None
+
+
+def _tts_cache_store(key: str, audio_bytes: bytes, media_type: str) -> None:
+    ext = _TTS_CACHE_EXT_BY_MEDIA_TYPE.get(media_type)
+    if ext is None:
+        return
+    try:
+        _TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        (_TTS_CACHE_DIR / f"{key}.{ext}").write_bytes(audio_bytes)
+    except OSError as e:
+        logger.warning(f"[Voice] Failed to write TTS cache entry: {e}")
 
 # --- STT: faster-whisper, loaded once as a module-level singleton (model load
 # takes several seconds — must not happen per-request). ---
@@ -75,6 +108,37 @@ async def transcribe_audio(
             os.unlink(tmp_path)
         except OSError:
             pass
+
+
+@router.websocket("/ws/wake")
+async def wake_word_ws(websocket: WebSocket):
+    """
+    Offline wake-word detection (Vosk — free, local, no cloud API).
+    Client streams raw 16kHz mono 16-bit PCM audio as binary WebSocket frames;
+    the wake phrase (query param `phrase`, default "hey naxie") is matched
+    against the live Vosk transcript. Sends {"type": "wake"} the moment it's
+    detected. No auth — this app runs single-user/local by design.
+    """
+    phrase = websocket.query_params.get("phrase", "hey naxie")
+    await websocket.accept()
+
+    from agent.wake_word import WakeWordSession
+    try:
+        session = WakeWordSession(phrase)
+    except Exception as e:
+        await websocket.send_json({"type": "error", "message": str(e)})
+        await websocket.close()
+        return
+
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            if session.accept(data):
+                await websocket.send_json({"type": "wake"})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.warning(f"[WakeWord] WebSocket session ended: {e}")
 
 
 # --- TTS: ElevenLabs (Rachel voice ID) -> Piper -> pyttsx3 fallback ---
@@ -181,6 +245,13 @@ async def speak_text(
     if len(text) > MAX_TTS_CHARS:
         text = text[:MAX_TTS_CHARS]
 
+    cache_voice = body.voice or getattr(settings, "elevenlabs_voice_id", "EXAVITQu4vr4xnSDxMaL")
+    cache_key = _tts_cache_key(text, cache_voice, settings.tts_engine)
+    cached = _tts_cache_load(cache_key)
+    if cached is not None:
+        audio_bytes, media_type = cached
+        return Response(content=audio_bytes, media_type=media_type)
+
     audio_bytes = None
     media_type = "audio/wav"
 
@@ -203,6 +274,7 @@ async def speak_text(
         if audio_bytes is None:
             audio_bytes = _synthesize_pyttsx3(text)
             media_type = "audio/wav"
+        _tts_cache_store(cache_key, audio_bytes, media_type)
         return Response(content=audio_bytes, media_type=media_type)
     except Exception as e:
         logger.error(f"[Voice] Speech synthesis failed: {e}")

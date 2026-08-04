@@ -62,8 +62,26 @@ def get_agent_tools(state: dict):
 
     @tool
     def route_to_agent(target_agent: str) -> str:
-        """Routes execution to a specialized worker sub-agent. Valid agents: orchestrator, researcher, strategist, content_director, distribution_manager, publisher, monitor, reflector. DO NOT use if you can solve the task quickly with execute_python."""
-        return f"ROUTING_REQUESTED:{target_agent}"
+        """Routes execution to a specialized worker sub-agent. Valid agents: orchestrator, researcher, strategist, content_director, distribution_manager, publisher, skillforge, monitor, reflector. DO NOT use if you can solve the task quickly with execute_python."""
+        # target_agent is LLM-generated free text with no schema enforcement.
+        # graph.py's conditional-edge mapping raises an uncaught KeyError for
+        # any name it doesn't recognize, which crashes the whole run. Validate
+        # against the actual routable set and hand the LLM a normal tool
+        # result (not a ROUTING_REQUESTED directive) on a miss, so it can
+        # retry with a valid name within the same ReAct loop instead of
+        # crashing the graph.
+        valid_agents = {
+            "orchestrator", "researcher", "strategist", "content_director",
+            "distribution_manager", "publisher", "skillforge", "monitor", "reflector",
+        }
+        normalized = (target_agent or "").strip().lower()
+        if normalized not in valid_agents:
+            return (
+                f"Invalid routing target '{target_agent}'. Valid agents are: "
+                f"{', '.join(sorted(valid_agents))}. Choose one of these, or use "
+                f"execute_python/halt_execution instead."
+            )
+        return f"ROUTING_REQUESTED:{normalized}"
         
     @tool
     def halt_execution() -> str:
@@ -104,11 +122,15 @@ def get_agent_tools(state: dict):
             from sqlalchemy import select, or_
             from encryption import encrypt_value, decrypt_value
             async with async_session() as session:
-                match_str = f"%{account_name_match}%"
+                # account_name_match is LLM-generated free text; escape SQL LIKE
+                # metacharacters so a stray '%'/'_' can't broaden the match to
+                # an unintended account.
+                escaped = account_name_match.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                match_str = f"%{escaped}%"
                 stmt = select(PlatformConnection).where(
                     or_(
-                        PlatformConnection.account_label.ilike(match_str),
-                        PlatformConnection.display_name.ilike(match_str)
+                        PlatformConnection.account_label.ilike(match_str, escape="\\"),
+                        PlatformConnection.display_name.ilike(match_str, escape="\\")
                     )
                 )
                 conn = (await session.execute(stmt)).scalars().first()

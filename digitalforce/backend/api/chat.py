@@ -58,7 +58,7 @@ async def chat_stream(
 
     async def generate():
         try:
-            yield f"data: {json.dumps({'type': 'action', 'content': 'Transmitting to NeuroWorks...'})}\\n\\n"
+            yield f"data: {json.dumps({'type': 'action', 'content': 'Thinking...'})}\n\n"
             await asyncio.sleep(0.1)
 
             # 2. Build AgentState
@@ -173,10 +173,18 @@ Return strictly JSON:
                     account_match = truth_update.get("account_name_match")
                     text_to_append = truth_update.get("text_to_append")
                     if text_to_append:
-                        match_str = f"%{account_match}%"
+                        # account_match is LLM-generated free text; escape SQL LIKE
+                        # metacharacters before embedding it in the pattern so a
+                        # stray '%'/'_' can't broaden the match to an unintended
+                        # account and get a credential appended to the wrong one.
+                        escaped = account_match.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                        match_str = f"%{escaped}%"
                         conn = (await db.execute(select(PlatformConnection).where(
                             PlatformConnection.owner_id == user_id,
-                            or_(PlatformConnection.account_label.ilike(match_str), PlatformConnection.display_name.ilike(match_str)),
+                            or_(
+                                PlatformConnection.account_label.ilike(match_str, escape="\\"),
+                                PlatformConnection.display_name.ilike(match_str, escape="\\"),
+                            ),
                         ))).scalars().first()
                         if conn:
                             # Encrypt at rest, decrypting the existing blob first. The old
@@ -206,12 +214,12 @@ Return strictly JSON:
             await db.commit()
 
             # STREAM RESULT TO UI IMMEDIATELY
-            yield f"data: {json.dumps({'type': 'bubble_start', 'bubble_id': bot_msg_id})}\\n\\n"
+            yield f"data: {json.dumps({'type': 'bubble_start', 'bubble_id': bot_msg_id})}\n\n"
             chunk_size = 5
             for i in range(0, len(reply), chunk_size):
-                yield f"data: {json.dumps({'type': 'message', 'content': reply[i:i+chunk_size]})}\\n\\n"
+                yield f"data: {json.dumps({'type': 'message', 'content': reply[i:i+chunk_size]})}\n\n"
                 await asyncio.sleep(0.01)
-            yield f"data: {json.dumps({'type': 'bubble_end'})}\\n\\n"
+            yield f"data: {json.dumps({'type': 'bubble_end'})}\n\n"
 
             # Launch graph in background explicitly specifying next routing logic
             if requires_manager:
@@ -224,10 +232,10 @@ Return strictly JSON:
             _t = asyncio.create_task(execution_graph.ainvoke(initial_state))
             _BG_TASKS.add(_t)
             _t.add_done_callback(_BG_TASKS.discard)
-            yield f"data: {json.dumps({'type': 'done', 'content': ''})}\\n\\n"
+            yield f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n"
         except Exception as e:
             logger.error(f"[Chat] Stream error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\\n\\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
     return StreamingResponse(
         generate(),

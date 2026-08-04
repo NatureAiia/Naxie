@@ -64,7 +64,17 @@ export default function TTSPage() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         blobUrl: url
       }
-      setHistory(prev => [newItem, ...prev.slice(0, 15)])
+      setHistory(prev => {
+        const next = [newItem, ...prev.slice(0, 15)]
+        // Entries beyond the 16-item cap are dropped from state, but their
+        // object URLs were never revoked — each one pins its audio Blob in
+        // memory for the rest of the tab's life. Revoke exactly what falls
+        // out of the window here.
+        for (const dropped of prev.slice(15)) {
+          URL.revokeObjectURL(dropped.blobUrl)
+        }
+        return next
+      })
 
       // Auto-play synthesized speech
       if (audioRef.current) {
@@ -82,10 +92,15 @@ export default function TTSPage() {
 
   const handleDownload = (blob: Blob | null, filename: string) => {
     if (!blob) return
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
+    a.href = url
     a.download = filename
     a.click()
+    // This URL was never revoked before, leaking one Blob per download click
+    // for the rest of the tab's life. Defer the revoke past the click so the
+    // browser has started the download first.
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   const copyText = () => {
