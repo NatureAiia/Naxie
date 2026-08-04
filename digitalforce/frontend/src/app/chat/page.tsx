@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react'
 import Sidebar from '@/components/Sidebar'
-import { Send, Trash2, Bot, User, Zap, MessageSquare, Plus, X, Image as ImageIcon, Clock, Mic, MicOff, Volume2, VolumeX, Ear, EarOff } from 'lucide-react'
+import { Send, Trash2, Bot, User, Zap, MessageSquare, Plus, X, Image as ImageIcon, Clock, Mic, MicOff, Volume2, VolumeX, Ear, EarOff, Hand } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
 import { getToken } from '@/lib/auth'
 import api, { MediaAsset } from '@/lib/api'
@@ -11,6 +11,7 @@ import {
   startRecording, stopRecording, transcribe, speak,
   recordCommandUntilSilence, isWakeWordSupported,
   startWakeWordListener, stopWakeWordListener,
+  isClapDetectSupported, startClapListener, stopClapListener,
 } from '@/lib/voice'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -99,6 +100,7 @@ export default function ChatPage() {
   const [wakePhrase, setWakePhrase]       = useState('Hey Naxie')
   const [showWakeSettings, setShowWakeSettings] = useState(false)
   const [wakeListening, setWakeListening] = useState(false) // brief "heard you" indicator
+  const [clapEnabled, setClapEnabled]     = useState(false) // double-clap-to-wake, alternative to the voice phrase
   const spokenBubbleIds = useRef<Set<string>>(new Set())
   const spokenMessageIds = useRef<Set<string>>(new Set())
   const sendMessageRef = useRef<(text?: string) => void>(() => {})
@@ -112,6 +114,7 @@ export default function ChatPage() {
     setVoiceEnabled(localStorage.getItem('df_voice_enabled') === 'true')
     setWakeEnabled(localStorage.getItem('df_wake_enabled') === 'true')
     setWakePhrase(localStorage.getItem('df_wake_phrase') || 'Hey Naxie')
+    setClapEnabled(localStorage.getItem('df_clap_enabled') === 'true')
   }, [])
 
   const toggleVoiceEnabled = () => {
@@ -177,6 +180,37 @@ export default function ChatPage() {
       stopWakeWordListener()
     }
   }, [wakeEnabled, wakePhrase])
+
+  // ── Double-clap: acoustic alternative trigger (no speech recognition) —
+  // useful when the wake phrase keeps getting misheard, or speaking it isn't
+  // an option. Keeps listening continuously; unlike the wake-word listener it
+  // doesn't need restarting after each detection. ────────────────────────
+  useEffect(() => {
+    if (!clapEnabled || !isClapDetectSupported()) return
+
+    let cancelled = false
+
+    const handleDoubleClap = async () => {
+      if (cancelled) return
+      setWakeListening(true)
+      try {
+        const blob = await recordCommandUntilSilence()
+        const text = await transcribe(blob)
+        if (text.trim()) sendMessageRef.current(text)
+      } catch {
+        // Silent — best-effort.
+      } finally {
+        setWakeListening(false)
+      }
+    }
+
+    startClapListener(handleDoubleClap)
+
+    return () => {
+      cancelled = true
+      stopClapListener()
+    }
+  }, [clapEnabled])
 
   const handleSelectAsset = useCallback((asset: MediaAsset) => {
     setAttachedMedia(prev => prev.find(a => a.id === asset.id) ? prev : [...prev, asset])
@@ -872,6 +906,28 @@ export default function ChatPage() {
                     transition: 'all 0.2s', marginBottom: 2,
                   }}>
                   {wakeEnabled ? <Ear size={18} /> : <EarOff size={18} />}
+                </button>
+              )}
+              {isClapDetectSupported() && (
+                <button
+                  id="clap-toggle"
+                  onClick={() => {
+                    setClapEnabled(prev => {
+                      const next = !prev
+                      localStorage.setItem('df_clap_enabled', String(next))
+                      return next
+                    })
+                  }}
+                  title={clapEnabled ? 'Double-clap to wake is on — click to disable' : 'Enable double-clap to wake (no speech needed)'}
+                  style={{
+                    width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                    background: clapEnabled ? 'rgba(0,163,255,0.12)' : 'rgba(255,255,255,0.03)',
+                    border: clapEnabled ? '1px solid rgba(0,163,255,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                    color: clapEnabled ? '#33BAFF' : '#94A3B8',
+                    transition: 'all 0.2s', marginBottom: 2,
+                  }}>
+                  <Hand size={18} />
                 </button>
               )}
               <button

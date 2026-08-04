@@ -421,3 +421,106 @@ export function stopWakeWordListener() {
   wakeStream = null
 }
 
+// ─── Double-clap listener (acoustic, no speech recognition at all) ────────
+// A second, independent hands-free trigger for when saying the wake phrase
+// isn't convenient (or Vosk keeps mishearing it) — two claps in quick
+// succession fire the same "listen for a command" flow as the wake word.
+// Runs entirely client-side: an adaptive noise-floor EMA marks a sample as a
+// "spike" only once it's well above the room's recent ambient level, so it
+// self-calibrates to a quiet office vs. a noisy room without any tuning.
+
+const CLAP_SPIKE_RATIO = 7.0        // a spike must be this many times the noise floor
+const CLAP_SPIKE_HOLDOFF_MS = 120   // ignore further spikes this long (debounces one clap's decay tail)
+const CLAP_MIN_GAP_MS = 50          // two spikes closer than this are one clap, not a pair
+const CLAP_MAX_GAP_MS = 350         // two spikes further apart than this aren't a deliberate double-clap
+const CLAP_ACTION_COOLDOWN_MS = 450 // after firing, ignore all input for this long
+const CLAP_NOISE_EMA_ALPHA = 0.05   // how fast the noise floor adapts to the room
+
+let clapActive = false
+let clapStream: MediaStream | null = null
+let clapAudioCtx: AudioContext | null = null
+let clapRaf: number | null = null
+
+export function isClapDetectSupported(): boolean {
+  if (typeof window === 'undefined') return false
+  return !!((navigator as any).mediaDevices?.getUserMedia && ((window as any).AudioContext || (window as any).webkitAudioContext))
+}
+
+export async function startClapListener(onDoubleClap: () => void) {
+  if (!isClapDetectSupported()) return
+  clapActive = true
+
+  let stream: MediaStream
+  try {
+    stream = await getWorkingMicStream()
+  } catch (e) {
+    console.warn('[Clap] Mic permission denied or unavailable:', e)
+    clapActive = false
+    return
+  }
+  if (!clapActive) {
+    stream.getTracks().forEach(t => t.stop())
+    return
+  }
+  clapStream = stream
+
+  const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext
+  const audioCtx: AudioContext = new AudioContextCtor()
+  clapAudioCtx = audioCtx
+  const source = audioCtx.createMediaStreamSource(stream)
+  const analyser = audioCtx.createAnalyser()
+  analyser.fftSize = 512
+  source.connect(analyser)
+  const data = new Uint8Array(analyser.frequencyBinCount)
+
+  let noiseFloor: number | null = null
+  let lastSpikeAt = 0
+  let pendingFirstClapAt = 0
+  let cooldownUntil = 0
+
+  const poll = () => {
+    if (!clapActive) return
+    clapRaf = requestAnimationFrame(poll)
+
+    const now = Date.now()
+    if (now < cooldownUntil) return
+
+    analyser.getByteTimeDomainData(data)
+    let sumSquares = 0
+    for (let i = 0; i < data.length; i++) {
+      const normalized = (data[i] - 128) / 128
+      sumSquares += normalized * normalized
+    }
+    const rms = Math.sqrt(sumSquares / data.length)
+
+    const isSpike = noiseFloor !== null && rms > noiseFloor * CLAP_SPIKE_RATIO
+    if (isSpike && now - lastSpikeAt > CLAP_SPIKE_HOLDOFF_MS) {
+      lastSpikeAt = now
+      const gap = now - pendingFirstClapAt
+      if (pendingFirstClapAt && gap >= CLAP_MIN_GAP_MS && gap <= CLAP_MAX_GAP_MS) {
+        pendingFirstClapAt = 0
+        cooldownUntil = now + CLAP_ACTION_COOLDOWN_MS
+        onDoubleClap()
+      } else {
+        pendingFirstClapAt = now
+      }
+    } else if (!isSpike) {
+      if (pendingFirstClapAt && now - pendingFirstClapAt > CLAP_MAX_GAP_MS) pendingFirstClapAt = 0
+      noiseFloor = noiseFloor === null ? Math.max(rms, 0.0003) : noiseFloor * (1 - CLAP_NOISE_EMA_ALPHA) + rms * CLAP_NOISE_EMA_ALPHA
+    }
+  }
+  clapRaf = requestAnimationFrame(poll)
+}
+
+export function stopClapListener() {
+  clapActive = false
+  if (clapRaf !== null) {
+    cancelAnimationFrame(clapRaf)
+    clapRaf = null
+  }
+  try { clapAudioCtx?.close() } catch { /* ignore */ }
+  clapAudioCtx = null
+  clapStream?.getTracks().forEach(t => t.stop())
+  clapStream = null
+}
+
