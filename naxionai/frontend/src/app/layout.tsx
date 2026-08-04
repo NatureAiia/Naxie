@@ -2,9 +2,9 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'NeuroWorks — Autonomous Social Media Agency',
-  description: 'AI-powered autonomous social media intelligence. Give it a goal. Watch it work.',
-  keywords: ['AI', 'social media', 'autonomous', 'digital marketing', 'content generation'],
+  title: 'NaxionAI — Personal AI Assistant',
+  description: 'NaxionAI (Naxie) — a personal assistant that plans, researches, and acts on your behalf.',
+  keywords: ['AI', 'personal assistant', 'automation', 'voice assistant'],
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -14,7 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@200..800&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=JetBrains+Mono:wght@400;500&display=swap"
           rel="stylesheet"
         />
       </head>

@@ -27,6 +27,31 @@
   --twitter: #1DA1F2;
   --tiktok: #FF0050;
   --instagram: #E1306C;
+
+  /* ─── ported from neuroworks/web/src/index.css (dark palette only — this
+     app has no light/dark toggle) so ported components' ink-*/cream-*/
+     flame-*/coral-*/violet-*/leaf-* Tailwind classes resolve unchanged. ─── */
+  --c-ink-950: #15181c;
+  --c-ink-900: #1a1d22;
+  --c-ink-850: #1d2027;
+  --c-ink-800: #262931;
+  --c-ink-700: #282c35;
+  --c-ink-600: #3c4049;
+  --c-cream-50: #f5f5f4;
+  --c-cream-100: #e2e4e8;
+  --c-cream-200: #b8bcc4;
+  --c-cream-300: #8b8f99;
+  --c-flame-400: #e06c75;
+  --c-flame-500: #c9636c;
+  --c-flame-600: #b0525a;
+  --c-coral-400: #d19a66;
+  --c-coral-500: #c48a52;
+  --c-coral-600: #a8703e;
+  --c-violet-400: #c678dd;
+  --c-violet-500: #b361cf;
+  --c-violet-600: #9a4eb8;
+  --c-leaf-400: #98c379;
+  --c-leaf-500: #7fb563;
 }
 
 /* ─── Base Styles ─────────────────────────────────────── */

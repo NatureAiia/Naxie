@@ -76,7 +76,7 @@ internally named **Jarvis**. Both have since been rebranded:
 | Old name | New name | Scope |
 |---|---|---|
 | Digital Force | **NaxionAI** | The overall product/brand |
-| Jarvis | **Naxie** | The voice-assistant persona/page (`/naxie` in both the `neuroworks/` and `digitalforce/` frontends) |
+| Jarvis | **Naxie** | The voice-assistant persona/page (`/naxie` in both the `neuroworks/` and `naxionai/` frontends) |
 
 **NeuroWorks** is unaffected by this rebrand and keeps its name. References to
 the fictional Iron Man **JARVIS** as a design inspiration (see

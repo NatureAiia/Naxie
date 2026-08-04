@@ -35,9 +35,9 @@ class Settings(BaseSettings):
 
     # ── Database ─────────────────────────────────────────
     # PostgreSQL for production, SQLite for dev
-    database_url: str = "sqlite+aiosqlite:///./digitalforce.db"
+    database_url: str = "sqlite+aiosqlite:///./naxionai.db"
     # PostgreSQL example:
-    # database_url: str = "postgresql+asyncpg://user:pass@localhost:5432/digitalforce"
+    # database_url: str = "postgresql+asyncpg://user:pass@localhost:5432/naxionai"
 
     # ── Redis ─────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"

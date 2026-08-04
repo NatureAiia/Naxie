@@ -6,8 +6,35 @@ module.exports = {
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
+    screens: {
+      // tablet breakpoint, ported from neuroworks for components that share
+      // its compact/tablet layout logic.
+      tablet: '820px',
+    },
     extend: {
       colors: {
+        // ink/cream/flame/coral/violet/leaf — ported from neuroworks so its
+        // components (Card, CommandPalette, etc.) resolve unchanged. Values
+        // live as CSS vars in globals.css (dark palette only — this app has
+        // no light/dark toggle yet).
+        ink: {
+          950: 'var(--c-ink-950)',
+          900: 'var(--c-ink-900)',
+          850: 'var(--c-ink-850)',
+          800: 'var(--c-ink-800)',
+          700: 'var(--c-ink-700)',
+          600: 'var(--c-ink-600)',
+        },
+        cream: {
+          50: 'var(--c-cream-50)',
+          100: 'var(--c-cream-100)',
+          200: 'var(--c-cream-200)',
+          300: 'var(--c-cream-300)',
+        },
+        flame: { 400: 'var(--c-flame-400)', 500: 'var(--c-flame-500)', 600: 'var(--c-flame-600)' },
+        coral: { 400: 'var(--c-coral-400)', 500: 'var(--c-coral-500)', 600: 'var(--c-coral-600)' },
+        violet: { 400: 'var(--c-violet-400)', 500: 'var(--c-violet-500)', 600: 'var(--c-violet-600)' },
+        leaf: { 400: 'var(--c-leaf-400)', 500: 'var(--c-leaf-500)' },
         // Brand palette - Electric Sapphire
         primary: {
           DEFAULT: '#00A3FF',
@@ -40,6 +67,12 @@ module.exports = {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
+        // ported from neuroworks for PixelDriftText/DynamicWeightText/WeightHoverText
+        display: ["'Playfair Display'", 'Georgia', 'serif'],
+        jakarta: ["'Plus Jakarta Sans'", 'system-ui', 'sans-serif'],
+      },
+      transitionTimingFunction: {
+        settle: 'cubic-bezier(0.32, 0.72, 0, 1)',
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
@@ -53,6 +86,7 @@ module.exports = {
         'fade-in': 'fadeIn 0.3s ease-out',
         'glow': 'glow 2s ease-in-out infinite alternate',
         'thinking': 'thinking 1.5s ease-in-out infinite',
+        'fade-up': 'fade-up 0.7s cubic-bezier(0.32,0.72,0,1) both',
       },
       keyframes: {
         slideUp: {
@@ -70,6 +104,14 @@ module.exports = {
         thinking: {
           '0%, 100%': { opacity: '0.4' },
           '50%': { opacity: '1' },
+        },
+        'fade-up': {
+          '0%': { opacity: '0', transform: 'translateY(14px)', filter: 'blur(6px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)', filter: 'blur(0)' },
+        },
+        'mesh-drift': {
+          '0%, 100%': { transform: 'translate3d(0,0,0) scale(1)' },
+          '50%': { transform: 'translate3d(2%, -1.5%, 0) scale(1.08)' },
         },
       },
       backdropBlur: {
