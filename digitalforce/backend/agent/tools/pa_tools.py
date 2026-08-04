@@ -202,7 +202,8 @@ async def set_reminder(title: str, message: str, delay_seconds: int = 0) -> str:
 def system_control(action: str, target: str = "") -> str:
     """Perform OS system actions on Windows.
     action: 'open_app' (target='calc'|'notepad'|'chrome'|etc), 'take_screenshot', 'volume_mute', 'volume_unmute',
-    'focus_window' (target=window title or substring, e.g. 'chrome', 'cursor' — brings a matching open window to the foreground)."""
+    'focus_window' (target=window title or substring, e.g. 'chrome', 'cursor' — brings a matching open window to the foreground),
+    'brightness_get', 'brightness_set' (target='0'-'100'), 'battery_status'."""
     allowed, reason = _system_control_allowed()
     if not allowed:
         return reason
@@ -250,7 +251,54 @@ def system_control(action: str, target: str = "") -> str:
                 if ok else f"No visible open window found matching '{target}'."
             )
 
-        return f"Unknown action: {action}. Supported: 'open_app', 'take_screenshot', 'volume_mute', 'focus_window'."
+        elif act == "brightness_get":
+            try:
+                import wmi
+                w = wmi.WMI(namespace="wmi")
+                monitors = w.WmiMonitorBrightness()
+                if not monitors:
+                    return "Could not read brightness: no WMI-compatible display found (common on desktop monitors)."
+                return f"Current screen brightness: {monitors[0].CurrentBrightness}%."
+            except ImportError:
+                return "Brightness control requires the 'wmi' package. Install it with: pip install wmi"
+            except Exception as e:
+                return f"Failed to read brightness: {e}"
+
+        elif act == "brightness_set":
+            if not target:
+                return "Brightness percentage required (0-100), e.g. target='50'."
+            try:
+                pct = max(0, min(100, int(target.strip().rstrip("%"))))
+            except ValueError:
+                return f"Invalid brightness value '{target}' — must be a number 0-100."
+            try:
+                import wmi
+                w = wmi.WMI(namespace="wmi")
+                brightness_methods = w.WmiMonitorBrightnessMethods()
+                if not brightness_methods:
+                    return "Could not set brightness: no WMI-compatible display found (common on desktop monitors)."
+                brightness_methods[0].WmiSetBrightness(pct, 0)
+                return f"Screen brightness set to {pct}%."
+            except ImportError:
+                return "Brightness control requires the 'wmi' package. Install it with: pip install wmi"
+            except Exception as e:
+                return f"Failed to set brightness: {e}"
+
+        elif act == "battery_status":
+            try:
+                import psutil
+                batt = psutil.sensors_battery()
+                if batt is None:
+                    return "No battery detected (likely a desktop PC)."
+                state = "charging" if batt.power_plugged else "on battery"
+                return f"Battery at {batt.percent:.0f}% ({state})."
+            except Exception as e:
+                return f"Failed to read battery status: {e}"
+
+        return (
+            f"Unknown action: {action}. Supported: 'open_app', 'take_screenshot', 'volume_mute', "
+            "'focus_window', 'brightness_get', 'brightness_set', 'battery_status'."
+        )
     except Exception as e:
         return f"System control failed: {e}"
 

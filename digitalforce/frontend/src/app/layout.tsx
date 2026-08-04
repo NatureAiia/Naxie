@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'NaxionAI — Naxie, Your Personal AI Assistant',
+  title: 'NeuroWorks — Autonomous Social Media Agency',
   description: 'AI-powered autonomous social media intelligence. Give it a goal. Watch it work.',
   keywords: ['AI', 'social media', 'autonomous', 'digital marketing', 'content generation'],
 }

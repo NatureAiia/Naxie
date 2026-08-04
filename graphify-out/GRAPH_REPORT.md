@@ -5,12 +5,12 @@
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 4789 nodes · 8261 edges · 363 communities (332 shown, 31 thin omitted)
+- 4789 nodes · 8255 edges · 354 communities (323 shown, 31 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 104 edges (avg confidence: 0.66)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `52211ffe`
+- Built from commit: `dd034f61`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -45,7 +45,7 @@
 - chat.ts
 - AI-STARTUP.md — machine-followable startup runbook
 - index.ts
-- routes/dispatch.ts
+- security-watch.ts
 - agency_daemon.py
 - lib/data-sources.ts
 - lib/schedules.ts
@@ -66,7 +66,7 @@
 - writeVaultFile
 - ResultPanel.tsx
 - agency.py
-- routes/personas.ts
+- lib/presets.ts
 - Sidebar.tsx
 - departments.ts
 - Results.tsx
@@ -74,16 +74,16 @@
 - lib/quality.ts
 - web-client.ts
 - human-work.ts
-- security-watch.ts
+- pages/Dashboard.tsx
 - lib/skills.ts
 - Tasks.tsx
-- TraceView.tsx
+- MyWork.tsx
 - doc-extractor.ts
 - llm.ts
 - openrouter.ts
 - lib/assignments.ts
 - browser.ts
-- worker-manager.ts
+- routes/peers.ts
 - dependencies
 - frontend/src/lib/api.ts
 - finance-snapshot.ts
@@ -93,25 +93,25 @@
 - goals/[id]/page.tsx
 - lib/orchestrator.ts
 - Skill: PC document handling
-- useLoadMore
+- Card
 - devDependencies
 - dependencies
-- api
+- knowledge/page.tsx
 - devDependencies
 - email_notify.py
 - DIGITAL FORCE: THE $50 MILLION ENTERPRISE UI/UX MASTER PROMPT
-- routes/peers.ts
+- Jarvis.tsx
 - routes/auth.ts
 - Skill: API design
 - Skill: CSS animation snippet
 - plan
-- email-inbound.ts
+- sector-packs.ts
 - server/src/lib/voice.ts
-- lib/peers.ts
+- lib/knowledge-packs.ts
 - compilerOptions
 - CommandPalette.tsx
 - team.ts
-- lib/presets.ts
+- shona-glossary.ts
 - Library — common objections
 - compilerOptions
 - digest.ts
@@ -119,7 +119,7 @@
 - neuroworks-dispatch-mcp.mjs
 - ambient.d.ts
 - department-data.ts
-- email-threads.ts
+- exports.ts
 - heygen.ts
 - workforce.ts
 - lib/models.ts
@@ -129,19 +129,18 @@
 - Skill: 1:1 prep
 - Skill: Testing strategy
 - GhostBrowser
-- ocr.ts
-- origin-guard.ts
+- Settings
+- tts/page.tsx
 - security-gates.ts
 - Skill: OKR writing
 - Team.tsx
 - Onboarding.tsx
 - NeuroWorks
 - server/package.json
-- processInboundEmail
+- mailauth
 - org-chart.ts
 - reflection-bottlenecks.ts
 - sync-downloads.ts
-- uploads.ts
 - Skill: Intro email
 - Skill: Renewal conversation
 - Skill: Root cause analysis
@@ -150,7 +149,6 @@
 - context-offload.ts
 - brave.ts
 - chat-history.ts
-- lane.ts
 - prompt-cache-stats.ts
 - Skill: Commit message writing
 - Skill: Decline politely
@@ -179,7 +177,6 @@
 - analytics/page.tsx
 - NeuroWorks / clawbot — System Architecture
 - firecrawl.ts
-- loadPersonas
 - small-model-harness.ts
 - Skill: Benchmark lookup
 - Skill: Churn risk flag
@@ -211,7 +208,6 @@
 - NeuroWorks dispatch SDK
 - agent-helpers.test.ts
 - calendar-ical.ts
-- doc-ingest.ts
 - Skill: Action-item extraction
 - Skill: Caveman mode
 - Skill: Channel notify
@@ -279,7 +275,6 @@
 - Knowledge.tsx
 - routePreload.ts
 - graphify reference: query, path, explain
-- web_search.py
 - secret-box.ts
 - Skill: A/B test read
 - Skill: Access provisioning plan
@@ -313,10 +308,7 @@
 - orchestrator.md
 - Digital Force — Researcher Agent System Prompt
 - Your Core Competencies:
-- new/page.tsx
-- components/Dashboard.tsx
 - Digital Force 🤖
-- processMessage
 - notepad.ts
 - WorkforceGlobe.tsx
 - graphify reference: add a URL and watch a folder
@@ -341,7 +333,6 @@
 - next.config.ts
 - postcss.config.mjs
 - task.md
-- docx
 - express
 - @napi-rs/canvas
 - marked
@@ -376,24 +367,24 @@
   digitalforce/frontend/src/app/jarvis/page.tsx → neuroworks/web/src/pages/Chat.tsx
 - `Templates()` --indirect_call--> `t()`  [INFERRED]
   neuroworks/web/src/pages/Templates.tsx → neuroworks/web/src/lib/i18n.ts
+- `build_neural_graph()` --indirect_call--> `skillforge_node()`  [INFERRED]
+  digitalforce/backend/agent/graph.py → digitalforce/backend/agent/nodes/skillforge.py
 - `BriefSlot` --uses--> `Goal`  [INFERRED]
-  digitalforce/backend/api/agency.py → digitalforce/backend/database.py
-- `AgencySettingsUpdate` --uses--> `Goal`  [INFERRED]
   digitalforce/backend/api/agency.py → digitalforce/backend/database.py
 
 ## Import Cycles
 - 3-file cycle: `neuroworks/server/src/lib/agent.ts -> neuroworks/server/src/lib/peers.ts -> neuroworks/server/src/lib/jobs.ts -> neuroworks/server/src/lib/agent.ts`
 - 4-file cycle: `neuroworks/server/src/lib/agent.ts -> neuroworks/server/src/lib/primitives.ts -> neuroworks/server/src/lib/peers.ts -> neuroworks/server/src/lib/jobs.ts -> neuroworks/server/src/lib/agent.ts`
 
-## Communities (363 total, 31 thin omitted)
+## Communities (354 total, 31 thin omitted)
 
 ### Community 0 - "AgentState"
-Cohesion: 0.04
-Nodes (90): Any, agent_thought_push(), chat_push(), Digital Force — Agent→Chat Push Utility Any LangGraph agent node can call…, Post a message from an autonomous agent into the user's chat feed. Called by…, Rapidly uses a lightweight LLM to generate a dynamic, first-person thought…, build_neural_graph(), manager_router() (+82 more)
+Cohesion: 0.06
+Nodes (63): agent_thought_push(), Digital Force — Agent→Chat Push Utility Any LangGraph agent node can call…, Rapidly uses a lightweight LLM to generate a dynamic, first-person thought…, build_neural_graph(), manager_router(), Digital Force — LangGraph Agent Graph (Neural Supervisor) Hub-and-spoke…, Read the routing decision made by the manager_node or executive_node., Unified Hub-and-Spoke topology starting with the Executive. Executive evaluates… (+55 more)
 
 ### Community 1 - "jobs.ts"
 Cohesion: 0.05
-Nodes (70): findCustomTemplate(), DispatchInput, dispatchTask(), findIdempotentJob(), fireWebhook(), idemIndex, isAllowedWebhookUrl(), isPrivateAddress() (+62 more)
+Nodes (67): findCustomTemplate(), DispatchInput, dispatchTask(), findIdempotentJob(), fireWebhook(), idemIndex, isAllowedWebhookUrl(), isPrivateAddress() (+59 more)
 
 ### Community 2 - "lib/integrations.ts"
 Cohesion: 0.05
@@ -408,24 +399,24 @@ Cohesion: 0.05
 Nodes (63): DeclarativeBase, agency_daemon(), Entry point — called from main.py lifespan as asyncio.create_task(). Runs…, Digital Force — Analytics API Aggregates real-time KPIs from the database for…, Digital Force — Chat API SSE-streaming interface to the ASMIA agency with…, delete_skill(), get_skill(), list_skills() (+55 more)
 
 ### Community 5 - "showToast"
-Cohesion: 0.04
-Nodes (39): showToast(), FileUpload(), fmtSize(), Assignment, AssignmentStatus, AssignPerson, Dataset, DataSource (+31 more)
+Cohesion: 0.08
+Nodes (20): showToast(), Dataset, DataSource, DataSourceKind, DepartmentDatum, WorkforceDepartment, WorkforcePerson, WorkMode (+12 more)
 
 ### Community 6 - "adrs.ts"
-Cohesion: 0.06
-Nodes (54): AdrsRecord, canonicalKey(), coerce(), csvCell(), DatasetManifest, DATASETS_DIR, deleteDataset(), __dirname (+46 more)
+Cohesion: 0.11
+Nodes (30): AdrsRecord, canonicalKey(), coerce(), csvCell(), DatasetManifest, DATASETS_DIR, deleteDataset(), __dirname (+22 more)
 
 ### Community 7 - "vault.ts"
 Cohesion: 0.06
 Nodes (53): minisearch, minisearch, latestRun(), jobStoreStats(), jobQueueStatus(), clearStaleVaultLock(), getVaultHealth(), getVaultPullStatus() (+45 more)
 
 ### Community 8 - "Card.tsx"
-Cohesion: 0.06
-Nodes (36): Button(), Card(), RoleIcon(), Skeleton(), ToastItem, _toastItems, ToastRack(), _toastSubscribers (+28 more)
+Cohesion: 0.11
+Nodes (19): Button(), RoleIcon(), Skeleton(), ToastItem, _toastItems, ToastRack(), _toastSubscribers, ToastTone (+11 more)
 
 ### Community 9 - "web/src/lib/api.ts"
-Cohesion: 0.05
-Nodes (38): ApiError, ConnectionTest, Connector, ConnectorAuthCatalog, ConnectorAuthType, ConnectorCallResult, ConnectorEndpoint, ConnectorInput (+30 more)
+Cohesion: 0.06
+Nodes (36): ApiError, ConnectionTest, Connector, ConnectorAuthCatalog, ConnectorAuthType, ConnectorCallResult, ConnectorEndpoint, ConnectorInput (+28 more)
 
 ### Community 10 - "lib/handoff.ts"
 Cohesion: 0.08
@@ -433,7 +424,7 @@ Nodes (46): buildRoster(), cleanOutput(), createHandoffRun(), __dirname, execute
 
 ### Community 11 - "lib/personas.ts"
 Cohesion: 0.05
-Nodes (47): LANGUAGE_PROMPTS, LanguagePrompt, personaLanguageDirective(), buildSuffixBody(), BUILTIN_ACCOUNTANT_PERSONA, BUILTIN_AE_PERSONA, BUILTIN_Aiia_FINANCE_PERSONA, BUILTIN_BIZANALYST_PERSONA (+39 more)
+Nodes (55): LANGUAGE_PROMPTS, LanguagePrompt, personaLanguageDirective(), addPersona(), buildSuffixBody(), BUILTIN_ACCOUNTANT_PERSONA, BUILTIN_AE_PERSONA, BUILTIN_Aiia_FINANCE_PERSONA (+47 more)
 
 ### Community 12 - "accounts.py"
 Cohesion: 0.08
@@ -457,15 +448,15 @@ Nodes (41): Activity, Admin, AdminOnly(), App(), Approvals, AuditLog, CalendarPa
 
 ### Community 17 - "routes/templates.ts"
 Cohesion: 0.10
-Nodes (41): dispatchWorkflow(), llmGenerate(), getActivePersona(), findPrimitive(), classifyCustomTemplate(), extractPersonaIdFromTemplateId(), KEYWORD_TO_ROLE, PERSONA_ID_TO_ROLE (+33 more)
+Nodes (40): dispatchWorkflow(), llmGenerate(), findPrimitive(), classifyCustomTemplate(), extractPersonaIdFromTemplateId(), KEYWORD_TO_ROLE, PERSONA_ID_TO_ROLE, TemplateRole (+32 more)
 
 ### Community 18 - "Chat.tsx"
-Cohesion: 0.08
-Nodes (31): JarvisPage(), loadTurns(), BrandMark(), DirectionHover(), DynamicWeightText(), Props, Transition, P (+23 more)
+Cohesion: 0.12
+Nodes (21): JarvisPage(), loadTurns(), DirectionHover(), P, ParticleMark(), ResultPanel(), getCurrentUserId(), Chat() (+13 more)
 
 ### Community 19 - "config.ts"
 Cohesion: 0.05
-Nodes (40): bindHost, __dirname, enterpriseMode, firecrawlApiKey, firecrawlBaseUrl, githubOwner, githubToken, hermesLocalModel (+32 more)
+Nodes (41): bindHost, __dirname, enterpriseMode, firecrawlApiKey, firecrawlBaseUrl, githubOwner, githubToken, hermesLocalModel (+33 more)
 
 ### Community 20 - "lib/primitives.ts"
 Cohesion: 0.09
@@ -480,8 +471,8 @@ Cohesion: 0.05
 Nodes (37): concurrently, cross-env, dependencies, @octokit/rest, simple-git, description, devDependencies, concurrently (+29 more)
 
 ### Community 23 - "get_settings"
-Cohesion: 0.08
-Nodes (29): BaseSettings, generate_completion(), _get_cascade_configs(), get_llm_client(), _get_ollama_chat(), get_tool_llm(), heal_dom_selector(), Digital Force — Agent LLM Client Local Ollama by default (LLM_PROVIDER=ollama);… (+21 more)
+Cohesion: 0.05
+Nodes (55): Any, generate_completion(), _get_cascade_configs(), get_llm_client(), _get_ollama_chat(), get_tool_llm(), heal_dom_selector(), Digital Force — Agent LLM Client Local Ollama by default (LLM_PROVIDER=ollama);… (+47 more)
 
 ### Community 24 - "lib/governance.ts"
 Cohesion: 0.12
@@ -496,24 +487,24 @@ Cohesion: 0.08
 Nodes (30): _build_grammar(), get_vosk_model(), NaxionAI — Offline Wake-Word Detection (Vosk) Fully local, free, open-source…, Lazily load the Vosk model once and cache it. Returns None (not raises) if the…, Expand a wake phrase into itself plus in-vocabulary phonetic near-misses for…, One instance per connected WebSocket client. Feeds 16kHz mono PCM16 audio into…, Feed one chunk of raw 16-bit PCM audio. Returns True the moment any wake-phrase…, WakeWordSession (+22 more)
 
 ### Community 27 - "chat.ts"
-Cohesion: 0.10
-Nodes (30): getJobAbortSignal(), detectsShonaOrNdebele(), getShonaNdebeleMatches(), SHONA_NDEBELE_MARKERS, SHONA_NDEBELE_RE, SHONA_NDEBELE_THRESHOLD, shonaLanguageDirective(), ZIM_FINANCIAL_PHRASES (+22 more)
+Cohesion: 0.08
+Nodes (44): getJobAbortSignal(), AIIA_FINANCE_CAPABLE, buildOutOfLaneRefusal(), checkLaneFit(), heuristicCheck(), HeuristicProfile, LANE_CHECK_TIMEOUT_MS, LaneCheck (+36 more)
 
 ### Community 28 - "AI-STARTUP.md — machine-followable startup runbook"
 Cohesion: 0.06
 Nodes (29): 0. What's in this bundle, 1. Prerequisites, 2. Local (no Docker), 3. First-run: create the owner account, 4. Bare-metal path (no Docker), 5. Troubleshooting (known fail-fasts — these are intentional), 6. Security notes for whoever runs this, AI-STARTUP.md — machine-followable startup runbook (+21 more)
 
 ### Community 29 - "index.ts"
-Cohesion: 0.09
-Nodes (25): validateConfig(), app, gracefulExit(), server, AuditEvent, auditPath(), logAudit(), queryAudit() (+17 more)
+Cohesion: 0.07
+Nodes (36): app, gracefulExit(), server, AuditEvent, auditPath(), logAudit(), queryAudit(), shutdownCommitQueue() (+28 more)
 
-### Community 30 - "routes/dispatch.ts"
-Cohesion: 0.12
-Nodes (29): ALL_SCOPES, ApiKeyPublic, ApiKeyRecord, ApiKeyScope, createApiKey(), DEFAULT_SCOPES, __dirname, keyHasScope() (+21 more)
+### Community 30 - "security-watch.ts"
+Cohesion: 0.06
+Nodes (50): ALL_SCOPES, ApiKeyPublic, ApiKeyRecord, ApiKeyScope, createApiKey(), DEFAULT_SCOPES, __dirname, keyHasScope() (+42 more)
 
 ### Community 31 - "agency_daemon.py"
 Cohesion: 0.12
-Nodes (30): datetime, _check_brief_schedule(), _check_idle_chat_nudge(), _nudge_approval(), _phase_execute_goals(), _phase_retry_failed_posts(), _process_user(), _push_chat_checkin() (+22 more)
+Nodes (32): datetime, _check_brief_schedule(), _check_idle_chat_nudge(), _nudge_approval(), _phase_execute_goals(), _phase_retry_failed_posts(), _process_user(), _push_chat_checkin() (+24 more)
 
 ### Community 32 - "lib/data-sources.ts"
 Cohesion: 0.12
@@ -524,8 +515,8 @@ Cohesion: 0.13
 Nodes (27): Cadence, createSchedule(), deleteSchedule(), deliverScheduleResult(), __dirname, FILE, fireSchedule(), getSchedule() (+19 more)
 
 ### Community 34 - "api"
-Cohesion: 0.07
-Nodes (17): AgentVisualizer(), Peer, RunningJob, GraphLink, GraphNode, KnowledgeGraph(), SimLink, SimNode (+9 more)
+Cohesion: 0.10
+Nodes (12): api, KnowledgePack, User, CreateDepartmentModal(), DeptInfo, ICON_MAP, AXIS_LABEL, SkillForge() (+4 more)
 
 ### Community 35 - "goals.py"
 Cohesion: 0.15
@@ -533,7 +524,7 @@ Nodes (29): ChatMessageBody, BaseModel, approve_goal(), approve_via_token(), App
 
 ### Community 36 - "commit-queue.ts"
 Cohesion: 0.12
-Nodes (26): CommitResult, DEBOUNCE_MS, enqueueVaultCommit(), flushNow(), flushVaultCommits(), Pending, refreshAheadBy(), shutdownCommitQueue() (+18 more)
+Nodes (25): CommitResult, DEBOUNCE_MS, enqueueVaultCommit(), flushNow(), flushVaultCommits(), Pending, refreshAheadBy(), vaultCommitStats() (+17 more)
 
 ### Community 37 - "lib/my-tasks.ts"
 Cohesion: 0.16
@@ -548,8 +539,8 @@ Cohesion: 0.07
 Nodes (28): compilerOptions, allowJs, esModuleInterop, incremental, isolatedModules, jsx, lib, module (+20 more)
 
 ### Community 40 - "lib/email.ts"
-Cohesion: 0.12
-Nodes (27): RFC-2606, ATTACHMENT_CONTENT_TYPES, buildEmailHtml(), coerceEmailBody(), coerceToBodyString(), EmailAttachment, EmailEnv, InboundMessage (+19 more)
+Cohesion: 0.06
+Nodes (67): RFC-2606, apiPost(), ATTACHMENT_CONTENT_TYPES, aligned(), AuthVerdict, evaluateAuthResultsHeader(), RFC-822, verifyInboundDkim() (+59 more)
 
 ### Community 41 - "access.ts"
 Cohesion: 0.13
@@ -557,7 +548,7 @@ Nodes (26): AccessLayer, callerLayer(), callerOf(), LAYER_BUNDLES, LAYER_RANK, l
 
 ### Community 42 - "Layout.tsx"
 Cohesion: 0.07
-Nodes (27): AdminFolderIcon, BenchmarkFolderIcon, CertificateIcon, ChangelogIcon, ConfigFolderIcon, ConnectionFolderIcon, ConsoleIcon, DocsFolderIcon (+19 more)
+Nodes (28): BrandMark(), AdminFolderIcon, BenchmarkFolderIcon, CertificateIcon, ChangelogIcon, ConfigFolderIcon, ConnectionFolderIcon, ConsoleIcon (+20 more)
 
 ### Community 43 - "What You Must Do When Invoked"
 Cohesion: 0.07
@@ -565,7 +556,7 @@ Nodes (26): For /graphify add and --watch, For /graphify query, For the commit h
 
 ### Community 44 - "lib/omnisignal.ts"
 Cohesion: 0.14
-Nodes (24): PublishResult, getSourceByLabel(), acquire(), acquireAndPublish(), acquireOne(), AcquireResult, addSource(), __dirname (+16 more)
+Nodes (23): getSourceByLabel(), acquire(), acquireAndPublish(), acquireOne(), AcquireResult, addSource(), __dirname, getSource() (+15 more)
 
 ### Community 45 - "model-providers.ts"
 Cohesion: 0.15
@@ -584,20 +575,20 @@ Cohesion: 0.17
 Nodes (23): llmGenerateWithMeta(), datedFactsInWindow(), listSubjects(), MemoryFact, noteFact(), recallSubject(), root(), searchMemory() (+15 more)
 
 ### Community 49 - "ResultPanel.tsx"
-Cohesion: 0.08
-Nodes (5): LinkPreview(), Props, fmtBytes(), QUALITY_CATEGORIES, SyncDownloadsResult()
+Cohesion: 0.05
+Nodes (23): LinkPreview(), Props, fmtBytes(), QUALITY_CATEGORIES, SyncDownloadsResult(), classifyLine(), CopyTraceButton(), fmtDuration() (+15 more)
 
 ### Community 50 - "agency.py"
 Cohesion: 0.17
 Nodes (24): add_brief_slot(), agency_status(), AgencySettingsUpdate, BriefSlot, delete_brief_slot(), get_agency_settings(), _get_or_create_settings(), AsyncSession (+16 more)
 
-### Community 51 - "routes/personas.ts"
-Cohesion: 0.20
-Nodes (21): bumpRunCount(), CustomTemplate, deleteCustomTemplate(), __dirname, FILE, loadCustomTemplates(), persist(), saveCustomTemplate() (+13 more)
+### Community 51 - "lib/presets.ts"
+Cohesion: 0.11
+Nodes (31): bumpRunCount(), CustomTemplate, deleteCustomTemplate(), __dirname, FILE, loadCustomTemplates(), persist(), saveCustomTemplate() (+23 more)
 
 ### Community 52 - "Sidebar.tsx"
-Cohesion: 0.11
-Nodes (15): Goal, PLATFORM_LABELS, stagger, STATUS_CONFIG, Skill, stagger, HistoryItem, TTSPage() (+7 more)
+Cohesion: 0.09
+Nodes (18): EXAMPLES, PLATFORM_OPTIONS, THINKING_STEPS, Goal, PLATFORM_LABELS, stagger, STATUS_CONFIG, Skill (+10 more)
 
 ### Community 53 - "departments.ts"
 Cohesion: 0.16
@@ -623,25 +614,25 @@ Nodes (21): bingSearch(), browserSearch(), cache, CACHE_TTL_MS, cacheGet(), cach
 Cohesion: 0.14
 Nodes (18): addHumanWork(), coerceEntry(), CONFIG_DIR, __dirname, ensureDir(), hourlyRate(), HumanWorkEntry, HumanWorkSource (+10 more)
 
-### Community 59 - "security-watch.ts"
-Cohesion: 0.13
-Nodes (21): BLOCK_MINUTES, BLOCK_THRESHOLD, decayScore(), __dirname, events, EVENTS_PATH, FLOOD_LIMIT, ips (+13 more)
+### Community 59 - "pages/Dashboard.tsx"
+Cohesion: 0.07
+Nodes (21): AgentVisualizer(), Peer, RunningJob, DynamicWeightText(), Props, Transition, MagneticRow(), Props (+13 more)
 
 ### Community 60 - "lib/skills.ts"
 Cohesion: 0.18
 Nodes (19): cache, __dirname, draftSkillForIntent(), fetchRemoteSkill(), listSkills(), loadSkill(), loadSkillFromDisk(), meetsSkillFloor() (+11 more)
 
 ### Community 61 - "Tasks.tsx"
-Cohesion: 0.15
-Nodes (17): SkeletonList(), LoaderStep, MultiStepLoader(), ResultPanel(), WaitingTask, computeEta(), EtaInfo, EtaStats (+9 more)
+Cohesion: 0.17
+Nodes (15): SkeletonList(), LoaderStep, MultiStepLoader(), computeEta(), EtaInfo, EtaStats, fmtDur(), friendlyKind() (+7 more)
 
-### Community 62 - "TraceView.tsx"
-Cohesion: 0.14
-Nodes (18): classifyLine(), CopyTraceButton(), fmtDuration(), fmtOffset(), FRIENDLY_TOOL, friendlyTool(), NarrationTrace(), parseTrace() (+10 more)
+### Community 62 - "MyWork.tsx"
+Cohesion: 0.09
+Nodes (19): FileUpload(), fmtSize(), Assignment, AssignmentStatus, AssignPerson, getToken(), req(), WaitingTask (+11 more)
 
 ### Community 63 - "doc-extractor.ts"
-Cohesion: 0.18
-Nodes (17): cache, CacheEntry, cacheKey(), clampText(), CODE_EXTENSIONS, extractDocsParallel(), extractDocText(), extractDocx() (+9 more)
+Cohesion: 0.07
+Nodes (42): cache, CacheEntry, cacheKey(), clampText(), CODE_EXTENSIONS, extractDocsParallel(), extractDocText(), extractDocx() (+34 more)
 
 ### Community 64 - "llm.ts"
 Cohesion: 0.19
@@ -656,20 +647,20 @@ Cohesion: 0.20
 Nodes (17): addSubmission(), ALLOWED_MOVES, Assignment, AssignmentStatus, AssignmentSubmission, CONFIG_DIR, createAssignment(), __dirname (+9 more)
 
 ### Community 67 - "browser.ts"
-Cohesion: 0.15
-Nodes (15): getBrowser(), interact(), InteractAction, InteractStepResult, pickScrapeUA(), renderMarkdownToPdf(), scrape(), SCRAPE_UA_POOL (+7 more)
+Cohesion: 0.27
+Nodes (10): getBrowser(), interact(), InteractAction, InteractStepResult, pickScrapeUA(), renderMarkdownToPdf(), scrape(), SCRAPE_UA_POOL (+2 more)
 
-### Community 68 - "worker-manager.ts"
-Cohesion: 0.16
-Nodes (18): BASE_PORT, __dirname, ensureExtraWorker(), ensurePool(), ensureWorker(), isPortServing(), managedWorkerCount(), MAX_WORKERS (+10 more)
+### Community 68 - "routes/peers.ts"
+Cohesion: 0.10
+Nodes (31): autodiscoverLocalPeers(), COMMON_LOCAL_PORTS, deregisterPeer(), Entry, init(), listAllPeers(), normalize(), noteHealthResult() (+23 more)
 
 ### Community 69 - "dependencies"
 Cohesion: 0.11
-Nodes (19): compression, dotenv, imapflow, mailauth, mailparser, mammoth, dependencies, compression (+11 more)
+Nodes (19): compression, docx, dotenv, imapflow, mailparser, mammoth, dependencies, compression (+11 more)
 
 ### Community 70 - "frontend/src/lib/api.ts"
-Cohesion: 0.15
-Nodes (15): CONTENT_TYPE_COLORS, PLATFORM_EMOJI, AgentLog, ApiError, CampaignPlan, CampaignTask, DEL(), GET() (+7 more)
+Cohesion: 0.12
+Nodes (17): CONTENT_TYPE_COLORS, PLATFORM_EMOJI, STATUS_CONFIG, AgentLog, ApiError, CampaignPlan, CampaignTask, DEL() (+9 more)
 
 ### Community 71 - "finance-snapshot.ts"
 Cohesion: 0.19
@@ -688,8 +679,8 @@ Cohesion: 0.17
 Nodes (17): get_settings(), _load_overrides(), _mask(), BaseModel, delete, get, put, Digital Force — Settings API Read and write application configuration at… (+9 more)
 
 ### Community 75 - "goals/[id]/page.tsx"
-Cohesion: 0.13
-Nodes (14): AGENT_COLORS, AGENT_INITIALS, AGENT_LABELS, AgentLogEntry, Goal, GoalDetailPage(), STATUS_MAP, BriefSlot (+6 more)
+Cohesion: 0.12
+Nodes (15): AGENT_COLORS, AGENT_INITIALS, AGENT_LABELS, AgentLogEntry, Goal, GoalDetailPage(), STATUS_MAP, BriefSlot (+7 more)
 
 ### Community 76 - "lib/orchestrator.ts"
 Cohesion: 0.19
@@ -699,9 +690,9 @@ Nodes (16): createOrchestration(), decomposeTask(), executeSubTask(), getOrchest
 Cohesion: 0.11
 Nodes (16): Goal, Output shape by doc type, Pitfalls, Process, Rules, Skill: Local document summary, Examples of triggering phrases, Goal (+8 more)
 
-### Community 78 - "useLoadMore"
-Cohesion: 0.20
-Nodes (13): LOAD_MORE_STEP, LoadMoreButton(), LoadMoreState, useLoadMore(), Activity(), Approvals(), describeEffects(), EDITABLE_ARGS (+5 more)
+### Community 78 - "Card"
+Cohesion: 0.22
+Nodes (13): Card(), LOAD_MORE_STEP, LoadMoreButton(), LoadMoreState, useLoadMore(), Activity(), Approvals(), describeEffects() (+5 more)
 
 ### Community 79 - "devDependencies"
 Cohesion: 0.12
@@ -711,9 +702,9 @@ Nodes (17): autoprefixer, devDependencies, autoprefixer, postcss, tailwindcss, @
 Cohesion: 0.12
 Nodes (17): cmdk, d3-geo, dependencies, cmdk, d3-geo, lucide-react, react, react-dom (+9 more)
 
-### Community 81 - "api"
-Cohesion: 0.15
-Nodes (12): CATEGORIES, formatBytes(), KnowledgePage(), PrimaryMode, stagger, STATUS_COLORS, STATUS_CONFIG, AssetSelector() (+4 more)
+### Community 81 - "knowledge/page.tsx"
+Cohesion: 0.20
+Nodes (8): CATEGORIES, formatBytes(), KnowledgePage(), PrimaryMode, stagger, STATUS_COLORS, AssetSelectorProps, MediaAsset
 
 ### Community 82 - "devDependencies"
 Cohesion: 0.12
@@ -727,9 +718,9 @@ Nodes (15): _generate_neural_email(), _get_user_email(), _new_approval_token(), 
 Cohesion: 0.12
 Nodes (15): 1.1 Brand Identity Migration, 1.2 "The Obsidian & Neon" Design Language, 1.3 The Absolute Eradication of Emojis, 1. BRANDING, NAMING & IMMERSIVE AESTHETIC, 2.1 Navigation & The Command Center, 2.2 The Great "Knowledge" Consolidation, 2.3 The Ultimate Enterprise Landing Page (`/app/page.tsx` & `/app/login`), 2. STRUCTURAL & LAYOUT PARADIGM SHIFT (+7 more)
 
-### Community 85 - "routes/peers.ts"
-Cohesion: 0.21
-Nodes (13): autodiscoverLocalPeers(), COMMON_LOCAL_PORTS, deregisterPeer(), Entry, init(), listAllPeers(), normalize(), noteHealthResult() (+5 more)
+### Community 85 - "Jarvis.tsx"
+Cohesion: 0.13
+Nodes (14): GraphLink, GraphNode, KnowledgeGraph(), SimLink, SimNode, Turn, VoiceDiscussion(), getCtor() (+6 more)
 
 ### Community 86 - "routes/auth.ts"
 Cohesion: 0.19
@@ -747,17 +738,17 @@ Nodes (15): breathing-glow (active state, e.g. running agent), fade-up (page / l
 Cohesion: 0.18
 Nodes (14): defaultVaultPlan(), detectResearchSignals(), extractAnchorTopic(), extractJson(), extractTopic(), heuristicPlan(), parseSelfContainedEmail(), plan (+6 more)
 
-### Community 90 - "email-inbound.ts"
-Cohesion: 0.21
-Nodes (13): aligned(), AuthVerdict, evaluateAuthResultsHeader(), RFC-822, verifyInboundDkim(), addressOf(), getInboundWebhookStatus(), pick() (+5 more)
+### Community 90 - "sector-packs.ts"
+Cohesion: 0.18
+Nodes (16): getActiveLanguage(), getCavemanPrompt(), CONFIG_DIR, CONFIG_PATH, defaultState(), __dirname, getOnboardingState(), getSectorById() (+8 more)
 
 ### Community 91 - "server/src/lib/voice.ts"
 Cohesion: 0.22
 Nodes (13): loadJobById(), hashIdx(), LOCAL_VOICES, localTtsAvailable(), mintRealtimeSession(), OPENAI_VOICES, openaiCreds(), synthesizeLocal() (+5 more)
 
-### Community 92 - "lib/peers.ts"
-Cohesion: 0.22
-Nodes (14): listActivePeers(), delegateToBestPeer(), delegateToPeer(), localInflightCount(), PeerInfo, PeerProgress, pickExecutor(), pickLightestIdlePeer() (+6 more)
+### Community 92 - "lib/knowledge-packs.ts"
+Cohesion: 0.33
+Nodes (9): listDatasets(), generatePackFiles(), getPackContent(), installKnowledgePack(), KnowledgePack, listKnowledgePacks(), packsRoot(), Sector (+1 more)
 
 ### Community 93 - "compilerOptions"
 Cohesion: 0.13
@@ -768,12 +759,12 @@ Cohesion: 0.16
 Nodes (11): AdminFolderIcon, CertificateIcon, ChangelogIcon, CommandPalette(), ConsoleIcon, Item, LogIcon, TemplateIcon (+3 more)
 
 ### Community 95 - "team.ts"
-Cohesion: 0.19
-Nodes (12): autoRoutePersona(), patternRegex(), patternWeight(), PERSONA_PATTERNS, PersonaPattern, pickPersonaForTask(), WeightedPattern, Persona (+4 more)
+Cohesion: 0.21
+Nodes (11): autoRoutePersona(), patternRegex(), patternWeight(), PERSONA_PATTERNS, PersonaPattern, pickPersonaForTask(), WeightedPattern, resolvePersona() (+3 more)
 
-### Community 96 - "lib/presets.ts"
-Cohesion: 0.19
-Nodes (9): applyPreset(), ApplyResult, getPreset(), listPresets(), Preset, PRESETS, PresetSchedule, ScheduleDelivery (+1 more)
+### Community 96 - "shona-glossary.ts"
+Cohesion: 0.25
+Nodes (9): detectsShonaOrNdebele(), getShonaNdebeleMatches(), SHONA_NDEBELE_MARKERS, SHONA_NDEBELE_RE, SHONA_NDEBELE_THRESHOLD, shonaLanguageDirective(), ZIM_FINANCIAL_PHRASES, buildEnrichedTask() (+1 more)
 
 ### Community 97 - "Library — common objections"
 Cohesion: 0.14
@@ -803,9 +794,9 @@ Nodes (7): adm-zip, AdmZip, ConvertResult, mammoth, ParseResult, pdf-parse-fork,
 Cohesion: 0.29
 Nodes (12): addDepartmentDatum(), CONFIG_DIR, CONFIG_PATH, DepartmentDatum, __dirname, listDepartmentData(), listDepartments(), load() (+4 more)
 
-### Community 104 - "email-threads.ts"
-Cohesion: 0.19
-Nodes (11): appendThreadTurn(), __dirname, FILE, getThreadHistory(), load(), persist(), STATE_DIR, Store (+3 more)
+### Community 104 - "exports.ts"
+Cohesion: 0.33
+Nodes (5): headingLevelFor(), inlineRuns(), markdownToDocxBuffer(), tokensToBlocks(), exportsRouter
 
 ### Community 105 - "heygen.ts"
 Cohesion: 0.28
@@ -843,13 +834,13 @@ Nodes (12): Decide per layer, End-to-end tests, Goal, Integration tests, Output 
 Cohesion: 0.17
 Nodes (6): GhostBrowser, Digital Force — Ghost Browser Persistent headless Playwright session that holds…, Initialise the Playwright engine without immediately launching browsers. On…, Cleanly shutdown all browser contexts., Retrieves a new tab in the persistent context isolated for this account. Spawns…, Page
 
-### Community 114 - "ocr.ts"
-Cohesion: 0.29
-Nodes (10): getTesseractWorker(), IMAGE_EXTS, mimeForExt(), ocrCloud(), OcrEngine, ocrFile(), ocrLocal(), OcrResult (+2 more)
+### Community 114 - "Settings"
+Cohesion: 0.25
+Nodes (4): BaseSettings, Config, Digital Force — Central Configuration All environment variables, loaded once,…, Settings
 
-### Community 115 - "origin-guard.ts"
-Cohesion: 0.24
-Nodes (10): ALLOWED_HOSTS, ALLOWED_ORIGINS, EXEMPT_PATHS, originGuard(), PORT, WEB_ORIGIN_ENV, FakeReq, FakeRes (+2 more)
+### Community 115 - "tts/page.tsx"
+Cohesion: 0.67
+Nodes (3): HistoryItem, TTSPage(), synthesizeAudio()
 
 ### Community 116 - "security-gates.ts"
 Cohesion: 0.26
@@ -875,25 +866,17 @@ Nodes (5): DispatchAccepted, DispatchOptions, DispatchResult, NeuroWorks, NeuroW
 Cohesion: 0.18
 Nodes (10): license, name, private, scripts, dev, start, test, test:watch (+2 more)
 
-### Community 122 - "processInboundEmail"
-Cohesion: 0.33
-Nodes (10): apiPost(), emailConfigured(), getEmailStatus(), processInboundEmail(), readEnv(), resolveAllowedSenders(), routeFromSubject(), sendTestEmail() (+2 more)
-
 ### Community 123 - "org-chart.ts"
 Cohesion: 0.35
 Nodes (9): chartPath(), emptyChart(), escalationPath(), loadOrgChart(), lookupPerson(), ParsedChart, peersOf(), Person (+1 more)
 
 ### Community 124 - "reflection-bottlenecks.ts"
-Cohesion: 0.31
-Nodes (10): BottleneckEntry, bottleneckHintFor(), BottleneckIndex, deriveRemedy(), indexPath(), listBottlenecks(), load(), save() (+2 more)
+Cohesion: 0.23
+Nodes (12): BottleneckEntry, bottleneckHintFor(), BottleneckIndex, deriveRemedy(), indexPath(), listBottlenecks(), load(), save() (+4 more)
 
 ### Community 125 - "sync-downloads.ts"
 Cohesion: 0.31
 Nodes (10): CATEGORIES, categorize(), fmtSize(), renderInventory(), safeJson(), SKIP_NAMES, State, syncDownloads() (+2 more)
-
-### Community 126 - "uploads.ts"
-Cohesion: 0.22
-Nodes (9): CONTEXT_DIR, CONTEXT_TTL_MS, __dirname, gcContextDir(), isSafeVaultFolder(), readEffectiveTtlMs(), resolveContextAttachment(), SYSTEM_PREFIXES (+1 more)
 
 ### Community 127 - "Skill: Intro email"
 Cohesion: 0.18
@@ -926,10 +909,6 @@ Nodes (9): braveEnabled(), braveHealth(), bravePort(), BraveTab, BraveTabContent
 ### Community 134 - "chat-history.ts"
 Cohesion: 0.36
 Nodes (9): ChatExchange, __dirname, fileFor(), HISTORY_DIR, listChatHistory(), load(), recordChatExchange(), save() (+1 more)
-
-### Community 135 - "lane.ts"
-Cohesion: 0.24
-Nodes (9): AIIA_FINANCE_CAPABLE, buildOutOfLaneRefusal(), checkLaneFit(), heuristicCheck(), HeuristicProfile, LANE_CHECK_TIMEOUT_MS, LaneCheck, resolveHireToPersona() (+1 more)
 
 ### Community 136 - "prompt-cache-stats.ts"
 Cohesion: 0.29
@@ -1034,10 +1013,6 @@ Nodes (7): 1. System map, 2. Task execution flow (executor + offload + MCP), 3. 
 ### Community 163 - "firecrawl.ts"
 Cohesion: 0.36
 Nodes (7): firecrawlEnabled(), firecrawlHealth(), firecrawlScrape(), FirecrawlScrapeOptions, FirecrawlScrapeResult, firecrawlSearch(), FirecrawlSearchResult
-
-### Community 164 - "loadPersonas"
-Cohesion: 0.39
-Nodes (8): addPersona(), BUILTIN_PERSONAS, deletePersona(), ensureBuiltinSeeded(), loadPersonas(), savePersonaStore(), setActivePersona(), updatePersona()
 
 ### Community 165 - "small-model-harness.ts"
 Cohesion: 0.43
@@ -1162,10 +1137,6 @@ Nodes (6): compactStepSummary(), deepGet(), deepGetParts(), fallbackSynthesis(),
 ### Community 195 - "calendar-ical.ts"
 Cohesion: 0.43
 Nodes (5): CalEvent, parseIcal(), parseICalDate(), readICalSource(), unfold()
-
-### Community 196 - "doc-ingest.ts"
-Cohesion: 0.48
-Nodes (6): ContactEntry, DepartmentEntry, extractText(), ingestContacts(), ingestDepartmentData(), parseJsonArray()
 
 ### Community 197 - "Skill: Action-item extraction"
 Cohesion: 0.29
@@ -1435,10 +1406,6 @@ Nodes (6): Layout(), preloaders, preloadLikelyRoutes(), preloadRoute(), Thunk, w
 Cohesion: 0.33
 Nodes (5): For /graphify explain, For /graphify path, graphify reference: query, path, explain, Step 0 — Constrained query expansion (REQUIRED before traversal), Step 1 — Traversal
 
-### Community 264 - "web_search.py"
-Cohesion: 0.33
-Nodes (5): Digital Force — Agent Web Search Tool Powered by Tavily API. Available to ALL…, Extract the raw content of a specific URL using Tavily's extract API. Bypasses…, Search the web via Tavily and return structured results. Returns: { "success":…, scrape_website(), web_search()
-
 ### Community 265 - "secret-box.ts"
 Cohesion: 0.40
 Nodes (5): CONFIG_DIR, decryptSecret(), __dirname, KEY_PATH, secretKey()
@@ -1571,21 +1538,9 @@ Nodes (4): Digital Force — Researcher Agent System Prompt, Platform Knowledge,
 Cohesion: 0.40
 Nodes (4): Content Mix Framework (vary this for every campaign):, Output Format (JSON):, Platform Psychology (apply this to EVERY decision):, Your Core Competencies:
 
-### Community 298 - "new/page.tsx"
-Cohesion: 0.40
-Nodes (3): EXAMPLES, PLATFORM_OPTIONS, THINKING_STEPS
-
-### Community 299 - "components/Dashboard.tsx"
-Cohesion: 0.40
-Nodes (3): Goal, PLATFORM_ICONS, STATUS_CONFIG
-
 ### Community 300 - "Digital Force 🤖"
 Cohesion: 0.40
 Nodes (4): Core Capabilities, Digital Force 🤖, Status, Tech Stack
-
-### Community 301 - "processMessage"
-Cohesion: 0.40
-Nodes (5): extractNewBody(), pollOnce(), processMessage(), refs(), resolveImapHostIp()
 
 ### Community 302 - "notepad.ts"
 Cohesion: 0.60
@@ -1628,24 +1583,24 @@ Cohesion: 0.67
 Nodes (3): GlitterBackground(), GlitterBackgroundProps, parseColor()
 
 ## Knowledge Gaps
-- **1887 isolated node(s):** `Config`, `eslintConfig`, `nextConfig`, `name`, `version` (+1882 more)
+- **1887 isolated node(s):** `graphify`, `Usage`, `What graphify is for`, `Step 0 - GitHub repos and multi-path merge (only if a URL or several paths)`, `Step 1 - Ensure graphify is installed` (+1882 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **31 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `t()` connect `routes/personas.ts` to `vault.ts`, `planAndExecute`, `web/src/lib/api.ts`, `Card.tsx`, `source-validator.ts`, `lib/omnisignal.ts`, `notepad.ts`, `lib/connectors.ts`, `routes/templates.ts`, `Chat.tsx`, `Onboarding.tsx`?**
-  _High betweenness centrality (0.091) - this node is a cross-community bridge._
-- **Why does `planAndExecute()` connect `planAndExecute` to `jobs.ts`, `agent-helpers.test.ts`, `vault.ts`, `lib/handoff.ts`, `lib/omnisignal.ts`, `routes/templates.ts`, `routes/personas.ts`, `lib/primitives.ts`, `routes/peers.ts`, `lib/governance.ts`, `plan`, `lib/skills.ts`, `index.ts`, `agent.ts`, `team.ts`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
-- **Why does `config` connect `lib/primitives.ts` to `jobs.ts`, `lib/integrations.ts`, `adrs.ts`, `vault.ts`, `lib/handoff.ts`, `cost-tracker.ts`, `routes/templates.ts`, `config.ts`, `lib/governance.ts`, `agent.ts`, `chat.ts`, `index.ts`, `routes/dispatch.ts`, `lib/schedules.ts`, `firecrawl.ts`, `commit-queue.ts`, `lib/email.ts`, `model-providers.ts`, `writeVaultFile`, `executor-mode.ts`, `lib/quality.ts`, `doc-extractor.ts`, `llm.ts`, `openrouter.ts`, `browser.ts`, `worker-manager.ts`, `finance-snapshot.ts`, `lib/orchestrator.ts`, `routes/peers.ts`, `server/src/lib/voice.ts`, `lib/peers.ts`, `heygen.ts`, `lib/models.ts`, `ocr.ts`, `origin-guard.ts`, `org-chart.ts`, `reflection-bottlenecks.ts`, `sync-downloads.ts`?**
-  _High betweenness centrality (0.031) - this node is a cross-community bridge._
-- **What connects `Config`, `eslintConfig`, `nextConfig` to the rest of the system?**
+- **Why does `t()` connect `lib/presets.ts` to `vault.ts`, `planAndExecute`, `web/src/lib/api.ts`, `Card.tsx`, `source-validator.ts`, `lib/omnisignal.ts`, `notepad.ts`, `lib/connectors.ts`, `routes/templates.ts`, `Chat.tsx`, `Onboarding.tsx`, `pages/Dashboard.tsx`?**
+  _High betweenness centrality (0.084) - this node is a cross-community bridge._
+- **Why does `tick()` connect `lib/schedules.ts` to `Chat.tsx`, `pages/Dashboard.tsx`, `routePreload.ts`?**
+  _High betweenness centrality (0.044) - this node is a cross-community bridge._
+- **Why does `planAndExecute()` connect `planAndExecute` to `jobs.ts`, `agent-helpers.test.ts`, `routes/peers.ts`, `vault.ts`, `lib/handoff.ts`, `lib/omnisignal.ts`, `routes/templates.ts`, `lib/presets.ts`, `lib/primitives.ts`, `lib/governance.ts`, `plan`, `lib/skills.ts`, `index.ts`, `agent.ts`, `team.ts`?**
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
+- **What connects `graphify`, `Usage`, `What graphify is for` to the rest of the system?**
   _1887 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `AgentState` be split into smaller, more focused modules?**
-  _Cohesion score 0.044564240790655886 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.059466848940533154 - nodes in this community are weakly interconnected._
 - **Should `jobs.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.047619047619047616 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05092592592592592 - nodes in this community are weakly interconnected._
 - **Should `lib/integrations.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.053313587560162905 - nodes in this community are weakly interconnected._

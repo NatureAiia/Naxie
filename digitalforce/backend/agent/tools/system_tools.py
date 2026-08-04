@@ -150,4 +150,15 @@ def get_agent_tools(state: dict):
     from agent.tools.pa_tools import get_pa_tools
     pa_tools = get_pa_tools()
 
+    # tool_scope is set by chat.py's first-layer intent classifier. For turns
+    # that are clearly just host-control requests ("open notepad", "mute
+    # volume"), bind only the PA tools plus the minimum needed to talk back
+    # to the user — not the full agency surface (execute_python,
+    # route_to_agent, update_truth_bucket, query_knowledge, ...), which that
+    # kind of request never needs and which only widens what an LLM steered
+    # by prompt-injected content could reach for. Anything else (including
+    # non-chat entry points that never set tool_scope) keeps the full set.
+    if state.get("tool_scope") == "host_control":
+        return [push_to_chat, halt_execution, remember_preference, recall_preferences] + pa_tools
+
     return [execute_python, read_system_context, query_knowledge, push_to_chat, route_to_agent, halt_execution, update_truth_bucket, remember_preference, recall_preferences] + pa_tools

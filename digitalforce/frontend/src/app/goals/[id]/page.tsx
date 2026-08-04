@@ -96,12 +96,7 @@ export default function GoalDetailPage() {
         }
       } catch {}
     }
-    // EventSource auto-reconnects natively on error (backend restart, a Wi-Fi
-    // blip, the server's own 10-minute stream cap ending cleanly). Calling
-    // es.close() here disabled that, so the feed died permanently on any
-    // transient hiccup until a full page reload. Only close it explicitly on
-    // unmount/id-change (the cleanup return below) — never from onerror.
-    es.onerror = () => console.warn('[GoalDetail] SSE connection error — browser will auto-reconnect')
+    es.onerror = () => es.close()
     return () => es.close()
   }, [id])
 

@@ -98,7 +98,7 @@ export default function AnalyticsPage() {
       <Sidebar />
       <main style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
         <div style={{ padding: '3rem 3rem 2rem', borderBottom: '1px solid rgba(255,255,255,0.03)', marginBottom: '2rem' }}>
-          <div style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '0.75rem' }}>NAXIONAI — INTELLIGENCE</div>
+          <div style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '0.75rem' }}>NEUROWORKS — INTELLIGENCE</div>
           <h1 style={{ fontSize: '2.5rem', fontWeight: 900, letterSpacing: '-0.035em', background: 'linear-gradient(180deg, #FFFFFF 0%, #94A3B8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1.1, marginBottom: '0.625rem' }}>
             Analytics
           </h1>

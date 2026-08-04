@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react'
 import Sidebar from '@/components/Sidebar'
-import { Send, Trash2, Bot, User, Zap, MessageSquare, Plus, X, Image as ImageIcon, Clock, Mic, MicOff, Volume2, VolumeX, Ear, EarOff, Hand } from 'lucide-react'
+import { Send, Trash2, Bot, User, Zap, MessageSquare, Plus, X, Image as ImageIcon, Clock, Mic, MicOff, Volume2, VolumeX, Ear, EarOff } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
 import { getToken } from '@/lib/auth'
 import api, { MediaAsset } from '@/lib/api'
@@ -11,7 +11,6 @@ import {
   startRecording, stopRecording, transcribe, speak,
   recordCommandUntilSilence, isWakeWordSupported,
   startWakeWordListener, stopWakeWordListener,
-  isClapDetectSupported, startClapListener, stopClapListener,
 } from '@/lib/voice'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -41,7 +40,6 @@ interface Message {
 // ─── Agent visual config ────────────────────────────────────
 
 const AGENT_CONFIG: Record<string, { initials: string; label: string; color: string }> = {
-  naxie:            { initials: 'NX', label: 'Naxie',            color: '#A78BFA' },
   orchestrator:     { initials: 'OR', label: 'Orchestrator',     color: '#F59E0B' },
   researcher:       { initials: 'RE', label: 'Researcher',       color: '#3B82F6' },
   strategist:       { initials: 'ST', label: 'Strategist',       color: '#8B5CF6' },
@@ -80,13 +78,6 @@ export default function ChatPage() {
   const [loading, setLoading]           = useState(false)
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const [lastPollTime, setLastPollTime] = useState<string | null>(null)
-  // The 10s polling interval below is set up once (its effect only depends on
-  // historyLoaded/voiceEnabled, which rarely change) and closes over
-  // lastPollTime at that moment — later setLastPollTime calls update state
-  // but never recreate that closure, so the interval kept reading the
-  // ORIGINAL value forever and re-fetched the entire history every 10s. A
-  // ref is always current regardless of which closure reads it.
-  const lastPollTimeRef = useRef<string | null>(null)
   const [agentsActive, setAgentsActive] = useState(false)
   const [currentActivity, setCurrentActivity] = useState<string | null>(null)
   
@@ -97,10 +88,9 @@ export default function ChatPage() {
   const [isRecording, setIsRecording]     = useState(false)
   const [voiceEnabled, setVoiceEnabled]   = useState(false) // speaker (TTS) on/off
   const [wakeEnabled, setWakeEnabled]     = useState(false)
-  const [wakePhrase, setWakePhrase]       = useState('Hey Naxie')
+  const [wakePhrase, setWakePhrase]       = useState('Hey Neuro')
   const [showWakeSettings, setShowWakeSettings] = useState(false)
   const [wakeListening, setWakeListening] = useState(false) // brief "heard you" indicator
-  const [clapEnabled, setClapEnabled]     = useState(false) // double-clap-to-wake, alternative to the voice phrase
   const spokenBubbleIds = useRef<Set<string>>(new Set())
   const spokenMessageIds = useRef<Set<string>>(new Set())
   const sendMessageRef = useRef<(text?: string) => void>(() => {})
@@ -113,8 +103,7 @@ export default function ChatPage() {
   useEffect(() => {
     setVoiceEnabled(localStorage.getItem('df_voice_enabled') === 'true')
     setWakeEnabled(localStorage.getItem('df_wake_enabled') === 'true')
-    setWakePhrase(localStorage.getItem('df_wake_phrase') || 'Hey Naxie')
-    setClapEnabled(localStorage.getItem('df_clap_enabled') === 'true')
+    setWakePhrase(localStorage.getItem('df_wake_phrase') || 'Hey Neuro')
   }, [])
 
   const toggleVoiceEnabled = () => {
@@ -181,37 +170,6 @@ export default function ChatPage() {
     }
   }, [wakeEnabled, wakePhrase])
 
-  // ── Double-clap: acoustic alternative trigger (no speech recognition) —
-  // useful when the wake phrase keeps getting misheard, or speaking it isn't
-  // an option. Keeps listening continuously; unlike the wake-word listener it
-  // doesn't need restarting after each detection. ────────────────────────
-  useEffect(() => {
-    if (!clapEnabled || !isClapDetectSupported()) return
-
-    let cancelled = false
-
-    const handleDoubleClap = async () => {
-      if (cancelled) return
-      setWakeListening(true)
-      try {
-        const blob = await recordCommandUntilSilence()
-        const text = await transcribe(blob)
-        if (text.trim()) sendMessageRef.current(text)
-      } catch {
-        // Silent — best-effort.
-      } finally {
-        setWakeListening(false)
-      }
-    }
-
-    startClapListener(handleDoubleClap)
-
-    return () => {
-      cancelled = true
-      stopClapListener()
-    }
-  }, [clapEnabled])
-
   const handleSelectAsset = useCallback((asset: MediaAsset) => {
     setAttachedMedia(prev => prev.find(a => a.id === asset.id) ? prev : [...prev, asset])
   }, [])
@@ -236,19 +194,13 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Keep the ref mirrored to state so the polling closure below always sees
-  // the latest value (see lastPollTimeRef comment above).
-  useEffect(() => {
-    lastPollTimeRef.current = lastPollTime
-  }, [lastPollTime])
-
   // ── Agent push polling (every 10 s + immediately on mount) ──────────────
   useEffect(() => {
     if (!historyLoaded) return
 
     const pollUpdates = async () => {
       try {
-        const data = await api.chat.updates(lastPollTimeRef.current || undefined)
+        const data = await api.chat.updates(lastPollTime || undefined)
         setAgentsActive(data.agents_active)
         setCurrentActivity(data.current_activity)
         
@@ -428,19 +380,9 @@ export default function ChatPage() {
         }
       }
     } catch {
-      // If the fetch itself failed (offline, non-2xx status) before any SSE
-      // event arrived, bubbles was still [] — this used to leave it exactly
-      // that way, so the assistant's turn rendered as a blank row with a
-      // timestamp and no indication anything went wrong. Always leave at
-      // least one visible bubble with error text.
       setMessages(prev => prev.map(m =>
         m.id === assistantId
-          ? {
-              ...m,
-              bubbles: m.bubbles.length > 0
-                ? m.bubbles.map(b => ({ ...b, isStreaming: false }))
-                : [{ id: firstBubbleId, content: 'Connection error — please try again.', isStreaming: false }],
-            }
+          ? { ...m, bubbles: m.bubbles.length > 0 ? m.bubbles.map(b => ({ ...b, isStreaming: false })) : [] }
           : m
       ))
     } finally {
@@ -648,7 +590,7 @@ export default function ChatPage() {
             <div>
               <div style={{ fontWeight: 800, fontSize: '0.95rem', background: 'linear-gradient(180deg, #FFFFFF 0%, #94BFDB 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-0.02em' }}>Agentic Hub</div>
               <div style={{ fontSize: '0.65rem', color: '#475569', fontWeight: 600, letterSpacing: '0.06em', marginTop: 1 }}>
-                NAXIONAI COMMAND INTERFACE
+                NEUROWORKS COMMAND INTERFACE
               </div>
             </div>
           </div>
@@ -778,7 +720,7 @@ export default function ChatPage() {
                 <input
                   value={wakePhrase}
                   onChange={e => updateWakePhrase(e.target.value)}
-                  placeholder="Hey Naxie"
+                  placeholder="Hey Neuro"
                   style={{
                     flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
                     borderRadius: 6, padding: '0.3rem 0.5rem', color: '#fff', fontSize: '0.78rem', outline: 'none',
@@ -908,28 +850,6 @@ export default function ChatPage() {
                   {wakeEnabled ? <Ear size={18} /> : <EarOff size={18} />}
                 </button>
               )}
-              {isClapDetectSupported() && (
-                <button
-                  id="clap-toggle"
-                  onClick={() => {
-                    setClapEnabled(prev => {
-                      const next = !prev
-                      localStorage.setItem('df_clap_enabled', String(next))
-                      return next
-                    })
-                  }}
-                  title={clapEnabled ? 'Double-clap to wake is on — click to disable' : 'Enable double-clap to wake (no speech needed)'}
-                  style={{
-                    width: 40, height: 40, borderRadius: 12, flexShrink: 0,
-                    background: clapEnabled ? 'rgba(0,163,255,0.12)' : 'rgba(255,255,255,0.03)',
-                    border: clapEnabled ? '1px solid rgba(0,163,255,0.3)' : '1px solid rgba(255,255,255,0.06)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                    color: clapEnabled ? '#33BAFF' : '#94A3B8',
-                    transition: 'all 0.2s', marginBottom: 2,
-                  }}>
-                  <Hand size={18} />
-                </button>
-              )}
               <button
                 id="send-chat"
                 onClick={() => sendMessage()}
@@ -949,7 +869,7 @@ export default function ChatPage() {
               </button>
             </div>
             <div style={{ fontSize: '0.68rem', color: '#334155', textAlign: 'center', marginTop: 8, fontWeight: 600, letterSpacing: '0.04em' }}>
-              NAXIONAI — NEURAL AGENTS EXECUTE AUTONOMOUSLY
+              NEUROWORKS — NEURAL AGENTS EXECUTE AUTONOMOUSLY
             </div>
           </div>
         </div>

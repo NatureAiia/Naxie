@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import Header from '@/components/Header'
 import Sidebar from '@/components/Sidebar'
 import { synthesizeAudio } from '@/lib/voice'
 import { 
@@ -64,17 +65,7 @@ export default function TTSPage() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         blobUrl: url
       }
-      setHistory(prev => {
-        const next = [newItem, ...prev.slice(0, 15)]
-        // Entries beyond the 16-item cap are dropped from state, but their
-        // object URLs were never revoked — each one pins its audio Blob in
-        // memory for the rest of the tab's life. Revoke exactly what falls
-        // out of the window here.
-        for (const dropped of prev.slice(15)) {
-          URL.revokeObjectURL(dropped.blobUrl)
-        }
-        return next
-      })
+      setHistory(prev => [newItem, ...prev.slice(0, 15)])
 
       // Auto-play synthesized speech
       if (audioRef.current) {
@@ -92,15 +83,10 @@ export default function TTSPage() {
 
   const handleDownload = (blob: Blob | null, filename: string) => {
     if (!blob) return
-    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
+    a.href = URL.createObjectURL(blob)
     a.download = filename
     a.click()
-    // This URL was never revoked before, leaking one Blob per download click
-    // for the rest of the tab's life. Defer the revoke past the click so the
-    // browser has started the download first.
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   const copyText = () => {
@@ -113,6 +99,8 @@ export default function TTSPage() {
     <div style={{ display: 'flex', minHeight: '100vh', background: '#080B12', color: '#F8FAFC' }}>
       <Sidebar />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
+        <Header />
+
         <main style={{ padding: '2rem', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
           {/* Top Banner */}
           <div style={{

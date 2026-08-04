@@ -114,6 +114,7 @@ async def chat_stream(
                 "replan_count": 0,
                 "current_task_id": None,
                 "deadline": active_goal.deadline.isoformat() if active_goal and active_goal.deadline else None,
+                "tool_scope": "full",
             }
             
             # ---- LLM EVALUATION (INSTANT STREAMING) ----
@@ -147,12 +148,16 @@ Determine if the user is asking you to start a task, create a goal, execute some
 If the user is approving a previously proposed plan, mark approval_status as "approved". If rejecting, mark "rejected". Otherwise "none".
 If the user is explicitly providing credentials, a password, a 2FA code, or telling you to inherently update the 'Truth Bucket' for an account, provide the account name you detect, and the specific text to append to their auth_data bucket.
 If the user states a lasting personal preference or fact about themselves worth remembering across conversations (their name, how they like things summarized, a recurring habit, etc.) — NOT a one-off instruction for this message only — capture it as a short key/value pair.
+If requires_manager is true, also classify tool_scope:
+- "host_control" if the request is ONLY about controlling this PC directly — opening/closing an app, taking a screenshot, muting volume, focusing a window, reading/writing the clipboard, opening a browser/URL, setting a reminder, or checking the weather.
+- "full" for anything else needing the agency's broader tools (goals, campaigns, content, research, code execution, credentials, routing to a sub-agent).
 
 Return strictly JSON:
 {{
   "reply": "Your dynamic response to the user as Naxie, spoken naturally and concisely.",
   "requires_manager": <boolean>,
   "approval_status": "approved" | "rejected" | "none",
+  "tool_scope": "host_control" | "full",
   "update_truth_bucket": {{
      "account_name_match": "string matching account name (e.g. 'Acme Corp') or null",
      "text_to_append": "Exact credential string to append safely to DB (e.g. 'Backup pass: 123') or null"
@@ -167,6 +172,7 @@ Return strictly JSON:
                 reply = response.get("reply", "Acknowledged.")
                 requires_manager = response.get("requires_manager", False)
                 approval_status = response.get("approval_status", "none")
+                tool_scope = response.get("tool_scope") if response.get("tool_scope") in ("host_control", "full") else "full"
                 truth_update = response.get("update_truth_bucket")
                 
                 if truth_update and isinstance(truth_update, dict) and truth_update.get("account_name_match"):
@@ -207,6 +213,7 @@ Return strictly JSON:
                 reply = "Acknowledged. Routing internal systems to compensate."
                 requires_manager = True
                 approval_status = "none"
+                tool_scope = "full"
 
             # Save the agent reply directly to DB so it persists
             bot_msg_id = str(uuid.uuid4())
@@ -224,6 +231,7 @@ Return strictly JSON:
             # Launch graph in background explicitly specifying next routing logic
             if requires_manager:
                 initial_state["next_agent"] = "manager"
+                initial_state["tool_scope"] = tool_scope
                 if approval_status in ["approved", "rejected"]:
                     initial_state["approval_status"] = approval_status
             else:

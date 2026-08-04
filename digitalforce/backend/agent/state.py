@@ -76,3 +76,13 @@ class AgentState(TypedDict):
     risk_score: Optional[int]     # 0-100 risk grading
     error: Optional[str]
     iteration_count: int
+
+    # ── Tool scoping ──────────────────────────────────────
+    # Set by chat.py's first-layer intent classifier before the graph even
+    # starts. Lets manager_node bind a narrower tool set for turns that are
+    # clearly just host-control requests ("open notepad", "mute volume"),
+    # instead of always exposing the full agency tool surface (execute_python,
+    # route_to_agent, update_truth_bucket, ...) to every ReAct loop. Missing/
+    # unrecognized values default to "full" so non-chat entry points (e.g. the
+    # agency daemon invoking the graph directly) keep today's behavior.
+    tool_scope: Optional[str]     # "host_control" | "full"

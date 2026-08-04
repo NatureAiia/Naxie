@@ -1,24 +1,24 @@
 @echo off
 echo ================================================
-echo  NaxionAI -- Backend Launcher
+echo  Digital Force -- Backend Launcher
 echo ================================================
 echo.
 
-cd /d "%~dp0backend"
+:: Force ALL build/temp/rust paths to D: drive
+set TEMP=D:\tmp
+set TMP=D:\tmp
+set PIP_CACHE_DIR=D:\pip-cache
+mkdir D:\tmp 2>nul
 
-echo [1/2] Activating conda environment (Neuroworks_NaxionAI)...
-call conda activate Neuroworks_NaxionAI
-if errorlevel 1 (
-    echo Could not activate conda env "Neuroworks_NaxionAI". Create it first with:
-    echo   conda create -n Neuroworks_NaxionAI python=3.12
-    echo   conda activate Neuroworks_NaxionAI
-    echo   pip install -r requirements.txt
-    exit /b 1
-)
+echo [1/3] Activating virtual environment...
+call "d:\KASHIRI BRIGHTON\BUSINESS\AiiA\Digital Force\backend\venv\Scripts\activate.bat"
 echo Done.
 
-echo [2/2] Starting FastAPI backend on port 8000...
-echo (Uses run_server.py, NOT raw uvicorn --reload — it patches the Windows
-echo  event loop policy so Playwright/Ghost Browser survives dev auto-reload.)
+echo [2/3] Checking for missing packages...
+"d:\KASHIRI BRIGHTON\BUSINESS\AiiA\Digital Force\backend\venv\Scripts\pip.exe" install --no-cache-dir --only-binary=:all: -q -r "d:\KASHIRI BRIGHTON\BUSINESS\AiiA\Digital Force\backend\requirements.txt"
+echo Done.
+
+echo [3/3] Starting FastAPI backend on port 8000...
 echo.
-python run_server.py
+cd /d "d:\KASHIRI BRIGHTON\BUSINESS\AiiA\Digital Force\backend"
+"d:\KASHIRI BRIGHTON\BUSINESS\AiiA\Digital Force\backend\venv\Scripts\uvicorn.exe" main:app --host 0.0.0.0 --port 8000 --reload

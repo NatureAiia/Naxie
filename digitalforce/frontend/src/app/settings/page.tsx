@@ -9,9 +9,9 @@ import {
   Brain, Search
 } from 'lucide-react'
 import api from '@/lib/api'
-import { getToken } from '@/lib/auth'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const getToken = () => typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
 type Tab = 'general' | 'integrations' | 'autonomous' | 'notifications' | 'danger'
 
@@ -139,17 +139,17 @@ export default function SettingsPage() {
         setRiskTolerance(data.risk_tolerance ?? 70)
         setBriefSlots(data.brief_slots || [])
       })
-      .catch(() => setError('Failed to load autonomous mode settings.'))
+      .catch(() => {})
 
     fetch(`${BASE}/api/agency/status`, { headers: authHeaders() })
       .then(r => r.json())
       .then(setDaemonStatus)
-      .catch(() => setError('Failed to load daemon status.'))
+      .catch(() => {})
 
     fetch(`${BASE}/api/accounts`, { headers: authHeaders() })
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setAccounts(data) })
-      .catch(() => setError('Failed to load connected accounts.'))
+      .catch(() => {})
   }, [])
 
   const authHeaders = () => {
@@ -267,11 +267,11 @@ export default function SettingsPage() {
       <main style={{ flex: 1, padding: '2rem', overflowY: 'auto', maxWidth: 900, margin: '0 auto', width: '100%' }}>
         {/* Header */}
         <div style={{ padding: '3rem 0 2rem', borderBottom: '1px solid rgba(255,255,255,0.03)', marginBottom: '2rem' }}>
-          <div style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '0.75rem' }}>NAXIONAI — CONFIGURATION</div>
+          <div style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '0.75rem' }}>NEUROWORKS — CONFIGURATION</div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <div>
               <h1 style={{ fontSize: '2.5rem', fontWeight: 900, letterSpacing: '-0.035em', background: 'linear-gradient(180deg, #FFFFFF 0%, #94A3B8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1.1, marginBottom: '0.625rem' }}>Settings</h1>
-              <p style={{ fontSize: '0.875rem', color: '#475569' }}>Configure your NaxionAI agency and integrations</p>
+              <p style={{ fontSize: '0.875rem', color: '#475569' }}>Configure your NeuroWorks agency and integrations</p>
             </div>
             <div>
               {activeTab !== 'danger' && activeTab !== 'autonomous' && (
@@ -579,9 +579,9 @@ export default function SettingsPage() {
                       boxSizing: 'border-box', fontFamily: 'inherit' }} />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>Naxie Character / Tone</label>
+                  <label style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>NeuroWorks Character / Tone</label>
                   <textarea id="agent-tone-input" value={agentTone} onChange={e => setAgentTone(e.target.value)}
-                    placeholder="How should Naxie speak to you directly? e.g. 'Professional executive assistant, highly concise, strict project manager...'"
+                    placeholder="How should NeuroWorks speak to you directly? e.g. 'Professional executive assistant, highly concise, strict project manager...'"
                     rows={2}
                     style={{ width: '100%', padding: '0.6rem 0.875rem', borderRadius: 10, marginTop: 6,
                       background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)',
@@ -715,7 +715,7 @@ export default function SettingsPage() {
                 <Field id="smtp_password" label="App Password" value={form.smtp_password || ''} onChange={set('smtp_password')} isSecret placeholder="••••••••••••" />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <Field id="smtp_from_name" label="From Name" value={form.smtp_from_name || ''} onChange={set('smtp_from_name')} placeholder="NaxionAI" />
+                <Field id="smtp_from_name" label="From Name" value={form.smtp_from_name || ''} onChange={set('smtp_from_name')} placeholder="NeuroWorks" />
                 <Field id="smtp_from_email" label="From Email" value={form.smtp_from_email || ''} onChange={set('smtp_from_email')} placeholder="noreply@yourdomain.com" />
               </div>
               <div style={{ marginTop: '1rem' }}>

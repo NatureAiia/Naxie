@@ -63,6 +63,10 @@ jinja2>=3.1.4
 # File Operations
 aiofiles>=24.1.0
 
+# PA host-control (Windows) — wmi wraps pywin32/COM, no wheels off Windows
+psutil>=6.1.0
+wmi>=1.5.1; sys_platform == "win32"
+
 # Utilities (all pure Python)
 python-dotenv>=1.0.1
 python-slugify>=8.0.4
