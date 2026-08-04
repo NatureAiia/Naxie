@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
+from pydantic import BaseModel
 from database import get_db, MediaAsset
 from auth import get_current_user
 from config import get_settings
@@ -82,7 +83,13 @@ async def upload_media(
 
     db.add(asset)
     await db.flush()
-    return {"id": asset_id, "url": f"/media/{filename}", "type": asset_type, "filename": file.filename}
+    return {
+        "id": asset_id, "filename": asset.original_filename, "original_filename": asset.original_filename,
+        "public_url": asset.public_url, "asset_type": asset.asset_type, "mime_type": asset.mime_type,
+        "file_size_bytes": asset.file_size_bytes, "width": asset.width, "height": asset.height,
+        "ai_description": asset.ai_description, "auto_tags": json.loads(asset.auto_tags or "[]"),
+        "usage_count": asset.usage_count, "created_at": asset.created_at.isoformat(),
+    }
 
 
 @router.get("")
@@ -99,8 +106,9 @@ async def list_media(asset_type: str = None, db: AsyncSession = Depends(get_db),
     result = await db.execute(q)
     assets = result.scalars().all()
     items = [{
-        "id": a.id, "filename": a.original_filename, "url": a.public_url,
-        "type": a.asset_type, "size": a.file_size_bytes,
+        "id": a.id, "filename": a.original_filename, "original_filename": a.original_filename,
+        "public_url": a.public_url, "asset_type": a.asset_type, "mime_type": a.mime_type,
+        "file_size_bytes": a.file_size_bytes, "width": a.width, "height": a.height,
         "tags": json.loads(a.manual_tags or "[]"),
         "auto_tags": json.loads(a.auto_tags or "[]"),
         "ai_description": a.ai_description,
@@ -108,6 +116,28 @@ async def list_media(asset_type: str = None, db: AsyncSession = Depends(get_db),
         "created_at": a.created_at.isoformat(),
     } for a in assets]
     return items
+
+
+class RenameBody(BaseModel):
+    filename: str
+
+
+@router.patch("/{asset_id}")
+async def rename_media(
+    asset_id: str, body: RenameBody,
+    db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user),
+):
+    asset = await db.get(MediaAsset, asset_id)
+    if not asset:
+        raise HTTPException(404, "Asset not found")
+    if not _is_admin(user) and asset.uploaded_by != user.get("sub"):
+        raise HTTPException(404, "Asset not found")
+    new_name = body.filename.strip()
+    if not new_name:
+        raise HTTPException(400, "Filename cannot be empty")
+    asset.original_filename = new_name
+    await db.commit()
+    return {"id": asset.id, "filename": asset.original_filename}
 
 
 @router.delete("/{asset_id}")

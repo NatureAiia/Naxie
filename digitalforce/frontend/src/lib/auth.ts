@@ -1,5 +1,5 @@
 /**
- * Digital Force — Auth Utilities
+ * NaxionAI — Auth Utilities
  * Single-user local mode: no login, no token. These are stubs kept so every
  * existing call site (api.ts, Sidebar, chat/goals pages) keeps working
  * unchanged — they just always behave as "logged in as the one local user".

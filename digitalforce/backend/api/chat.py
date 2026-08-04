@@ -185,7 +185,7 @@ Return strictly JSON:
 
             # Save the agent reply directly to DB so it persists
             bot_msg_id = str(uuid.uuid4())
-            db.add(ChatMessage(id=bot_msg_id, user_id=user_id, role="agent", agent_name="neuroworks - executive", content=reply, goal_id=active_goal.id if active_goal else None))
+            db.add(ChatMessage(id=bot_msg_id, user_id=user_id, role="agent", agent_name="naxie", content=reply, goal_id=active_goal.id if active_goal else None))
             await db.commit()
 
             # STREAM RESULT TO UI IMMEDIATELY

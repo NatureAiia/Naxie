@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Upload, Loader2, Image as ImageIcon, Video, Music, FileText, Plus } from 'lucide-react'
 import api, { MediaAsset } from '@/lib/api'
@@ -10,12 +10,25 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 interface AssetSelectorProps {
   onSelect: (asset: MediaAsset) => void
   onClose: () => void
+  triggerRef?: React.RefObject<HTMLElement | null>
 }
 
-export default function AssetSelector({ onSelect, onClose }: AssetSelectorProps) {
+export default function AssetSelector({ onSelect, onClose, triggerRef }: AssetSelectorProps) {
   const [assets, setAssets] = useState<MediaAsset[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (containerRef.current?.contains(target)) return
+      if (triggerRef?.current?.contains(target)) return
+      onClose()
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [onClose, triggerRef])
 
   const loadAssets = async () => {
     try {
@@ -40,12 +53,9 @@ export default function AssetSelector({ onSelect, onClose }: AssetSelectorProps)
     const fd = new FormData()
     fd.append('file', file)
     try {
-      const response = await api.media.upload(fd) // Assume this returns { id, ... }
+      const asset = await api.media.upload(fd)
       await loadAssets()
-      
-      // Auto-select the newly uploaded file if we just fetched it 
-      // (or if response gives us the full asset data, we can just select that)
-      // Since `api.media.upload` usually returns a limited object, we re-fetch and select the newest item.
+      onSelect(asset)
     } catch (err) {
       console.error('Upload failed:', err)
     } finally {
@@ -55,6 +65,7 @@ export default function AssetSelector({ onSelect, onClose }: AssetSelectorProps)
 
   return (
     <motion.div
+      ref={containerRef}
       initial={{ opacity: 0, y: 10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 10, scale: 0.98 }}

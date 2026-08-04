@@ -169,23 +169,30 @@ _whisper_model = None
 
 
 def _get_whisper_model():
-    """Load the Whisper model once and cache it — loading is seconds of CPU/GPU
-    work and MUST NOT run on every transcription."""
+    """Load the faster-whisper model once and cache it — loading is seconds of
+    CPU/GPU work and MUST NOT run on every transcription. Uses the same
+    faster-whisper backend as the live voice/STT endpoint (api/voice.py) —
+    openai-whisper is not installed, so importing it here silently produced
+    empty transcriptions."""
     global _whisper_model
     if _whisper_model is None:
-        import whisper
-        _whisper_model = whisper.load_model("base")
+        from faster_whisper import WhisperModel
+        _whisper_model = WhisperModel(settings.whisper_model_size, device="cpu", compute_type="int8")
     return _whisper_model
 
 
+def _transcribe(file_path: str) -> str:
+    model = _get_whisper_model()
+    segments, _info = model.transcribe(file_path, beam_size=1)
+    return "".join(segment.text for segment in segments).strip()
+
+
 async def parse_audio_video(file_path: str) -> str:
-    """Transcribe audio/video using OpenAI Whisper. Both the (cached) model load
-    and the transcription are blocking CPU work — offload them so they don't
-    freeze the event loop and every concurrent request."""
+    """Transcribe audio/video using local faster-whisper. Both the (cached)
+    model load and the transcription are blocking CPU work — offload them so
+    they don't freeze the event loop and every concurrent request."""
     try:
-        model = await asyncio.to_thread(_get_whisper_model)
-        result = await asyncio.to_thread(model.transcribe, file_path)
-        return result.get("text", "")
+        return await asyncio.to_thread(_transcribe, file_path)
     except Exception as e:
         logger.error(f"Audio/video transcription error: {e}")
         return ""

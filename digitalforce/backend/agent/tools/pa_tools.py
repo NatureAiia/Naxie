@@ -6,10 +6,12 @@ Native tools for desktop control, reminders, weather, clipboard, and browser.
 import os
 import sys
 import json
+import time
 import logging
 import subprocess
 import webbrowser
 import urllib.request
+import urllib.parse
 from typing import Optional
 from langchain_core.tools import tool
 
@@ -118,7 +120,7 @@ def system_control(action: str, target: str = "") -> str:
 
         elif act == "take_screenshot":
             import tempfile
-            tmp_file = os.path.join(tempfile.gettempdir(), f"naxie_screenshot_{int(subprocess.time.time())}.png")
+            tmp_file = os.path.join(tempfile.gettempdir(), f"naxie_screenshot_{int(time.time())}.png")
             # PowerShell screenshot snippet
             ps_cmd = f"""
             Add-Type -AssemblyName System.Windows.Forms

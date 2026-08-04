@@ -40,7 +40,7 @@ const STATUS_COLORS: Record<string, { color: string; bg: string }> = {
 
 const stagger = {
   container: { hidden: {}, show: { transition: { staggerChildren: 0.05 } } },
-  item: { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.4,0,0.2,1] } } },
+  item: { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.4,0,0.2,1] as const } } },
 }
 
 // ── Inline Rename Component ──────────────────────────────────
@@ -118,6 +118,17 @@ export default function KnowledgePage() {
     setDocItems(prev => prev.filter(d => d.id !== id))
   }
 
+  const handleRenameDoc = async (id: string, title: string) => {
+    await api.training.rename(id, title)
+    setDocItems(prev => prev.map(d => d.id === id ? { ...d, title } : d))
+  }
+
+  const handleRenameMedia = async (id: string, filename: string) => {
+    await api.media.rename(id, filename)
+    setMediaItems(prev => prev.map(a => a.id === id ? { ...a, filename } : a))
+    setSelectedMedia(prev => prev && prev.id === id ? { ...prev, filename } : prev)
+  }
+
   const showSuccess = (msg: string) => { setSuccess(msg); setTimeout(() => setSuccess(''), 4000) }
 
   const handleFile = async (file: File) => {
@@ -173,7 +184,7 @@ export default function KnowledgePage() {
         <div style={{ padding: '3rem 3rem 2rem', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             <div style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '0.75rem' }}>
-              NEUROWORKS — INTELLIGENCE
+              NAXIONAI — INTELLIGENCE
             </div>
             <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
               <div>
@@ -253,7 +264,7 @@ export default function KnowledgePage() {
                             {item.source_type === 'url' ? <LinkIcon size={20} style={{ color: '#33BAFF' }} /> : <FileText size={20} style={{ color: '#33BAFF' }} />}
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <InlineRename defaultName={item.title} onSave={name => console.log('Rename doc', item.id, name)} />
+                            <InlineRename defaultName={item.title} onSave={name => handleRenameDoc(item.id, name)} />
                             <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: 3 }}>
                               {item.source_type?.toUpperCase() || 'UNKNOWN'} · {item.category?.replace('_', ' ')} · {item.chunk_count || 0} chunks
                             </div>
@@ -316,7 +327,7 @@ export default function KnowledgePage() {
                         </div>
                         
                         <div style={{ padding: '0.75rem' }}>
-                          <InlineRename defaultName={item.filename} onSave={name => console.log('Rename media', item.id, name)} />
+                          <InlineRename defaultName={item.filename} onSave={name => handleRenameMedia(item.id, name)} />
                           <div style={{ fontSize: '0.7rem', color: '#64748B', marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                              <span>{item.asset_type?.toUpperCase() || 'UNKNOWN'}</span>
                              <span>{formatBytes(item.file_size_bytes || 0)}</span>
@@ -484,7 +495,7 @@ export default function KnowledgePage() {
                 )}
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <InlineRename defaultName={selectedMedia.filename} onSave={name => console.log('Renamed', selectedMedia.id, name)} />
+                  <InlineRename defaultName={selectedMedia.filename} onSave={name => handleRenameMedia(selectedMedia.id, name)} />
                   <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: 6 }}>
                     {selectedMedia.asset_type?.toUpperCase() || 'UNKNOWN'} · {selectedMedia.file_size_bytes ? formatBytes(selectedMedia.file_size_bytes) : '0B'} · {selectedMedia.usage_count || 0} uses
                   </div>

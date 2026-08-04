@@ -14,7 +14,7 @@ interface Skill {
 
 const stagger = {
   container: { hidden: {}, show: { transition: { staggerChildren: 0.07 } } },
-  item: { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.38, ease: [0.4,0,0.2,1] } } },
+  item: { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.38, ease: [0.4,0,0.2,1] as const } } },
 }
 
 export default function SkillsPage() {
@@ -52,7 +52,7 @@ export default function SkillsPage() {
         <div style={{ padding: '3rem 3rem 2rem', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             <div style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '0.75rem' }}>
-              NEUROWORKS — NEURAL CAPABILITIES
+              NAXIONAI — NEURAL CAPABILITIES
             </div>
             <h1 style={{ fontSize: '2.5rem', fontWeight: 900, letterSpacing: '-0.035em', background: 'linear-gradient(180deg, #FFFFFF 0%, #94A3B8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1.1, marginBottom: '0.625rem' }}>
               SkillForge

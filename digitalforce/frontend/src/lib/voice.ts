@@ -1,5 +1,5 @@
 /**
- * Digital Force — Voice
+ * NaxionAI — Voice
  * Mic recording -> local Whisper transcription, local TTS playback (queued so
  * overlapping speech from the live reply and daemon-pushed messages don't
  * clobber each other), and a browser-based wake-word listener.
@@ -130,6 +130,28 @@ export async function transcribe(blob: Blob): Promise<string> {
   return (data.text as string) || ''
 }
 
+// ─── Autoplay unlock ────────────────────────────────────────────────────────
+// Chrome/Edge/Safari block unmuted audio.play() until the page has seen a
+// real user gesture (click/keydown/touch) — the native mic-permission prompt
+// does NOT count. Naxie's replies can auto-speak with zero prior clicks (e.g.
+// right after the wake-word fires), so play() silently rejects and the reply
+// looks "silent" with no error anywhere. Playing a near-silent clip on the
+// page's first gesture unlocks playback for the rest of the session.
+let audioUnlocked = false
+
+function unlockAudioOnFirstGesture() {
+  if (typeof window === 'undefined' || audioUnlocked) return
+  const unlock = () => {
+    audioUnlocked = true
+    const silent = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=')
+    silent.play().catch(() => {})
+  }
+  window.addEventListener('click', unlock, { once: true, capture: true })
+  window.addEventListener('keydown', unlock, { once: true, capture: true })
+  window.addEventListener('touchstart', unlock, { once: true, capture: true })
+}
+unlockAudioOnFirstGesture()
+
 // ─── Speech playback queue (local TTS via backend) ─────────────────────────
 
 class AudioQueue {
@@ -156,7 +178,10 @@ class AudioQueue {
     }
     audio.onended = advance
     audio.onerror = advance
-    audio.play().catch(advance)
+    audio.play().catch((e) => {
+      console.warn('[Voice] Playback blocked (likely no user gesture yet on this page load):', e)
+      advance()
+    })
   }
 }
 
@@ -180,8 +205,10 @@ export async function speak(text: string, voiceId?: string): Promise<void> {
   try {
     const blob = await synthesizeAudio(trimmed, voiceId)
     audioQueue.enqueue(blob)
-  } catch {
-    // Voice is best-effort — never let a TTS failure break the chat flow.
+  } catch (e) {
+    // Voice is best-effort — never let a TTS failure break the chat flow,
+    // but still surface it so silent failures are debuggable.
+    console.warn('[Voice] speak() failed:', e)
   }
 }
 

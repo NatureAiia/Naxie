@@ -18,7 +18,7 @@ _DEFAULT_ENCRYPTION_KEY = "CHANGE-THIS-32-BYTE-KEY-IN-PROD!!"
 
 class Settings(BaseSettings):
     # ── App ──────────────────────────────────────────────
-    app_name: str = "Digital Force"
+    app_name: str = "NaxionAI"
     app_version: str = "1.0.0"
     environment: str = "development"  # development | staging | production
     # Default OFF: debug enables SQLAlchemy echo (logs every statement, possibly
@@ -110,8 +110,8 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_username: str = ""
     smtp_password: str = ""
-    smtp_from_name: str = "Digital Force"
-    smtp_from_email: str = "noreply@digitalforce.ai"
+    smtp_from_name: str = "NaxionAI"
+    smtp_from_email: str = "noreply@naxionai.app"
     target_notification_emails: str = ""
 
     # ── SkillForge (E2B Sandbox) ──────────────────────────

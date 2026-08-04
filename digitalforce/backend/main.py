@@ -114,8 +114,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="NeuroWorks API",
-    description="Autonomous Social Media Intelligence Agency",
+    title="NaxionAI API",
+    description="Naxie — Personal AI Assistant",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/api/docs",
@@ -154,7 +154,7 @@ app.include_router(voice_router)
 async def health():
     return {
         "status": "online",
-        "service": "NeuroWorks",
+        "service": "NaxionAI",
         "version": "1.0.0",
         "llm": {
             "groq_1": bool(settings.groq_api_key_1),

@@ -39,7 +39,7 @@ const PLATFORM_LABELS: Record<string, string> = {
 
 const stagger = {
   container: { hidden: {}, show: { transition: { staggerChildren: 0.08 } } },
-  item: { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.4, 0, 0.2, 1] } } },
+  item: { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.4, 0, 0.2, 1] as const } } },
 }
 
 export default function RootPage() {
@@ -67,7 +67,7 @@ export default function RootPage() {
             <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '0.75rem' }}>
-                  NEUROWORKS — COMMAND CENTER
+                  NAXIONAI — COMMAND CENTER
                 </div>
                 <h1 style={{
                   fontSize: 'clamp(2rem, 4vw, 2.75rem)', fontWeight: 900, letterSpacing: '-0.035em',

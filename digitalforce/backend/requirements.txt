@@ -40,13 +40,17 @@ pyttsx3>=2.90   # fallback TTS engine if piper-tts wheel is unavailable on this 
 
 # RAG / Vector DB (pure Python)
 qdrant-client>=1.12.1
+sentence-transformers>=3.3.1
 
 # Document Parsing (pre-built binary wheels)
 pymupdf>=1.25.1
 python-docx>=1.1.2
+pandas>=2.2.3
+openpyxl>=3.1.5
 
 # HTML Parsing
 beautifulsoup4>=4.12.3
+lxml>=5.3.0
 playwright>=1.49.0
 
 # HTTP / Publishing

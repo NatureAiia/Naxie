@@ -1,5 +1,5 @@
 /**
- * Digital Force — Typed API Client
+ * NaxionAI — Typed API Client
  * Full coverage of all backend endpoints.
  */
 
@@ -68,6 +68,8 @@ const POST = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: 'POST', body: body instanceof FormData ? body : JSON.stringify(body) })
 const PUT  = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
+const PATCH = <T>(path: string, body?: unknown) =>
+  request<T>(path, { method: 'PATCH', body: JSON.stringify(body) })
 const DEL  = <T>(path: string) => request<T>(path, { method: 'DELETE' })
 
 // ─── Typed response shapes ─────────────────────────────────
@@ -226,6 +228,8 @@ const api = {
       POST<{ id: string; title: string; status: string }>('/api/training/url', { url, category }),
     reindex: (id: string) =>
       POST<{ status: string; message: string }>(`/api/training/${id}/reindex`),
+    rename: (id: string, title: string) =>
+      PATCH<{ id: string; title: string }>(`/api/training/${id}`, { title }),
     delete: (id: string) => DEL<void>(`/api/training/${id}`),
   },
 
@@ -233,6 +237,8 @@ const api = {
     list: () => GET<MediaAsset[]>('/api/media'),
     upload: (formData: FormData) =>
       POST<MediaAsset>('/api/media/upload', formData),
+    rename: (id: string, filename: string) =>
+      PATCH<{ id: string; filename: string }>(`/api/media/${id}`, { filename }),
     delete: (id: string) => DEL<void>(`/api/media/${id}`),
   },
 
@@ -257,7 +263,7 @@ const api = {
 
   chat: {
     history: () => GET<{ id: string; role: 'user' | 'assistant' | 'agent'; content: string; agent_name?: string; goal_id?: string; created_at: string }[]>('/api/chat/history'),
-    updates: (since?: string) => GET<{ agents_active: boolean; messages: { id: string; role: 'user' | 'assistant' | 'agent'; content: string; agent_name?: string; goal_id?: string; created_at: string }[] }>(
+    updates: (since?: string) => GET<{ agents_active: boolean; current_activity: string | null; messages: { id: string; role: 'user' | 'assistant' | 'agent'; content: string; agent_name?: string; goal_id?: string; created_at: string }[] }>(
       `/api/chat/updates${since ? `?since=${encodeURIComponent(since)}` : ''}`
     ),
     clearHistory: () => DEL<{ status: string }>('/api/chat/history'),

@@ -1,14 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
   Zap, LayoutDashboard, Target, BarChart2,
   Cpu, Settings, MessageSquare,
-  LogOut, Activity, Network, Sparkles, Volume2
+  Activity, Network, Sparkles, Volume2
 } from 'lucide-react'
-import { clearToken, getUser } from '@/lib/auth'
+import { getUser } from '@/lib/auth'
 import api from '@/lib/api'
 import { motion } from 'framer-motion'
 
@@ -22,7 +22,6 @@ interface NavItem {
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [mounted, setMounted] = useState(false)
   const [awaitingCount, setAwaitingCount] = useState(0)
@@ -72,11 +71,6 @@ export default function Sidebar() {
   }
   const st = STATUS_CONFIG[agentStatus]
 
-  const handleLogout = () => {
-    clearToken()
-    router.push('/login')
-  }
-
   return (
     <aside style={{
       width: 240, minHeight: '100vh', flexShrink: 0,
@@ -99,7 +93,7 @@ export default function Sidebar() {
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
             overflow: 'hidden'
           }}>
-            <img src="/logo.png" alt="NeuroWorks" style={{ width: 18, height: 18, objectFit: 'contain', opacity: 0.95 }} />
+            <img src="/logo.png" alt="NaxionAI" style={{ width: 18, height: 18, objectFit: 'contain', opacity: 0.95 }} />
           </div>
           <div>
             <div style={{ 
@@ -108,7 +102,7 @@ export default function Sidebar() {
               lineHeight: 1.1, letterSpacing: '-0.025em',
               fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif'
             }}>
-              NeuroWorks
+              NaxionAI
             </div>
             <div style={{ fontSize: '0.62rem', color: '#86868B', fontWeight: 500, letterSpacing: '0.04em', marginTop: 3 }}>
               AUTONOMOUS AGENCY
@@ -218,17 +212,6 @@ export default function Sidebar() {
             </div>
           </div>
         )}
-        <button onClick={handleLogout}
-          style={{
-            width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-            padding: '0.5rem 0.75rem', borderRadius: 8, cursor: 'pointer',
-            background: 'none', border: 'none', color: '#64748B',
-            fontSize: '0.8rem', transition: 'all 0.2s', fontWeight: 500
-          }}
-          onMouseEnter={e => { e.currentTarget.style.color = '#FCA5A5' }}
-          onMouseLeave={e => { e.currentTarget.style.color = '#64748B' }}>
-          <LogOut size={16} /> Disconnect
-        </button>
       </div>
     </aside>
   )

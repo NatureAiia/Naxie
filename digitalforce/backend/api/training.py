@@ -234,6 +234,28 @@ async def get_knowledge_item(
     }
 
 
+class RenameBody(BaseModel):
+    title: str
+
+
+@router.patch("/{item_id}")
+async def rename_knowledge(
+    item_id: str, body: RenameBody,
+    db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user),
+):
+    item = await db.get(KnowledgeItem, item_id)
+    if not item:
+        raise HTTPException(404, "Item not found")
+    if not _is_admin(user) and item.uploaded_by != user.get("sub"):
+        raise HTTPException(404, "Item not found")
+    new_title = body.title.strip()
+    if not new_title:
+        raise HTTPException(400, "Title cannot be empty")
+    item.title = new_title
+    await db.commit()
+    return {"id": item.id, "title": item.title}
+
+
 @router.post("/{item_id}/reindex")
 async def reindex_knowledge(
     item_id: str,

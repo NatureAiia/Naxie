@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import Header from '@/components/Header'
 import Sidebar from '@/components/Sidebar'
 import { synthesizeAudio } from '@/lib/voice'
 import { 
@@ -99,8 +98,6 @@ export default function TTSPage() {
     <div style={{ display: 'flex', minHeight: '100vh', background: '#080B12', color: '#F8FAFC' }}>
       <Sidebar />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
-        <Header />
-
         <main style={{ padding: '2rem', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
           {/* Top Banner */}
           <div style={{
