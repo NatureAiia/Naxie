@@ -13,10 +13,14 @@ from pydantic import BaseModel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import get_db, AgentLog
-from auth import get_current_user
+from database import get_db, AgentLog, Goal
+from auth import get_current_user, layer_of_role
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
+
+
+def _is_admin(user) -> bool:
+    return layer_of_role((user or {}).get("role")) in ("admin", "superadmin")
 
 
 class AuditEventOut(BaseModel):
@@ -41,6 +45,12 @@ async def list_audit_events(
     stmt = select(AgentLog).order_by(desc(AgentLog.created_at)).limit(limit)
     if level:
         stmt = stmt.where(AgentLog.level == level)
+    if not _is_admin(user):
+        # Non-admins only see logs tied to a goal they created — matches
+        # _require_goal_access's ownership rule in api/goals.py. Logs with
+        # no goal_id (e.g. chat-level thoughts) aren't attributable to a
+        # single user, so they're excluded rather than shown to everyone.
+        stmt = stmt.join(Goal, AgentLog.goal_id == Goal.id).where(Goal.created_by == user.get("sub"))
     rows = (await db.execute(stmt)).scalars().all()
     return [
         AuditEventOut(

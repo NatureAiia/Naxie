@@ -139,7 +139,7 @@ async def _send_approval_notification(goal_id: str, token: str, plan: dict):
 
         body = f"""
         <html><body style="font-family:sans-serif;max-width:600px;margin:auto">
-        <h2 style="color:#6C63FF">🤖 NeuroWorks has a plan ready</h2>
+        <h2 style="color:#6C63FF">🤖 NaxionAI has a plan ready</h2>
         <p>Your campaign plan is ready for review.</p>
         <table style="width:100%;border-collapse:collapse">
           <tr><td style="padding:8px;font-weight:bold">Campaign</td><td>{campaign_name}</td></tr>
@@ -154,7 +154,7 @@ async def _send_approval_notification(goal_id: str, token: str, plan: dict):
         """
 
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"[NeuroWorks] Plan Ready: {campaign_name} ({task_count} tasks)"
+        msg["Subject"] = f"[NaxionAI] Plan Ready: {campaign_name} ({task_count} tasks)"
         msg["From"] = f"{s.smtp_from_name} <{s.smtp_from_email}>"
         msg["To"] = s.smtp_username
         msg.attach(MIMEText(body, "html"))

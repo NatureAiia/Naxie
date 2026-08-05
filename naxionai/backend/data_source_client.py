@@ -14,6 +14,8 @@ scope for this pass).
 import re
 from typing import Any, Dict, List, Optional
 
+from security_gates import assert_safe_external_path
+
 DB_QUERY_TIMEOUT_SECONDS = 30
 
 # Same coverage as the TS original: DDL/DML plus the file-access/table-
@@ -53,7 +55,7 @@ async def run_query(kind: str, connection: str, sql: str, readonly: bool, limit:
     trimmed = sql.strip().rstrip(";")
 
     if kind == "postgres":
-        return await _run_postgres_query(connection, trimmed, limit)
+        return await _run_postgres_query(connection, trimmed, limit, readonly)
     if kind == "sqlite":
         return _run_sqlite_query(connection, trimmed, limit, readonly)
     if kind == "mysql":
@@ -63,7 +65,7 @@ async def run_query(kind: str, connection: str, sql: str, readonly: bool, limit:
     raise ValueError(f"unsupported data source kind: {kind}")
 
 
-async def _run_postgres_query(connection: str, sql: str, limit: int) -> dict:
+async def _run_postgres_query(connection: str, sql: str, limit: int, readonly: bool = True) -> dict:
     try:
         import asyncpg
     except ImportError:
@@ -71,9 +73,23 @@ async def _run_postgres_query(connection: str, sql: str, limit: int) -> dict:
     import asyncio
     conn = await asyncio.wait_for(asyncpg.connect(connection), timeout=DB_QUERY_TIMEOUT_SECONDS)
     try:
-        stmt = await asyncio.wait_for(conn.prepare(sql), timeout=DB_QUERY_TIMEOUT_SECONDS)
-        all_rows = await asyncio.wait_for(stmt.fetch(), timeout=DB_QUERY_TIMEOUT_SECONDS)
-        columns = [a.name for a in stmt.get_attributes()] if all_rows else []
+        # readonly is enforced server-side by Postgres itself (not a text
+        # scan of `sql`) — any write attempt, including one hidden inside a
+        # SELECTed function call (e.g. `SELECT setval(...)`), fails at the
+        # DB level because the whole transaction is READ ONLY. The
+        # is_read_only_sql() keyword check above is defense-in-depth /
+        # a friendlier error message, not the actual gate.
+        async def _fetch():
+            stmt = await conn.prepare(sql)
+            all_rows = await stmt.fetch()
+            columns = [a.name for a in stmt.get_attributes()] if all_rows else []
+            return all_rows, columns
+
+        if readonly:
+            async with conn.transaction(readonly=True):
+                all_rows, columns = await asyncio.wait_for(_fetch(), timeout=DB_QUERY_TIMEOUT_SECONDS)
+        else:
+            all_rows, columns = await asyncio.wait_for(_fetch(), timeout=DB_QUERY_TIMEOUT_SECONDS)
         rows = [dict(r) for r in all_rows[:limit]]
         return _result(rows, columns, len(all_rows) > limit)
     finally:
@@ -82,6 +98,7 @@ async def _run_postgres_query(connection: str, sql: str, limit: int) -> dict:
 
 def _run_sqlite_query(connection: str, sql: str, limit: int, readonly: bool) -> dict:
     import sqlite3
+    assert_safe_external_path(connection)
     uri = f"file:{connection}?mode=ro" if readonly else connection
     conn = sqlite3.connect(uri, uri=readonly)
     conn.row_factory = sqlite3.Row
@@ -133,6 +150,7 @@ def _run_excel_query(path: str, raw: str, limit: int) -> dict:
         raise ValueError("openpyxl not installed — run `pip install openpyxl`")
     import os
     import json as _json
+    assert_safe_external_path(path)
     if not os.path.exists(path):
         raise ValueError(f"Excel file not found: {path}")
     try:
@@ -158,6 +176,7 @@ def _run_csv_query(path: str, raw: str, limit: int) -> dict:
     import csv as csv_mod
     import os
     import json as _json
+    assert_safe_external_path(path)
     if not os.path.exists(path):
         raise ValueError(f"CSV file not found: {path}")
     with open(path, "r", encoding="utf-8", newline="") as f:

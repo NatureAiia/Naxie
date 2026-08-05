@@ -33,7 +33,7 @@ def _new_approval_token() -> str:
 
 # Send FROM this address
 EMAIL_FROM      = settings.smtp_from_email or settings.smtp_username
-EMAIL_FROM_NAME = settings.smtp_from_name or "NeuroWorks"
+EMAIL_FROM_NAME = settings.smtp_from_name or "NaxionAI"
 
 
 async def send_agent_email(
@@ -99,7 +99,7 @@ async def _generate_neural_email(context: str, user_id: str, token: Optional[str
     except Exception:
         tone = "Professional"
 
-    system = f"You are the autonomous NeuroWorks AI. Tone: {tone}. Craft an elite, responsive HTML email for a client."
+    system = f"You are the autonomous NaxionAI assistant. Tone: {tone}. Craft an elite, responsive HTML email for a client."
     prompt = f"""
 CONTEXT TO COMMUNICATE:
 {context}
@@ -124,7 +124,7 @@ Return JSON ONLY:
     if not isinstance(data, dict):
         data = {}
     return {
-        "subject": data.get("subject") or "NeuroWorks Notification",
+        "subject": data.get("subject") or "NaxionAI Notification",
         "text": data.get("text") or context,
         "html": data.get("html") or f"<html><body><p>{context}</p></body></html>",
     }

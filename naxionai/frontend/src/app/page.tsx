@@ -67,7 +67,7 @@ export default function RootPage() {
             <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '0.75rem' }}>
-                  NEUROWORKS — COMMAND CENTER
+                  NAXIONAI — COMMAND CENTER
                 </div>
                 <h1 style={{
                   fontSize: 'clamp(2rem, 4vw, 2.75rem)', fontWeight: 900, letterSpacing: '-0.035em',

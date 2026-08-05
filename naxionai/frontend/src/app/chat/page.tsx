@@ -99,7 +99,7 @@ export default function ChatPage() {
   const [isRecording, setIsRecording]     = useState(false)
   const [voiceEnabled, setVoiceEnabled]   = useState(false) // speaker (TTS) on/off
   const [wakeEnabled, setWakeEnabled]     = useState(false)
-  const [wakePhrase, setWakePhrase]       = useState('Hey Neuro')
+  const [wakePhrase, setWakePhrase]       = useState('Hey Naxie')
   const [showWakeSettings, setShowWakeSettings] = useState(false)
   const [wakeListening, setWakeListening] = useState(false) // brief "heard you" indicator
   const spokenBubbleIds = useRef<Set<string>>(new Set())
@@ -114,7 +114,7 @@ export default function ChatPage() {
   useEffect(() => {
     setVoiceEnabled(localStorage.getItem('df_voice_enabled') === 'true')
     setWakeEnabled(localStorage.getItem('df_wake_enabled') === 'true')
-    setWakePhrase(localStorage.getItem('df_wake_phrase') || 'Hey Neuro')
+    setWakePhrase(localStorage.getItem('df_wake_phrase') || 'Hey Naxie')
     const savedDomain = localStorage.getItem('naxie_chat_domain') as Domain | null
     if (savedDomain && DOMAINS.some(d => d.key === savedDomain)) setDomain(savedDomain)
   }, [])
@@ -621,7 +621,7 @@ export default function ChatPage() {
             <div>
               <div style={{ fontWeight: 800, fontSize: '0.95rem', background: 'linear-gradient(180deg, #FFFFFF 0%, #94BFDB 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-0.02em' }}>Agentic Hub</div>
               <div style={{ fontSize: '0.65rem', color: '#475569', fontWeight: 600, letterSpacing: '0.06em', marginTop: 1 }}>
-                NEUROWORKS COMMAND INTERFACE
+                NAXIONAI COMMAND INTERFACE
               </div>
             </div>
           </div>
@@ -751,7 +751,7 @@ export default function ChatPage() {
                 <input
                   value={wakePhrase}
                   onChange={e => updateWakePhrase(e.target.value)}
-                  placeholder="Hey Neuro"
+                  placeholder="Hey Naxie"
                   style={{
                     flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
                     borderRadius: 6, padding: '0.3rem 0.5rem', color: '#fff', fontSize: '0.78rem', outline: 'none',
@@ -952,7 +952,7 @@ export default function ChatPage() {
               </button>
             </div>
             <div style={{ fontSize: '0.68rem', color: '#334155', textAlign: 'center', marginTop: 8, fontWeight: 600, letterSpacing: '0.04em' }}>
-              NEUROWORKS — NEURAL AGENTS EXECUTE AUTONOMOUSLY
+              NAXIONAI — NEURAL AGENTS EXECUTE AUTONOMOUSLY
             </div>
           </div>
         </div>

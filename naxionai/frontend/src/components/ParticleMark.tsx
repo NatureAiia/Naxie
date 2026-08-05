@@ -98,7 +98,7 @@ export function ParticleMark({ size = 56, gap = 2 }: { size?: number; gap?: numb
     <canvas
       ref={canvasRef}
       style={{ width: size, height: size, display: "block" }}
-      aria-label="NeuroWorks"
+      aria-label="NaxionAI"
       onPointerMove={e => {
         const rect = e.currentTarget.getBoundingClientRect();
         mouse.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
