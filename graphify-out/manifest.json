@@ -2,7 +2,7 @@
   ".claude/settings.json": {
     "mtime": 1785864198.8797724,
     "ast_hash": "fa658a74530d756f283f319a9d77f264",
-    "semantic_hash": ""
+    "semantic_hash": "fa658a74530d756f283f319a9d77f264"
   },
   ".claude/CLAUDE.md": {
     "mtime": 1785864198.841148,
@@ -82,732 +82,732 @@
   "test_edge.mp3": {
     "mtime": 1785790312.1774366,
     "ast_hash": "34ec4939e85b7c7976be9d9c456e0061",
-    "semantic_hash": ""
+    "semantic_hash": "34ec4939e85b7c7976be9d9c456e0061"
   },
   "naxionai/backend/agent/__init__.py": {
     "mtime": 1785790312.423154,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
-    "semantic_hash": ""
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "naxionai/backend/agent/agency_daemon.py": {
     "mtime": 1785873045.5789182,
     "ast_hash": "cc567fcc4da2d6d399618bfd72de476c",
-    "semantic_hash": ""
+    "semantic_hash": "cc567fcc4da2d6d399618bfd72de476c"
   },
   "naxionai/backend/agent/browser/__init__.py": {
     "mtime": 1785866286.7726839,
     "ast_hash": "befaa58b50285eaf3c4f7625dead0e12",
-    "semantic_hash": ""
+    "semantic_hash": "befaa58b50285eaf3c4f7625dead0e12"
   },
   "naxionai/backend/agent/browser/ghost.py": {
     "mtime": 1785873045.567777,
     "ast_hash": "14448c2a2751267b9b8ef1156d7930d2",
-    "semantic_hash": ""
+    "semantic_hash": "14448c2a2751267b9b8ef1156d7930d2"
   },
   "naxionai/backend/agent/chat_push.py": {
-    "mtime": 1785873045.5773044,
-    "ast_hash": "1be9a9c0bc4f0326925c97089d4effd4",
+    "mtime": 1785939944.4008014,
+    "ast_hash": "10617e53b9d5cafbf3692cb6ac46b996",
     "semantic_hash": ""
   },
   "naxionai/backend/agent/graph.py": {
     "mtime": 1785873045.5789182,
     "ast_hash": "2ee23bee69ef31b02731edda902e8b21",
-    "semantic_hash": ""
+    "semantic_hash": "2ee23bee69ef31b02731edda902e8b21"
   },
   "naxionai/backend/agent/llm.py": {
     "mtime": 1785917466.345384,
     "ast_hash": "ec20762a806eef7aeba4ec5d5072f1a7",
-    "semantic_hash": ""
+    "semantic_hash": "ec20762a806eef7aeba4ec5d5072f1a7"
   },
   "naxionai/backend/agent/nodes/__init__.py": {
     "mtime": 1785790312.5043783,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
-    "semantic_hash": ""
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "naxionai/backend/agent/nodes/auditor.py": {
     "mtime": 1785873045.559608,
     "ast_hash": "884efd1ed63fb612252b6502631e2f8b",
-    "semantic_hash": ""
+    "semantic_hash": "884efd1ed63fb612252b6502631e2f8b"
   },
   "naxionai/backend/agent/nodes/content_director.py": {
     "mtime": 1785873045.567777,
     "ast_hash": "7fdea1730d5605848891c030595712ad",
-    "semantic_hash": ""
+    "semantic_hash": "7fdea1730d5605848891c030595712ad"
   },
   "naxionai/backend/agent/nodes/distribution_manager.py": {
     "mtime": 1785866286.784384,
     "ast_hash": "70a37ddf7535fe68f04c1aafa936b31a",
-    "semantic_hash": ""
+    "semantic_hash": "70a37ddf7535fe68f04c1aafa936b31a"
   },
   "naxionai/backend/agent/nodes/executive.py": {
-    "mtime": 1785873045.559608,
-    "ast_hash": "9bf6adf7a8707b544d8e220093fc2e1a",
+    "mtime": 1785939898.331587,
+    "ast_hash": "b7040c75cc580a8caf494f7594161015",
     "semantic_hash": ""
   },
   "naxionai/backend/agent/nodes/manager.py": {
     "mtime": 1785873045.556678,
     "ast_hash": "5adbc8a04d536cc16fee2483329b74cb",
-    "semantic_hash": ""
+    "semantic_hash": "5adbc8a04d536cc16fee2483329b74cb"
   },
   "naxionai/backend/agent/nodes/monitor.py": {
     "mtime": 1785873045.5165105,
     "ast_hash": "462156271699ca752e06beaf97009295",
-    "semantic_hash": ""
+    "semantic_hash": "462156271699ca752e06beaf97009295"
   },
   "naxionai/backend/agent/nodes/orchestrator.py": {
     "mtime": 1785873045.526566,
     "ast_hash": "e4e6d276826d0fc5c00297a563bc50c3",
-    "semantic_hash": ""
+    "semantic_hash": "e4e6d276826d0fc5c00297a563bc50c3"
   },
   "naxionai/backend/agent/nodes/publisher.py": {
     "mtime": 1785873045.526566,
     "ast_hash": "10649c000c7338e2758a41a42e0ef2a8",
-    "semantic_hash": ""
+    "semantic_hash": "10649c000c7338e2758a41a42e0ef2a8"
   },
   "naxionai/backend/agent/nodes/reflector.py": {
     "mtime": 1785873045.5370698,
     "ast_hash": "5859774840cb7b3fc0b74066fbcfbe2d",
-    "semantic_hash": ""
+    "semantic_hash": "5859774840cb7b3fc0b74066fbcfbe2d"
   },
   "naxionai/backend/agent/nodes/researcher.py": {
     "mtime": 1785873045.5400982,
     "ast_hash": "548f0d9d1ee988bb389c6edb17c73a7d",
-    "semantic_hash": ""
+    "semantic_hash": "548f0d9d1ee988bb389c6edb17c73a7d"
   },
   "naxionai/backend/agent/nodes/skillforge.py": {
     "mtime": 1785873045.5411313,
     "ast_hash": "2509fc6329f8129d8c8b8a045dd1e8d5",
-    "semantic_hash": ""
+    "semantic_hash": "2509fc6329f8129d8c8b8a045dd1e8d5"
   },
   "naxionai/backend/agent/nodes/strategist.py": {
     "mtime": 1785873045.5461645,
     "ast_hash": "3e1d96b9399a9350eaf53444cbc54e4e",
-    "semantic_hash": ""
+    "semantic_hash": "3e1d96b9399a9350eaf53444cbc54e4e"
   },
   "naxionai/backend/agent/prompts/__init__.py": {
     "mtime": 1785790312.6218958,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
-    "semantic_hash": ""
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "naxionai/backend/agent/scheduler.py": {
     "mtime": 1785907700.3850594,
     "ast_hash": "6ceefd2f7a458a1636bc024e5a6d4aaa",
-    "semantic_hash": ""
+    "semantic_hash": "6ceefd2f7a458a1636bc024e5a6d4aaa"
   },
   "naxionai/backend/agent/skills/__init__.py": {
     "mtime": 1785790312.689364,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
-    "semantic_hash": ""
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "naxionai/backend/agent/skills/generated/__init__.py": {
     "mtime": 1785790312.6993823,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
-    "semantic_hash": ""
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "naxionai/backend/agent/skills/registry.py": {
     "mtime": 1785873045.5046365,
     "ast_hash": "05498a72a1f8cc172a47a2935dddf573",
-    "semantic_hash": ""
+    "semantic_hash": "05498a72a1f8cc172a47a2935dddf573"
   },
   "naxionai/backend/agent/state.py": {
     "mtime": 1785914989.1977131,
     "ast_hash": "011a3281760d2d331256836e525f281a",
-    "semantic_hash": ""
+    "semantic_hash": "011a3281760d2d331256836e525f281a"
   },
   "naxionai/backend/agent/tools/__init__.py": {
     "mtime": 1785866286.807902,
     "ast_hash": "d8b43bcb8e97a5639a7ab4912e4f874c",
-    "semantic_hash": ""
+    "semantic_hash": "d8b43bcb8e97a5639a7ab4912e4f874c"
   },
   "naxionai/backend/agent/tools/email_inbox.py": {
     "mtime": 1785873045.4957345,
     "ast_hash": "24f8dee0f8e8ecf4f6539f98c8a62c8b",
-    "semantic_hash": ""
+    "semantic_hash": "24f8dee0f8e8ecf4f6539f98c8a62c8b"
   },
   "naxionai/backend/agent/tools/email_notify.py": {
-    "mtime": 1785907349.198308,
-    "ast_hash": "2807c50874eb22dae761db38aa2de249",
+    "mtime": 1785940022.6849222,
+    "ast_hash": "8987d7ab727582a31c17574f2ef6a312",
     "semantic_hash": ""
   },
   "naxionai/backend/agent/tools/pa_tools.py": {
     "mtime": 1785917891.080949,
     "ast_hash": "71d252208d5fe8f9fb38dbaf7c489f22",
-    "semantic_hash": ""
+    "semantic_hash": "71d252208d5fe8f9fb38dbaf7c489f22"
   },
   "naxionai/backend/agent/tools/sandbox.py": {
     "mtime": 1785873045.4177833,
     "ast_hash": "5fd7e0ae702d6d137740729540eaeb20",
-    "semantic_hash": ""
+    "semantic_hash": "5fd7e0ae702d6d137740729540eaeb20"
   },
   "naxionai/backend/agent/tools/system_tools.py": {
-    "mtime": 1785873045.3386867,
-    "ast_hash": "053c0c523bdb4747f8d3c9c62f84f79c",
+    "mtime": 1785939899.9917698,
+    "ast_hash": "5240d75840ffb92dc51f5eb322f3521a",
     "semantic_hash": ""
   },
   "naxionai/backend/agent/tools/web_search.py": {
     "mtime": 1785873045.426591,
     "ast_hash": "88ddbec564cf771079eec7f61d9249f5",
-    "semantic_hash": ""
+    "semantic_hash": "88ddbec564cf771079eec7f61d9249f5"
   },
   "naxionai/backend/agent/wake_word.py": {
     "mtime": 1785862226.3529658,
     "ast_hash": "168c6b4e5a0fa3d88e6ca77205c5ae34",
-    "semantic_hash": ""
+    "semantic_hash": "168c6b4e5a0fa3d88e6ca77205c5ae34"
   },
   "naxionai/backend/api/__init__.py": {
     "mtime": 1785790312.781057,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
-    "semantic_hash": ""
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "naxionai/backend/api/accounts.py": {
     "mtime": 1785878683.7164512,
     "ast_hash": "a334926b4b754372d82e8952ceadb676",
-    "semantic_hash": ""
+    "semantic_hash": "a334926b4b754372d82e8952ceadb676"
   },
   "naxionai/backend/api/agency.py": {
     "mtime": 1785873045.431703,
     "ast_hash": "f7a81de91eac2cfc0d65c7e2798f182e",
-    "semantic_hash": ""
+    "semantic_hash": "f7a81de91eac2cfc0d65c7e2798f182e"
   },
   "naxionai/backend/api/analytics.py": {
     "mtime": 1785873045.4327712,
     "ast_hash": "22a78bf91930b7e60b0281dff773d810",
-    "semantic_hash": ""
+    "semantic_hash": "22a78bf91930b7e60b0281dff773d810"
   },
   "naxionai/backend/api/audit.py": {
-    "mtime": 1785907778.7174675,
-    "ast_hash": "45100e587eb81eebb6424e0e977d30e4",
+    "mtime": 1785936843.529595,
+    "ast_hash": "0605b41b3a8ce9090a7029cfe7e156bf",
     "semantic_hash": ""
   },
   "naxionai/backend/api/auth.py": {
     "mtime": 1785878649.2631695,
     "ast_hash": "73a019d7f10ca5111dfbaf33816dc8da",
-    "semantic_hash": ""
+    "semantic_hash": "73a019d7f10ca5111dfbaf33816dc8da"
   },
   "naxionai/backend/api/chat.py": {
     "mtime": 1785915317.301906,
     "ast_hash": "546e494a60cbcd22145c79ad876d3ea8",
-    "semantic_hash": ""
+    "semantic_hash": "546e494a60cbcd22145c79ad876d3ea8"
   },
   "naxionai/backend/api/connectors.py": {
-    "mtime": 1785911571.397919,
-    "ast_hash": "97f6d12250aa3f4b3990f8f8a5e2f3ee",
+    "mtime": 1785936237.1965744,
+    "ast_hash": "2ead6338a0f756189ea145d4e787f24e",
     "semantic_hash": ""
   },
   "naxionai/backend/api/cost.py": {
     "mtime": 1785915268.0527818,
     "ast_hash": "eb6a6fa78a79eb389848b8df16b8f52a",
-    "semantic_hash": ""
+    "semantic_hash": "eb6a6fa78a79eb389848b8df16b8f52a"
   },
   "naxionai/backend/api/data_sources.py": {
-    "mtime": 1785911668.4547596,
-    "ast_hash": "30eb9f6ba3c38ceb80bd99bd0e2410a1",
+    "mtime": 1785936297.6731951,
+    "ast_hash": "94bbcdb921d9adbcd3c67dcac34df8cd",
     "semantic_hash": ""
   },
   "naxionai/backend/api/departments.py": {
     "mtime": 1785880938.4099488,
     "ast_hash": "a73b037d5a15b7747e43be4dfdefa33c",
-    "semantic_hash": ""
+    "semantic_hash": "a73b037d5a15b7747e43be4dfdefa33c"
   },
   "naxionai/backend/api/exports.py": {
     "mtime": 1785917687.5701077,
     "ast_hash": "8198c581d2154afc9922164d69f71f12",
-    "semantic_hash": ""
+    "semantic_hash": "8198c581d2154afc9922164d69f71f12"
   },
   "naxionai/backend/api/goals.py": {
-    "mtime": 1785878671.1580012,
-    "ast_hash": "d634fab18dfe45b0a9dbc85cdc42484e",
+    "mtime": 1785940093.4783058,
+    "ast_hash": "cdc3f6c82d2b1e03c4936bc683b06469",
     "semantic_hash": ""
   },
   "naxionai/backend/api/governance.py": {
-    "mtime": 1785907759.2025864,
-    "ast_hash": "09a324ce0c1c9cda47824e2bf12f556f",
+    "mtime": 1785935908.45874,
+    "ast_hash": "88439f752954f90ae3cf58a9071807ac",
     "semantic_hash": ""
   },
   "naxionai/backend/api/media.py": {
     "mtime": 1785878715.9271467,
     "ast_hash": "ad9df6ad9c7c924624cbfa5c095b68b0",
-    "semantic_hash": ""
+    "semantic_hash": "ad9df6ad9c7c924624cbfa5c095b68b0"
   },
   "naxionai/backend/api/model_providers.py": {
     "mtime": 1785917493.4480522,
     "ast_hash": "85b8a2725b6eee273d1073d9f6cba246",
-    "semantic_hash": ""
+    "semantic_hash": "85b8a2725b6eee273d1073d9f6cba246"
   },
   "naxionai/backend/api/models.py": {
     "mtime": 1785911840.7816412,
     "ast_hash": "a76b210d3eabe1adead074714e1dca41",
-    "semantic_hash": ""
+    "semantic_hash": "a76b210d3eabe1adead074714e1dca41"
   },
   "naxionai/backend/api/my_tasks.py": {
     "mtime": 1785917200.6508822,
     "ast_hash": "a858acf95ffb480e21b94661f38b1138",
-    "semantic_hash": ""
+    "semantic_hash": "a858acf95ffb480e21b94661f38b1138"
   },
   "naxionai/backend/api/personas.py": {
     "mtime": 1785906528.8184235,
     "ast_hash": "eea33ee83362e7a505e83fdce4a936fa",
-    "semantic_hash": ""
+    "semantic_hash": "eea33ee83362e7a505e83fdce4a936fa"
   },
   "naxionai/backend/api/playbook_skills.py": {
     "mtime": 1785880239.2448514,
     "ast_hash": "50eb1637ee42ddf2125c0541ce50b123",
-    "semantic_hash": ""
+    "semantic_hash": "50eb1637ee42ddf2125c0541ce50b123"
   },
   "naxionai/backend/api/schedules.py": {
     "mtime": 1785907727.7602508,
     "ast_hash": "da580b0677bcf133d38adaabc3691355",
-    "semantic_hash": ""
+    "semantic_hash": "da580b0677bcf133d38adaabc3691355"
   },
   "naxionai/backend/api/security.py": {
     "mtime": 1785917070.3095305,
     "ast_hash": "f539c0da2724c4e9345be582a09eb7db",
-    "semantic_hash": ""
+    "semantic_hash": "f539c0da2724c4e9345be582a09eb7db"
   },
   "naxionai/backend/api/settings.py": {
-    "mtime": 1785873045.4163866,
-    "ast_hash": "1985aa09901826c7a56191eab84b1f29",
+    "mtime": 1785942465.3964162,
+    "ast_hash": "4f14d7122d6c07013f12073f067786b9",
     "semantic_hash": ""
   },
   "naxionai/backend/api/skills.py": {
     "mtime": 1785873045.4177833,
     "ast_hash": "eb1a1b386243953a8a25a0a4ad25b4ec",
-    "semantic_hash": ""
+    "semantic_hash": "eb1a1b386243953a8a25a0a4ad25b4ec"
   },
   "naxionai/backend/api/stream.py": {
     "mtime": 1785878718.0013967,
     "ast_hash": "389984bcfab12142af2cb5d54c2840e0",
-    "semantic_hash": ""
+    "semantic_hash": "389984bcfab12142af2cb5d54c2840e0"
   },
   "naxionai/backend/api/teams.py": {
     "mtime": 1785880967.0488515,
     "ast_hash": "a952e3321ae75e0ea5293a9998531e75",
-    "semantic_hash": ""
+    "semantic_hash": "a952e3321ae75e0ea5293a9998531e75"
   },
   "naxionai/backend/api/training.py": {
     "mtime": 1785878729.664044,
     "ast_hash": "7c135ee15fc332bff4f73ca7d78c267d",
-    "semantic_hash": ""
+    "semantic_hash": "7c135ee15fc332bff4f73ca7d78c267d"
   },
   "naxionai/backend/api/vault.py": {
     "mtime": 1785917307.464688,
     "ast_hash": "2fafa339ec765801e63def0323978f69",
-    "semantic_hash": ""
+    "semantic_hash": "2fafa339ec765801e63def0323978f69"
   },
   "naxionai/backend/api/voice.py": {
     "mtime": 1785873045.3456979,
     "ast_hash": "6e72172842386903af5f4089f6507b26",
-    "semantic_hash": ""
+    "semantic_hash": "6e72172842386903af5f4089f6507b26"
   },
   "naxionai/backend/auth.py": {
     "mtime": 1785878624.9000044,
     "ast_hash": "a3330ff8f9a75235dcbe856657a9c131",
-    "semantic_hash": ""
+    "semantic_hash": "a3330ff8f9a75235dcbe856657a9c131"
   },
   "naxionai/backend/calendar_ical.py": {
     "mtime": 1785917705.8948581,
     "ast_hash": "ae3b3abf947f74d4479b614bf880bad7",
-    "semantic_hash": ""
+    "semantic_hash": "ae3b3abf947f74d4479b614bf880bad7"
   },
   "naxionai/backend/config.py": {
     "mtime": 1785917792.2657635,
     "ast_hash": "441ecce5ae1cde82bcb25f783841026c",
-    "semantic_hash": ""
+    "semantic_hash": "441ecce5ae1cde82bcb25f783841026c"
   },
   "naxionai/backend/connector_client.py": {
     "mtime": 1785911462.5128691,
     "ast_hash": "77b0f3db40394ac6f1c7e976e700d94b",
-    "semantic_hash": ""
+    "semantic_hash": "77b0f3db40394ac6f1c7e976e700d94b"
   },
   "naxionai/backend/cost_tracker.py": {
     "mtime": 1785914924.8366745,
     "ast_hash": "5771861382cb3baafbe69a085fae41e2",
-    "semantic_hash": ""
+    "semantic_hash": "5771861382cb3baafbe69a085fae41e2"
   },
   "naxionai/backend/data_source_client.py": {
-    "mtime": 1785911617.389572,
-    "ast_hash": "a82157a0f1ebbf7eb0cb05d571ed81fa",
+    "mtime": 1785935824.1957953,
+    "ast_hash": "64543e1c00e503c7e624525ffd4d5cff",
     "semantic_hash": ""
   },
   "naxionai/backend/database.py": {
     "mtime": 1785917141.9279232,
     "ast_hash": "5c72f607001f10c01b8d0f0d150da377",
-    "semantic_hash": ""
+    "semantic_hash": "5c72f607001f10c01b8d0f0d150da377"
   },
   "naxionai/backend/document_export.py": {
     "mtime": 1785917670.332645,
     "ast_hash": "699d860bd5f67cf2d96b6a273453184e",
-    "semantic_hash": ""
+    "semantic_hash": "699d860bd5f67cf2d96b6a273453184e"
   },
   "naxionai/backend/encryption.py": {
     "mtime": 1785873045.376747,
     "ast_hash": "88ae519c852635a7000de053004875c6",
-    "semantic_hash": ""
+    "semantic_hash": "88ae519c852635a7000de053004875c6"
   },
   "naxionai/backend/fix_roles.py": {
     "mtime": 1785866286.8295054,
     "ast_hash": "7267f86f6c6e08ebdfde4fc9ae37c7be",
-    "semantic_hash": ""
+    "semantic_hash": "7267f86f6c6e08ebdfde4fc9ae37c7be"
   },
   "naxionai/backend/governance.py": {
     "mtime": 1785907544.9839144,
     "ast_hash": "9d29355ee3f5569b9b36881e96492b0d",
-    "semantic_hash": ""
+    "semantic_hash": "9d29355ee3f5569b9b36881e96492b0d"
   },
   "naxionai/backend/main.py": {
-    "mtime": 1785917480.9302812,
-    "ast_hash": "3eaf5d38355521f09b299d07635e9b18",
+    "mtime": 1785942281.2286367,
+    "ast_hash": "be6261348f0fe08715e361e8954c1512",
     "semantic_hash": ""
   },
   "naxionai/backend/media/__init__.py": {
     "mtime": 1785790312.9092517,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
-    "semantic_hash": ""
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "naxionai/backend/media/tts_voices/en_US-amy-medium.onnx.json": {
     "mtime": 1785779577.1257074,
     "ast_hash": "7f37dadb26340c90ebc8088e0b252310",
-    "semantic_hash": ""
+    "semantic_hash": "7f37dadb26340c90ebc8088e0b252310"
   },
   "naxionai/backend/media/tts_voices/en_US-lessac-medium.onnx.json": {
     "mtime": 1785790314.2710192,
     "ast_hash": "c1f2b7bddefe113f3255ff9ef234cfd3",
-    "semantic_hash": ""
+    "semantic_hash": "c1f2b7bddefe113f3255ff9ef234cfd3"
   },
   "naxionai/backend/model_providers.py": {
     "mtime": 1785917397.2889342,
     "ast_hash": "ce8ab465b5d034681232aca15ab5aea0",
-    "semantic_hash": ""
+    "semantic_hash": "ce8ab465b5d034681232aca15ab5aea0"
   },
   "naxionai/backend/model_router.py": {
     "mtime": 1785915093.6148689,
     "ast_hash": "2339aef75a141f853e18113b295efbf4",
-    "semantic_hash": ""
+    "semantic_hash": "2339aef75a141f853e18113b295efbf4"
   },
   "naxionai/backend/ocr.py": {
     "mtime": 1785917543.744043,
     "ast_hash": "2cb7d6a5b90af820d71fc6d6a317b891",
-    "semantic_hash": ""
+    "semantic_hash": "2cb7d6a5b90af820d71fc6d6a317b891"
   },
   "naxionai/backend/org_catalog.py": {
     "mtime": 1785880792.6609218,
     "ast_hash": "e0e8e5734363a548d22527d920b0eb3a",
-    "semantic_hash": ""
+    "semantic_hash": "e0e8e5734363a548d22527d920b0eb3a"
   },
   "naxionai/backend/persona_catalog.py": {
     "mtime": 1785880667.3080702,
     "ast_hash": "3cc9e6bbc2679885f174f7482c64c8b5",
-    "semantic_hash": ""
+    "semantic_hash": "3cc9e6bbc2679885f174f7482c64c8b5"
   },
   "naxionai/backend/playbook_matcher.py": {
     "mtime": 1785880090.4548416,
     "ast_hash": "d4a447f39d1cdcb9ef21a7ec11e7c6a6",
-    "semantic_hash": ""
+    "semantic_hash": "d4a447f39d1cdcb9ef21a7ec11e7c6a6"
   },
   "naxionai/backend/rag/__init__.py": {
     "mtime": 1785790314.2810326,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
-    "semantic_hash": ""
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "naxionai/backend/rag/pipeline.py": {
     "mtime": 1785917636.5770655,
     "ast_hash": "2c0f4e4d18dc1e3b5b705ac7394458b9",
-    "semantic_hash": ""
+    "semantic_hash": "2c0f4e4d18dc1e3b5b705ac7394458b9"
   },
   "naxionai/backend/rag/retriever.py": {
     "mtime": 1785873045.3456979,
     "ast_hash": "d4324db2e72d01fd17e9031d840e38d0",
-    "semantic_hash": ""
+    "semantic_hash": "d4324db2e72d01fd17e9031d840e38d0"
   },
   "naxionai/backend/run_server.py": {
     "mtime": 1785866286.8385186,
     "ast_hash": "c728cd7488ad783327366c5861d8f15c",
-    "semantic_hash": ""
+    "semantic_hash": "c728cd7488ad783327366c5861d8f15c"
   },
   "naxionai/backend/security_gates.py": {
     "mtime": 1785916777.1796339,
     "ast_hash": "084b3e03dd80c8b942c3cc1e74a54570",
-    "semantic_hash": ""
+    "semantic_hash": "084b3e03dd80c8b942c3cc1e74a54570"
   },
   "naxionai/backend/security_scan.py": {
     "mtime": 1785916800.0050974,
     "ast_hash": "75eddf8b3faaffeb168a70f037f34e70",
-    "semantic_hash": ""
+    "semantic_hash": "75eddf8b3faaffeb168a70f037f34e70"
   },
   "naxionai/backend/security_watch.py": {
     "mtime": 1785916915.9533205,
     "ast_hash": "202446258011539cb8fccc216465da6c",
-    "semantic_hash": ""
+    "semantic_hash": "202446258011539cb8fccc216465da6c"
   },
   "naxionai/backend/sync_downloads.py": {
     "mtime": 1785917877.9749923,
     "ast_hash": "80f2453633a53f89c162024c52acccb1",
-    "semantic_hash": ""
+    "semantic_hash": "80f2453633a53f89c162024c52acccb1"
   },
   "naxionai/backend/test_app.py": {
     "mtime": 1785866286.8385186,
     "ast_hash": "b49a37c249f88eb342b8f1c1d0382169",
-    "semantic_hash": ""
+    "semantic_hash": "b49a37c249f88eb342b8f1c1d0382169"
   },
   "naxionai/backend/vault.py": {
     "mtime": 1785917286.19539,
     "ast_hash": "397b6ed04dea443a77874a042eb1ad57",
-    "semantic_hash": ""
+    "semantic_hash": "397b6ed04dea443a77874a042eb1ad57"
   },
   "naxionai/frontend/eslint.config.mjs": {
     "mtime": 1785790314.322077,
     "ast_hash": "dfa1f5f6a7037bf39dc510f30b180002",
-    "semantic_hash": ""
+    "semantic_hash": "dfa1f5f6a7037bf39dc510f30b180002"
   },
   "naxionai/frontend/next.config.ts": {
     "mtime": 1785790314.3323011,
     "ast_hash": "ce051c2ec574cd66d0567be00d3e0a90",
-    "semantic_hash": ""
+    "semantic_hash": "ce051c2ec574cd66d0567be00d3e0a90"
   },
   "naxionai/frontend/package.json": {
     "mtime": 1785877839.765987,
     "ast_hash": "1c87ddffc44a0bebc7f89d634a992451",
-    "semantic_hash": ""
+    "semantic_hash": "1c87ddffc44a0bebc7f89d634a992451"
   },
   "naxionai/frontend/postcss.config.mjs": {
     "mtime": 1785790314.3521235,
     "ast_hash": "239f3ebf717465dc636818a1a619398d",
-    "semantic_hash": ""
+    "semantic_hash": "239f3ebf717465dc636818a1a619398d"
   },
   "naxionai/frontend/src/app/analytics/page.tsx": {
-    "mtime": 1785790314.4774072,
-    "ast_hash": "6fe9f0a48025da3d0a5b085ad5615813",
+    "mtime": 1785939720.7338574,
+    "ast_hash": "04df81f45be634a9acb5558a0e5fc5d2",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/app/chat/page.tsx": {
-    "mtime": 1785915429.289091,
-    "ast_hash": "008add0052acb03749f432f8333af46f",
+    "mtime": 1785939723.1233225,
+    "ast_hash": "99a1fe0eaecb77388699eb4bbb3a0d75",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/app/goals/[id]/approve/page.tsx": {
     "mtime": 1785790314.5256493,
     "ast_hash": "09456ddf095b78ac605db13ebb6ff904",
-    "semantic_hash": ""
+    "semantic_hash": "09456ddf095b78ac605db13ebb6ff904"
   },
   "naxionai/frontend/src/app/goals/[id]/page.tsx": {
     "mtime": 1785790314.5152447,
     "ast_hash": "1b81b6d4617988f3b45b4be9576379d1",
-    "semantic_hash": ""
+    "semantic_hash": "1b81b6d4617988f3b45b4be9576379d1"
   },
   "naxionai/frontend/src/app/goals/new/page.tsx": {
-    "mtime": 1785790314.5352974,
-    "ast_hash": "404168420a3131dc180d901035a2a974",
+    "mtime": 1785939724.2152588,
+    "ast_hash": "2eda0d9b143614d6a287cc7d3f478c12",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/app/goals/page.tsx": {
-    "mtime": 1785790314.5045428,
-    "ast_hash": "8e332256025dc090a10bfe2fa05e11b9",
+    "mtime": 1785939725.2767732,
+    "ast_hash": "389a488fac08aacf8b57ddbd77ecfcf6",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/app/knowledge/page.tsx": {
-    "mtime": 1785790314.5659435,
-    "ast_hash": "d951af777e8d35c97358f4c029700f5c",
+    "mtime": 1785939726.4497156,
+    "ast_hash": "31ceea12d1e9ca8964d7554853dd7ff9",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/app/layout.tsx": {
     "mtime": 1785878176.4722378,
     "ast_hash": "d04fa1ab9c1744fdf3012fe4b2613ddc",
-    "semantic_hash": ""
+    "semantic_hash": "d04fa1ab9c1744fdf3012fe4b2613ddc"
   },
   "naxionai/frontend/src/app/login/page.tsx": {
     "mtime": 1785879163.4951632,
     "ast_hash": "ea48e2425d12c81f36e5a59cfc0f59dc",
-    "semantic_hash": ""
+    "semantic_hash": "ea48e2425d12c81f36e5a59cfc0f59dc"
   },
   "naxionai/frontend/src/app/media/page.tsx": {
     "mtime": 1785790314.575452,
     "ast_hash": "db84b9baf6b69282485c63ee35eec6b2",
-    "semantic_hash": ""
+    "semantic_hash": "db84b9baf6b69282485c63ee35eec6b2"
   },
   "naxionai/frontend/src/app/naxie/page.tsx": {
     "mtime": 1785915494.2348592,
     "ast_hash": "c5dce18a681270ae56f83c8bac60d9eb",
-    "semantic_hash": ""
+    "semantic_hash": "c5dce18a681270ae56f83c8bac60d9eb"
   },
   "naxionai/frontend/src/app/page.tsx": {
-    "mtime": 1785790314.4649925,
-    "ast_hash": "737e5aeafacfff0d54e6098149b1b227",
+    "mtime": 1785939727.5717025,
+    "ast_hash": "98b47fe11239c32779d259937c233103",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/app/settings/page.tsx": {
-    "mtime": 1785790314.5956073,
-    "ast_hash": "a1aff2d7a1fd94606b244970b564a373",
+    "mtime": 1785939789.8939867,
+    "ast_hash": "d6927ca756b0c500d3ca9177c98f0fa5",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/app/skills/page.tsx": {
-    "mtime": 1785790314.6085196,
-    "ast_hash": "2129ba3a8f5bd921a30f3c36608e1029",
+    "mtime": 1785939728.6614394,
+    "ast_hash": "92199be49516c3e1d00912796ee44a77",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/app/training/[id]/page.tsx": {
     "mtime": 1785790314.6264534,
     "ast_hash": "4e8dff9ef3600b1befce781bb03eeda0",
-    "semantic_hash": ""
+    "semantic_hash": "4e8dff9ef3600b1befce781bb03eeda0"
   },
   "naxionai/frontend/src/app/training/page.tsx": {
     "mtime": 1785790314.6166909,
     "ast_hash": "35f6734ba093525e11aa7592deab15f7",
-    "semantic_hash": ""
+    "semantic_hash": "35f6734ba093525e11aa7592deab15f7"
   },
   "naxionai/frontend/src/app/tts/page.tsx": {
     "mtime": 1785790314.6464658,
     "ast_hash": "4e4c4c2cbcf1e0333a0221bffc22d2fc",
-    "semantic_hash": ""
+    "semantic_hash": "4e4c4c2cbcf1e0333a0221bffc22d2fc"
   },
   "naxionai/frontend/src/components/BrandMark.tsx": {
-    "mtime": 1785877928.4121313,
-    "ast_hash": "07ab7efbec6f69b942e209e51e6a85c5",
+    "mtime": 1785939729.7191074,
+    "ast_hash": "583015d190b2069eb21826437f4dfcfc",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/components/Card.tsx": {
     "mtime": 1785877928.5311031,
     "ast_hash": "fc76c90527f8b88d2c9080dd60646be9",
-    "semantic_hash": ""
+    "semantic_hash": "fc76c90527f8b88d2c9080dd60646be9"
   },
   "naxionai/frontend/src/components/CommandPalette.tsx": {
     "mtime": 1785878146.94006,
     "ast_hash": "97a96992f51d28920f17751afcde6696",
-    "semantic_hash": ""
+    "semantic_hash": "97a96992f51d28920f17751afcde6696"
   },
   "naxionai/frontend/src/components/Dashboard.tsx": {
     "mtime": 1785790314.656557,
     "ast_hash": "cb8fecab63cb8bde1c6a562bd15433ef",
-    "semantic_hash": ""
+    "semantic_hash": "cb8fecab63cb8bde1c6a562bd15433ef"
   },
   "naxionai/frontend/src/components/DirectionHover.tsx": {
     "mtime": 1785877928.635147,
     "ast_hash": "3a802f925305a6852e6a8632130a556d",
-    "semantic_hash": ""
+    "semantic_hash": "3a802f925305a6852e6a8632130a556d"
   },
   "naxionai/frontend/src/components/DynamicWeightText.tsx": {
     "mtime": 1785877928.7469604,
     "ast_hash": "0a43f7c782dcd97bffb6b2f1712385ea",
-    "semantic_hash": ""
+    "semantic_hash": "0a43f7c782dcd97bffb6b2f1712385ea"
   },
   "naxionai/frontend/src/components/FileIcon.tsx": {
     "mtime": 1785877928.8534763,
     "ast_hash": "1b3a1273f7efd47d248d8612f2940b35",
-    "semantic_hash": ""
+    "semantic_hash": "1b3a1273f7efd47d248d8612f2940b35"
   },
   "naxionai/frontend/src/components/FileUpload.tsx": {
     "mtime": 1785877928.9499073,
     "ast_hash": "15fa2537d1efb5f1b46dcb8ddb694e4a",
-    "semantic_hash": ""
+    "semantic_hash": "15fa2537d1efb5f1b46dcb8ddb694e4a"
   },
   "naxionai/frontend/src/components/GlitterBackground.tsx": {
     "mtime": 1785877929.0481586,
     "ast_hash": "d5983b730b24737ff419959dc0cb241f",
-    "semantic_hash": ""
+    "semantic_hash": "d5983b730b24737ff419959dc0cb241f"
   },
   "naxionai/frontend/src/components/Kbd.tsx": {
     "mtime": 1785877929.1500664,
     "ast_hash": "712f717e86a2d27b4bc2eb3aaaf31f5a",
-    "semantic_hash": ""
+    "semantic_hash": "712f717e86a2d27b4bc2eb3aaaf31f5a"
   },
   "naxionai/frontend/src/components/KineticGridBackground.tsx": {
     "mtime": 1785877929.2820115,
     "ast_hash": "3ae6550b70a9c02cb56869e971a3b0a6",
-    "semantic_hash": ""
+    "semantic_hash": "3ae6550b70a9c02cb56869e971a3b0a6"
   },
   "naxionai/frontend/src/components/LinkPreview.tsx": {
     "mtime": 1785877929.4008193,
     "ast_hash": "4f7c73ce33edfef996b994f996b876f2",
-    "semantic_hash": ""
+    "semantic_hash": "4f7c73ce33edfef996b994f996b876f2"
   },
   "naxionai/frontend/src/components/LoadMore.tsx": {
     "mtime": 1785877929.5077882,
     "ast_hash": "6f7b0e6ccadc5cee7a46dfbd92beae92",
-    "semantic_hash": ""
+    "semantic_hash": "6f7b0e6ccadc5cee7a46dfbd92beae92"
   },
   "naxionai/frontend/src/components/MagneticRow.tsx": {
     "mtime": 1785877929.6265018,
     "ast_hash": "e6e04969165fee2769105c7c25b655f2",
-    "semantic_hash": ""
+    "semantic_hash": "e6e04969165fee2769105c7c25b655f2"
   },
   "naxionai/frontend/src/components/MultiStepLoader.tsx": {
     "mtime": 1785877929.7436955,
     "ast_hash": "3eb1432eb94bee6f696ceee08b6f7d35",
-    "semantic_hash": ""
+    "semantic_hash": "3eb1432eb94bee6f696ceee08b6f7d35"
   },
   "naxionai/frontend/src/components/NoiseBackground.tsx": {
     "mtime": 1785877929.8416865,
     "ast_hash": "fc71cd3f5f1d610cb977433b0cc41a73",
-    "semantic_hash": ""
+    "semantic_hash": "fc71cd3f5f1d610cb977433b0cc41a73"
   },
   "naxionai/frontend/src/components/ParticleMark.tsx": {
-    "mtime": 1785877929.9443643,
-    "ast_hash": "fe124a6f917a629bffe271a69e05bcdd",
+    "mtime": 1785939730.7827895,
+    "ast_hash": "c3da25d171e4a9a295a60031f5874a36",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/components/PixelDriftText.tsx": {
     "mtime": 1785877930.0479288,
     "ast_hash": "4ea27f0c7e344e1d177dbdefddde7611",
-    "semantic_hash": ""
+    "semantic_hash": "4ea27f0c7e344e1d177dbdefddde7611"
   },
   "naxionai/frontend/src/components/RequireRole.tsx": {
     "mtime": 1785879192.3352103,
     "ast_hash": "e85baf7e8c0b13e24d62595adc7bd68b",
-    "semantic_hash": ""
+    "semantic_hash": "e85baf7e8c0b13e24d62595adc7bd68b"
   },
   "naxionai/frontend/src/components/Sidebar.tsx": {
-    "mtime": 1785878107.8114989,
-    "ast_hash": "9eeea4e186bf63b1bde6c6d14eb5ea79",
+    "mtime": 1785943097.5824203,
+    "ast_hash": "618de95ad7072c382b31dd90b5b8a7d4",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/components/TextLift.tsx": {
     "mtime": 1785877930.1403234,
     "ast_hash": "21f78233a4067cbfbce830f7299177b9",
-    "semantic_hash": ""
+    "semantic_hash": "21f78233a4067cbfbce830f7299177b9"
   },
   "naxionai/frontend/src/components/TextMorph.tsx": {
     "mtime": 1785877930.2529385,
     "ast_hash": "9ab6fb22e0de724ab8ad74939e9b6f20",
-    "semantic_hash": ""
+    "semantic_hash": "9ab6fb22e0de724ab8ad74939e9b6f20"
   },
   "naxionai/frontend/src/components/Typewriter.tsx": {
     "mtime": 1785877930.372123,
     "ast_hash": "3ba98c01200d93449b7eb6874c61490d",
-    "semantic_hash": ""
+    "semantic_hash": "3ba98c01200d93449b7eb6874c61490d"
   },
   "naxionai/frontend/src/components/WeightHoverText.tsx": {
     "mtime": 1785877930.4818618,
     "ast_hash": "aa07a32025c947808b233923e7b912e8",
-    "semantic_hash": ""
+    "semantic_hash": "aa07a32025c947808b233923e7b912e8"
   },
   "naxionai/frontend/src/components/chat/AssetSelector.tsx": {
     "mtime": 1785790314.666679,
     "ast_hash": "f857d84f35e66f538d7e87040eca417e",
-    "semantic_hash": ""
+    "semantic_hash": "f857d84f35e66f538d7e87040eca417e"
   },
   "naxionai/frontend/src/lib/api.ts": {
-    "mtime": 1785879142.3062515,
-    "ast_hash": "a0a945e75b5152fa37034a36673341ca",
+    "mtime": 1785942685.8002305,
+    "ast_hash": "b0d289ea9c40f69c43c9922b62b06d35",
     "semantic_hash": ""
   },
   "naxionai/frontend/src/lib/auth.ts": {
     "mtime": 1785879182.3399544,
     "ast_hash": "f712c2ce3db51b03f0dcba8782f935d9",
-    "semantic_hash": ""
+    "semantic_hash": "f712c2ce3db51b03f0dcba8782f935d9"
   },
   "naxionai/frontend/src/lib/voice.ts": {
     "mtime": 1785873045.5874393,
     "ast_hash": "7e18aac3ba903cca8825290eb0d3d3a3",
-    "semantic_hash": ""
+    "semantic_hash": "7e18aac3ba903cca8825290eb0d3d3a3"
   },
   "naxionai/frontend/tailwind.config.js": {
     "mtime": 1785877728.1747763,
     "ast_hash": "cedea286dae08ff2f1d877744bcc6e59",
-    "semantic_hash": ""
+    "semantic_hash": "cedea286dae08ff2f1d877744bcc6e59"
   },
   "naxionai/frontend/tsconfig.json": {
     "mtime": 1785790314.3628817,
     "ast_hash": "ee17fd1c97c735e9f3564e3f5251f125",
-    "semantic_hash": ""
+    "semantic_hash": "ee17fd1c97c735e9f3564e3f5251f125"
   },
   "naxionai/NEUROWORKS_DESCOPE.md": {
     "mtime": 1785919952.252165,
@@ -1607,6 +1607,31 @@
   "naxionai/frontend/public/window.svg": {
     "mtime": 1785790314.4141564,
     "ast_hash": "a2760511c65806022ad20adf74370ff3",
+    "semantic_hash": ""
+  },
+  "naxionai/backend/api/calendar.py": {
+    "mtime": 1785942129.5789626,
+    "ast_hash": "337ee7cadc9a3cb65093917590e3c247",
+    "semantic_hash": ""
+  },
+  "naxionai/backend/api/downloads.py": {
+    "mtime": 1785942165.128893,
+    "ast_hash": "0b612f7323bc61d9a8dda1c7c68edfec",
+    "semantic_hash": ""
+  },
+  "naxionai/frontend/src/app/todo/page.tsx": {
+    "mtime": 1785942831.1534548,
+    "ast_hash": "0431ce1df704ebbaa57b2c2484debe6f",
+    "semantic_hash": ""
+  },
+  "naxionai/frontend/src/app/utilities/page.tsx": {
+    "mtime": 1785943034.9909651,
+    "ast_hash": "f5938e61ba22c5f4875a73b25c34e9f1",
+    "semantic_hash": ""
+  },
+  "naxionai/frontend/src/app/vault/page.tsx": {
+    "mtime": 1785942943.6532066,
+    "ast_hash": "cae6af2e7307d2ef71ac1aabe96137cc",
     "semantic_hash": ""
   }
 }
