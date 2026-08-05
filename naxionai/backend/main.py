@@ -35,6 +35,13 @@ from api.playbook_skills import router as playbook_skills_router
 from api.personas import router as personas_router
 from api.departments import router as departments_router
 from api.teams import router as teams_router
+from api.schedules import router as schedules_router
+from api.governance import router as governance_router
+from api.cost import router as cost_router
+from api.audit import router as audit_router
+from api.connectors import router as connectors_router
+from api.data_sources import router as data_sources_router
+from api.models import router as models_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -106,6 +113,11 @@ async def lifespan(app: FastAPI):
     background_tasks.append(asyncio.create_task(poll_email_inbox()))
     logger.info("📧 IMAP Inbox Poller scheduled")
 
+    # ⏰ Start the Schedule tick loop (Phase 4) — recurring auto-created goals
+    from agent.scheduler import schedule_tick_loop
+    background_tasks.append(asyncio.create_task(schedule_tick_loop()))
+    logger.info("⏰ Schedule tick loop started")
+
     logger.info("✨ NAXIONAI is ready.")
 
     yield
@@ -164,6 +176,13 @@ app.include_router(playbook_skills_router)
 app.include_router(personas_router)
 app.include_router(departments_router)
 app.include_router(teams_router)
+app.include_router(schedules_router)
+app.include_router(governance_router)
+app.include_router(cost_router)
+app.include_router(audit_router)
+app.include_router(connectors_router)
+app.include_router(data_sources_router)
+app.include_router(models_router)
 
 
 @app.get("/api/health")

@@ -138,6 +138,11 @@ class Settings(BaseSettings):
     # unless the operator explicitly opts in. Dev is permitted by default.
     allow_system_control: bool = False
 
+    # `git_command`'s ONLY allowed target — the LLM never supplies a path (that
+    # would be a path-traversal / arbitrary-repo surface); it can only ever
+    # touch this one operator-configured repo. Empty = tool refuses to run.
+    git_repo_path: str = ""
+
     # ── Web Research ──────────────────────────────────────
     tavily_api_key: str = ""                  # Tavily Search API
     serpapi_key: str = ""                     # SerpAPI alternative

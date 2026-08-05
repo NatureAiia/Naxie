@@ -173,6 +173,14 @@ class AgentLog(Base):
     observation: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Tool output / result
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    # ── Audit fields (Phase 4) ─────────────────────────────────
+    # Additive — the admin/audit-log view reads these on top of the existing
+    # agent/level/thought/action/observation fields, rather than a parallel
+    # AuditEvent table (this row already IS an audit event: agent=actor,
+    # action=action, observation~=detail).
+    target: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    result: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # success | failure | pending
+
     # Relationships
     goal: Mapped[Optional["Goal"]] = relationship(back_populates="logs")
 
@@ -356,6 +364,17 @@ class PlatformConnection(Base):
     # Headless browser fallback credentials
     web_username: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     web_password_encrypted: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # ── Generic HTTP connector fields (Phase 5) ─────────────────
+    # Used when platform="custom_connector" — a self-describing handle to an
+    # external HTTP API, ported from neuroworks' connectors.ts. Reuses
+    # api_key_encrypted above for the connector's secret (token/password/api
+    # key value, depending on auth_type) rather than adding another encrypted
+    # column. See connector_client.py for the SSRF guard / call logic.
+    base_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    auth_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # none|api_key|bearer|basic|header
+    write_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    endpoints: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list of {name, method, path, description, query, body}
 
     extra_config: Mapped[Optional[str]] = mapped_column(Text, nullable=True)     # JSON for platform-specific
 
@@ -590,6 +609,110 @@ class TeamTemplate(Base):
 
 
 # ═══════════════════════════════════════════════════════════
+# SCHEDULES — recurring auto-created goals (Phase 4). Ported from
+# neuroworks/server/src/lib/schedules.ts's Schedule shape. naxionai has no
+# "template" system to re-run, so `description` (the Goal description to
+# submit on fire) replaces templateId/inputs — see agent/scheduler.py.
+# ═══════════════════════════════════════════════════════════
+
+class Schedule(Base):
+    __tablename__ = "schedules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text)
+    days_of_week: Mapped[str] = mapped_column(Text, default="[]")  # JSON list 0(Sun)-6(Sat); [] = every day
+    hour: Mapped[int] = mapped_column(Integer, default=8)
+    minute: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    deliver_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    last_fired_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_job_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # Goal.id
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    fire_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════
+# GOVERNANCE — operator-curated guardrail policies (Phase 4). Ported from
+# governance.ts. neuroworks stores policies as vault markdown files; naxionai
+# has no filesystem vault-of-markdown, so the policy body lives inline here
+# (same precedent as KnowledgeItem.raw_content).
+# ═══════════════════════════════════════════════════════════
+
+class GovernancePolicy(Base):
+    __tablename__ = "governance_policies"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    is_reference: Mapped[bool] = mapped_column(Boolean, default=False)  # true = informational only, not a guardrail
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class GovernanceConstraint(Base):
+    """A single extracted/authored rule under a policy. Only rows with
+    reviewed=True, accepted=True, severity="hard" are enforceable (mirrors
+    filterEnforceable() in governance.py)."""
+    __tablename__ = "governance_constraints"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    policy_id: Mapped[str] = mapped_column(String(36), ForeignKey("governance_policies.id"), index=True)
+    rule: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(String(10), default="soft")  # hard | soft
+    category: Mapped[str] = mapped_column(String(50), default="other")
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
+    accepted: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════
+# COST RECORDS — per-LLM-call spend tracking (Phase 4). Net-new
+# instrumentation — naxionai had zero cost tracking before this. Written
+# from agent/llm.py's generate_completion() so every call is counted
+# without touching individual node call sites (see cost_tracker.py).
+# ═══════════════════════════════════════════════════════════
+
+class CostRecord(Base):
+    __tablename__ = "cost_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    job_id: Mapped[str] = mapped_column(String(64), default="adhoc", index=True)
+    model: Mapped[str] = mapped_column(String(200))
+    backend: Mapped[str] = mapped_column(String(30))       # ollama | groq | openrouter | anthropic | ...
+    profile: Mapped[str] = mapped_column(String(50), default="none")
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    units: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# DATA SOURCES — company database registry (Phase 5). Ported from
+# data-sources.ts. Default contract is read-only; see data_source_client.py
+# for the WRITE_KEYWORDS gate and per-kind query execution.
+# ═══════════════════════════════════════════════════════════
+
+class DataSource(Base):
+    __tablename__ = "data_sources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    label: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(20))  # postgres | mysql | sqlite | mssql | mongodb | excel | csv
+    connection_encrypted: Mapped[str] = mapped_column(Text)  # encrypt_value() of the connection string/file path
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    department: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    readonly: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════
 # DATABASE ENGINE
 # ═══════════════════════════════════════════════════════════
 
@@ -638,11 +761,18 @@ def _migrate_add_columns(sync_conn):
     from sqlalchemy import inspect as sa_inspect
     wanted = {
         # table → [(column, DDL type)]
-        "platform_connections": [("owner_id", "VARCHAR(36)")],
+        "platform_connections": [
+            ("owner_id", "VARCHAR(36)"),
+            ("base_url", "VARCHAR(500)"),
+            ("auth_type", "VARCHAR(20)"),
+            ("write_enabled", "BOOLEAN DEFAULT 0"),
+            ("endpoints", "TEXT"),
+        ],
         "media_assets": [("uploaded_by", "VARCHAR(36)")],
         "knowledge_items": [("uploaded_by", "VARCHAR(36)")],
         "goals": [("created_by", "VARCHAR(36)")],
         "agency_settings": [("last_idle_chat_nudge", "DATETIME"), ("active_persona_id", "VARCHAR(36)")],
+        "agent_logs": [("target", "VARCHAR(500)"), ("result", "VARCHAR(10)")],
         "users": [
             ("status", "VARCHAR(20) DEFAULT 'active'"),
             ("department", "VARCHAR(120)"),

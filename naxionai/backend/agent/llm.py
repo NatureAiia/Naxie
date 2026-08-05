@@ -38,6 +38,18 @@ def _get_cascade_configs():
     return configs
 
 
+def _track_cost(model: str, output_text: str, input_text: str, system_text: str) -> None:
+    """Fire-and-forget cost recording (Phase 4) — scheduled as a background
+    task so a slow DB write never adds latency to the actual LLM response.
+    record_llm_cost is itself try/except-wrapped, so this can't raise."""
+    import asyncio
+    try:
+        from cost_tracker import record_llm_cost
+        asyncio.create_task(record_llm_cost(model, output_text or "", input_text, system_text))
+    except Exception as e:
+        logger.warning(f"[LLM] Cost tracking scheduling failed: {e}")
+
+
 def _get_ollama_chat(temperature: float = 0.7):
     from langchain_ollama import ChatOllama
     return ChatOllama(
@@ -69,6 +81,7 @@ async def generate_completion(
     if settings.llm_provider == "ollama":
         llm = _get_ollama_chat(temperature)
         response = await llm.ainvoke(messages)
+        _track_cost(settings.ollama_model, response.content, prompt, system_prompt)
         return response.content
 
     from langchain_groq import ChatGroq
@@ -87,6 +100,7 @@ async def generate_completion(
                 timeout=settings.llm_request_timeout_seconds,  # bound each call; fail over on hang
             )
             response = await llm.ainvoke(messages)
+            _track_cost(model, response.content, prompt, system_prompt)
             return response.content
 
         except Exception as e:

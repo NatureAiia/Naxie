@@ -55,7 +55,7 @@ async def send_agent_email(
     if not recipient:
         return False
 
-    full_subject = f"[NeuroWorks] {subject}"
+    full_subject = f"[NaxionAI] {subject}"
     if approval_token:
         full_subject += f" | Ref: {approval_token}"
 

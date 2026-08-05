@@ -168,12 +168,39 @@ async def chat_stream(
             except Exception as e:
                 logger.warning(f"[Chat] Active persona lookup failed: {e}")
 
+            # Governance guardrails (Phase 4): operator-set org policies
+            # prepended to every synth call, mirroring governance.ts's
+            # "applied to every general-task/synth call" framing.
+            governance_prefix = ""
+            enforceable_constraints = []
+            try:
+                from database import GovernancePolicy, GovernanceConstraint
+                import governance as gov
+                policy_rows = (await db.execute(select(GovernancePolicy).where(GovernancePolicy.owner_id == user_id))).scalars().all()
+                governance_prefix = gov.build_governance_prefix([
+                    {"name": p.name, "body": p.body, "is_reference": p.is_reference} for p in policy_rows
+                ])
+                if policy_rows:
+                    constraint_rows = (await db.execute(
+                        select(GovernanceConstraint, GovernancePolicy.name)
+                        .join(GovernancePolicy, GovernanceConstraint.policy_id == GovernancePolicy.id)
+                        .where(GovernancePolicy.owner_id == user_id)
+                    )).all()
+                    enforceable_constraints = gov.filter_enforceable([
+                        {"id": c.id, "policy_name": name, "rule": c.rule, "severity": c.severity,
+                         "category": c.category, "reviewed": c.reviewed, "accepted": c.accepted}
+                        for c, name in constraint_rows
+                    ])
+            except Exception as e:
+                logger.warning(f"[Chat] Governance prefix lookup failed: {e}")
+
             prompt = f"""You are Naxie, the personal AI assistant of NaxionAI.
 You are intelligent, warm, direct, and slightly witty — like a capable assistant who feels genuinely helpful.
 Address the user as \"sir\" in a respectful, natural way unless they explicitly prefer another style.
 Speak with calm confidence, concise sentences, and clear actions. Never robotic, never corporate, and never overly formal.Language policy: Always respond in clear, natural English. Do not switch to Shona or any other language unless the user explicitly asks for it.
 Your persona and tone: {agent_tone}
 {persona_context}
+{governance_prefix}
 Things you remember about this user (apply them, don't recite them):
 {prefs_text}
 
@@ -206,6 +233,16 @@ Return strictly JSON:
             try:
                 response = await generate_json(prompt)
                 reply = response.get("reply", "Acknowledged.")
+
+                # Post-synth governance gate (Phase 4): checked against the
+                # drafted reply, mirroring checkContentAgainstGovernance.
+                if enforceable_constraints:
+                    gate = gov.gate_action(reply, enforceable_constraints)
+                    if gate["blocked"]:
+                        violated = gate["violations"][0]
+                        logger.warning(f"[Chat] Governance blocked a reply: {violated['rule']}")
+                        reply = f"I can't complete that as drafted — it runs against the organization's \"{violated['rule']}\" policy ({violated['policy_name']}). Let me know if you'd like to approach it differently."
+
                 requires_manager = response.get("requires_manager", False)
                 approval_status = response.get("approval_status", "none")
                 tool_scope = response.get("tool_scope") if response.get("tool_scope") in ("host_control", "full") else "full"

@@ -330,6 +330,61 @@ def manage_clipboard(action: str = "read", text: str = "") -> str:
         return f"Clipboard operation failed: {e}"
 
 
+def _resolve_git_repo() -> tuple[Optional[str], str]:
+    """The tool's only allowed target is the operator-configured
+    GIT_REPO_PATH — never a path supplied by the LLM. Ported as a narrow,
+    purpose-built replacement for neuroworks' general Terminal feature
+    (skipped entirely — see project notes): this can only run `git status`/
+    `git pull` against one fixed repo, not arbitrary shell commands."""
+    try:
+        from config import get_settings
+        s = get_settings()
+    except Exception:
+        return None, "Settings unavailable."
+    path = (s.git_repo_path or "").strip()
+    if not path:
+        return None, "No git repo configured. Set GIT_REPO_PATH in .env to the repo you want Naxie to check."
+    if not os.path.isdir(os.path.join(path, ".git")):
+        return None, f"Configured GIT_REPO_PATH '{path}' doesn't look like a git repository (no .git directory)."
+    return path, ""
+
+
+@tool
+def git_command(action: str) -> str:
+    """Check status or pull the latest changes for the configured git repository.
+    action: 'status' (current branch + uncommitted changes) or 'pull' (fast-forward only — never auto-merges)."""
+    allowed, reason = _system_control_allowed()
+    if not allowed:
+        return reason
+    repo, err = _resolve_git_repo()
+    if not repo:
+        return err
+    act = action.lower().strip()
+    try:
+        if act == "status":
+            branch = subprocess.run(["git", "-C", repo, "branch", "--show-current"],
+                                     capture_output=True, text=True, timeout=15)
+            status = subprocess.run(["git", "-C", repo, "status", "--short"],
+                                     capture_output=True, text=True, timeout=15)
+            branch_name = branch.stdout.strip() or "(detached HEAD)"
+            changes = status.stdout.strip()
+            return f"Branch: {branch_name}\n" + (f"Changes:\n{changes}" if changes else "Working tree clean.")
+        elif act == "pull":
+            # --ff-only: an LLM-triggered pull must never auto-create a merge
+            # commit or silently resolve a conflict — fail loudly instead.
+            res = subprocess.run(["git", "-C", repo, "pull", "--ff-only"],
+                                  capture_output=True, text=True, timeout=60)
+            output = (res.stdout + res.stderr).strip()
+            if res.returncode != 0:
+                return f"git pull failed:\n{output}"
+            return f"git pull complete:\n{output}" if output else "Already up to date."
+        return f"Unknown action: {action}. Supported: 'status', 'pull'."
+    except subprocess.TimeoutExpired:
+        return f"git {action} timed out."
+    except Exception as e:
+        return f"git {action} failed: {e}"
+
+
 @tool
 def browser_open(url_or_search: str) -> str:
     """Open a URL or perform a web search in the user's default web browser.
@@ -346,4 +401,4 @@ def browser_open(url_or_search: str) -> str:
 
 def get_pa_tools():
     """Return list of all PA personal assistant tools."""
-    return [get_weather, set_reminder, system_control, manage_clipboard, browser_open]
+    return [get_weather, set_reminder, system_control, manage_clipboard, browser_open, git_command]
