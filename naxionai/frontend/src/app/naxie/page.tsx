@@ -64,7 +64,7 @@ export default function NaxiePage() {
       const res = await fetch(`${BASE}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: question }),
+        body: JSON.stringify({ message: question, domain: 'personal' }),
       })
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
 
@@ -84,6 +84,7 @@ export default function NaxiePage() {
           try {
             const evt = JSON.parse(line.slice(6))
             if (evt.type === 'message') reply += evt.content
+            else if (evt.type === 'cap_exceeded') reply = evt.message
           } catch { /* partial/malformed chunk, skip */ }
         }
       }

@@ -438,6 +438,9 @@ class ChatMessage(Base):
     # JSON dict for extra context (action taken, metrics, etc.)
     meta: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # business | work | personal — which life-domain this message belongs to
+    domain: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -689,6 +692,8 @@ class CostRecord(Base):
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     units: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # business | work | personal | general (general = non-interactive/background calls)
+    domain: Mapped[str] = mapped_column(String(20), default="general", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
@@ -709,6 +714,68 @@ class DataSource(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     department: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     readonly: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════
+# PERSONAL TASKS (Phase 6) — the operator's own to-do list. Ported from
+# neuroworks/server/src/lib/my-tasks.ts. Deliberately separate from Goal/
+# AgentTask (the agent's own job queue) — this is the operator's personal
+# list, unrelated to what the agent is doing.
+# ═══════════════════════════════════════════════════════════
+
+class PersonalTaskList(Base):
+    __tablename__ = "personal_task_lists"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), default="Tasks")
+    color: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    items: Mapped[list["PersonalTaskItem"]] = relationship(back_populates="task_list", cascade="all, delete-orphan")
+
+
+class PersonalTaskItem(Base):
+    __tablename__ = "personal_task_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    list_id: Mapped[str] = mapped_column(String(36), ForeignKey("personal_task_lists.id"), index=True)
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    steps: Mapped[Optional[str]] = mapped_column(Text, nullable=True)          # JSON: [{id,title,done}]
+    due_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # YYYY-MM-DD
+    reminder_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    repeat_freq: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # daily | weekly | monthly
+    repeat_interval: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    important: Mapped[bool] = mapped_column(Boolean, default=False)
+    my_day: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)     # YYYY-MM-DD added to "My Day"
+    completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    order: Mapped[int] = mapped_column(Integer, default=0)
+
+    task_list: Mapped["PersonalTaskList"] = relationship(back_populates="items")
+
+
+# ═══════════════════════════════════════════════════════════
+# MODEL PROVIDERS (Phase 6) — bring-your-own LLM API keys. Ported from
+# neuroworks/server/src/lib/model-providers.ts. See model_providers.py for
+# the runtime cascade integration.
+# ═══════════════════════════════════════════════════════════
+
+class ModelProviderConfig(Base):
+    __tablename__ = "model_provider_configs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    label: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(20))  # anthropic | openai | openrouter | groq | together | custom
+    base_url: Mapped[str] = mapped_column(String(500))
+    model: Mapped[str] = mapped_column(String(200))
+    api_key_encrypted: Mapped[str] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -771,6 +838,8 @@ def _migrate_add_columns(sync_conn):
         "media_assets": [("uploaded_by", "VARCHAR(36)")],
         "knowledge_items": [("uploaded_by", "VARCHAR(36)")],
         "goals": [("created_by", "VARCHAR(36)")],
+        "cost_records": [("domain", "VARCHAR(20) DEFAULT 'general'")],
+        "chat_messages": [("domain", "VARCHAR(20)")],
         "agency_settings": [("last_idle_chat_nudge", "DATETIME"), ("active_persona_id", "VARCHAR(36)")],
         "agent_logs": [("target", "VARCHAR(500)"), ("result", "VARCHAR(10)")],
         "users": [

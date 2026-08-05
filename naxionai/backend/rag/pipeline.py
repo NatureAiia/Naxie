@@ -239,6 +239,18 @@ async def ingest(
     else:
         return {"success": False, "error": f"Unsupported source type: {source_type}"}
 
+    # Scanned/image-only PDF: PyMuPDF found no text layer. Fall back to OCR
+    # (Phase 6) before giving up — a photographed/scanned document is a real
+    # case, not just a parse failure.
+    if type_lower == "pdf" and len(raw_text.strip()) < 10:
+        try:
+            from ocr import ocr_file
+            result = await ocr_file(source_path, engine="auto")
+            if len(result.text.strip()) >= 10:
+                raw_text = result.text
+        except Exception as e:
+            logger.info(f"[RAG] OCR fallback skipped for {source_path}: {e}")
+
     if not raw_text or len(raw_text.strip()) < 10:
         return {"success": False, "error": "No extractable content found"}
 

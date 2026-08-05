@@ -399,6 +399,57 @@ def browser_open(url_or_search: str) -> str:
         return f"Failed to open browser: {e}"
 
 
+@tool
+async def get_todays_calendar_events() -> str:
+    """Fetch today's events from the user's configured calendar feed
+    (a Google Calendar public feed or Outlook publish link, set once by the
+    operator via CALENDAR_ICAL_URL — never an LLM-supplied URL, same
+    reasoning as git_command's fixed repo path)."""
+    try:
+        from config import get_settings
+        s = get_settings()
+    except Exception:
+        return "Calendar unavailable: settings could not be loaded."
+    if not s.calendar_ical_url:
+        return "No calendar configured. Set CALENDAR_ICAL_URL in .env to an iCal feed URL or local .ics path."
+    try:
+        from calendar_ical import read_ical_source, todays_events
+        events = todays_events(await read_ical_source(s.calendar_ical_url))
+        if not events:
+            return "No events scheduled for today."
+        lines = []
+        for e in events:
+            when = e.start.strftime("%H:%M")
+            loc = f" @ {e.location}" if e.location else ""
+            lines.append(f"- {when} {e.summary}{loc}")
+        return "Today's events:\n" + "\n".join(lines)
+    except Exception as e:
+        return f"Failed to read calendar: {e}"
+
+
+@tool
+def organize_downloads(source: str = "") -> str:
+    """Copy new/changed files from the Downloads folder into the knowledge
+    vault, organized by category (Documents, Images, Video, etc.), and
+    write an inventory.md index. Originals are never moved or deleted.
+    source: optional folder path to scan instead of the default Downloads folder."""
+    try:
+        from sync_downloads import sync_downloads
+        result = sync_downloads(source or None)
+        if result.total_files == 0:
+            return f"No files found in {result.source}."
+        return (
+            f"Scanned {result.total_files} files in {result.source}. "
+            f"Copied {len(result.copied_this_run)} new/changed file(s) into the vault "
+            f"under _knowledge/downloads/. {len(result.copy_errors)} error(s)."
+        )
+    except Exception as e:
+        return f"Failed to organize downloads: {e}"
+
+
 def get_pa_tools():
     """Return list of all PA personal assistant tools."""
-    return [get_weather, set_reminder, system_control, manage_clipboard, browser_open, git_command]
+    return [
+        get_weather, set_reminder, system_control, manage_clipboard, browser_open, git_command,
+        get_todays_calendar_events, organize_downloads,
+    ]

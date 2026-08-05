@@ -15,6 +15,13 @@ import {
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+type Domain = 'business' | 'work' | 'personal'
+const DOMAINS: { key: Domain; label: string }[] = [
+  { key: 'business', label: 'Business' },
+  { key: 'work', label: 'Work' },
+  { key: 'personal', label: 'Personal' },
+]
+
 // ─── Types ─────────────────────────────────────────────────
 
 interface Chip {
@@ -84,6 +91,10 @@ export default function ChatPage() {
   const [showAssetSelector, setShowAssetSelector] = useState(false)
   const [attachedMedia, setAttachedMedia] = useState<MediaAsset[]>([])
 
+  // ── Life-domain (business/work/personal) tag for usage tracking ────────
+  const [domain, setDomain] = useState<Domain>('personal')
+  const [pendingOverride, setPendingOverride] = useState<{ message: string; domain: Domain } | null>(null)
+
   // ── Voice state ────────────────────────────────────────────
   const [isRecording, setIsRecording]     = useState(false)
   const [voiceEnabled, setVoiceEnabled]   = useState(false) // speaker (TTS) on/off
@@ -104,7 +115,14 @@ export default function ChatPage() {
     setVoiceEnabled(localStorage.getItem('df_voice_enabled') === 'true')
     setWakeEnabled(localStorage.getItem('df_wake_enabled') === 'true')
     setWakePhrase(localStorage.getItem('df_wake_phrase') || 'Hey Neuro')
+    const savedDomain = localStorage.getItem('naxie_chat_domain') as Domain | null
+    if (savedDomain && DOMAINS.some(d => d.key === savedDomain)) setDomain(savedDomain)
   }, [])
+
+  const updateDomain = (next: Domain) => {
+    setDomain(next)
+    localStorage.setItem('naxie_chat_domain', next)
+  }
 
   const toggleVoiceEnabled = () => {
     setVoiceEnabled(prev => {
@@ -236,12 +254,13 @@ export default function ChatPage() {
   }, [historyLoaded, voiceEnabled])
 
   // ── Send a message ────────────────────────────────────────
-  const sendMessage = useCallback(async (text?: string) => {
+  const sendMessage = useCallback(async (text?: string, overrideCap = false) => {
     const msg = (text || input).trim()
     if (!msg || loading) return
 
     setInput('')
     setLoading(true)
+    setPendingOverride(null)
     const currentAttached = [...attachedMedia]
     setAttachedMedia([])
 
@@ -279,9 +298,11 @@ export default function ChatPage() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ 
-          message: msg, 
-          context: attachedIds.length > 0 ? { attached_media: attachedIds } : {} 
+        body: JSON.stringify({
+          message: msg,
+          domain,
+          override_spend_cap: overrideCap,
+          context: attachedIds.length > 0 ? { attached_media: attachedIds } : {}
         }),
       })
 
@@ -308,6 +329,16 @@ export default function ChatPage() {
             const chunk = JSON.parse(line.slice(6))
 
             if (chunk.type === 'done') break
+
+            if (chunk.type === 'cap_exceeded') {
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId
+                  ? { ...m, bubbles: [{ id: firstBubbleId, content: chunk.message, isStreaming: false }] }
+                  : m
+              ))
+              setPendingOverride({ message: msg, domain })
+              break
+            }
 
             if (chunk.type === 'thinking' || chunk.type === 'action') {
               // Append chip to the assistant message
@@ -396,7 +427,7 @@ export default function ChatPage() {
       // Update poll time so we don't re-fetch our own assistant message
       setLastPollTime(new Date().toISOString())
     }
-  }, [input, loading, voiceEnabled])
+  }, [input, loading, voiceEnabled, domain])
 
   useEffect(() => {
     sendMessageRef.current = sendMessage
@@ -729,6 +760,58 @@ export default function ChatPage() {
                 <button onClick={() => setShowWakeSettings(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', display: 'flex' }}>
                   <X size={14} />
                 </button>
+              </div>
+            )}
+
+            {/* Life-domain toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.6rem' }}>
+              <span style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 600 }}>Domain:</span>
+              <div style={{ display: 'inline-flex', gap: 4, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: 3 }}>
+                {DOMAINS.map(d => (
+                  <button
+                    key={d.key}
+                    onClick={() => updateDomain(d.key)}
+                    style={{
+                      padding: '0.3rem 0.7rem', borderRadius: 6, border: 'none', cursor: 'pointer',
+                      fontSize: '0.72rem', fontWeight: 600,
+                      background: domain === d.key ? 'rgba(0,163,255,0.18)' : 'transparent',
+                      color: domain === d.key ? '#33BAFF' : '#64748B',
+                      transition: 'all 0.15s',
+                    }}>
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Spend-cap override prompt */}
+            {pendingOverride && (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                marginBottom: '0.6rem', padding: '0.5rem 0.75rem', borderRadius: 10,
+                background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+              }}>
+                <span style={{ fontSize: '0.78rem', color: '#F59E0B' }}>Daily spend cap reached for this domain.</span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => sendMessage(pendingOverride.message, true)}
+                    style={{
+                      padding: '0.3rem 0.7rem', borderRadius: 6, border: '1px solid rgba(245,158,11,0.4)',
+                      background: 'rgba(245,158,11,0.15)', color: '#F59E0B', fontSize: '0.72rem',
+                      fontWeight: 700, cursor: 'pointer',
+                    }}>
+                    Send anyway
+                  </button>
+                  <button
+                    onClick={() => setPendingOverride(null)}
+                    style={{
+                      padding: '0.3rem 0.7rem', borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'transparent', color: '#64748B', fontSize: '0.72rem',
+                      fontWeight: 600, cursor: 'pointer',
+                    }}>
+                    Dismiss
+                  </button>
+                </div>
               </div>
             )}
 

@@ -36,6 +36,29 @@ KNOWN_PROFILES: Dict[str, Dict[str, float]] = {
 }
 DEFAULT_PROFILE = {"json_strict": 6, "reasoning": 5, "long_form": 6, "speed": 6, "cost": 5}
 
+# Context window (tokens) per model, keyed by name substring match. Used to
+# bound how much chat history gets folded into a prompt — see
+# api/chat.py's history trimming. Conservative defaults; unknown models fall
+# back to DEFAULT_CONTEXT_WINDOW.
+CONTEXT_WINDOWS: Dict[str, int] = {
+    "qwen2.5": 32768,
+    "qwen3": 32768,
+    "gemma2": 8192,
+    "llama3.2": 128000,
+    "llama-3.3-70b-versatile": 128000,
+    "mixtral-8x7b": 32768,
+    "groq/compound": 128000,
+}
+DEFAULT_CONTEXT_WINDOW = 8192
+
+
+def get_context_window(model: str) -> int:
+    m = (model or "").lower()
+    for key, window in CONTEXT_WINDOWS.items():
+        if key.lower() in m:
+            return window
+    return DEFAULT_CONTEXT_WINDOW
+
 TASK_PROFILES: Dict[str, Dict[str, float]] = {
     "planning": {"json_strict": 5, "reasoning": 3, "speed": 2},
     "synthesis": {"long_form": 5, "reasoning": 3, "speed": 2},
