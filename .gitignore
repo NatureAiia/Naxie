@@ -49,13 +49,6 @@ env/
 logs/
 
 # ==========================
-# Local app data / vault
-# ==========================
-neuroworks-ts/.neuroworks/
-neuroworks-ts/vault/*
-!neuroworks-ts/vault/README.md
-
-# ==========================
 # IDE / OS
 # ==========================
 .vscode/

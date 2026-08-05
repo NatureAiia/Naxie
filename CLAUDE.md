@@ -11,10 +11,12 @@ This project spans **two separate GitHub repositories** with distinct purposes:
 | **Main code repo** (this repo, `origin`) | https://github.com/NatureAiia/NaxionAI-Powered-by-Neuroworks | Application source code. All code changes, commits, and PRs go here. |
 | **Vault repo** | https://github.com/marknature/NaxionAI_Vault-Repo | Knowledge/data storage — actual knowledge-vault content and operator data, kept separate from source code. |
 
-Note: the local `neuroworks/vault/` folder *inside* the main code repo is unrelated —
-it's just an empty placeholder directory the app reads/writes local notes to at
-runtime (see `neuroworks/vault/README.md`). It is not the vault repo above and
-should stay empty/generic in the main code repo.
+Note: the local `naxionai/backend/vault/` folder *inside* the main code repo is
+unrelated — it's just an empty placeholder directory the app reads/writes local
+notes to at runtime (`VAULT_PATH` in `config.py`; see `naxionai/backend/vault/README.md`).
+It is not the vault repo above and should stay empty/generic in the main code
+repo. (The legacy `neuroworks/` folder that used to hold this same placeholder
+was retired in the neuroworks→naxionai merge — see `naxionai/NEUROWORKS_DESCOPE.md`.)
 
 **Rule of thumb:** code changes go to the main code repo. Knowledge/data/vault
 content goes to the vault repo. Never push code to the vault repo or vault
