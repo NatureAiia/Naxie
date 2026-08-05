@@ -148,12 +148,32 @@ async def chat_stream(
             except Exception as e:
                 logger.warning(f"[Chat] Playbook matching failed: {e}")
 
+            # Active persona (Phase 3b): fold the hired persona's voice and
+            # responsibilities into the prompt as additional context — no
+            # separate execution path, this LangGraph flow runs unchanged.
+            persona_context = ""
+            try:
+                if cfg and cfg.active_persona_id:
+                    from database import Persona
+                    persona_row = (await db.execute(select(Persona).where(Persona.id == cfg.active_persona_id))).scalars().first()
+                    if persona_row:
+                        resp = json.loads(persona_row.responsibilities) if persona_row.responsibilities else []
+                        resp_text = "\n".join(f"- {r}" for r in resp)
+                        persona_context = (
+                            f"\n\nACTIVE PERSONA — you are currently operating as {persona_row.name}, the {persona_row.role}"
+                            f" (hired for this task, not just an assistant describing the role):\n"
+                            f"{persona_row.system_prompt_override or persona_row.description}\n"
+                            f"{resp_text}\nVoice: {persona_row.tone}.\n"
+                        )
+            except Exception as e:
+                logger.warning(f"[Chat] Active persona lookup failed: {e}")
+
             prompt = f"""You are Naxie, the personal AI assistant of NaxionAI.
 You are intelligent, warm, direct, and slightly witty — like a capable assistant who feels genuinely helpful.
 Address the user as \"sir\" in a respectful, natural way unless they explicitly prefer another style.
 Speak with calm confidence, concise sentences, and clear actions. Never robotic, never corporate, and never overly formal.Language policy: Always respond in clear, natural English. Do not switch to Shona or any other language unless the user explicitly asks for it.
 Your persona and tone: {agent_tone}
-
+{persona_context}
 Things you remember about this user (apply them, don't recite them):
 {prefs_text}
 

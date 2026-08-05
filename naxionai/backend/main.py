@@ -32,6 +32,9 @@ from api.accounts import router as accounts_router
 from api.voice import router as voice_router
 from api.auth import router as auth_router
 from api.playbook_skills import router as playbook_skills_router
+from api.personas import router as personas_router
+from api.departments import router as departments_router
+from api.teams import router as teams_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,6 +57,12 @@ async def lifespan(app: FastAPI):
     local_user = await ensure_default_user()
     set_local_user(local_user)
     logger.info(f"👤 Running as local user: {local_user['username']} ({local_user['role']})")
+
+    # Seed the 36 built-in personas (Phase 3a) — insert-if-missing, safe to
+    # run on every boot.
+    from database import ensure_builtin_personas_seeded
+    await ensure_builtin_personas_seeded()
+    logger.info("👥 Built-in persona catalog seeded")
 
     # Ensure Qdrant collections exist
     try:
@@ -152,6 +161,9 @@ app.include_router(accounts_router)
 app.include_router(voice_router)
 app.include_router(auth_router)
 app.include_router(playbook_skills_router)
+app.include_router(personas_router)
+app.include_router(departments_router)
+app.include_router(teams_router)
 
 
 @app.get("/api/health")

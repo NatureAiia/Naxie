@@ -463,6 +463,12 @@ class AgencySettings(Base):
     # in chat, regardless of whether any goal/campaign is active.
     last_idle_chat_nudge: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    # ── Active persona (Phase 3b) ──────────────────────────────
+    # When set, chat.py folds this persona's voice/responsibilities into the
+    # Naxie synthesis prompt as additional context — no separate execution
+    # path, just framing (see api/chat.py's persona_context block).
+    active_persona_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -505,6 +511,81 @@ class PlaybookSkill(Base):
     applies_to: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list of intent labels
     body: Mapped[str] = mapped_column(Text)               # markdown body (post-frontmatter)
     source: Mapped[str] = mapped_column(String(10), default="user")  # user | auto
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════
+# ORG MODELING — personas, departments, teams (Phase 3a). Built-in catalog
+# entries (persona_catalog.py / org_catalog.py) are static Python data, not
+# DB rows — these tables hold only operator-created/customized ones, seeded
+# insert-if-missing on init_db() (see ensure_org_catalog_seeded below).
+# NOTE (Phase 3b, not yet implemented): these are data models + CRUD only.
+# Wiring an active persona into what the LangGraph agent graph actually
+# executes is a separate architecture decision — naxionai's graph is a fixed
+# topology (manager -> orchestrator -> ...), not a dynamic persona roster.
+# ═══════════════════════════════════════════════════════════
+
+class Persona(Base):
+    __tablename__ = "personas"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text)
+    job_description: Mapped[str] = mapped_column(Text)
+    tone: Mapped[str] = mapped_column(String(300))
+    responsibilities: Mapped[Optional[str]] = mapped_column(Text, nullable=True)       # JSON list
+    system_prompt_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    work_mode: Mapped[str] = mapped_column(String(20), default="agent")  # agent | hybrid | human
+    language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Department(Base):
+    """Operator-created departments only — built-in DEPARTMENT_TEMPLATES
+    (org_catalog.py) ship as static data and never get a row here."""
+    __tablename__ = "departments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    tagline: Mapped[str] = mapped_column(String(160), default="Custom department")
+    description: Mapped[str] = mapped_column(Text)
+    icon: Mapped[str] = mapped_column(String(40), default="Building2")
+    color: Mapped[str] = mapped_column(String(40), default="violet")
+    roles: Mapped[Optional[str]] = mapped_column(Text, nullable=True)   # JSON list of role titles
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class DepartmentDatum(Base):
+    """Lightweight per-department reference knowledge (e.g. "FY26 budget
+    assumptions" under Finance) — distinct from KnowledgeItem's RAG-indexed
+    documents; this is small free-text facts read directly, no embeddings."""
+    __tablename__ = "department_data"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    department: Mapped[str] = mapped_column(String(120), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TeamTemplate(Base):
+    """Operator-saved team briefs only — BUILTIN_TEAM_TEMPLATES (org_catalog.py)
+    ship as static seeds and are listed alongside these, never stored here."""
+    __tablename__ = "team_templates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    team_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # links to BUILTIN_TEAMS
+    tasks: Mapped[str] = mapped_column(Text)  # JSON list of {persona, content}
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -561,7 +642,7 @@ def _migrate_add_columns(sync_conn):
         "media_assets": [("uploaded_by", "VARCHAR(36)")],
         "knowledge_items": [("uploaded_by", "VARCHAR(36)")],
         "goals": [("created_by", "VARCHAR(36)")],
-        "agency_settings": [("last_idle_chat_nudge", "DATETIME")],
+        "agency_settings": [("last_idle_chat_nudge", "DATETIME"), ("active_persona_id", "VARCHAR(36)")],
         "users": [
             ("status", "VARCHAR(20) DEFAULT 'active'"),
             ("department", "VARCHAR(120)"),
@@ -621,6 +702,37 @@ async def ensure_default_user() -> dict:
         "email": user.email,
         "full_name": user.full_name,
     }
+
+
+async def ensure_builtin_personas_seeded() -> None:
+    """Insert-if-missing seeding of the 36 built-in personas (persona_catalog.py)
+    into the personas table — mirrors personas.ts's ensureBuiltinSeeded():
+    insert when missing, sync only the display `name` on an existing row if
+    the catalog's name changed, never touch fields a user may have edited."""
+    from sqlalchemy import select
+    import json as _json
+    from persona_catalog import BUILTIN_PERSONAS
+
+    async with async_session() as db:
+        existing = (await db.execute(select(Persona).where(Persona.is_builtin == True))).scalars().all()  # noqa: E712
+        existing_by_slug = {p.slug: p for p in existing}
+        changed = False
+        for b in BUILTIN_PERSONAS:
+            row = existing_by_slug.get(b.id)
+            if row is None:
+                db.add(Persona(
+                    id=str(uuid.uuid4()), slug=b.id, owner_id=None, name=b.name, role=b.role,
+                    description=b.description, job_description=b.job_description, tone=b.tone,
+                    responsibilities=_json.dumps(b.responsibilities),
+                    system_prompt_override=b.system_prompt_override,
+                    work_mode=b.work_mode or "agent", language=b.language, is_builtin=True,
+                ))
+                changed = True
+            elif row.name != b.name:
+                row.name = b.name
+                changed = True
+        if changed:
+            await db.commit()
 
 
 async def get_db():
