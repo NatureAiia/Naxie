@@ -423,7 +423,7 @@ export const api = {
   voiceStatus: () => req<{ realtime: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean }>("/api/voice/status"),
   voiceAsk: (jobId: string, question: string, personaId?: string, history?: { q: string; a: string }[]) =>
     req<{ text: string; personaName: string }>("/api/voice/ask", { method: "POST", body: JSON.stringify({ jobId, question, personaId, history }) }),
-  // JARVIS's general conversation — a direct model passthrough (no task
+  // Naxie's general conversation — a direct model passthrough (no task
   // planner, no template matching, no canned strings). `model` forces a
   // specific locally-pulled Ollama model for this turn; omit it to use
   // whatever model/provider is currently active.

@@ -68,7 +68,7 @@ const SkillForge = lazy(() => import("./pages/SkillForge").then(m => ({ default:
 const Orchestrate = lazy(() => import("./pages/Orchestrate").then(m => ({ default: m.Orchestrate })));
 const DailyReports = lazy(() => import("./pages/DailyReports").then(m => ({ default: m.DailyReports })));
 const MyWork = lazy(() => import("./pages/MyWork").then(m => ({ default: m.MyWork })));
-const Jarvis = lazy(() => import("./pages/Jarvis").then(m => ({ default: m.Jarvis })));
+const Naxie = lazy(() => import("./pages/Naxie").then(m => ({ default: m.Naxie })));
 
 // Lightweight, layout-shift-free placeholder while a route chunk downloads —
 // on a warm cache this never has time to paint; on a cold load it beats a
@@ -99,7 +99,7 @@ function AppShell() {
         <Route path="/" element={<Navigate to="/chat" />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/chat" element={<Chat />} />
-        <Route path="/jarvis" element={<Jarvis />} />
+        <Route path="/naxie" element={<Naxie />} />
         <Route path="/team" element={<Team />} />
         <Route path="/presets" element={<Presets />} />
         <Route path="/tasks" element={<Tasks />} />

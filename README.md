@@ -2,7 +2,7 @@
 
 # NaxionAI Powered by Neuroworks
 
-<img src="assets/jarvis-reference/jarvis-waveform.gif" alt="Voice/agent waveform" height="550" />
+<img src="assets/naxie-reference/naxie-waveform.gif" alt="Voice/agent waveform" height="550" />
 
 **NaxionAI Powered by Neuroworks** — inspired by Mr Magaya and JARVIS.
 
@@ -80,13 +80,14 @@ internally named **Jarvis**. Both have since been rebranded:
 
 **NeuroWorks** is unaffected by this rebrand and keeps its name. References to
 the fictional Iron Man **JARVIS** as a design inspiration (see
-[Inspiration](#-inspiration) above, and the `jarvis-reference`/`jarvis-*`
-asset filenames) are attribution to that lineage, not the old product name,
-and were intentionally left as-is.
+[Inspiration](#-inspiration) above) are attribution to that lineage, not the
+old product name. The reference assets themselves now live under
+`assets/naxie-reference/` (`naxie-mascot.gif`, `naxie-waveform.gif`,
+`stark-hud-background.jpg`), matching the page's current name.
 
 ## License
 
 See `neuroworks/LICENSE`.
 
 <br>
-<img src="assets/jarvis-reference/stark-hud-background.jpg" alt="Stark HUD-style dashboard aesthetic that inspired this project" width="100%" />
+<img src="assets/naxie-reference/stark-hud-background.jpg" alt="Stark HUD-style dashboard aesthetic that inspired this project" width="100%" />

@@ -288,61 +288,36 @@ export function Naxie() {
             <div className={`nw-orb-ring-a absolute inset-0 rounded-full border-2 ${orbColor} ${orbState !== "idle" ? "opacity-40" : ""}`} />
             <div className={`nw-orb-ring-b absolute inset-6 rounded-full border ${orbColor} opacity-70`} />
 
+            {/* Listening — the Naxie mascot gif, replacing the old CSS radial
+                waveform bars. */}
             {orbState === "listening" && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="relative w-full h-full">
-                  {[...Array(16)].map((_, index) => (
-                    <span
-                      key={index}
-                      className="nw-radial-bar absolute left-1/2 top-1/2 h-12 w-1 rounded-full bg-orange-400/90"
-                      style={{ transform: `rotate(${index * 22.5}deg) translate(-50%, -140%)`, animationDelay: `${(index % 8) * 0.055}s` }}
-                    />
-                  ))}
-                </div>
-              </div>
+              <img
+                src="/naxie/naxie-mascot.gif"
+                alt=""
+                aria-hidden
+                className="absolute inset-0 w-full h-full object-contain rounded-full"
+              />
             )}
 
+            {/* Thinking — the Naxie waveform gif, shown while the request is
+                in flight and the assistant is generating a reply. */}
             {orbState === "thinking" && (
-              <>
-                <img
-                  src="/jarvis/jarvis-waveform.gif"
-                  alt=""
-                  aria-hidden
-                  className="absolute inset-0 w-full h-full object-contain rounded-full"
-                />
-                <div className="absolute inset-0 grid place-items-center">
-                  <div className="relative w-full h-full">
-                    {[...Array(12)].map((_, index) => (
-                      <span
-                        key={index}
-                        className="nw-radial-bar nw-radial-bar-think absolute left-1/2 top-1/2 h-12 w-1 rounded-full"
-                        style={{ transform: `rotate(${index * 30}deg) translate(-50%, -140%)`, animationDelay: `${index * 0.045}s` }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </>
+              <img
+                src="/naxie/naxie-waveform.gif"
+                alt=""
+                aria-hidden
+                className="absolute inset-0 w-full h-full object-contain rounded-full"
+              />
             )}
 
+            {/* Speaking — the same waveform gif as thinking, since Naxie is
+                now the one making sound. */}
             {orbState === "speaking" && (
-              <>
-                <img
-                  src="/jarvis/jarvis-waveform.gif"
-                  alt="Voice/agent waveform"
-                  className="absolute inset-0 w-full h-full object-contain rounded-full"
-                />
-                <div className="absolute inset-0 grid place-items-center">
-                  <div className="relative w-full h-full">
-                    {[...Array(10)].map((_, index) => (
-                      <span
-                        key={index}
-                        className="nw-radial-bar nw-radial-bar-speak absolute left-1/2 top-1/2 h-14 w-1 rounded-full"
-                        style={{ transform: `rotate(${index * 36}deg) translate(-50%, -140%)`, animationDelay: `${(index % 5) * 0.05}s` }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </>
+              <img
+                src="/naxie/naxie-waveform.gif"
+                alt="Voice/agent waveform"
+                className="absolute inset-0 w-full h-full object-contain rounded-full"
+              />
             )}
 
             <div
