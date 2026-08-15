@@ -1,6 +1,6 @@
 @echo off
 echo Starting NAXIONAI frontend...
-cd /d "%~dp0frontend"
+cd /d "d:\KASHIRI BRIGHTON\BUSINESS\AiiA\NAXIONAI\frontend"
 
 if not exist node_modules (
     echo Installing npm packages...

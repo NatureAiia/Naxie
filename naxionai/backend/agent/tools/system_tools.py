@@ -55,7 +55,7 @@ def get_agent_tools(state: dict):
             from agent.chat_push import chat_push
             user_id = state.get("created_by", "")
             goal_id = state.get("goal_id", "")
-            await chat_push(user_id=user_id, content=message, agent_name="omni", goal_id=goal_id)
+            await chat_push(user_id=user_id, content=message, agent_name="neuroworks - omni", goal_id=goal_id)
             return "Message pushed to user UI."
         except Exception as e:
             return f"Push Error: {e}"

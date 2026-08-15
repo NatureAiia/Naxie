@@ -85,7 +85,7 @@ async def agent_thought_push(
     about what the agent is currently doing, then pushes it to the UI.
     """
     from agent.llm import generate_completion
-    prompt = f"You are {agent_name.upper()}, an autonomous AI agent in the NaxionAI network. You are currently: {context}. Give a dynamic, first-person present-tense thought (max 1 sentence) about what you are doing right now. NO hashtags, NO emojis, NO quotation marks, just raw telemetry thought."
+    prompt = f"You are {agent_name.upper()}, an autonomous AI agent in the NeuroWorks network. You are currently: {context}. Give a dynamic, first-person present-tense thought (max 1 sentence) about what you are doing right now. NO hashtags, NO emojis, NO quotation marks, just raw telemetry thought."
     try:
         dynamic_thought = await generate_completion(prompt, temperature=0.3)
         await chat_push(user_id, dynamic_thought.strip(' "').replace("\n", ""), agent_name, goal_id, metadata)

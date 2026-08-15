@@ -48,11 +48,6 @@ pymupdf>=1.25.1
 python-docx>=1.1.2
 pandas>=2.2.3
 openpyxl>=3.1.5
-markdown>=3.6       # Phase 6: markdown -> HTML for docx/PDF export
-# Phase 6: local OCR. ALSO requires the Tesseract-OCR system binary
-# (https://github.com/tesseract-ocr/tesseract) — not pip-installable;
-# ocr.py degrades gracefully with an install message if it's missing.
-pytesseract>=0.3.13
 
 # HTML Parsing
 beautifulsoup4>=4.12.3

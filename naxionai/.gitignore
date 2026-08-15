@@ -61,16 +61,6 @@ backend/generated_assets/
 *.wav
 
 # ─────────────────────────────────────────────────────────
-# Personal data — knowledge vault, browser session state, security
-# watchdog event log (Phase 6). Never commit real browser session
-# cookies/local-storage or personal notes.
-# ─────────────────────────────────────────────────────────
-backend/ghost_session_data/
-backend/.naxionai_state/
-backend/vault/*
-!backend/vault/README.md
-
-# ─────────────────────────────────────────────────────────
 # AI / ML
 # ─────────────────────────────────────────────────────────
 *.pkl

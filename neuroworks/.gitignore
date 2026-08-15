@@ -1,0 +1,57 @@
+node_modules/
+dist/
+.vault/
+# The knowledge vault is its own git repo (see server/vault/.git), synced
+# independently via VAULT_REPO — not versioned as part of this repo.
+server/vault/
+*.log
+.env
+.env.local
+
+# Vite
+web/dist/
+.DS_Store
+
+# NeuroWorks runtime state (custom templates, future caches) — per-machine
+.neuroworks/
+
+# User-fetched skill .md files (skill.fetch_remote drops them here, gated by
+# CLAWBOT_REMOTE_SKILLS=1). Per-machine, not shared.
+server/src/skills/_user/
+
+# Tunnel binary (downloaded per-machine) + operational logs
+.tools/
+_devlog.txt
+_weblog.txt
+_tunnel.log
+# Test/scratch harness artifacts
+server/_*-harness*
+server/_*.out
+server/eng.traineddata
+server/page1.png
+
+# Scratch / one-off outputs (root + server) — never version these
+_*.out
+_*.err
+server/_*.json
+server/_desk/
+# Stray experimental static export (not the web/ app). Un-ignore to track it.
+server/neuroworks_site/
+
+# Personal / private content that should stay local and never be published
+personal/
+private/
+personal-uploads/
+my-notes/
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+
+# env backups (may contain secrets)
+.env.bak*
+.env.*.bak
+.env

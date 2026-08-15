@@ -156,39 +156,6 @@ class Settings(BaseSettings):
     llm_request_timeout_seconds: int = 60
     approval_token_expires_hours: int = 48
 
-    # ── Spend Caps (optional — None disables) ─────────────
-    daily_spend_cap_usd: Optional[float] = None
-    domain_daily_spend_cap_usd: Optional[float] = None
-
-    # ── Security gates (Phase 6) ──────────────────────────
-    # Ported from neuroworks's NEUROWORKS_FS_UNRESTRICTED / NEUROWORKS_WEB_ALLOW_PRIVATE.
-    # Default OFF: sensitive-path reads (.env, .ssh, browser cookie stores) and
-    # SSRF-shaped fetches (localhost, private ranges, cloud metadata) stay
-    # blocked unless the operator consciously opts in.
-    fs_unrestricted: bool = False
-    web_allow_private: bool = False
-    # Request-level attack watchdog (security_watch.py). Loopback is never
-    # scored/blocked regardless of these thresholds.
-    secwatch_block_score: float = 25
-    secwatch_block_minutes: int = 30
-    secwatch_flood_per_min: int = 600
-    # Default-on: block a vault write when it contains a high-severity secret
-    # match (API key, private key, etc.) rather than silently committing it.
-    vault_scan_enabled: bool = True
-
-    # ── Calendar (Phase 6) ──────────────────────────────────
-    # Operator-configured iCal feed (Google Calendar public feed / Outlook
-    # publish link) or local .ics path — never LLM-supplied, same reasoning
-    # as git_repo_path.
-    calendar_ical_url: str = ""
-
-    # ── Personal knowledge vault (Phase 6) ──────────────────
-    # Git-backed Obsidian-style notes folder, local to naxionai (moved off of
-    # the old neuroworks/vault placeholder so it survives that folder's
-    # retirement). Point this at a checkout of the separate Vault repo
-    # (see CLAUDE.md) to sync notes there via git push/pull.
-    vault_path: str = "./vault"
-
     # ── CORS ─────────────────────────────────────────────
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 

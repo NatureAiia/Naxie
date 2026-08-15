@@ -17,10 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, PlatformConnection
 from auth import get_current_user, layer_of_role
 from encryption import encrypt_value, decrypt_value
-from security_gates import assert_safe_public_url
-from api.governance import get_enforceable_constraints
 import connector_client as cc
-import governance as gov
 
 router = APIRouter(prefix="/api/connectors", tags=["connectors"])
 
@@ -98,23 +95,7 @@ def _validate_base_url(base_url: str) -> str:
     parsed = urlparse(base_url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise HTTPException(400, f"base_url must be a valid http(s) URL: {base_url}")
-    try:
-        # Literal-IP/localhost/internal-TLD check only here — cheap, no I/O.
-        # The DNS-resolving check (catches a public hostname that resolves to
-        # a private/metadata IP) runs separately via asyncio.to_thread() in
-        # the async caller, matching security_gates.py's own guidance.
-        assert_safe_public_url(base_url, resolve_dns=False)
-    except PermissionError as e:
-        raise HTTPException(400, str(e))
     return base_url
-
-
-async def _validate_base_url_dns(base_url: str) -> None:
-    import asyncio
-    try:
-        await asyncio.to_thread(assert_safe_public_url, base_url, resolve_dns=True)
-    except PermissionError as e:
-        raise HTTPException(400, str(e))
 
 
 @router.post("/", response_model=ConnectorOut)
@@ -122,7 +103,6 @@ async def create_connector(body: CreateConnectorRequest, db: AsyncSession = Depe
     if body.auth.type not in ("none", "api_key", "bearer", "basic", "header"):
         raise HTTPException(400, "auth.type must be none, api_key, bearer, basic, or header")
     base_url = _validate_base_url(body.base_url)
-    await _validate_base_url_dns(base_url)
     row = PlatformConnection(
         id=str(uuid.uuid4()), owner_id=user.get("sub"), platform=PLATFORM,
         display_name=body.label.strip(), account_label=body.label.strip()[:100],
@@ -164,7 +144,6 @@ async def update_connector(connector_id: str, body: UpdateConnectorRequest, db: 
         row.account_label = body.label.strip()[:100]
     if body.base_url is not None:
         row.base_url = _validate_base_url(body.base_url)
-        await _validate_base_url_dns(row.base_url)
     if body.description is not None:
         extra["description"] = body.description
     if body.auth is not None:
@@ -220,16 +199,6 @@ class CallRequest(BaseModel):
 async def call_connector_endpoint(connector_id: str, body: CallRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
     row = await _load_for_call(db, connector_id, user)
     extra = json.loads(row.extra_config) if row.extra_config else {}
-
-    enforceable = await get_enforceable_constraints(db, user.get("sub"))
-    if enforceable:
-        action = gov.describe_step_action("connector.call", {
-            "url": row.base_url, "path": body.path, "kind": body.method,
-        })
-        gate = gov.gate_action(action, enforceable)
-        if gate["blocked"]:
-            raise HTTPException(403, f"Blocked by governance policy: {gate['violations']}")
-
     secret = decrypt_value(row.api_key_encrypted) if row.api_key_encrypted else None
     result = await cc.call_connector(
         base_url=row.base_url, write_enabled=row.write_enabled, auth_type=row.auth_type or "none",

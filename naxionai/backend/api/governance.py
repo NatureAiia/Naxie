@@ -138,28 +138,20 @@ class CheckActionResponse(BaseModel):
     violations: List[dict]
 
 
-async def get_enforceable_constraints(db: AsyncSession, owner_id: str) -> List[dict]:
-    """Shared by the manual test box below and by the actual pre-execution
-    gates at the CONSEQUENTIAL_TOOLS call sites (api/connectors.py's
-    call_connector_endpoint, api/data_sources.py's query_source) — see
-    governance.py's module docstring for why those weren't wired before."""
+@router.post("/check-action", response_model=CheckActionResponse)
+async def check_action(body: CheckActionRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Manual test box — mirrors the review-workbench check neuroworks
+    exposes on its Governance page."""
     rows = (await db.execute(
         select(GovernanceConstraint, GovernancePolicy.name)
         .join(GovernancePolicy, GovernanceConstraint.policy_id == GovernancePolicy.id)
-        .where(GovernancePolicy.owner_id == owner_id)
+        .where(GovernancePolicy.owner_id == user.get("sub"))
     )).all()
     constraints = [
         {"id": c.id, "policy_name": policy_name, "rule": c.rule, "severity": c.severity,
          "category": c.category, "reviewed": c.reviewed, "accepted": c.accepted}
         for c, policy_name in rows
     ]
-    return gov.filter_enforceable(constraints)
-
-
-@router.post("/check-action", response_model=CheckActionResponse)
-async def check_action(body: CheckActionRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
-    """Manual test box — mirrors the review-workbench check neuroworks
-    exposes on its Governance page."""
-    enforceable = await get_enforceable_constraints(db, user.get("sub"))
+    enforceable = gov.filter_enforceable(constraints)
     result = gov.gate_action(body.action, enforceable)
     return CheckActionResponse(**result)

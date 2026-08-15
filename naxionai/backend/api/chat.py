@@ -26,14 +26,9 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 _BG_TASKS: set = set()
 
 
-VALID_DOMAINS = {"business", "work", "personal"}
-
-
 class ChatMessageBody(BaseModel):
     message: str
     context: Optional[dict] = {}
-    domain: str = "personal"
-    override_spend_cap: bool = False
 
 
 @router.post("/stream")
@@ -48,8 +43,7 @@ async def chat_stream(
     which the frontend polls.
     """
     user_id = user.get("sub", "unknown")
-    domain = body.domain if body.domain in VALID_DOMAINS else "personal"
-
+    
     # 1. Save user message to DB
     from database import ChatMessage
     import uuid
@@ -57,31 +51,13 @@ async def chat_stream(
         id=str(uuid.uuid4()),
         user_id=user_id,
         role="user",
-        content=body.message,
-        domain=domain,
+        content=body.message
     )
     db.add(msg_db)
     await db.commit()
 
     async def generate():
         try:
-            # Spend-cap check happens before any real work so a blocked call
-            # costs nothing — no LLM invocation, no governance/persona lookups.
-            from cost_tracker import check_spend_cap
-            cap = await check_spend_cap(domain)
-            if cap["exceeded"] and not body.override_spend_cap:
-                cap_msg_id = str(uuid.uuid4())
-                cap_note = (
-                    f"You've hit your daily spend cap for {domain} "
-                    f"(${cap['spent_today_domain_usd']:.4f} of ${cap['domain_cap_usd']} spent, "
-                    f"${cap['spent_today_usd']:.4f} of ${cap['daily_cap_usd']} overall today). "
-                    "Send again with override to proceed anyway."
-                )
-                db.add(ChatMessage(id=cap_msg_id, user_id=user_id, role="agent", agent_name="naxie", content=cap_note, domain=domain))
-                await db.commit()
-                yield f"data: {json.dumps({'type': 'cap_exceeded', 'message': cap_note, **cap})}\n\n"
-                return
-
             yield f"data: {json.dumps({'type': 'action', 'content': 'Thinking...'})}\n\n"
             await asyncio.sleep(0.1)
 
@@ -97,32 +73,13 @@ async def chat_stream(
             active_goals_result = await db.execute(active_goals_query)
             active_goal = active_goals_result.scalar_one_or_none()
             
-            # Pull a larger pool of recent history, then trim to a token
-            # budget (not just a flat message count) so a handful of long
-            # messages can't blow past the active model's context window.
+            # We want to pull recent history as well
             hist_result = await db.execute(
                 select(ChatMessage)
                 .where(ChatMessage.user_id == user_id)
-                .order_by(desc(ChatMessage.created_at)).limit(40)
+                .order_by(desc(ChatMessage.created_at)).limit(10)
             )
-            hist = list(hist_result.scalars().all())  # newest-first
-
-            from config import get_settings as _get_settings
-            from model_router import get_context_window
-            from cost_tracker import estimate_tokens
-            _settings = _get_settings()
-            active_model = _settings.ollama_model if _settings.llm_provider == "ollama" else _settings.groq_primary_model
-            token_budget = get_context_window(active_model) // 2
-
-            trimmed = []
-            running = 0
-            for m in hist:
-                cost = estimate_tokens(m.content)
-                if trimmed and running + cost > token_budget:
-                    break
-                trimmed.append(m)
-                running += cost
-
+            hist = hist_result.scalars().all()
             # LangGraph's add_messages reducer only accepts LangChain-recognized
             # roles (human/user/ai/assistant/system/tool/...) — our own "agent"
             # role (how we label the responder in the DB) must be remapped or
@@ -130,7 +87,7 @@ async def chat_stream(
             # dies as an unretrieved task exception.
             hist_msgs = [
                 {"role": m.role if m.role in ("user", "assistant") else "assistant", "content": m.content}
-                for m in reversed(trimmed)
+                for m in reversed(hist)
             ]
             
             initial_state = {
@@ -158,7 +115,6 @@ async def chat_stream(
                 "current_task_id": None,
                 "deadline": active_goal.deadline.isoformat() if active_goal and active_goal.deadline else None,
                 "tool_scope": "full",
-                "domain": domain,
             }
             
             # ---- LLM EVALUATION (INSTANT STREAMING) ----
@@ -275,7 +231,7 @@ Return strictly JSON:
   }}
 }}"""
             try:
-                response = await generate_json(prompt, domain=domain)
+                response = await generate_json(prompt)
                 reply = response.get("reply", "Acknowledged.")
 
                 # Post-synth governance gate (Phase 4): checked against the
@@ -334,7 +290,7 @@ Return strictly JSON:
 
             # Save the agent reply directly to DB so it persists
             bot_msg_id = str(uuid.uuid4())
-            db.add(ChatMessage(id=bot_msg_id, user_id=user_id, role="agent", agent_name="naxie", content=reply, goal_id=active_goal.id if active_goal else None, domain=domain))
+            db.add(ChatMessage(id=bot_msg_id, user_id=user_id, role="agent", agent_name="naxie", content=reply, goal_id=active_goal.id if active_goal else None))
             await db.commit()
 
             # STREAM RESULT TO UI IMMEDIATELY

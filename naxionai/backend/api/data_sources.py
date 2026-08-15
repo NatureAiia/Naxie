@@ -13,9 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, DataSource
 from auth import get_current_user
 from encryption import encrypt_value, decrypt_value
-from api.governance import get_enforceable_constraints
 import data_source_client as dsc
-import governance as gov
 
 router = APIRouter(prefix="/api/data-sources", tags=["data-sources"])
 
@@ -97,19 +95,10 @@ class QueryRequest(BaseModel):
 @router.post("/{source_id}/query")
 async def query_source(source_id: str, body: QueryRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
     row = await _load(db, source_id, user)
-
-    if not row.readonly:
-        enforceable = await get_enforceable_constraints(db, user.get("sub"))
-        if enforceable:
-            action = gov.describe_step_action("db.write", {"kind": row.kind, "code": body.sql})
-            gate = gov.gate_action(action, enforceable)
-            if gate["blocked"]:
-                raise HTTPException(403, f"Blocked by governance policy: {gate['violations']}")
-
     connection = decrypt_value(row.connection_encrypted)
     try:
         return await dsc.run_query(row.kind, connection, body.sql, row.readonly, min(body.limit, 2000))
-    except (ValueError, PermissionError) as e:
+    except ValueError as e:
         raise HTTPException(400, str(e))
 
 
@@ -119,5 +108,5 @@ async def describe_source(source_id: str, db: AsyncSession = Depends(get_db), us
     connection = decrypt_value(row.connection_encrypted)
     try:
         return await dsc.describe_source(row.kind, connection)
-    except (ValueError, PermissionError) as e:
+    except ValueError as e:
         raise HTTPException(400, str(e))

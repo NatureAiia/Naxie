@@ -127,7 +127,7 @@ Return strictly JSON:
     await chat_push(
         user_id=user_id,
         content=reply,
-        agent_name="executive",
+        agent_name="neuroworks - executive",
         goal_id=goal_id
     )
 

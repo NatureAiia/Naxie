@@ -42,11 +42,6 @@ from api.audit import router as audit_router
 from api.connectors import router as connectors_router
 from api.data_sources import router as data_sources_router
 from api.models import router as models_router
-from api.security import router as security_router
-from api.my_tasks import router as my_tasks_router
-from api.vault import router as vault_router
-from api.model_providers import router as model_providers_router
-from api.exports import router as exports_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,11 +70,6 @@ async def lifespan(app: FastAPI):
     from database import ensure_builtin_personas_seeded
     await ensure_builtin_personas_seeded()
     logger.info("👥 Built-in persona catalog seeded")
-
-    # Re-apply any Phase 6 bring-your-own model provider marked active in a
-    # prior session, so a UI-added key survives restarts.
-    from model_providers import load_and_apply_active_provider
-    await load_and_apply_active_provider()
 
     # Ensure Qdrant collections exist
     try:
@@ -164,12 +154,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Security watchdog (Phase 6) — scanner-probe/traversal/injection/flood
-# detection + auto-block, ahead of everything else. Loopback is never
-# blocked, so this is safe for the normal local-frontend traffic pattern.
-from security_watch import SecurityWatchMiddleware
-app.add_middleware(SecurityWatchMiddleware)
-
 # Static files for media
 media_dir = Path(settings.media_upload_dir)
 media_dir.mkdir(parents=True, exist_ok=True)
@@ -199,11 +183,6 @@ app.include_router(audit_router)
 app.include_router(connectors_router)
 app.include_router(data_sources_router)
 app.include_router(models_router)
-app.include_router(security_router)
-app.include_router(my_tasks_router)
-app.include_router(vault_router)
-app.include_router(model_providers_router)
-app.include_router(exports_router)
 
 
 @app.get("/api/health")

@@ -90,11 +90,6 @@ def cost_tier(model: str) -> str:
     return "openrouter/small"
 
 
-def estimate_tokens(text: str) -> int:
-    """Heuristic fallback when a provider doesn't report real usage: ~4 chars/token."""
-    return len(text or "") // 4
-
-
 def estimate_cost(model: str, backend: str, input_tokens: int, output_tokens: int) -> float:
     if backend in ("ollama", "groq"):
         return 0.0
@@ -113,39 +108,26 @@ async def record_llm_cost(
     system_text: str = "",
     profile: str = "none",
     job_id: str = "adhoc",
-    usage: Optional[dict] = None,
-    domain: str = "general",
 ) -> None:
-    """Best-effort — never let cost tracking break a real LLM call.
-    `usage` is the provider's real usage_metadata ({"input_tokens", "output_tokens", ...})
-    when the caller has it; falls back to a text-length estimate otherwise."""
+    """Best-effort — never let cost tracking break a real LLM call."""
     try:
         from database import async_session, CostRecord
 
-        if usage:
-            input_tokens = int(usage.get("input_tokens") or 0)
-            output_tokens = int(usage.get("output_tokens") or 0)
-        else:
-            input_tokens = estimate_tokens(input_text) + estimate_tokens(system_text)
-            output_tokens = estimate_tokens(output_text)
+        input_tokens = (len(input_text or "") + len(system_text or "")) // 4
+        output_tokens = len(output_text or "") // 4
         backend = detect_backend(model)
         cost_usd = estimate_cost(model, backend, input_tokens, output_tokens)
         async with async_session() as db:
             db.add(CostRecord(
                 id=str(uuid.uuid4()), job_id=job_id or "adhoc", model=model, backend=backend,
                 profile=profile, input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=cost_usd,
-                domain=domain or "general",
             ))
             await db.commit()
     except Exception as e:
         logger.warning(f"[CostTracker] record failed: {e}")
 
 
-async def get_cost_summary(
-    owner_id: Optional[str] = None,
-    since_days: Optional[int] = None,
-    domain: Optional[str] = None,
-) -> dict:
+async def get_cost_summary(owner_id: Optional[str] = None, since_days: Optional[int] = None) -> dict:
     from sqlalchemy import select
     from database import async_session, CostRecord
 
@@ -153,8 +135,6 @@ async def get_cost_summary(
         stmt = select(CostRecord)
         if since_days is not None:
             stmt = stmt.where(CostRecord.created_at >= datetime.utcnow() - timedelta(days=since_days))
-        if domain:
-            stmt = stmt.where(CostRecord.domain == domain)
         rows = (await db.execute(stmt.order_by(CostRecord.created_at.desc()))).scalars().all()
 
     total_cost = sum(r.cost_usd for r in rows)
@@ -162,7 +142,6 @@ async def get_cost_summary(
     total_out = sum(r.output_tokens for r in rows)
     by_model: dict = {}
     by_day: dict = {}
-    by_domain: dict = {}
     for r in rows:
         m = by_model.setdefault(r.model, {"cost_usd": 0.0, "calls": 0})
         m["cost_usd"] += r.cost_usd
@@ -171,11 +150,6 @@ async def get_cost_summary(
         d = by_day.setdefault(day, {"cost_usd": 0.0, "calls": 0})
         d["cost_usd"] += r.cost_usd
         d["calls"] += 1
-        dom = by_domain.setdefault(r.domain or "general", {"cost_usd": 0.0, "calls": 0, "input_tokens": 0, "output_tokens": 0})
-        dom["cost_usd"] += r.cost_usd
-        dom["calls"] += 1
-        dom["input_tokens"] += r.input_tokens
-        dom["output_tokens"] += r.output_tokens
 
     return {
         "total_cost_usd": total_cost,
@@ -190,65 +164,12 @@ async def get_cost_summary(
             [{"date": k, **v} for k, v in by_day.items()],
             key=lambda x: x["date"],
         ),
-        "by_domain": sorted(
-            [{"domain": k, **v} for k, v in by_domain.items()],
-            key=lambda x: -x["cost_usd"],
-        ),
         "recent_calls": [
             {
                 "job_id": r.job_id, "model": r.model, "backend": r.backend, "profile": r.profile,
-                "domain": r.domain, "input_tokens": r.input_tokens, "output_tokens": r.output_tokens,
-                "cost_usd": r.cost_usd, "created_at": r.created_at.isoformat(),
+                "input_tokens": r.input_tokens, "output_tokens": r.output_tokens, "cost_usd": r.cost_usd,
+                "created_at": r.created_at.isoformat(),
             }
             for r in rows[:50]
         ],
     }
-
-
-DOMAINS = ("business", "work", "personal", "general")
-
-
-async def check_spend_cap(domain: str = "general") -> dict:
-    """Best-effort check against config.py's optional daily spend caps.
-    Returns exceeded=False (never blocks) if no cap is configured or the
-    check itself fails — a broken cap check must never take Naxie down."""
-    from config import get_settings
-    settings = get_settings()
-    daily_cap = settings.daily_spend_cap_usd
-    domain_cap = settings.domain_daily_spend_cap_usd
-
-    result = {
-        "exceeded": False,
-        "domain": domain,
-        "spent_today_usd": 0.0,
-        "spent_today_domain_usd": 0.0,
-        "daily_cap_usd": daily_cap,
-        "domain_cap_usd": domain_cap,
-    }
-    if daily_cap is None and domain_cap is None:
-        return result
-
-    try:
-        from sqlalchemy import select, func
-        from database import async_session, CostRecord
-
-        start_of_today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        async with async_session() as db:
-            total = (await db.execute(
-                select(func.coalesce(func.sum(CostRecord.cost_usd), 0.0)).where(CostRecord.created_at >= start_of_today)
-            )).scalar_one()
-            domain_total = (await db.execute(
-                select(func.coalesce(func.sum(CostRecord.cost_usd), 0.0)).where(
-                    CostRecord.created_at >= start_of_today, CostRecord.domain == domain,
-                )
-            )).scalar_one()
-
-        result["spent_today_usd"] = float(total)
-        result["spent_today_domain_usd"] = float(domain_total)
-        result["exceeded"] = (daily_cap is not None and total >= daily_cap) or (
-            domain_cap is not None and domain_total >= domain_cap
-        )
-    except Exception as e:
-        logger.warning(f"[CostTracker] spend cap check failed (allowing call): {e}")
-
-    return result

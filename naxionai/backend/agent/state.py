@@ -25,7 +25,6 @@ class AgentState(TypedDict):
     success_metrics: dict
     constraints: dict
     asset_ids: list[str]          # Media library asset IDs provided
-    domain: Optional[str]         # business | work | personal | general — which life-domain this run belongs to
 
     # ── Conversation / Messages ──────────────────────────
     messages: Annotated[list, add_messages]

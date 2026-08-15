@@ -1,67 +1,92 @@
 <div align="center">
 
-# NaxionAI
+# NaxionAI Powered by Neuroworks
 
 <img src="assets/jarvis-reference/jarvis-waveform.gif" alt="Voice/agent waveform" height="550" />
 
-**A personal, single-user AI assistant — "Naxie" — inspired by JARVIS.**
+**NaxionAI Powered by Neuroworks** — inspired by Mr Magaya and JARVIS.
 
 </div>
 
-## What this is
+## NeuroWorks Shell
 
-NaxionAI (backend: FastAPI + Python; frontend: Next.js) is a personal
-assistant that runs on your own machine: a local-first LLM brain (Ollama by
-default, with Groq and bring-your-own cloud providers as opt-ins), a voice
-pipeline, a knowledge vault, connectors to your own data sources, and a
-small set of PA tools (weather, reminders, calendar, downloads, system
-control) — all gated behind explicit opt-in settings where they touch the
-host or the network.
+An **empty-state, UAT-ready** package of the NeuroWorks platform. Full
+functionality, **none of the operator's data** — no users, no connectors, no
+knowledge vault, no company personas, no API keys. Hand this to a tester and
+they stand up their own clean instance.
 
-The code lives under [`naxionai/`](naxionai/):
+It contains two systems that can run independently or together:
 
-- [`naxionai/backend/`](naxionai/backend/) — FastAPI app, `http://localhost:8000`
-- [`naxionai/frontend/`](naxionai/frontend/) — Next.js app, `http://localhost:3000`
+- **`neuroworks-ts/`** — the TypeScript build (Express API + React SPA), one
+  port, `http://localhost:7471`.
+- **`digital-force-py/`** — the Python build (FastAPI backend + Next.js
+  frontend + Qdrant + Postgres), `http://localhost:8000` / `:3000`.
 
-## Getting started
+<p align="center">
+ 
+  <br/>
+  <sub>Voice-assistant lineage — see <a href="#-inspiration">Inspiration</a> below. The live mic-listening
+  indicator in the app itself (<code>VoiceDiscussion</code>) is a few CSS-animated bars, not a video asset —
+  see <code>MicWaveform</code> in <code>neuroworks-ts/web/src/components/VoiceDiscussion.tsx</code>.</sub>
+</p>
+
+## Start here
+
+Read **[AI-STARTUP.md](AI-STARTUP.md)** — a step-by-step, copy-pasteable startup
+runbook designed so an **AI assistant or a human** can bring the stack up from
+zero. The short version:
 
 ```bash
-cp naxionai/.env.example naxionai/.env
-# set JWT_SECRET_KEY + ENCRYPTION_KEY in naxionai/.env
+cp neuroworks-ts/.env.example    neuroworks-ts/.env
+cp digital-force-py/.env.example digital-force-py/.env
+# set JWT_SECRET_KEY + ENCRYPTION_KEY in digital-force-py/.env (see AI-STARTUP.md §2)
+# Run the components locally per AI-STARTUP.md (no Docker)
 ```
 
-Then run the backend and frontend locally (see `naxionai/backend/start_backend.bat`
-/ `naxionai/frontend` scripts) and open the app — the first account created
-becomes the local owner. No Docker required.
+Then open the app and **create the first account** — it becomes the workspace
+**owner (superadmin)**. That is the entire onboarding.
 
-## History
+## What "shell" means here
 
-This project started as **Digital Force**, an autonomous social-media-agency
-multi-agent platform, and was rebranded to **NaxionAI** (its voice-assistant
-page renamed **Naxie**, formerly "Jarvis"). It also absorbed a handful of
-features — a personal to-do list, a git-backed knowledge vault, security
-gates, bring-your-own model providers, OCR, document export, calendar, and
-a downloads organizer — from a separate legacy platform called **neuroworks**,
-which has since been retired. See [`naxionai/NEUROWORKS_DESCOPE.md`](naxionai/NEUROWORKS_DESCOPE.md)
-for exactly what was ported vs. intentionally left behind (most of
-neuroworks was a multi-department AI-workforce platform that doesn't apply
-to a single-user assistant).
+| Stripped out                                  | Kept (functionality)                                  |
+|-----------------------------------------------|-------------------------------------------------------|
+| All users (seeded owner removed)              | Full auth + first-run owner bootstrap                 |
+| Connectors, integrations, API keys            | The connector/integration framework (add your own)    |
+| Knowledge vault / "second brain" content      | Vault engine (points at a local empty `./vault`)      |
+| Company personas, datasets, job history       | The built-in generic skills + persona engine          |
+| Every real secret (`.env`, tokens, DB dumps)  | `.env.example` templates                              |
 
-References to the fictional Iron Man **JARVIS** above are attribution to
-the "build your own JARVIS" open-source lineage that inspired this project's
-look and feel (see the `jarvis-reference`/`jarvis-*` asset filenames) — not
-a claim about the old product name.
+No `.git` history is included (so no embedded tokens travel with the bundle).
 
-## Repositories
+## 🎬 Inspiration
 
-Code changes go to this repo. Knowledge-vault/operator data is stored
-separately — see `CLAUDE.md` for the two-repo split.
+The look and feel here nods to the "build your own JARVIS" lineage of
+open-source voice assistants — a single-user, single-machine loop that
+listens, thinks, and talks. NeuroWorks Shell takes that same premise (an AI
+that acts on your behalf) and scales it into a multi-agent workforce with
+memory, governance, and network reach. The Stark-HUD banner and mascot above
+are reference assets from that lineage, not screenshots of this app.
+
+## 🏷️ Rebrand
+
+This project was originally built as **Digital Force**, an autonomous
+social-media-agency multi-agent platform, and its voice-assistant page was
+internally named **Jarvis**. Both have since been rebranded:
+
+| Old name | New name | Scope |
+|---|---|---|
+| Digital Force | **NaxionAI** | The overall product/brand |
+| Jarvis | **Naxie** | The voice-assistant persona/page (`/naxie` in both the `neuroworks/` and `naxionai/` frontends) |
+
+**NeuroWorks** is unaffected by this rebrand and keeps its name. References to
+the fictional Iron Man **JARVIS** as a design inspiration (see
+[Inspiration](#-inspiration) above, and the `jarvis-reference`/`jarvis-*`
+asset filenames) are attribution to that lineage, not the old product name,
+and were intentionally left as-is.
 
 ## License
 
-Personal project, not currently licensed for redistribution. (The old
-`neuroworks/LICENSE` this README used to point to no longer exists — that
-folder was retired; add a `LICENSE` file here if you want to formalize one.)
+See `neuroworks/LICENSE`.
 
 <br>
 <img src="assets/jarvis-reference/stark-hud-background.jpg" alt="Stark HUD-style dashboard aesthetic that inspired this project" width="100%" />

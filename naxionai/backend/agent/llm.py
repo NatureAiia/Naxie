@@ -38,72 +38,16 @@ def _get_cascade_configs():
     return configs
 
 
-def _track_cost(
-    model: str,
-    output_text: str,
-    input_text: str,
-    system_text: str,
-    usage: Optional[dict] = None,
-    domain: str = "general",
-) -> None:
+def _track_cost(model: str, output_text: str, input_text: str, system_text: str) -> None:
     """Fire-and-forget cost recording (Phase 4) — scheduled as a background
     task so a slow DB write never adds latency to the actual LLM response.
-    record_llm_cost is itself try/except-wrapped, so this can't raise.
-    `usage` is the provider's real token counts (response.usage_metadata)
-    when available — record_llm_cost falls back to a text-length estimate
-    only if it's None."""
+    record_llm_cost is itself try/except-wrapped, so this can't raise."""
     import asyncio
     try:
         from cost_tracker import record_llm_cost
-        asyncio.create_task(record_llm_cost(model, output_text or "", input_text, system_text, usage=usage, domain=domain))
+        asyncio.create_task(record_llm_cost(model, output_text or "", input_text, system_text))
     except Exception as e:
         logger.warning(f"[LLM] Cost tracking scheduling failed: {e}")
-
-
-async def _call_byo_provider(provider, messages: list[dict], temperature: float, max_tokens: int) -> tuple[str, Optional[dict]]:
-    """Non-streaming OpenAI-compatible chat completion against a Phase 6
-    bring-your-own model provider (see model_providers.py). Returns
-    (text, usage_dict_or_None)."""
-    import httpx
-
-    async with httpx.AsyncClient(timeout=settings.llm_request_timeout_seconds) as client:
-        resp = await client.post(
-            f"{provider.base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {provider.api_key}", "Content-Type": "application/json"},
-            json={"model": provider.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        return text, data.get("usage")
-
-
-async def _stream_byo_provider(provider, messages: list[dict], temperature: float, max_tokens: int):
-    """Streaming OpenAI-compatible chat completion (SSE) against a Phase 6
-    bring-your-own model provider. Yields text deltas."""
-    import json as _json
-    import httpx
-
-    async with httpx.AsyncClient(timeout=settings.llm_request_timeout_seconds) as client:
-        async with client.stream(
-            "POST",
-            f"{provider.base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {provider.api_key}", "Content-Type": "application/json"},
-            json={"model": provider.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "stream": True},
-        ) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data:"):
-                    continue
-                payload = line[len("data:"):].strip()
-                if payload == "[DONE]":
-                    break
-                try:
-                    delta = _json.loads(payload)["choices"][0]["delta"].get("content")
-                except (KeyError, IndexError, ValueError):
-                    continue
-                if delta:
-                    yield delta
 
 
 def _get_ollama_chat(temperature: float = 0.7):
@@ -124,20 +68,9 @@ async def generate_completion(
     system_prompt: str = "",
     prefer_reasoning: bool = False, # Maintained for function signature compatibility with existing Graph Nodes
     temperature: float = 0.7,
-    domain: str = "general",
 ) -> str:
     """Invokes the configured LLM provider. Under Groq, rotates across the 9-model cascade
-    on rate-limits/errors; under Ollama (default), calls the single local model directly.
-    A Phase 6 bring-your-own provider (model_providers.py), if activated, takes
-    priority over both — it's an explicit opt-in, so it wins over the default cascade."""
-    from model_providers import get_active_provider
-    byo = get_active_provider()
-    if byo is not None:
-        byo_messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + [{"role": "user", "content": prompt}]
-        text, usage = await _call_byo_provider(byo, byo_messages, temperature, settings.groq_max_tokens)
-        _track_cost(byo.model, text, prompt, system_prompt, usage=usage, domain=domain)
-        return text
-
+    on rate-limits/errors; under Ollama (default), calls the single local model directly."""
     from langchain_core.messages import SystemMessage, HumanMessage
 
     messages = []
@@ -148,7 +81,7 @@ async def generate_completion(
     if settings.llm_provider == "ollama":
         llm = _get_ollama_chat(temperature)
         response = await llm.ainvoke(messages)
-        _track_cost(settings.ollama_model, response.content, prompt, system_prompt, usage=getattr(response, "usage_metadata", None), domain=domain)
+        _track_cost(settings.ollama_model, response.content, prompt, system_prompt)
         return response.content
 
     from langchain_groq import ChatGroq
@@ -167,7 +100,7 @@ async def generate_completion(
                 timeout=settings.llm_request_timeout_seconds,  # bound each call; fail over on hang
             )
             response = await llm.ainvoke(messages)
-            _track_cost(model, response.content, prompt, system_prompt, usage=getattr(response, "usage_metadata", None), domain=domain)
+            _track_cost(model, response.content, prompt, system_prompt)
             return response.content
 
         except Exception as e:
@@ -182,12 +115,11 @@ async def generate_json(
     prompt: str,
     system_prompt: str = "",
     prefer_reasoning: bool = False,
-    domain: str = "general",
 ) -> dict:
     """Generate and natively parse a JSON object from the AI."""
     sys = (system_prompt or "") + "\n\nRESPOND WITH VALID JSON ONLY. No markdown fences, no explanation."
     # Use low temperature for deterministic JSON structuring
-    raw = await generate_completion(prompt, sys, prefer_reasoning=prefer_reasoning, temperature=0.3, domain=domain)
+    raw = await generate_completion(prompt, sys, prefer_reasoning=prefer_reasoning, temperature=0.3)
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -202,7 +134,6 @@ async def stream_chat_response(
     user: str,
     temperature: float = 0.7,
     max_tokens: int = 1024,
-    domain: str = "general",
 ) -> AsyncGenerator[str, None]:
     """
     Legacy single-turn stream (kept for compatibility). Prefer stream_chat_with_history.
@@ -212,7 +143,6 @@ async def stream_chat_response(
         messages=[{"role": "user", "content": user}],
         temperature=temperature,
         max_tokens=max_tokens,
-        domain=domain,
     ):
         yield token
 
@@ -222,7 +152,6 @@ async def stream_chat_with_history(
     messages: list,
     temperature: float = 0.7,
     max_tokens: int = 1500,
-    domain: str = "general",
 ) -> AsyncGenerator[str, None]:
     """
     Memory-aware chat streaming. Passes the FULL conversation history to the
@@ -239,32 +168,13 @@ async def stream_chat_with_history(
             role = "assistant"  # agent messages appear as assistant context
         norm_messages.append({"role": role, "content": m.get("content", "")})
 
-    input_text = "\n".join(m["content"] for m in norm_messages)
-
-    from model_providers import get_active_provider
-    byo = get_active_provider()
-    if byo is not None:
-        byo_messages = [{"role": "system", "content": system}] + norm_messages
-        full_chunks = []
-        async for delta in _stream_byo_provider(byo, byo_messages, temperature, max_tokens):
-            full_chunks.append(delta)
-            yield delta
-        _track_cost(byo.model, "".join(full_chunks), input_text, system, usage=None, domain=domain)
-        return
-
     if settings.llm_provider == "ollama":
         try:
             llm = _get_ollama_chat(temperature)
             lc_messages = [{"role": "system", "content": system}] + norm_messages
-            full_chunks = []
-            last_usage = None
             async for chunk in llm.astream(lc_messages):
                 if chunk.content:
-                    full_chunks.append(chunk.content)
                     yield chunk.content
-                if getattr(chunk, "usage_metadata", None):
-                    last_usage = chunk.usage_metadata
-            _track_cost(settings.ollama_model, "".join(full_chunks), input_text, system, usage=last_usage, domain=domain)
             return
         except Exception as e:
             logger.warning(f"[LLM Stream History] Ollama streaming failed, falling back to non-streaming: {e}")
@@ -272,7 +182,6 @@ async def stream_chat_with_history(
                 prompt=messages[-1].get("content", "") if messages else "",
                 system_prompt=system,
                 temperature=temperature,
-                domain=domain,
             )
             for word in full.split(" "):
                 yield word + " "
@@ -294,15 +203,10 @@ async def stream_chat_with_history(
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-            full_chunks = []
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content
                 if delta:
-                    full_chunks.append(delta)
                     yield delta
-            # Groq's raw streaming SDK doesn't surface usage on chunks without
-            # extra stream_options — fall back to the text-length estimate here.
-            _track_cost(model, "".join(full_chunks), input_text, system, usage=None, domain=domain)
             return
 
         except Exception as e:
@@ -314,7 +218,6 @@ async def stream_chat_with_history(
         prompt=messages[-1].get("content", "") if messages else "",
         system_prompt=system,
         temperature=temperature,
-        domain=domain,
     )
     for word in full.split(" "):
         yield word + " "
