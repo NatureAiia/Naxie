@@ -56,6 +56,47 @@ const KNOWN_PROFILES: Record<string, Partial<Capabilities>> = {
 
 const defaultProfile: Capabilities = { jsonStrict: 6, reasoning: 5, longForm: 6, speed: 6, cost: 5 };
 
+// Models pulled locally that aren't in KNOWN_PROFILES used to all collapse to
+// `defaultProfile` — identical scores across every profile, so the scorer's
+// stable sort just picked whichever model Ollama's /api/tags happened to list
+// first (in practice: the most recently pulled one), regardless of task size.
+// A "say hi" triage call landing on a 30B+ model this way can take 90s+ and
+// looks like the feature is broken. Instead, derive a real profile from the
+// model's own reported parameter count — bigger = slower + more capable,
+// smaller = faster — so routing degrades gracefully for ANY locally pulled
+// model, not just the ones we've hand-tuned.
+function parseParamB(paramSize?: string): number | null {
+  const m = /^([\d.]+)\s*([BMK])/i.exec((paramSize ?? "").trim());
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n)) return null;
+  const unit = m[2].toUpperCase();
+  return unit === "B" ? n : unit === "M" ? n / 1000 : n / 1_000_000;
+}
+
+function heuristicProfile(paramSize?: string): Capabilities {
+  const paramB = parseParamB(paramSize);
+  if (paramB === null || paramB <= 0) return defaultProfile;
+  const clamp = (v: number) => Math.min(10, Math.max(1, Math.round(v)));
+  return {
+    jsonStrict: defaultProfile.jsonStrict,
+    reasoning: clamp(4 + paramB / 6),
+    longForm: clamp(3 + paramB / 5),
+    speed: clamp(10 - paramB / 3.5),
+    cost: clamp(paramB / 3.5),
+  };
+}
+
+// Ollama "cloud" tags (e.g. "deepseek-v4-flash:cloud") run on Ollama's hosted
+// infra via this same local daemon/API — not on this machine. They're still
+// useful to pick explicitly (they stay in listModels()/the UI dropdown), but
+// the automatic profile-based router shouldn't silently reach for a remote,
+// possibly metered model when the user asked for "local". Excluded from
+// pickModel()'s candidates unless a caller's `must` pattern explicitly wants one.
+function isCloudModel(name: string): boolean {
+  return /:cloud$/i.test(name);
+}
+
 let cache: { at: number; models: ModelInfo[] } | null = null;
 const CACHE_MS = 30_000;
 
@@ -66,13 +107,16 @@ export async function listModels(): Promise<ModelInfo[]> {
     if (!res.ok) throw new Error(`Ollama tags: HTTP ${res.status}`);
     const data = await res.json() as { models: { name: string; size: number; details: { family: string; parameter_size?: string } }[] };
     const models = data.models.map(m => {
-      const partial = KNOWN_PROFILES[m.name] ?? {};
+      const known = KNOWN_PROFILES[m.name];
+      const capabilities = known
+        ? ({ ...defaultProfile, ...known } as Capabilities)
+        : heuristicProfile(m.details.parameter_size);
       return {
         name: m.name,
         family: m.details.family,
         paramSize: m.details.parameter_size,
         sizeGB: Math.round(m.size / 1e8) / 10,
-        capabilities: { ...defaultProfile, ...partial } as Capabilities,
+        capabilities,
       };
     });
     cache = { at: Date.now(), models };
@@ -101,15 +145,23 @@ export function scoreModel(m: ModelInfo, needs: TaskNeeds): number {
   return score;
 }
 
+function filterCandidates(all: ModelInfo[], needs: TaskNeeds, localOnly: boolean): ModelInfo[] {
+  let candidates = all;
+  if (localOnly) candidates = candidates.filter(m => !isCloudModel(m.name));
+  if (needs.must && needs.must.length) candidates = candidates.filter(m => needs.must!.some(re => re.test(m.name)));
+  if (needs.exclude && needs.exclude.length) candidates = candidates.filter(m => !needs.exclude!.some(re => re.test(m.name)));
+  return candidates;
+}
+
 export async function pickModel(needs: TaskNeeds, fallback?: string): Promise<string> {
   const all = await listModels();
-  let candidates = all;
-  if (needs.must && needs.must.length) {
-    candidates = candidates.filter(m => needs.must!.some(re => re.test(m.name)));
-  }
-  if (needs.exclude && needs.exclude.length) {
-    candidates = candidates.filter(m => !needs.exclude!.some(re => re.test(m.name)));
-  }
+  // Keep Ollama Cloud tags out of automatic picks by default — see
+  // isCloudModel(). An explicit `must` pattern is a deliberate ask and can
+  // still match one; otherwise, if excluding cloud models leaves nothing
+  // (e.g. only cloud models are pulled), fall back to allowing them rather
+  // than hard-failing to an unpulled default model name.
+  let candidates = filterCandidates(all, needs, true);
+  if (candidates.length === 0) candidates = filterCandidates(all, needs, false);
   if (candidates.length === 0) return fallback ?? config.ollamaModel;
   candidates.sort((a, b) => scoreModel(b, needs) - scoreModel(a, needs));
   return candidates[0].name;
@@ -127,8 +179,12 @@ export const TASK_PROFILES = {
   triage:      { speed: 5, jsonStrict: 3, reasoning: 1 } as TaskNeeds,
   // Persona/JD extraction — strict JSON output with moderate reasoning.
   extraction:  { jsonStrict: 5, reasoning: 2, speed: 1 } as TaskNeeds,
-  // General-purpose default; balanced across axes.
-  balanced:    { jsonStrict: 3, reasoning: 3, longForm: 3, speed: 3 } as TaskNeeds,
+  // General-purpose default — this is what Naxie's live voice/text chat uses
+  // for every turn (routes/voice.ts), so speed is weighted above reasoning/
+  // longForm: a giant model's slightly better prose isn't worth a reply that
+  // takes a minute in a conversational UI. Complex asks still escalate via
+  // the complexity heuristic / OpenRouter large-tier handoff in llm.ts.
+  balanced:    { jsonStrict: 3, reasoning: 2, longForm: 2, speed: 4 } as TaskNeeds,
 };
 
 // Per-profile env overrides. Setting any of these pins that profile to a

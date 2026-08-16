@@ -19,7 +19,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
 const PATH = resolve(STATE_DIR, "model-providers.json");
 
-export type ProviderKind = "anthropic" | "openai" | "openrouter" | "groq" | "together" | "custom";
+export type ProviderKind = "anthropic" | "openai" | "gemini" | "openrouter" | "groq" | "together" | "custom";
 
 export const PROVIDER_DEFAULTS: Record<ProviderKind, { label: string; baseUrl: string; modelHint: string }> = {
   // Anthropic via its OpenAI-compatible endpoint (/v1/chat/completions), so it
@@ -29,6 +29,10 @@ export const PROVIDER_DEFAULTS: Record<ProviderKind, { label: string; baseUrl: s
   // quality), claude-sonnet-4-6 (workhorse), claude-haiku-4-5-20251001 (cheapest).
   anthropic:  { label: "Anthropic (Claude)", baseUrl: "https://api.anthropic.com/v1", modelHint: "claude-fable-5" },
   openai:     { label: "OpenAI",     baseUrl: "https://api.openai.com/v1",      modelHint: "gpt-4o-mini" },
+  // Google Gemini via its OpenAI-compatible endpoint — same Bearer-auth
+  // chat-completions shape as everything else here, no separate SDK. Get a
+  // key at https://aistudio.google.com/apikey.
+  gemini:     { label: "Google (Gemini)", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", modelHint: "gemini-2.5-pro" },
   openrouter: { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1",   modelHint: "openai/gpt-4o-mini" },
   groq:       { label: "Groq",       baseUrl: "https://api.groq.com/openai/v1", modelHint: "llama-3.3-70b-versatile" },
   together:   { label: "Together",   baseUrl: "https://api.together.xyz/v1",    modelHint: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
@@ -163,6 +167,14 @@ export function applyToRuntime(p: ModelProvider | null): void {
   if (p.kind === "anthropic") {
     config.openrouterModel = (process.env.ANTHROPIC_SMALL_MODEL ?? "").trim() || "claude-haiku-4-5";
     config.openrouterLargeModel = (process.env.ANTHROPIC_LARGE_MODEL ?? "").trim() || p.model;
+  } else if (p.kind === "gemini") {
+    // Same cheap/complex split as Anthropic above: Flash handles the small
+    // tier (planning/triage/everyday synth) at a fraction of Pro's cost;
+    // only complexity:"high" / oversized prompts hand off to the provider's
+    // chosen large model (default Pro). Overrides: GEMINI_SMALL_MODEL /
+    // GEMINI_LARGE_MODEL.
+    config.openrouterModel = (process.env.GEMINI_SMALL_MODEL ?? "").trim() || "gemini-2.5-flash";
+    config.openrouterLargeModel = (process.env.GEMINI_LARGE_MODEL ?? "").trim() || p.model;
   } else if (p.kind === "openrouter") {
     // FREE-FIRST tiering (2026-07-12 "most cost-affordable org" pass): the
     // small tier — planning, extraction, everyday synth, i.e. the vast
@@ -188,6 +200,7 @@ export function applyToRuntime(p: ModelProvider | null): void {
 const FALLBACK_SMALL_MODEL: Partial<Record<ProviderKind, string>> = {
   openai: "gpt-5.4-mini",
   anthropic: "claude-haiku-4-5",
+  gemini: "gemini-2.5-flash",
   openrouter: "nvidia/nemotron-3-super-120b-a12b:free",
 };
 
