@@ -50,10 +50,10 @@ def _track_cost(model: str, output_text: str, input_text: str, system_text: str)
         logger.warning(f"[LLM] Cost tracking scheduling failed: {e}")
 
 
-def _get_ollama_chat(temperature: float = 0.7):
+def _get_ollama_chat(temperature: float = 0.7, model: Optional[str] = None):
     from langchain_ollama import ChatOllama
     return ChatOllama(
-        model=settings.ollama_model,
+        model=model or settings.ollama_model,
         base_url=settings.ollama_host,
         temperature=temperature,
         # Without this, structured outputs (e.g. the strategist's campaign-plan
@@ -63,14 +63,29 @@ def _get_ollama_chat(temperature: float = 0.7):
     )
 
 
+async def _pick_ollama_model(task_profile: str) -> str:
+    """Capability-scored model pick (model_router.py), degrading to the
+    configured default on any failure (e.g. Ollama unreachable, no models
+    pulled) so routing can never be the reason a completion fails."""
+    try:
+        from model_router import pick_model_for
+        return await pick_model_for(task_profile, fallback=settings.ollama_model)
+    except Exception as e:
+        logger.warning(f"[LLM] Model routing failed, using default '{settings.ollama_model}': {e}")
+        return settings.ollama_model
+
+
 async def generate_completion(
     prompt: str,
     system_prompt: str = "",
-    prefer_reasoning: bool = False, # Maintained for function signature compatibility with existing Graph Nodes
+    prefer_reasoning: bool = False,
     temperature: float = 0.7,
+    task_profile: Optional[str] = None,
 ) -> str:
     """Invokes the configured LLM provider. Under Groq, rotates across the 9-model cascade
-    on rate-limits/errors; under Ollama (default), calls the single local model directly."""
+    on rate-limits/errors; under Ollama (default), picks the best-fit local model for the
+    task via model_router's capability scoring (task_profile, or "planning" if
+    prefer_reasoning else "balanced" when task_profile is omitted)."""
     from langchain_core.messages import SystemMessage, HumanMessage
 
     messages = []
@@ -79,9 +94,11 @@ async def generate_completion(
     messages.append(HumanMessage(content=prompt))
 
     if settings.llm_provider == "ollama":
-        llm = _get_ollama_chat(temperature)
+        profile = task_profile or ("planning" if prefer_reasoning else "balanced")
+        model = await _pick_ollama_model(profile)
+        llm = _get_ollama_chat(temperature, model=model)
         response = await llm.ainvoke(messages)
-        _track_cost(settings.ollama_model, response.content, prompt, system_prompt)
+        _track_cost(model, response.content, prompt, system_prompt)
         return response.content
 
     from langchain_groq import ChatGroq
@@ -115,11 +132,17 @@ async def generate_json(
     prompt: str,
     system_prompt: str = "",
     prefer_reasoning: bool = False,
+    task_profile: Optional[str] = None,
 ) -> dict:
-    """Generate and natively parse a JSON object from the AI."""
+    """Generate and natively parse a JSON object from the AI. Defaults routing
+    to the "extraction" profile (json_strict-weighted) unless the caller asks
+    for reasoning or a specific profile."""
     sys = (system_prompt or "") + "\n\nRESPOND WITH VALID JSON ONLY. No markdown fences, no explanation."
     # Use low temperature for deterministic JSON structuring
-    raw = await generate_completion(prompt, sys, prefer_reasoning=prefer_reasoning, temperature=0.3)
+    raw = await generate_completion(
+        prompt, sys, prefer_reasoning=prefer_reasoning, temperature=0.3,
+        task_profile=task_profile or (None if prefer_reasoning else "extraction"),
+    )
     try:
         return json.loads(raw)
     except json.JSONDecodeError:

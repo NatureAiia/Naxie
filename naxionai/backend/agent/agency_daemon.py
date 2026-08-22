@@ -16,6 +16,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -531,8 +532,61 @@ async def _check_brief_schedule(user_id: str, cfg, now: datetime, active_goals: 
         logger.error(f"[Daemon] Brief schedule check failed for {user_id}: {e}")
 
 
+async def _gather_digest_signals(user_id: str) -> dict:
+    """Best-effort cross-source pull for the morning digest: unread inbox
+    count + upcoming calendar events from whichever connector (Google/
+    Microsoft) the user has linked, if any. Every source is independently
+    try/excepted — a missing connector or offline mailbox must never block
+    the brief itself, it just drops that line."""
+    signals = {"unread_email": None, "calendar_events": []}
+
+    try:
+        from agent.tools.email_inbox import get_unread_count
+        signals["unread_email"] = await get_unread_count()
+    except Exception as e:
+        logger.info(f"[Daemon] Digest: unread email signal unavailable: {e}")
+
+    for module_name in ("agent.tools.google_tools", "agent.tools.microsoft_tools"):
+        try:
+            import importlib
+            tools = importlib.import_module(module_name)
+            events = await tools.list_upcoming_events(user_id)
+            signals["calendar_events"].extend(events or [])
+        except Exception as e:
+            logger.info(f"[Daemon] Digest: {module_name} calendar signal unavailable: {e}")
+
+    return signals
+
+
+async def _render_digest_audio(user_id: str, text: str) -> Optional[str]:
+    """Render the brief to speech and save it under the media dir, returning
+    a URL the chat message can link to. Voice is optional polish on top of
+    the text brief — any failure here is swallowed, never blocks delivery."""
+    try:
+        from api.voice import synthesize_speech_bytes
+        from config import get_settings
+        import uuid as _uuid
+
+        settings = get_settings()
+        audio_bytes, media_type = await asyncio.to_thread(synthesize_speech_bytes, text)
+        ext = "mp3" if media_type == "audio/mpeg" else "wav"
+        # main.py mounts StaticFiles at "/media" -> settings.media_upload_dir
+        # specifically (media_processed_dir is a separate, unmounted sibling
+        # directory) — write here so the returned URL actually resolves.
+        media_dir = Path(settings.media_upload_dir)
+        media_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"digest_{user_id}_{_uuid.uuid4().hex[:8]}.{ext}"
+        (media_dir / filename).write_bytes(audio_bytes)
+        return f"/media/{filename}"
+    except Exception as e:
+        logger.info(f"[Daemon] Digest: audio render skipped: {e}")
+        return None
+
+
 async def _send_brief(user_id: str, cfg, slot: dict, now: datetime, active_goals: list):
-    """Generate and send a scheduled brief to the user's chat."""
+    """Generate and send a scheduled brief to the user's chat — the morning-
+    digest surface: campaign status + weather + unread inbox + upcoming
+    calendar events, delivered as text and (best-effort) a spoken audio clip."""
     from agent.llm import generate_completion
     from agent.chat_push import chat_push
     from database import get_user_preferences
@@ -564,6 +618,19 @@ async def _send_brief(user_id: str, cfg, slot: dict, now: datetime, active_goals
     except Exception as e:
         logger.warning(f"[Daemon] Weather lookup for brief failed: {e}")
 
+    signals = await _gather_digest_signals(user_id)
+    inbox_line = (
+        f"{signals['unread_email']} unread message(s)"
+        if signals["unread_email"] is not None else "not connected"
+    )
+    if signals["calendar_events"]:
+        calendar_text = "\n".join(
+            f"- {e.get('start', '?')}: {e.get('title', 'Untitled event')}"
+            for e in signals["calendar_events"][:5]
+        )
+    else:
+        calendar_text = "No connected calendar, or nothing upcoming."
+
     prompt = f"""You are Naxie, {preferred_name or "the user"}'s personal AI assistant.
 Generate a {label}.
 
@@ -571,24 +638,28 @@ Date/Time: {now.strftime('%A, %B %d %Y, %H:%M UTC')}
 Known preferences about the user:
 {prefs_text}
 Current weather: {weather_line or "unavailable"}
+Inbox: {inbox_line}
+Upcoming calendar events:
+{calendar_text}
 Active campaigns/goals:
 {campaigns_text}
 
 The brief should include:
 1. A brief personal greeting (use their preferred name if known, "sir" otherwise) and the weather if available
-2. What happened since the last brief
-3. Current goal/campaign status
-4. What's planned next
-5. Any decisions needed from the user (flagged clearly)
+2. Inbox and calendar at a glance
+3. What happened since the last brief
+4. Current goal/campaign status
+5. What's planned next
+6. Any decisions needed from the user (flagged clearly)
 
 Keep it under 250 words. Warm but concise — like a trusted assistant, not a corporate report."""
 
     try:
         brief_text = await generate_completion(prompt, "You are Naxie, a warm and capable personal AI assistant writing a briefing for your user.")
-        await chat_push(
-            user_id,
-            f"📋 **{label} — {now.strftime('%b %d, %Y')}**\n\n{brief_text}",
-            "orchestrator",
-        )
+        audio_url = await _render_digest_audio(user_id, brief_text)
+        content = f"📋 **{label} — {now.strftime('%b %d, %Y')}**\n\n{brief_text}"
+        if audio_url:
+            content += f"\n\n🔊 [Listen to this brief]({audio_url})"
+        await chat_push(user_id, content, "orchestrator")
     except Exception as e:
         logger.error(f"[Daemon] Brief send failed for {user_id}: {e}")

@@ -92,6 +92,34 @@ def _clean_email_body(text: str) -> str:
         cleaned.append(line_clean)
     return " ".join(cleaned)
 
+def _count_unread(host: str) -> int:
+    """Blocking IMAP UNSEEN count, runs in a thread. Returns 0 on any failure
+    (no mailbox configured, offline, wrong creds) — this feeds an optional
+    digest line, never something worth surfacing an error for."""
+    import socket
+    socket.setdefaulttimeout(15)
+    try:
+        mail = imaplib.IMAP4_SSL(host)
+        mail.login(settings.smtp_username, settings.smtp_password)
+        mail.select('inbox', readonly=True)
+        _, search_data = mail.search(None, 'UNSEEN')
+        count = len(search_data[0].split()) if search_data and search_data[0] else 0
+        mail.close()
+        mail.logout()
+        return count
+    except Exception as e:
+        logger.info(f"[InboxPoller] Unread count check skipped: {e}")
+        return 0
+
+
+async def get_unread_count() -> int:
+    """Non-blocking wrapper around _count_unread — returns 0 if SMTP/IMAP
+    credentials aren't configured at all, without ever raising."""
+    if not settings.smtp_username or not settings.smtp_password:
+        return 0
+    return await asyncio.to_thread(_count_unread, _get_imap_host())
+
+
 def _check_inbox(host: str):
     """Blocking IMAP check, runs in a thread."""
     import socket

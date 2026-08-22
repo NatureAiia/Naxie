@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Boxes, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Pencil, Lock, Unlock, Plug, Sparkles } from "lucide-react";
 import { api, type Connector, type ConnectorAuthCatalog, type ConnectorAuthType, type ConnectorInput, type ConnectorCallResult, type ConnectorTemplate } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
+import { NaxiePersonalConnectors } from "../components/NaxiePersonalConnectors";
 
 // Connectors — register the company's existing systems (any HTTP API) so agents
 // can read from / act on them. Each connector stores a base URL, an auth scheme
@@ -52,7 +53,7 @@ export function Connectors() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
         <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Boxes size={24} /> Connectors</h1>
         <p className="text-sm text-cream-300/70 mt-1">
@@ -61,6 +62,8 @@ export function Connectors() {
           Calls are <span className="text-cream-200">read-only by default</span> — enable writes per connector.
         </p>
       </div>
+
+      <NaxiePersonalConnectors />
 
       <div className="flex justify-end gap-2 relative">
         {templates.length > 0 && (

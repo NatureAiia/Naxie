@@ -23,7 +23,7 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 7470,
     strictPort: true,
-    open: "/dashboard",
+    open: "/naxie",
     proxy: {
       "/api": {
         target: "http://127.0.0.1:7471",
@@ -33,6 +33,15 @@ export default defineConfig({
         // and the server's origin-guard rejects it with host_not_allowed
         // — because 127.0.0.1:7470 isn't in the API's allow-list.
         changeOrigin: true,
+      },
+      // The separate naxionai/backend (FastAPI, Python) — a different service
+      // entirely from neuroworks/server above. Proxied under its own prefix
+      // so the browser call stays same-origin (no CORS) and "/naxie-api/x"
+      // reaches naxionai's "/api/x" unmodified.
+      "/naxie-api": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/naxie-api/, "/api"),
       },
     },
   },

@@ -279,6 +279,119 @@ async def reindex_knowledge(
     return {"status": "processing", "message": "Re-embedding started. Please wait."}
 
 
+def _resolve_local_path(sub_path: str = "") -> Path:
+    """Validate a caller-supplied sub-path stays inside the operator-configured
+    local_documents_root. Mirrors the git_repo_path pattern: the LLM/user never
+    supplies an absolute root, only a relative sub-path under it."""
+    if not settings.local_documents_root:
+        raise HTTPException(400, "Local document indexing is not configured — set LOCAL_DOCUMENTS_ROOT")
+    root_resolved = Path(settings.local_documents_root).resolve()
+    candidate = Path(settings.local_documents_root) / sub_path
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(root_resolved):
+        raise HTTPException(400, "Path escapes the configured local documents root")
+    if not resolved.exists():
+        raise HTTPException(404, "Path not found")
+    return resolved
+
+
+@router.get("/local-folder/status")
+async def local_folder_status(user: dict = Depends(get_current_user)):
+    configured = bool(settings.local_documents_root)
+    return {
+        "configured": configured,
+        "root_label": settings.local_documents_root if configured else None,
+    }
+
+
+@router.get("/local-folder/browse")
+async def browse_local_folder(sub_path: str = "", user: dict = Depends(get_current_user)):
+    """List the immediate contents of a validated directory under local_documents_root."""
+    resolved = _resolve_local_path(sub_path)
+    if not resolved.is_dir():
+        raise HTTPException(400, "Path is not a directory")
+    entries = []
+    for entry in sorted(resolved.iterdir(), key=lambda p: p.name.lower()):
+        is_dir = entry.is_dir()
+        ext = entry.suffix.lstrip(".").lower()
+        entries.append({
+            "name": entry.name,
+            "is_dir": is_dir,
+            "size": None if is_dir else entry.stat().st_size,
+            "supported": (not is_dir) and ext in ALLOWED_EXTENSIONS,
+        })
+    return {"sub_path": sub_path, "entries": entries}
+
+
+class LocalFolderIngestBody(BaseModel):
+    sub_path: str = ""
+    recursive: bool = True
+    category: str = "other"
+    tags: list[str] = []
+    max_files: int = 200
+
+
+@router.post("/local-folder/ingest")
+async def ingest_local_folder(
+    background_tasks: BackgroundTasks,
+    body: LocalFolderIngestBody,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Walk a validated local directory and queue background ingestion for every
+    supported file found, reusing the same pipeline as /upload."""
+    resolved = _resolve_local_path(body.sub_path)
+    if not resolved.is_dir():
+        raise HTTPException(400, "Path is not a directory")
+
+    walker = resolved.rglob("*") if body.recursive else resolved.iterdir()
+    matched = []
+    skipped_unsupported = 0
+    for entry in walker:
+        if not entry.is_file():
+            continue
+        ext = entry.suffix.lstrip(".").lower()
+        if ext in ALLOWED_EXTENSIONS:
+            matched.append(entry)
+        else:
+            skipped_unsupported += 1
+
+    matched.sort()
+    skipped_over_cap = max(0, len(matched) - body.max_files)
+    to_ingest = matched[:body.max_files]
+
+    queued = 0
+    for file_path in to_ingest:
+        item_id = str(uuid.uuid4())
+        ext = file_path.suffix.lstrip(".").lower()
+        abs_path = str(file_path.resolve())
+        item = KnowledgeItem(
+            id=item_id,
+            title=file_path.name,
+            source_type=ext,
+            source_path=abs_path,
+            source_url=None,
+            category=body.category,
+            tags=json.dumps(body.tags),
+            processing_status="processing",
+            uploaded_by=user.get("sub"),
+        )
+        db.add(item)
+        await db.flush()
+        background_tasks.add_task(
+            _process_knowledge_item, item_id, ext, abs_path,
+            file_path.name, body.category, body.tags
+        )
+        queued += 1
+
+    return {
+        "queued": queued,
+        "skipped_unsupported": skipped_unsupported,
+        "skipped_over_cap": skipped_over_cap,
+        "root": str(resolved),
+    }
+
+
 @router.delete("/{item_id}")
 async def delete_knowledge(
     item_id: str, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)

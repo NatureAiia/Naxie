@@ -142,9 +142,13 @@ async def researcher_node(state: AgentState) -> dict:
                 goal_id=goal_id,
             )
             findings = await ghost_visual_research(goal, target_platform)
+            # Vision research has no citable URLs (it reads a screenshot, not
+            # a set of pages) — keep the field present so downstream code
+            # doesn't have to branch on whether "sources" exists.
+            findings["sources"] = []
             topics = findings.get('trending_topics', [])
             angles = findings.get('content_angles', [])
-            
+
         else:
             await chat_push(
                 user_id=user_id,
@@ -155,9 +159,16 @@ async def researcher_node(state: AgentState) -> dict:
             
             result = await search_social_trends(goal, platforms)
             output = str(result.get("results", []))
-                
+            # Carry the actual search hits through as citations — sourced
+            # from Tavily's results directly, not LLM-invented, so a claim
+            # in research_findings can be traced back to where it came from.
+            sources = [
+                {"title": r.get("title", ""), "url": r.get("url", "")}
+                for r in result.get("results", []) if r.get("url")
+            ]
+
             await agent_thought_push(user_id, "researcher", f"crawl complete, parsing text nodes with LLM", goal_id)
-            
+
             synthesis_prompt = f"""
 Based on the raw data scraped by our headless framework, extract actionable social media insights:
 GOAL: {goal}
@@ -172,6 +183,7 @@ Return JSON:
 }}
 """
             findings = await generate_json(synthesis_prompt)
+            findings["sources"] = sources
             topics = findings.get('trending_topics', [])
             angles = findings.get('content_angles', [])
 
@@ -181,7 +193,8 @@ Return JSON:
                 "trending_topics": ["General Trend"],
                 "recommended_hashtags": {"global": ["#marketing"]},
                 "content_angles": ["Educational piece"],
-                "audience_insights": "Audience prefers clear, succinct value."
+                "audience_insights": "Audience prefers clear, succinct value.",
+                "sources": findings.get("sources", []) if findings else [],
             }
 
         await agent_thought_push(

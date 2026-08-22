@@ -232,32 +232,23 @@ def _synthesize_pyttsx3(text: str) -> bytes:
                 pass
 
 
-@router.post("/speak")
-async def speak_text(
-    body: SpeakBody,
-    user: dict = Depends(get_current_user),
-):
-    """Synthesize speech for the given text using ElevenLabs (Rachel voice),
-    Piper local TTS, or the OS-provided pyttsx3 voices."""
-    text = body.text.strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Empty text")
-    if len(text) > MAX_TTS_CHARS:
-        text = text[:MAX_TTS_CHARS]
-
-    cache_voice = body.voice or getattr(settings, "elevenlabs_voice_id", "EXAVITQu4vr4xnSDxMaL")
+def synthesize_speech_bytes(text: str, voice: Optional[str] = None) -> tuple[bytes, str]:
+    """ElevenLabs -> Piper -> pyttsx3 cascade, cached by (text, voice, engine).
+    Shared by the /speak endpoint and any background caller (e.g. the morning
+    digest) that needs rendered audio without going through HTTP."""
+    text = text.strip()[:MAX_TTS_CHARS]
+    cache_voice = voice or getattr(settings, "elevenlabs_voice_id", "EXAVITQu4vr4xnSDxMaL")
     cache_key = _tts_cache_key(text, cache_voice, settings.tts_engine)
     cached = _tts_cache_load(cache_key)
     if cached is not None:
-        audio_bytes, media_type = cached
-        return Response(content=audio_bytes, media_type=media_type)
+        return cached
 
     audio_bytes = None
     media_type = "audio/wav"
 
-    if settings.tts_engine == "elevenlabs" or (body.voice and body.voice.startswith("c3Q")):
+    if settings.tts_engine == "elevenlabs" or (voice and voice.startswith("c3Q")):
         try:
-            target_voice = body.voice or getattr(settings, "elevenlabs_voice_id", "EXAVITQu4vr4xnSDxMaL")
+            target_voice = voice or getattr(settings, "elevenlabs_voice_id", "EXAVITQu4vr4xnSDxMaL")
             audio_bytes, media_type = _synthesize_elevenlabs(text, voice_id=target_voice)
             logger.info(f"[Voice] Synthesized speech via ElevenLabs (Voice ID: {target_voice}).")
         except Exception as e:
@@ -270,11 +261,27 @@ async def speak_text(
         except Exception as e:
             logger.warning(f"[Voice] Piper synthesis failed, falling back to pyttsx3: {e}")
 
+    if audio_bytes is None:
+        audio_bytes = _synthesize_pyttsx3(text)
+        media_type = "audio/wav"
+
+    _tts_cache_store(cache_key, audio_bytes, media_type)
+    return audio_bytes, media_type
+
+
+@router.post("/speak")
+async def speak_text(
+    body: SpeakBody,
+    user: dict = Depends(get_current_user),
+):
+    """Synthesize speech for the given text using ElevenLabs (Rachel voice),
+    Piper local TTS, or the OS-provided pyttsx3 voices."""
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Empty text")
+
     try:
-        if audio_bytes is None:
-            audio_bytes = _synthesize_pyttsx3(text)
-            media_type = "audio/wav"
-        _tts_cache_store(cache_key, audio_bytes, media_type)
+        audio_bytes, media_type = synthesize_speech_bytes(text, voice=body.voice)
         return Response(content=audio_bytes, media_type=media_type)
     except Exception as e:
         logger.error(f"[Voice] Speech synthesis failed: {e}")
