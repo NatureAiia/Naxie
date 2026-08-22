@@ -42,6 +42,11 @@ from api.audit import router as audit_router
 from api.connectors import router as connectors_router
 from api.data_sources import router as data_sources_router
 from api.models import router as models_router
+from api.google_connector import router as google_connector_router
+from api.microsoft_connector import router as microsoft_connector_router
+from api.vault import router as vault_router
+from api.github import router as github_router
+from api.whatsapp_webhook import router as whatsapp_webhook_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -118,6 +123,11 @@ async def lifespan(app: FastAPI):
     background_tasks.append(asyncio.create_task(schedule_tick_loop()))
     logger.info("⏰ Schedule tick loop started")
 
+    # 💬 Start the Telegram bridge — long-polls and no-ops if unconfigured
+    from agent.tools.telegram_bridge import poll_telegram
+    background_tasks.append(asyncio.create_task(poll_telegram()))
+    logger.info("💬 Telegram bridge scheduled")
+
     logger.info("✨ NAXIONAI is ready.")
 
     yield
@@ -183,6 +193,11 @@ app.include_router(audit_router)
 app.include_router(connectors_router)
 app.include_router(data_sources_router)
 app.include_router(models_router)
+app.include_router(google_connector_router)
+app.include_router(microsoft_connector_router)
+app.include_router(vault_router)
+app.include_router(github_router)
+app.include_router(whatsapp_webhook_router)
 
 
 @app.get("/api/health")

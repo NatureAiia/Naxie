@@ -442,6 +442,25 @@ class ChatMessage(Base):
 
 
 # ═══════════════════════════════════════════════════════════
+# MESSAGING LINKS — Telegram/WhatsApp identity ↔ NAXIONAI user
+# ═══════════════════════════════════════════════════════════
+
+class MessagingLink(Base):
+    """Maps an external channel identity (a Telegram chat_id or a WhatsApp
+    phone number) to the local NAXIONAI user it should chat as/notify. Kept
+    deliberately minimal — naxionai defaults to single-user local mode, so an
+    admin sets this once via Settings rather than through a per-message
+    linking flow."""
+    __tablename__ = "messaging_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    channel: Mapped[str] = mapped_column(String(20))  # "telegram" | "whatsapp"
+    external_id: Mapped[str] = mapped_column(String(200), index=True)  # chat_id or phone number
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════
 # AGENCY SETTINGS — Per-user autonomous mode & brief schedule
 # ═══════════════════════════════════════════════════════════
 

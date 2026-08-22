@@ -72,6 +72,35 @@ async def chat_push(
         # Never let a chat push failure crash an agent node
         logger.error(f"[ChatPush] Failed to persist message from '{agent_name}': {e}")
 
+    # Fan out to any linked external channels (Telegram/WhatsApp) — this is
+    # the ONE place agent-initiated pushes (briefs, nudges, execution status;
+    # see agency_daemon.py's call sites) reach those channels. Failure here
+    # must never propagate: a channel outage shouldn't break the agent node
+    # that's calling chat_push, nor stop the message from landing in the
+    # web-UI chat feed above.
+    await _fan_out_to_channels(user_id, content)
+
+
+async def _fan_out_to_channels(user_id: str, content: str) -> None:
+    try:
+        from sqlalchemy import select
+
+        from database import MessagingLink, async_session
+        async with async_session() as db:
+            links = (await db.execute(select(MessagingLink).where(MessagingLink.user_id == user_id))).scalars().all()
+        for link in links:
+            try:
+                if link.channel == "telegram":
+                    from agent.tools.telegram_bridge import send_telegram_message
+                    await send_telegram_message(link.external_id, content)
+                elif link.channel == "whatsapp":
+                    from whatsapp_client import send_whatsapp_message
+                    await send_whatsapp_message(link.external_id, content)
+            except Exception as e:
+                logger.warning(f"[ChatPush] Channel fan-out to {link.channel}/{link.external_id} failed: {e}")
+    except Exception as e:
+        logger.warning(f"[ChatPush] Channel fan-out lookup failed: {e}")
+
 
 async def agent_thought_push(
     user_id: str,

@@ -73,3 +73,9 @@ python-slugify>=8.0.4
 arrow>=1.3.0
 tenacity>=9.0.0
 structlog>=24.4.0
+
+# Testing (pure Python)
+pytest>=8.3.4
+pytest-asyncio>=0.25.0
+pytest-cov>=6.0.0
+respx>=0.22.0

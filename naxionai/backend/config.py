@@ -147,6 +147,41 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""                  # Tavily Search API
     serpapi_key: str = ""                     # SerpAPI alternative
 
+    # ── OAuth: Google (Gmail + Calendar) ──────────────────
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = "http://localhost:8000/api/connectors/google/callback"
+
+    # ── OAuth: Microsoft (Outlook + Calendar + OneDrive) ──
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
+    microsoft_tenant_id: str = "common"       # "common" = personal + work/school accounts
+    microsoft_redirect_uri: str = "http://localhost:8000/api/connectors/microsoft/callback"
+
+    # ── Local file documents ──────────────────────────────
+    # Root directory the "index my documents" connector is allowed to walk.
+    # Empty = disabled. The LLM never supplies this path (same reasoning as
+    # git_repo_path above) — only an operator-configured root can be scanned,
+    # and every request path is resolved and checked to stay inside it.
+    local_documents_root: str = ""
+
+    # ── Vault (file-based knowledge base) ─────────────────
+    # Root directory for markdown notes, mirroring media_upload_dir's
+    # convention. Every note path is resolved and checked to stay inside
+    # this root before any read/write (see vault.py).
+    vault_path: str = "./vault"
+
+    # ── GitHub ─────────────────────────────────────────────
+    github_token: str = ""
+    github_api_url: str = "https://api.github.com"
+
+    # ── Messaging: Telegram/WhatsApp ──────────────────────
+    telegram_bot_token: str = ""
+    telegram_allowed_chats: str = ""  # comma-separated chat IDs; empty = inbound disabled
+    whatsapp_phone_number_id: str = ""
+    whatsapp_access_token: str = ""
+    whatsapp_verify_token: str = ""  # shared secret for Meta's webhook handshake
+
     # ── Agent Configuration ───────────────────────────────
     agent_max_iterations: int = 10
     agent_timeout_seconds: int = 300
