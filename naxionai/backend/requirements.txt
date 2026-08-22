@@ -35,6 +35,7 @@ httpx>=0.27.0
 
 # Voice — local STT + local TTS
 faster-whisper>=1.0.3
+# openai-whisper>=20250625  # optional 2nd STT engine for agent/tools/transcription.py — needs a real `ffmpeg` binary on PATH, unlike faster-whisper
 piper-tts>=1.2.0
 pyttsx3>=2.90   # fallback TTS engine if piper-tts wheel is unavailable on this platform
 vosk>=0.3.45    # offline wake-word detection — free, local, no cloud API

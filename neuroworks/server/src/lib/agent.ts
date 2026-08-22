@@ -112,7 +112,13 @@ const SOCIAL_TASK_RE = new RegExp(`\\b${SOCIAL_ACTION}\\b[^]{0,60}?\\b${SOCIAL_P
 // can surface sensitive records, and the operator asked for it to be reviewed.
 // code.exec / browser.harness_exec run arbitrary code/automation and are
 // gated here too as defence-in-depth for when they're enabled.
-export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "heygen.create_video"]);
+// system_control / manage_clipboard: the Settings > System Access toggle
+// (docs/naxie-architecture.md §2.2) only makes these tools ELIGIBLE to run —
+// it is not blanket permission. Every actual plan that uses them still
+// pauses here, same as email.send. git_pull mutates the configured repo, so
+// it's gated the same way; git_status is read-only and deliberately left out
+// so a routine status check doesn't need sign-off.
+export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "heygen.create_video", "system_control", "manage_clipboard", "git_pull"]);
 
 // connector.call is gated by default (see SENSITIVE_APPROVAL_TOOLS above), but
 // a READ (GET/HEAD, or no method → GET default) against a connector the

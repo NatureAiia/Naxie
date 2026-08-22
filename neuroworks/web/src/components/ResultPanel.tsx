@@ -561,6 +561,21 @@ function GeneralTaskResult({ job, live = false }: { job: any; live?: boolean }) 
             )}
           </div>
           <div className="prose-vault" dangerouslySetInnerHTML={{ __html: marked.parse(r.answer ?? r.partialAnswer ?? "") as string }} />
+          {Array.isArray(r.curation?.citations) && r.curation.citations.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap mt-2">
+              {r.curation.citations.map((c: any, i: number) => (
+                c.path ? (
+                  <Link key={i} to={`/knowledge/${c.path}`} className="px-2 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:border-violet-500/60" title={c.label}>
+                    [{i + 1}] {c.label.length > 28 ? `${c.label.slice(0, 28)}…` : c.label}
+                  </Link>
+                ) : (
+                  <LinkPreview key={i} href={c.url} className="px-2 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] hover:border-violet-500/60">
+                    [{i + 1}] {c.label.length > 28 ? `${c.label.slice(0, 28)}…` : c.label}
+                  </LinkPreview>
+                )
+              ))}
+            </div>
+          )}
         </div>
       )}
       {(r.review || r.quality || r.security || r.curation) && (

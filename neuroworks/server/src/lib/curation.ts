@@ -28,6 +28,10 @@ export type CurationVerdict = {
   };
   // Length of the original peer answer (for audit + UI).
   answerChars?: number;
+  // Structured sources the runs actually touched — for the chat UI's inline
+  // citation chips. Populated regardless of capture verdict, since a source
+  // is worth showing even when the answer didn't pass the capture gates.
+  citations?: { label: string; path?: string; url?: string }[];
 };
 
 const MIN_ANSWER_CHARS = 200;
@@ -128,6 +132,7 @@ export async function curatePeerOutput(args: {
     quality,
     security,
     rooted,
+    citations: collectStructuredSources(args.runs ?? []),
   };
 
   if (security && !security.pass) {
@@ -230,6 +235,33 @@ function checkContextRooting(answer: string, runs: any[]): NonNullable<CurationV
 function hasEvidenceShape(run: any): boolean {
   const tool = run.step?.tool ?? "";
   return ["vault.search", "vault.read", "web.fetch", "web.scrape", "web.search", "github.read_repo", "github.get_file", "research.deep"].includes(tool);
+}
+
+// Structured twin of collectSourcesText — same run-scanning logic, shaped
+// for the chat UI's inline citation chips instead of a markdown block.
+function collectStructuredSources(runs: any[]): { label: string; path?: string; url?: string }[] {
+  const out: { label: string; path?: string; url?: string }[] = [];
+  const seen = new Set<string>();
+  const push = (label: string, key: string, extra: { path?: string; url?: string }) => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ label, ...extra });
+  };
+  for (const r of runs) {
+    if (!r?.ok) continue;
+    const tool = r.step?.tool ?? "";
+    if (tool === "vault.search" && Array.isArray(r.result?.matches)) {
+      for (const m of r.result.matches.slice(0, 5)) push(m.path, `vault:${m.path}`, { path: m.path });
+    }
+    if (tool === "web.fetch" || tool === "web.scrape") {
+      const url = r.step?.args?.url;
+      if (url) push(url, `url:${url}`, { url });
+    }
+    if (tool === "research.deep" && Array.isArray(r.result?.webSources)) {
+      for (const w of r.result.webSources.slice(0, 5)) if (w.url) push(w.title || w.url, `url:${w.url}`, { url: w.url });
+    }
+  }
+  return out;
 }
 
 function collectSourcesText(runs: any[]): string {

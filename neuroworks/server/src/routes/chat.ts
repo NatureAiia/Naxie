@@ -6,7 +6,7 @@ import { callerOf, callerLayer } from "../lib/access.js";
 import { isLocalMachineTask } from "../lib/task-restrictions.js";
 import { config } from "../config.js";
 import { searchVault } from "../lib/vault.js";
-import { getActivePersona, personaSystemSuffix } from "../lib/personas.js";
+import { getActivePersona, personaSystemSuffix, PA_IDENTITY } from "../lib/personas.js";
 import { autoRoutePersona } from "../lib/persona-router.js";
 import { checkLaneFit, buildOutOfLaneRefusal, resolveHireToPersona } from "../lib/lane.js";
 import { localInflightCount, pickLightestIdlePeer, pickPeerByRole, pickExecutor, delegateToPeer, pollPeers, type PeerInfo, type RoutingDecision } from "../lib/peers.js";
@@ -832,8 +832,12 @@ async function handleChat(req: any, res: any) {
     : `Ad-hoc: ${text.slice(0, 60)}`;
   // Stamp the dispatch-time persona so reflection.byPersona aggregates.
   // Worker re-attribution still happens via personaIdUsed but this is
-  // the canonical name for the run.
+  // the canonical name for the run. When no persona was hired, attribute
+  // the run to Naxie herself (PA_IDENTITY) rather than leaving it blank —
+  // previously these jobs were invisible to reflection.byPersona entirely,
+  // silently undercounting how much work Naxie does directly.
   if (persona) { job.personaId = persona.id; job.personaName = persona.name; }
+  else { job.personaId = PA_IDENTITY.id; job.personaName = PA_IDENTITY.name; }
   job.createdByEmail = callerOf(req)?.email;
   // `task` (what the planner consumes) is the enriched version. `userText`
   // (the bare user message) is kept on the job for UI display, retry, and
@@ -876,18 +880,14 @@ async function handleChat(req: any, res: any) {
     job.log.push(`[${new Date().toISOString()}] continuation${prevRef} · original task: ${continuation!.originalText.slice(0, 120)}`);
   }
   job.requiresApproval = false;
-  // Chat blurb framed as labor-on-demand: the customer hires an employee for
-  // each task. When a worker peer is available we say "hiring {Name} —
-  // {Role}" so the customer feels they brought in an employee for the job,
-  // not "sent a task to a server". When running locally we still frame the
-  // active persona as the employee on the clock.
-  const delegationBlurb = persona
-    ? (delegatedPeer
-        ? `Hiring **${persona.name}** — ${persona.role} — for this task. They'll execute on a worker and I'll review their output before anything lands in your vault. Track live progress on the Tasks page.`
-        : `**${persona.name}** (${persona.role}) is on it. Running locally. I'll capture anything worth keeping to your vault.`)
-    : (delegatedPeer
-        ? `Sending this to worker **${delegatedPeer.name ?? "worker"}**${delegatedPeer.model ? ` (${delegatedPeer.model})` : ""}. I'll review the result and capture anything worth keeping to your vault. Track live progress on the Tasks page.`
-        : `On it — I'll plan the steps and report back here.`);
+  // Chat blurb is always spoken as Naxie (the PA) — the customer's single
+  // point of contact. Which persona actually did the work is carried
+  // separately as `handledBy` metadata (see res.json below) rather than
+  // becoming the primary voice, so hiring a specialist doesn't change who
+  // appears to be answering.
+  const delegationBlurb = delegatedPeer
+    ? `On it — I've handed this to a worker to execute. I'll review the result before anything lands in your vault. Track live progress on the Tasks page.`
+    : `On it — I'll plan the steps and report back here. I'll capture anything worth keeping to your vault.`;
   const handoffPrefix = laneHandoff
     ? `Handed off from **${laneHandoff.fromPersona}** to **${laneHandoff.toPersona}** — ${laneHandoff.reason}\n\n`
     : "";
@@ -904,6 +904,10 @@ async function handleChat(req: any, res: any) {
     templateId: tpl.id,
     requiresApproval: false,
     text: handoffPrefix + delegationBlurb + approvalNotice,
+    // Who actually did the work — surfaced as a transparent attribution tag
+    // on the bubble, not as the visible speaker. Naxie is always the voice;
+    // this is metadata about who Naxie delegated to, if anyone.
+    handledBy: persona ? { personaId: persona.id, personaName: persona.name, role: persona.role } : null,
     activePersona: persona ? { id: persona.id, name: persona.name, role: persona.role } : null,
     personaAutoRouted: personaAutoRouted ? { ...personaAutoRouted, personaId: persona?.id ?? null } : null,
     laneHandoff,

@@ -3,7 +3,7 @@ import { ReactNode, useEffect, useState, type ComponentType } from "react";
 import { ToastRack } from "./Card";
 import {
   LayoutDashboard, MessageSquare, Users, ListChecks, BookOpen,
-  Sun, Moon, Search as SearchIcon, ChevronRight,
+  Search as SearchIcon, ChevronRight,
   CalendarDays, Database,
   Plug, Sparkles,
   LogOut, Contact, Zap, ThumbsUp, DollarSign,
@@ -17,6 +17,8 @@ import { Kbd, MetaKey } from "./Kbd";
 import { matIcon } from "./FileIcon";
 import { api, setToken, type User } from "../lib/api";
 import { preloadRoute, preloadLikelyRoutes } from "../lib/routePreload";
+import { TerminalProvider } from "../lib/terminalContext";
+import { TerminalDrawer } from "./TerminalDrawer";
 
 // Atom Material icons (see FileIcon.tsx) for the nav items with a clean
 // conceptual match; everything else keeps its lucide icon — there's no
@@ -127,10 +129,13 @@ export function Layout({ children }: { children: ReactNode }) {
   // Per-group open state. Undefined = "not toggled yet"; a group with an active
   // child defaults to open so the current page is always visible in the rail.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const [theme, setTheme] = useState<"dark" | "light">(() => {
+  // Two named color themes, both dark: "dark" = Atom One Dark (the existing
+  // default palette — see index.css), "dracula" = the official Dracula
+  // palette. Any older saved "light" value falls back to "dark".
+  const [theme, setTheme] = useState<"dark" | "dracula">(() => {
     if (typeof window === "undefined") return "dark";
     const saved = localStorage.getItem("neuroworks.theme");
-    return saved === "light" ? "light" : "dark";
+    return saved === "dracula" ? "dracula" : "dark";
   });
   // Collapsed sidebar — an icon-only rail (~4x narrower) for more working
   // space. Sticky across reloads like the theme choice.
@@ -259,6 +264,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const clearBackground = location.pathname.startsWith("/naxie");
 
   return (
+    <TerminalProvider>
     <div className="flex h-full">
       <GlitterBackground />
       <aside className={`shrink-0 bg-ink-900 border-r border-ink-800 flex flex-col transition-[width] duration-200 overflow-hidden ${collapsed ? "w-16" : "w-60"}`}>
@@ -274,12 +280,13 @@ export function Layout({ children }: { children: ReactNode }) {
           <div className={`flex items-center gap-1 ${collapsed ? "" : "shrink-0"}`}>
             <button
               type="button"
-              onClick={() => setTheme(t => t === "dark" ? "light" : "dark")}
-              title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-              aria-label="Toggle theme"
+              onClick={() => setTheme(t => t === "dark" ? "dracula" : "dark")}
+              title={`Switch to ${theme === "dark" ? "Dracula" : "Atom One Dark"} theme`}
+              aria-label="Toggle color theme"
               className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0"
             >
-              {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
+              {/* Swatch shows the theme you'd switch TO, matching the old sun/moon pattern. */}
+              <span className={`block w-3 h-3 rounded-full ${theme === "dark" ? "bg-[#bd93f9]" : "bg-[#61afef]"}`} />
             </button>
             <button
               type="button"
@@ -392,9 +399,11 @@ export function Layout({ children }: { children: ReactNode }) {
             {children}
           </div>
         </div>
+        <TerminalDrawer />
       </main>
       <CommandPalette />
       <ToastRack />
     </div>
+    </TerminalProvider>
   );
 }

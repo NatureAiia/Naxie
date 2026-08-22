@@ -128,10 +128,24 @@ function isTooBigForLocal(prompt: string, system: string | undefined): boolean {
   return total > LOCAL_CONTEXT_BUDGET_TOKENS;
 }
 
+// Folds the Settings → Models effort dial into the complexity decision.
+// "high" always escalates (customer is explicitly asking for the best answer
+// regardless of cost/latency). "low" still honours an explicit caller
+// complexity:"high" — those are correctness-critical call sites (SQL gen,
+// synthesis over a lot of evidence), not something a speed preference should
+// downgrade — but ignores the size-based auto-escalation so a big-but-routine
+// prompt stays on the cheap/fast path. "auto" is the pre-existing behaviour.
+function isComplexCall(opts: LLMCallOptions, sizeTriggered: boolean): boolean {
+  if (config.effortMode === "high") return true;
+  if (config.effortMode === "low") return opts.complexity === "high";
+  return opts.complexity === "high" || sizeTriggered;
+}
+
 async function chooseBackendAndModel(opts: LLMCallOptions, prompt: string, system: string | undefined): Promise<{ backend: Backend; model: string; reason?: string }> {
-  // Complexity inference: either explicit ("high") or size-based.
+  // Complexity inference: either explicit ("high"), size-based, or forced by
+  // the effort dial.
   const sizeTriggered = isTooBigForLocal(prompt, system);
-  const isComplex = opts.complexity === "high" || sizeTriggered;
+  const isComplex = isComplexCall(opts, sizeTriggered);
 
   if (opts.model) {
     if (looksRemote(opts.model) && config.openrouterEnabled) {
@@ -324,7 +338,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
         // Local Ollama stays the final safety net, exactly as before.
         try {
           const { getFallbackChain } = await import("./model-providers.js");
-          const isComplex = opts.complexity === "high" || isTooBigForLocal(prompt, system);
+          const isComplex = isComplexCall(opts, isTooBigForLocal(prompt, system));
           for (const fp of getFallbackChain()) {
             const fbModel = isComplex ? fp.largeModel : fp.smallModel;
             try {

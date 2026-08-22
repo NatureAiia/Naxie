@@ -76,6 +76,36 @@
   --c-leaf-400: #3fb3a0;
   --c-leaf-500: #269684;
 }
+[data-theme="dracula"] {
+  color-scheme: dark;
+  /* Official Dracula palette (background/current-line/foreground/comment +
+     the 8 accent colors from draculatheme.com), mapped onto the same
+     ink/cream/accent roles used by One Dark above. ink = surface ramp,
+     cream = text ramp. */
+  --c-ink-950: #282a36;   /* canvas — Dracula "Background" */
+  --c-ink-900: #21222c;   /* panel (sidebar, rails) — Dracula's darker sidebar tone */
+  --c-ink-850: #262835;   /* card */
+  --c-ink-800: #343746;   /* elevated / hover surface */
+  --c-ink-700: #44475a;   /* hairlines, dividers — Dracula "Current Line" */
+  --c-ink-600: #565a72;   /* muted structural lines */
+  --c-cream-50:  #f8f8f2; /* headings, brightest text — Dracula "Foreground" */
+  --c-cream-100: #e6e6e0; /* body */
+  --c-cream-200: #c0c2cc; /* secondary */
+  --c-cream-300: #6272a4; /* de-emphasized — Dracula "Comment" */
+  --bg-glow: rgba(189, 147, 249, 0.10);      /* Dracula purple wash */
+  --bg-grid: rgba(248, 248, 242, 0.04);      /* 1px architectural grid */
+  --c-flame-400: #ff6e6e; /* Dracula red */
+  --c-flame-500: #ff5555;
+  --c-flame-600: #e64545;
+  --c-coral-400: #ffc27d; /* Dracula orange */
+  --c-coral-500: #ffb86c;
+  --c-coral-600: #e6a15c;
+  --c-violet-400: #caa0ff; /* Dracula purple */
+  --c-violet-500: #bd93f9;
+  --c-violet-600: #a479e0;
+  --c-leaf-400: #69ff8f;  /* Dracula green */
+  --c-leaf-500: #50fa7b;
+}
 
 :root {
   font-family: Inter, system-ui, sans-serif;

@@ -36,6 +36,13 @@ export type PersonaStore = {
   activeId: string | null;
 };
 
+// The Personal Assistant's own visible identity — the single entity the
+// customer always talks to in chat, distinct from BUILTIN_NEUROWORKS_PERSONA
+// ("Neuro"), which remains the internal working-voice persona used for vault
+// authorship attribution. Hired personas do the work; Naxie is who reports
+// back. Not part of the hireable catalog — this is display identity only.
+export const PA_IDENTITY = { id: "naxie", name: "Naxie" } as const;
+
 let cache: PersonaStore | null = null;
 // Set when ensureBuiltinSeeded rewrites a built-in's display name (a rename),
 // so loadPersonas knows to persist the corrected store back to disk.

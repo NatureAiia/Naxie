@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Cpu, Download, Trash2, Loader2, CheckCircle2, Cloud, Plus, Star, Zap,
+  Cpu, Download, Trash2, Loader2, CheckCircle2, Cloud, Plus, Star, Zap, Gauge,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { Card, showToast } from "../components/Card";
@@ -8,11 +8,12 @@ import { Card, showToast } from "../components/Card";
 export function Models() {
   const [installed, setInstalled] = useState<{ name: string }[]>([]);
   const [def, setDef] = useState("");
+  const [effort, setEffortState] = useState<"auto" | "low" | "high">("auto");
   const [loading, setLoading] = useState(true);
 
   const load = () => {
     setLoading(true);
-    api.listModels().then(r => { setInstalled(r.models); setDef(r.default); }).catch(() => {}).finally(() => setLoading(false));
+    api.listModels().then(r => { setInstalled(r.models); setDef(r.default); setEffortState(r.effort); }).catch(() => {}).finally(() => setLoading(false));
   };
   useEffect(load, []);
 
@@ -25,14 +26,63 @@ export function Models() {
         </h1>
         <p className="text-sm text-cream-300/70 mt-1 max-w-3xl">
           Pull local Ollama models, set the default, and plug in cloud model APIs you already
-          use (OpenAI, OpenRouter, Groq, Together, or any OpenAI-compatible endpoint).
+          use (OpenAI, OpenRouter, Groq, Together, or any OpenAI-compatible endpoint). Naxie
+          auto-picks the best installed model per task (planning, synthesis, triage, …) — the
+          effort dial below biases that choice.
         </p>
       </div>
 
+      <EffortDial effort={effort} onChange={setEffortState} />
       <InstalledModels installed={installed} def={def} loading={loading} onChange={load} />
       <Catalog installedNames={new Set(installed.map(m => m.name))} onChange={load} />
       <Providers />
     </div>
+  );
+}
+
+const EFFORT_OPTIONS: { value: "auto" | "low" | "high"; label: string; blurb: string }[] = [
+  { value: "low", label: "Low", blurb: "Fastest installed model. Skips auto-escalation to a bigger model on long prompts." },
+  { value: "auto", label: "Auto", blurb: "Default — picks the best model per task automatically." },
+  { value: "high", label: "High", blurb: "Favors reasoning/quality models and always escalates to the large-tier model when available." },
+];
+
+function EffortDial({ effort, onChange }: { effort: "auto" | "low" | "high"; onChange: (e: "auto" | "low" | "high") => void }) {
+  const [busy, setBusy] = useState(false);
+  async function set(mode: "auto" | "low" | "high") {
+    if (mode === effort || busy) return;
+    setBusy(true);
+    try {
+      await api.setEffort(mode);
+      onChange(mode);
+      showToast(`Effort → ${mode}`, "success");
+    } catch (e: any) {
+      showToast(e?.message ?? "Failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card title="Effort">
+      <div className="flex items-center gap-3">
+        <Gauge size={16} className="text-violet-400 shrink-0" />
+        <div className="inline-flex rounded-md border border-ink-700 overflow-hidden">
+          {EFFORT_OPTIONS.map(o => (
+            <button
+              key={o.value}
+              type="button"
+              disabled={busy}
+              onClick={() => set(o.value)}
+              className={`px-3 py-1.5 text-sm disabled:opacity-40 ${
+                effort === o.value ? "bg-violet-500 text-white" : "bg-ink-900 text-cream-300/70 hover:text-cream-100"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-[11px] text-cream-300/60">{EFFORT_OPTIONS.find(o => o.value === effort)?.blurb}</span>
+      </div>
+    </Card>
   );
 }
 

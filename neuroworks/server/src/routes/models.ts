@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { config } from "../config.js";
-import { listModels, pickModelFor, TASK_PROFILES } from "../lib/models.js";
+import { listModels, pickModelFor, TASK_PROFILES, invalidateModelPickCache } from "../lib/models.js";
 import {
   listProviders, addProvider, removeProvider, activateProvider,
   PROVIDER_DEFAULTS, type ProviderKind,
@@ -33,10 +33,27 @@ modelsRouter.get("/", async (_req, res) => {
   }
   res.json({
     default: config.ollamaModel,
+    effort: config.effortMode,
     models,
     recommendations,
     profiles: TASK_PROFILES,
   });
+});
+
+// Set the effort dial. "auto" (default) keeps the existing per-task capability
+// scoring + size-based OpenRouter escalation; "high" biases toward
+// reasoning/longForm models and always escalates to the large-tier model;
+// "low" biases toward the fastest installed model and skips the size-based
+// auto-escalation. In-memory only — resets to "auto" on restart.
+modelsRouter.post("/effort", (req, res) => {
+  const mode = String(req.body?.mode ?? "").trim();
+  if (mode !== "auto" && mode !== "low" && mode !== "high") {
+    return res.status(400).json({ error: `mode must be "auto", "low", or "high"` });
+  }
+  const previous = config.effortMode;
+  config.effortMode = mode;
+  invalidateModelPickCache();
+  res.json({ effort: mode, previous });
 });
 
 // Set the runtime default model. In-memory only — env wins again on restart.

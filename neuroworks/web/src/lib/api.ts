@@ -116,6 +116,25 @@ export type QualitySummary = {
     ts: string;
   }[];
 };
+export type HostToolsSettings = { allowSystemControl: boolean; allowClipboardAccess: boolean; gitRepoPath: string };
+
+export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect";
+export type OrgTaskStatus = "backlog" | "active" | "blocked" | "waiting-on-approval" | "done";
+export type OrgTask = {
+  id: string;
+  role: OrgRole;
+  title: string;
+  detail: string;
+  status: OrgTaskStatus;
+  priority: "low" | "normal" | "high" | "urgent";
+  linkedTaskIds: string[];
+  jobId?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: "naxie" | "user" | "daemon";
+  pendingApproval?: { actionDescription: string; kind: string; requestedAt: string };
+};
+
 export type QualityFlag = {
   jobId: string;
   rating: "up" | "down";
@@ -198,6 +217,19 @@ export const api = {
   brainDownloadUrl: (path: string) => `/api/brain/download?path=${encodeURIComponent(path)}`,
   brainSearch: (q: string) => req<{ q: string; results: { path: string; line: number; preview: string }[] }>(`/api/brain/search?q=${encodeURIComponent(q)}`),
   brainGraph: () => req<{ nodes: { id: string; label: string; group: string; kind: "note" | "tag" }[]; links: { source: string; target: string }[]; docCount: number }>("/api/brain/graph"),
+  storageStatus: () => req<{ backends: { id: "local" | "obsidian" | "github" | "drive" | "supabase"; label: string; configured: boolean; reachable: boolean; detail: string }[] }>("/api/storage/status"),
+  hostToolsSettings: () => req<{ settings: HostToolsSettings }>("/api/host-tools/settings"),
+  updateHostToolsSettings: (patch: Partial<HostToolsSettings>) =>
+    req<{ settings: HostToolsSettings }>("/api/host-tools/settings", { method: "PATCH", body: JSON.stringify(patch) }),
+  orgTasks: (filter?: { role?: OrgRole; status?: OrgTaskStatus }) => {
+    const q = new URLSearchParams();
+    if (filter?.role) q.set("role", filter.role);
+    if (filter?.status) q.set("status", filter.status);
+    const qs = q.toString();
+    return req<{ tasks: OrgTask[] }>(`/api/org-tasks${qs ? `?${qs}` : ""}`);
+  },
+  resolveOrgTaskApproval: (id: string, approved: boolean) =>
+    req<{ task: OrgTask }>(`/api/org-tasks/${encodeURIComponent(id)}/resolve`, { method: "PATCH", body: JSON.stringify({ approved }) }),
   brainLatestDigest: () => req<{ content: string }>("/api/brain/digest/latest"),
   brainPromote: (path: string, opts?: { title?: string; tags?: string; keepOriginal?: boolean }) => req<{ promoted: true; from: string; to: string; archived: boolean }>("/api/brain/promote", { method: "POST", body: JSON.stringify({ path, ...opts }) }),
   brainDiscard: (path: string) => req<{ deleted: string[]; count: number }>("/api/brain/discard", { method: "POST", body: JSON.stringify({ path }) }),
@@ -225,6 +257,7 @@ export const api = {
     templateId?: string;
     requiresApproval?: boolean;
     brainHits?: { path: string; line: number; preview: string }[];
+    handledBy?: { personaId: string; personaName: string; role?: string } | null;
     activePersona?: { id: string; name: string; role: string } | null;
     personaAutoRouted?: { personaId: string | null; score: number; matched: string[] } | null;
     needsContext?: boolean;
@@ -339,11 +372,13 @@ export const api = {
   stopWorker: () => req<{ stopped: true; status: any }>("/api/peers/worker/stop", { method: "POST" }),
   listModels: () => req<{
     default: string;
+    effort: "auto" | "low" | "high";
     models: { name: string; family: string; paramSize?: string; sizeGB?: number; capabilities: { jsonStrict: number; reasoning: number; longForm: number; speed: number; cost: number } }[];
     recommendations: Record<string, string>;
     profiles: Record<string, Record<string, number>>;
   }>("/api/models"),
   setDefaultModel: (name: string) => req<{ default: string; previous: string; ephemeral: boolean; hint: string }>("/api/models/default", { method: "POST", body: JSON.stringify({ name }) }),
+  setEffort: (mode: "auto" | "low" | "high") => req<{ effort: string; previous: string }>("/api/models/effort", { method: "POST", body: JSON.stringify({ mode }) }),
   modelCatalog: () => req<{ catalog: { name: string; size: string; blurb: string; installed: boolean }[] }>("/api/models/catalog"),
   deleteModel: (name: string) => req<{ ok: true; removed: string }>(`/api/models/installed/${encodeURIComponent(name)}`, { method: "DELETE" }),
   // Bring-your-own model providers (cloud APIs the user already uses).

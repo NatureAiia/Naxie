@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { api, type OrgTask } from "../lib/api";
 import { Card } from "../components/Card";
 import { useLoadMore, LoadMoreButton } from "../components/LoadMore";
 
@@ -27,6 +27,24 @@ export function Approvals() {
     catch {}
   }
   useEffect(() => { load(); const i = setInterval(load, 3000); return () => clearInterval(i); }, []);
+
+  // Naxie's OrgTask approval inbox (docs/naxie-architecture.md §5/§8.5) —
+  // separate data shape from Job (a plain-language actionDescription, never a
+  // diff/plan), so it gets its own small section rather than being forced
+  // into the Job-plan rendering above.
+  const [orgTasks, setOrgTasks] = useState<OrgTask[]>([]);
+  const [orgBusy, setOrgBusy] = useState<string | null>(null);
+  async function loadOrgTasks() {
+    try { const r = await api.orgTasks({ status: "waiting-on-approval" }); setOrgTasks(r.tasks); }
+    catch { /* org-tasks route is admin-gated — a non-admin session just sees none */ }
+  }
+  useEffect(() => { loadOrgTasks(); const i = setInterval(loadOrgTasks, 3000); return () => clearInterval(i); }, []);
+  async function resolveOrgTask(id: string, approved: boolean) {
+    setOrgBusy(id); setErr("");
+    try { await api.resolveOrgTaskApproval(id, approved); await loadOrgTasks(); }
+    catch (e: any) { setErr(e.message); }
+    finally { setOrgBusy(null); }
+  }
 
   function setArg(job: any, stepIdx: number, key: string, value: string) {
     setEdits(prev => {
@@ -63,7 +81,32 @@ export function Approvals() {
         <p className="text-sm text-cream-300/70 mt-1">Tasks that write to GitHub or your vault wait here for your sign-off.</p>
       </div>
 
-      {jobs.length === 0 ? (
+      {orgTasks.length > 0 && (
+        <ul className="space-y-2">
+          {orgTasks.map(t => (
+            <li key={t.id}>
+              <Card>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-cream-50">{t.title}</div>
+                    <div className="text-xs text-cream-300/60 mt-0.5">{new Date(t.pendingApproval?.requestedAt ?? t.updatedAt).toLocaleString()}</div>
+                    <div className="mt-3 rounded-md border border-violet-500/30 bg-violet-500/5 p-3 text-xs">
+                      <div className="text-[10px] uppercase tracking-wider text-violet-300/70 mb-1.5">Naxie would like to:</div>
+                      <div className="text-cream-100">{t.pendingApproval?.actionDescription ?? t.detail}</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={() => resolveOrgTask(t.id, false)} disabled={orgBusy === t.id} className="px-3 py-1.5 rounded-md text-xs text-cream-300 hover:text-cream-100 border border-ink-700 disabled:opacity-50">Reject</button>
+                    <button onClick={() => resolveOrgTask(t.id, true)} disabled={orgBusy === t.id} className="px-3 py-1.5 rounded-md text-xs bg-leaf-500 hover:bg-leaf-400 text-ink-950 font-medium disabled:opacity-50">{orgBusy === t.id ? "…" : "Approve"}</button>
+                  </div>
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {jobs.length === 0 && orgTasks.length === 0 ? (
         <Card>
           <div className="text-center py-12">
             <div className="text-cream-300/40 text-4xl mb-3">✓</div>
@@ -71,7 +114,7 @@ export function Approvals() {
             <div className="text-xs text-cream-300/50 mt-1">Tasks with destructive scope (publishing folders, writing to vault) will queue here.</div>
           </div>
         </Card>
-      ) : (
+      ) : jobs.length > 0 && (
         <ul className="space-y-2">
           {jobList.visible.map(j => {
             const plan = effectivePlan(j);

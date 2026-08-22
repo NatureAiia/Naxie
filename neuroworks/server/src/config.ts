@@ -27,7 +27,20 @@ const vaultRepo = pick("VAULT_REPO", "");
 const vaultPathRaw = pick("VAULT_PATH", "./vault");
 const vaultPath = resolve(vaultPathRaw);
 const ollamaHost = pick("OLLAMA_HOST", "http://127.0.0.1:11434");
-const ollamaModel = pick("OLLAMA_MODEL", "qwen2.5:3b"); // qwen3.5:0.8b retired — default to an installed model
+const ollamaModel = pick("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0");
+// The separate naxionai/backend (FastAPI, Python) service — hosts Naxie's
+// personal Google/Microsoft connectors (see routes/naxie-connectors.ts). Not
+// started or supervised by this server; must be running separately.
+const naxionBaseUrl = pick("NAXION_BASE_URL", "http://127.0.0.1:8000");
+// Effort dial the customer can flip from Settings → Models. "auto" (default)
+// keeps the existing per-task capability scoring + size-based OR escalation.
+// "high" biases local picks toward reasoning/longForm models and always
+// escalates to the large-tier model when OpenRouter is configured; "low"
+// biases toward the fastest local model and skips the size-based auto-
+// escalation (explicit complexity:"high" call sites — SQL gen, etc. — still
+// get their large model, since those are correctness-critical, not a mood).
+// Runtime-only (like ollamaModel above) — resets to "auto" on restart.
+let effortMode: "auto" | "low" | "high" = "auto";
 
 // OpenRouter — optional cloud LLM provider used to accelerate slow profiles
 // (planning/synthesis) when local Ollama can't keep up. Key absent = fully
@@ -62,6 +75,15 @@ const openrouterAppName = pick("OPENROUTER_APP_NAME", "NeuroWorks Clawbot");
 // tier so resilience-tier sites stop tanking the research pipeline.
 const firecrawlApiKey = pick("FIRECRAWL_API_KEY", "");
 const firecrawlBaseUrl = pick("FIRECRAWL_BASE_URL", "https://api.firecrawl.dev");
+
+// Supabase — credentials only for now (docs/naxie-storage-architecture.md
+// Phase 2: pgvector RAG store + MAG memory table). No integration code reads
+// these yet; storage.ts's status route uses them for a live reachability
+// ping so the storage-universe UI can show "configured, not yet wired" for
+// this backend, and every future Phase 2 caller reads the same three vars.
+const supabaseUrl = pick("SUPABASE_URL", "");
+const supabasePublishableKey = pick("SUPABASE_PUBLISHABLE_KEY", "");
+const supabaseSecretKey = pick("SUPABASE_SECRET_KEY", "");
 
 // MiniMax removed — image generation goes through OpenRouter (Gemini flash);
 // video/music/tts have no configured provider (see media.* primitives).
@@ -161,6 +183,8 @@ export const config = {
   vaultPath,
   ollamaHost,
   ollamaModel,
+  naxionBaseUrl,
+  effortMode: effortMode as "auto" | "low" | "high",
   openrouterApiKey,
   openrouterBaseUrl,
   openrouterModel,
@@ -172,6 +196,10 @@ export const config = {
   firecrawlApiKey,
   firecrawlBaseUrl,
   firecrawlEnabled: firecrawlApiKey.length > 0,
+  supabaseUrl,
+  supabasePublishableKey,
+  supabaseSecretKey,
+  supabaseEnabled: supabaseUrl.length > 0 && supabaseSecretKey.length > 0,
   heygenApiKey,
   heygenBaseUrl,
   heygenEnabled: heygenApiKey.length > 0,

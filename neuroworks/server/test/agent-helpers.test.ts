@@ -17,7 +17,20 @@ import {
   compactStepSummary,
   defaultVaultPlan,
   deepGet,
+  SENSITIVE_APPROVAL_TOOLS,
 } from "../src/lib/agent.js";
+
+describe("SENSITIVE_APPROVAL_TOOLS", () => {
+  it("gates the Naxie host tools whose settings toggle only makes them ELIGIBLE, not autonomous (docs/naxie-architecture.md §2.2)", () => {
+    expect(SENSITIVE_APPROVAL_TOOLS.has("system_control")).toBe(true);
+    expect(SENSITIVE_APPROVAL_TOOLS.has("manage_clipboard")).toBe(true);
+    expect(SENSITIVE_APPROVAL_TOOLS.has("git_pull")).toBe(true);
+  });
+
+  it("leaves the read-only git status check out — a routine check shouldn't need sign-off", () => {
+    expect(SENSITIVE_APPROVAL_TOOLS.has("git_status")).toBe(false);
+  });
+});
 
 describe("parseUserRequestFromTask", () => {
   it("strips a templated 'Topic: …' suffix and returns just the topic", () => {

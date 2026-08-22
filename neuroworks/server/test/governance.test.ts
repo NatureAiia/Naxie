@@ -13,6 +13,7 @@ import {
   describeStepAction,
   filterEnforceable,
   gateAction,
+  isConsequentialTool,
   type ExtractedConstraint,
 } from "../src/lib/governance.js";
 
@@ -42,6 +43,30 @@ describe("CONSEQUENTIAL_TOOLS", () => {
     expect(CONSEQUENTIAL_TOOLS.has("vault.read")).toBe(false);
     expect(CONSEQUENTIAL_TOOLS.has("web.fetch")).toBe(false);
     expect(CONSEQUENTIAL_TOOLS.has("research.deep")).toBe(false);
+  });
+
+  it("includes the Naxie org additions — external calendar changes and host-level tools", () => {
+    expect(CONSEQUENTIAL_TOOLS.has("calendar.write_external_attendee")).toBe(true);
+    expect(CONSEQUENTIAL_TOOLS.has("system_control")).toBe(true);
+    expect(CONSEQUENTIAL_TOOLS.has("manage_clipboard")).toBe(true);
+    expect(CONSEQUENTIAL_TOOLS.has("git_pull")).toBe(true);
+  });
+});
+
+describe("isConsequentialTool", () => {
+  it("matches everything CONSEQUENTIAL_TOOLS matches exactly", () => {
+    expect(isConsequentialTool("email.send")).toBe(true);
+    expect(isConsequentialTool("vault.read")).toBe(false);
+  });
+
+  it("matches the finance.* family by prefix even though no exact name is enumerated yet", () => {
+    expect(isConsequentialTool("finance.transfer")).toBe(true);
+    expect(isConsequentialTool("finance.anything_not_yet_named")).toBe(true);
+  });
+
+  it("does not treat an unrelated tool that merely contains 'finance' as consequential", () => {
+    expect(isConsequentialTool("get_weather")).toBe(false);
+    expect(isConsequentialTool("refinance.lookup")).toBe(false);
   });
 });
 

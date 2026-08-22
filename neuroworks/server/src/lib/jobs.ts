@@ -4,6 +4,7 @@ import { journal } from "./journal.js";
 import { getActivePersona } from "./personas.js";
 import { persistJobRecord, loadJobsInWindow } from "./job-store.js";
 import { logAudit } from "./audit-log.js";
+import { classifyOrgRole, createOrgTask, updateOrgTaskStatus, requestApproval } from "./org-tasks.js";
 import type { Plan } from "./agent.js"; // type-only — erased at runtime, no import cycle
 
 export type Job = {
@@ -44,6 +45,11 @@ export type Job = {
   // time). Absent = machine/agent/scheduled context. Staff-layer feeds show
   // only a person's OWN tasks; this is the attribution that makes that work.
   createdByEmail?: string;
+  // The OrgTask (lib/org-tasks.ts) this job was filed onto, if it classified
+  // into one of Naxie's 5 roles — set at dispatch time (job start), not at
+  // completion, so the org dashboard can show it as genuinely "active" while
+  // the job runs, not just retroactively. See runJob().
+  orgTaskId?: string;
 };
 
 const jobs = new Map<string, Job>();
@@ -342,6 +348,24 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
   await acquireSlot();
   if (j.status === "failed" || j.status === "rejected") { releaseSlot(); return; }
   j.status = "running";
+  // Naxie org-task tracking (docs/naxie-architecture.md §3-§6) — file this
+  // job onto the classified role's backlog AT DISPATCH TIME, as "active",
+  // so the org dashboard reflects real in-flight work rather than only ever
+  // showing already-finished tasks. Best-effort; never blocks the job.
+  try {
+    const role = classifyOrgRole(j);
+    if (role) {
+      const task = createOrgTask({
+        role,
+        title: j.title ?? j.template ?? j.kind ?? "task",
+        detail: String(j.task ?? j.title ?? ""),
+        createdBy: j.scheduledBy ? "daemon" : "naxie",
+        jobId: j.id,
+      });
+      updateOrgTaskStatus(task.id, "active");
+      j.orgTaskId = task.id;
+    }
+  } catch { /* org-task tracking is best-effort, never fails a job */ }
   // Register a cancellation handle for this run. cancelJob(id) aborts it; the
   // agent loop + peer poll check the signal and stop cooperatively.
   const abort = new AbortController();
@@ -473,6 +497,31 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
         result: j.status === "succeeded" ? "success" : j.status === "failed" ? "failure" : "pending",
       });
     } catch { /* audit is best-effort */ }
+    // Naxie org-task tracking, part 2 — resolve the "active" OrgTask created
+    // at dispatch time (above) to its final status. Best-effort, same as
+    // every other post-job hook here.
+    try {
+      if (j.orgTaskId) {
+        // Widened to `string` deliberately — TS's CFA narrows j.status to an
+        // unexpectedly small literal union at this point in the function
+        // (probably from earlier branches elsewhere in runJob), which would
+        // make some of these comparisons "impossible" by its reckoning even
+        // though they're real runtime states. Comparing as plain strings
+        // sidesteps that instead of fighting it.
+        const finalStatus: string = j.status;
+        if (finalStatus === "succeeded") updateOrgTaskStatus(j.orgTaskId, "done");
+        else if (finalStatus === "failed" || finalStatus === "rejected" || finalStatus === "waiting_on_human") updateOrgTaskStatus(j.orgTaskId, "blocked");
+        else if (finalStatus === "awaiting-approval") {
+          requestApproval(j.orgTaskId, {
+            actionDescription: `Run "${j.title ?? j.template ?? j.kind ?? "task"}" as planned`,
+            kind: "other",
+          });
+        }
+        // "running"/"pending" shouldn't occur here — finally only fires once
+        // the job has settled into a terminal-for-now status — but if it
+        // ever does, the task is simply left "active" rather than guessed at.
+      }
+    } catch { /* org-task tracking is best-effort, never fails a job */ }
     // Quality auto-logging — the agent's own QA wave (quality.check) scored this
     // answer; record its verdict so the Quality dashboard reflects AUTOMATED QA,
     // not just the manual thumbs it used to depend on. Tagged source:"auto" so

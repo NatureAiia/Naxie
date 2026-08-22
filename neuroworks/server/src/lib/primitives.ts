@@ -17,6 +17,10 @@ import { enqueueVaultCommit } from "./commit-queue.js";
 import { searchWeb, smartFetch } from "./web-client.js";
 import { classifyDeliverable } from "./deliverable.js";
 import { checkContentAgainstGovernance } from "./governance.js";
+import {
+  getWeather, setReminder, systemControl, manageClipboard, gitCommand, browserOpen,
+  type SystemControlAction,
+} from "./host-tools.js";
 
 export type ArgSpec = { name: string; type: "string" | "number" | "boolean"; required: boolean; description: string };
 
@@ -4193,6 +4197,78 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         elapsedMs: run.elapsedMs,
       };
     },
+  },
+
+  // ─── Naxie host tools (docs/naxie-architecture.md §2.2) ─────────────────
+  // Ported by behavior from naxionai/backend/agent/tools/pa_tools.py.
+  // system_control / manage_clipboard / git_pull are also registered in
+  // SENSITIVE_APPROVAL_TOOLS (agent.ts) and CONSEQUENTIAL_TOOLS
+  // (governance.ts) — the Settings > System Access toggle in host-tools.ts
+  // only makes them ELIGIBLE to run; a plan using them still pauses for
+  // sign-off. get_weather / set_reminder / git_status / browser_open are
+  // deliberately left out of both, matching the Python original's posture.
+  {
+    name: "get_weather",
+    description: "Fetch live weather conditions and forecast for a city or the operator's default location (Open-Meteo, free, no API key).",
+    readonly: true,
+    args: [
+      { name: "location", type: "string", required: false, description: "City name, or 'auto' for the default (London fallback if no location resolves)" },
+    ],
+    handler: async (args) => ({ text: await getWeather(String(args.location ?? "auto")) }),
+  },
+  {
+    name: "set_reminder",
+    description: "Fire a desktop notification reminder for the user, immediately or after a delay. Scheduling is process-lifetime only — not durable across a server restart.",
+    readonly: false,
+    args: [
+      { name: "title", type: "string", required: true, description: "Notification header, e.g. 'Meeting in 10 mins'" },
+      { name: "message", type: "string", required: true, description: "Body text, e.g. 'Call John on Zoom'" },
+      { name: "delay_seconds", type: "number", required: false, description: "Seconds to wait before the notification fires (0 = immediate)" },
+    ],
+    handler: async (args) => ({ text: await setReminder(String(args.title ?? ""), String(args.message ?? ""), Number(args.delay_seconds ?? 0)) }),
+  },
+  {
+    name: "system_control",
+    description: "Control this PC directly: open an allowlisted app, take a screenshot, mute/unmute volume, focus a window by title, read/set screen brightness, or check battery status. Refused unless the operator has turned on Settings > System Access, and every use still pauses for the operator's sign-off before running.",
+    readonly: false,
+    args: [
+      { name: "action", type: "string", required: true, description: "One of: open_app, take_screenshot, volume_mute, volume_unmute, focus_window, brightness_get, brightness_set, battery_status" },
+      { name: "target", type: "string", required: false, description: "open_app: app name from the fixed allowlist (calc, notepad, chrome, edge, firefox, word, excel, outlook, explorer, paint, terminal). focus_window: window title substring. brightness_set: 0-100." },
+    ],
+    handler: async (args) => ({ text: await systemControl(String(args.action ?? "") as SystemControlAction, String(args.target ?? "")) }),
+  },
+  {
+    name: "manage_clipboard",
+    description: "Read or write the Windows clipboard. Refused unless the operator has turned on Settings > System Access, and every use still pauses for the operator's sign-off before running.",
+    readonly: false,
+    args: [
+      { name: "action", type: "string", required: false, description: "'read' (default) or 'write'" },
+      { name: "text", type: "string", required: false, description: "Text to copy to the clipboard, for action='write'" },
+    ],
+    handler: async (args) => ({ text: await manageClipboard((args.action === "write" ? "write" : "read"), String(args.text ?? "")) }),
+  },
+  {
+    name: "git_status",
+    description: "Check the current branch and uncommitted changes of the ONE operator-configured git repository (Settings > System Access). Read-only — does not need approval.",
+    readonly: true,
+    args: [],
+    handler: async () => ({ text: await gitCommand("status") }),
+  },
+  {
+    name: "git_pull",
+    description: "Fast-forward-only git pull on the ONE operator-configured repository (Settings > System Access) — never auto-merges. Refused unless System Access is on, and every use still pauses for the operator's sign-off before running.",
+    readonly: false,
+    args: [],
+    handler: async () => ({ text: await gitCommand("pull") }),
+  },
+  {
+    name: "browser_open",
+    description: "Open a URL, or run a Google search, in the user's default web browser. Only a string already starting with http:// or https:// is opened as-is; anything else becomes a search query, so this can never be used to launch a non-http(s) URI scheme.",
+    readonly: true,
+    args: [
+      { name: "url_or_search", type: "string", required: true, description: "A URL (e.g. 'https://example.com') or a plain search phrase" },
+    ],
+    handler: async (args) => ({ text: await browserOpen(String(args.url_or_search ?? "")) }),
   },
 ];
 

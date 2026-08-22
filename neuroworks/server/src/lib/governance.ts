@@ -398,7 +398,26 @@ export const CONSEQUENTIAL_TOOLS = new Set([
   "connector.call",
   "db.write",
   "code.exec",
+  // Naxie org additions (docs/naxie-architecture.md §5) — a calendar change
+  // affecting people other than you, and the host-tool actions (§2.2) that
+  // reach real OS-level access on this machine. Host tools are also gated by
+  // their own Settings > System Access toggle (§2.2/§8.5); this entry is what
+  // routes them through the SAME governance gate as everything else here,
+  // not a parallel check.
+  "calendar.write_external_attendee",
+  "system_control", "manage_clipboard", "git_pull",
 ]);
+
+// Prefix form of the same allowlist, for tool families that don't have a
+// fixed enumerable set of names yet (docs §5's "a finance.* category") —
+// CONSEQUENTIAL_TOOLS itself stays an exact-match Set (existing callers that
+// do `.has("email.send")` etc. keep working unchanged); isConsequentialTool
+// below is what actually decides gating and checks both.
+const CONSEQUENTIAL_TOOL_PREFIXES = ["finance."];
+
+export function isConsequentialTool(tool: string): boolean {
+  return CONSEQUENTIAL_TOOLS.has(tool) || CONSEQUENTIAL_TOOL_PREFIXES.some(p => tool.startsWith(p));
+}
 
 // Build a compact, keyword-rich description of a plan step so the overlap
 // check in checkActionAgainstConstraints has real signal to match against —
@@ -458,7 +477,7 @@ export function gateAction(action: string, enforceable: ExtractedConstraint[]): 
 
 // Pre-execution gate for a single plan step.
 export function checkStepAgainstGovernance(tool: string, args: Record<string, any>): GovernanceGate {
-  if (!CONSEQUENTIAL_TOOLS.has(tool)) return { blocked: false, violations: [] };
+  if (!isConsequentialTool(tool)) return { blocked: false, violations: [] };
   const enforceable = filterEnforceable(getConstraints().constraints);
   if (enforceable.length === 0) return { blocked: false, violations: [] };
   return gateAction(describeStepAction(tool, args), enforceable);

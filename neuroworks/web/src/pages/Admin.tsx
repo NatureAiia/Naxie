@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "../lib/api";
-import { Card, StatusDot } from "../components/Card";
+import { api, type HostToolsSettings, type OrgTask, type OrgRole, type OrgTaskStatus } from "../lib/api";
+import { Card, StatusDot, showToast } from "../components/Card";
 
 type ModelInfo = {
   name: string;
@@ -82,6 +82,11 @@ export function Admin() {
           </Card>
 
           <ModelsSection />
+
+          <div className="grid grid-cols-2 gap-4">
+            <SystemAccessCard />
+            <OrgTasksCard />
+          </div>
 
           <Card title="Configuration">
             <div className="text-xs text-cream-300/70 mb-3">NeuroWorks reads its config from <span className="font-mono">clawbot/.env</span>. Edit there and restart to apply changes durably.</div>
@@ -587,6 +592,148 @@ function CapabilityBars({ cap }: { cap: { jsonStrict: number; reasoning: number;
         </div>
       ))}
     </div>
+  );
+}
+
+// Settings > System Access (docs/naxie-architecture.md §2.2/§8.5) — the
+// on/off switches gating Naxie's host-level tools (open apps, screenshots,
+// volume/brightness, clipboard read/write). Both default OFF server-side;
+// this card is the only UI that can flip them.
+function SystemAccessCard() {
+  const [settings, setSettings] = useState<HostToolsSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    try { const r = await api.hostToolsSettings(); setSettings(r.settings); } catch {}
+  }
+  useEffect(() => { load(); }, []);
+
+  async function update(patch: Partial<HostToolsSettings>) {
+    setBusy(true);
+    try {
+      const r = await api.updateHostToolsSettings(patch);
+      setSettings(r.settings);
+    } catch (e: any) {
+      showToast(e?.message ?? String(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="System Access">
+      <div className="text-xs text-cream-300/70 mb-3">
+        Grants Naxie real OS-level access — open apps, take screenshots, control volume/brightness, read/write the
+        clipboard. Both switches default off; leave off unless you actively want Naxie to use them.
+      </div>
+      {!settings ? (
+        <div className="text-sm text-cream-300/60">Loading…</div>
+      ) : (
+        <div className="space-y-3">
+          <ToggleRow
+            label="Allow system control"
+            hint="Open apps (allowlisted), screenshots, volume, brightness, battery status."
+            checked={settings.allowSystemControl}
+            disabled={busy}
+            onChange={v => update({ allowSystemControl: v })}
+          />
+          <ToggleRow
+            label="Allow clipboard access"
+            hint="Read or write the system clipboard."
+            checked={settings.allowClipboardAccess}
+            disabled={busy}
+            onChange={v => update({ allowClipboardAccess: v })}
+          />
+          <div>
+            <div className="text-[11px] text-cream-300/60 mb-1">Git repo path (the only repo Naxie may check/pull)</div>
+            <input
+              defaultValue={settings.gitRepoPath}
+              onBlur={e => { if (e.target.value.trim() !== settings.gitRepoPath) update({ gitRepoPath: e.target.value }); }}
+              placeholder="D:\path\to\repo"
+              disabled={busy}
+              className="w-full bg-ink-950 border border-ink-800 focus:border-violet-500/60 rounded-md px-3 py-1.5 text-xs font-mono focus:outline-none placeholder:text-cream-300/30 disabled:opacity-40"
+            />
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ToggleRow({ label, hint, checked, disabled, onChange }: { label: string; hint: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-start justify-between gap-3 p-3 rounded-md border border-ink-800 bg-ink-950">
+      <div className="min-w-0">
+        <div className="text-sm text-cream-100">{label}</div>
+        <div className="text-[11px] text-cream-300/50 mt-0.5">{hint}</div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={`flex-shrink-0 relative w-9 h-5 rounded-full transition-colors disabled:opacity-40 ${checked ? "bg-violet-500" : "bg-ink-700"}`}
+      >
+        <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-cream-50 transition-transform ${checked ? "translate-x-4" : ""}`} />
+      </button>
+    </div>
+  );
+}
+
+// Org dashboard (docs/naxie-architecture.md §4/§8.5) — a read-only diagnostics
+// view over the per-role task backlog. lib/jobs.ts already files every
+// finished Job onto a role's backlog; this is the first surface that reads
+// any of it back. Deliberately not wired into Approvals.tsx yet (§8.5's
+// fuller approval-inbox integration is a separate pass).
+const ORG_ROLES: OrgRole[] = ["scheduler", "researcher", "executor", "admin", "architect"];
+const ORG_STATUSES: OrgTaskStatus[] = ["backlog", "active", "blocked", "waiting-on-approval", "done"];
+
+function OrgTasksCard() {
+  const [tasks, setTasks] = useState<OrgTask[] | null>(null);
+  const [role, setRole] = useState<OrgRole | "">("");
+  const [status, setStatus] = useState<OrgTaskStatus | "">("");
+
+  async function load() {
+    try {
+      const r = await api.orgTasks({ role: role || undefined, status: status || undefined });
+      setTasks(r.tasks);
+    } catch {}
+  }
+  useEffect(() => { load(); }, [role, status]);
+
+  return (
+    <Card title="Org tasks">
+      <div className="text-xs text-cream-300/70 mb-3">
+        Naxie's internal per-role backlog — diagnostics only, not a feature you're meant to manage directly.
+      </div>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <select value={role} onChange={e => setRole(e.target.value as OrgRole | "")} className="bg-ink-950 border border-ink-800 rounded-md px-2 py-1 text-[11px] text-cream-100">
+          <option value="">All roles</option>
+          {ORG_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <select value={status} onChange={e => setStatus(e.target.value as OrgTaskStatus | "")} className="bg-ink-950 border border-ink-800 rounded-md px-2 py-1 text-[11px] text-cream-100">
+          <option value="">All statuses</option>
+          {ORG_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+      {!tasks ? (
+        <div className="text-sm text-cream-300/60">Loading…</div>
+      ) : tasks.length === 0 ? (
+        <div className="text-sm text-cream-300/60">No org tasks yet — they're filed automatically as jobs finish.</div>
+      ) : (
+        <div className="space-y-1.5 max-h-80 overflow-y-auto">
+          {tasks.map(t => (
+            <div key={t.id} className="flex items-center gap-2 p-2 rounded-md border border-ink-800 bg-ink-950 text-xs">
+              <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-violet-500/30 text-violet-300 bg-violet-500/10 flex-shrink-0">{t.role}</span>
+              <span className="text-cream-100 truncate flex-1">{t.title}</span>
+              <span className="text-cream-300/50 flex-shrink-0">{t.status}</span>
+              <span className="text-cream-300/40 flex-shrink-0">{new Date(t.updatedAt).toLocaleTimeString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 

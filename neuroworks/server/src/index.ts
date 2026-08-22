@@ -8,6 +8,7 @@ import { statusRouter } from "./routes/status.js";
 import { securityWatch, securityStatus, unblockIp } from "./lib/security-watch.js";
 import { reposRouter } from "./routes/repos.js";
 import { brainRouter } from "./routes/brain.js";
+import { storageRouter } from "./routes/storage.js";
 import { tasksRouter } from "./routes/tasks.js";
 import { myTasksRouter } from "./routes/my-tasks.js";
 import { templatesRouter } from "./routes/templates.js";
@@ -35,6 +36,10 @@ import { handoffRouter } from "./routes/handoff.js";
 import { workforceRouter } from "./routes/workforce.js";
 import { schedulesRouter } from "./routes/schedules.js";
 import { startScheduleScheduler, stopScheduleScheduler } from "./lib/schedules.js";
+import { hostToolsRouter } from "./routes/host-tools.js";
+import { orgTasksRouter } from "./routes/org-tasks.js";
+import { naxieConnectorsRouter } from "./routes/naxie-connectors.js";
+import { startOrgDaemon, stopOrgDaemon } from "./lib/org-daemon.js";
 import { governanceRouter } from "./routes/governance.js";
 import { emailRouter } from "./routes/email.js";
 import { externalAgentsRouter } from "./routes/external-agents.js";
@@ -179,6 +184,7 @@ app.get("/api/media/:file", (req, res) => {
 app.use("/api/status", statusRouter);
 app.use("/api/repos", reposRouter);
 app.use("/api/brain", brainRouter);
+app.use("/api/storage", storageRouter);
 app.use("/api/tasks", tasksRouter);
 app.use("/api/my-tasks", myTasksRouter); // operator's personal to-do list — distinct from the agent job queue above
 app.use("/api/templates", templatesRouter);
@@ -194,6 +200,12 @@ app.use("/api/teams", teamsRouter);
 app.use("/api/handoff", handoffRouter);
 app.use("/api/workforce", workforceRouter);
 app.use("/api/schedules", schedulesRouter);
+app.use("/api/host-tools", hostToolsRouter);
+app.use("/api/org-tasks", requireLayer("admin"), orgTasksRouter); // same activity-data sensitivity as /api/audit below
+// Mounted OUTSIDE /api (naxionai's own prefix, not ours) and BEFORE the SPA
+// fallback below — GET requests here would otherwise be swallowed by the
+// history-fallback `app.get("*", ...)` in production (SERVE_WEB=1).
+app.use("/naxie-api", naxieConnectorsRouter);
 app.use("/api/governance", requireLayer("superadmin"), governanceRouter);
 // Security watchdog readout — recent attack events + currently blocked IPs.
 app.get("/api/security/events", requireLayer("admin"), (_req, res) => res.json(securityStatus()));
@@ -466,6 +478,15 @@ const server = app.listen(config.port, config.bindHost, () => {
     console.log(`  ⓘ schedule tick armed (30s interval)`);
   }
 
+  // Naxie org-orchestration daemon (docs/naxie-architecture.md §6) — keeps
+  // the OrgTask backlog honest between conversations (stale-approval sweep,
+  // orphaned-active-task reconciliation). Primary-only, same reasoning as
+  // the schedule tick above. Disable with NEUROWORKS_ORG_DAEMON=0.
+  if (process.env.NEUROWORKS_ORG_DAEMON !== "0" && config.role === "primary") {
+    startOrgDaemon();
+    console.log(`  ⓘ org daemon armed (${process.env.NEUROWORKS_ORG_DAEMON_CYCLE_SECONDS ?? "300"}s interval)`);
+  }
+
   // Email bridge — inbound IMAP poll + outbound SMTP so users can drive
   // clawbot over email. Primary-only (one poller for the fleet). No-ops with
   // a log when NEUROWORKS_EMAIL_USER / NEUROWORKS_EMAIL_APP_PASSWORD aren't set.
@@ -521,6 +542,8 @@ async function gracefulExit(signal: string) {
   try { stopReflectionScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopScheduleScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopOrgDaemon(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopTelegramBridge(); }
   catch (e: any) { console.warn(`  ⚠ telegram bridge stop failed: ${e?.message ?? e}`); }

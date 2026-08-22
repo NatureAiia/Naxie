@@ -37,6 +37,10 @@ type Msg = {
   // original task instead of starting a new one.
   needsContext?: boolean;
   clarification?: Clarification;
+  // Who actually did the work, when Naxie delegated — surfaced as a small
+  // attribution tag on the bubble. Naxie is always the voice; this is just
+  // metadata about who was brought in.
+  handledBy?: { personaId: string; personaName: string; role?: string } | null;
 };
 
 // Chat local cache is namespaced PER USER — two people sharing a browser
@@ -61,6 +65,14 @@ try {
   localStorage.removeItem("neuroworks.chat.recent");
 } catch { /* ignore */ }
 const RECENT_MAX = 3;
+
+// The PA's display name — mirrors PA_IDENTITY in the server's
+// lib/personas.ts. Kept as one local constant (rather than the two
+// separate literals this used to be) since the empty-state header/greeting
+// below render before any chat response exists, so there's no API payload
+// to read the name from yet; this is the one place in this file to change
+// it if it ever does.
+const NAXIE_NAME = "Naxie";
 
 // Slash-commands — typing "/" in the composer opens this menu. Picking one
 // fills the textarea with a natural-language prompt prefix that routes well
@@ -386,10 +398,13 @@ export function Chat() {
     setRecentSessions(loadRecentSessions());
   }
 
-  async function send() {
+  // overrideText lets a follow-up action chip (see Bubble) send a fully-formed
+  // message straight through the normal pipeline, bypassing the draft/template
+  // splicing below — same send path, no extra endpoint.
+  async function send(overrideText?: string) {
     // Stop any in-progress recording so it doesn't dangle after send.
     if (mic.active) mic.stop();
-    const topic = draft.trim();
+    const topic = (overrideText ?? draft).trim();
     // Allow empty topic when attachments alone carry the intent — e.g.
     // "Summarize this for me" can be implied by just attaching a doc.
     if (busy) return;
@@ -401,12 +416,15 @@ export function Chat() {
     // splice it into the template prompt server-side so the planner sees
     // the full instruction ("research.multiperspective: <topic>") while the
     // customer only had to type their topic. The user-facing bubble shows
-    // their topic alone — keeping the chat clean.
+    // their topic alone — keeping the chat clean. A follow-up chip's
+    // overrideText is already the full message, so it skips splicing.
     const effectiveTopic = topic || `Read the attached document${pendingAttachments.length > 1 ? "s" : ""} and produce a concise summary highlighting the key facts, dates, owners, and risks.`;
     const displayText = topic || `[Attachments only] ${pendingAttachments.map(a => a.filename).join(", ")}`;
-    const sendText = activeTemplate
-      ? `${activeTemplate.task.trim()}\n\nTopic: ${effectiveTopic}`
-      : effectiveTopic;
+    const sendText = overrideText
+      ? overrideText
+      : activeTemplate
+        ? `${activeTemplate.task.trim()}\n\nTopic: ${effectiveTopic}`
+        : effectiveTopic;
 
     // Plan-first mode: draft a plan and park it for approval instead of running.
     if (planFirst) {
@@ -444,6 +462,7 @@ export function Chat() {
         brainHits: r.brainHits,
         needsContext: r.needsContext,
         clarification: r.clarification,
+        handledBy: r.handledBy,
       }]);
       // If the server is asking for context AGAIN (same task still missing
       // something), auto-pin the continuation chip so the user's next
@@ -538,6 +557,11 @@ export function Chat() {
     { title: "Run a digest", task: "run digest with", placeholder: "How many days back? e.g. 14 days" },
     { title: "Sync downloads to vault", task: "sync downloads to vault", placeholder: "Anything specific? (or leave blank)" },
     { title: "Capture a note", task: "add a note:", placeholder: "What should the note say?" },
+    // Copilot-style suggested prompts — same ready-made prefixes as the "/"
+    // slash-command menu, surfaced up front so the empty state doubles as a
+    // discovery point for what Naxie can do.
+    ...SLASH_COMMANDS.filter(c => ["research", "email", "plan", "factcheck"].includes(c.cmd))
+      .map(c => ({ title: c.label, task: c.prefix, placeholder: c.hint })),
   ];
   const suggestions: Suggestion[] = personaTemplates.length > 0
     ? personaTemplates.slice(0, 6).map(t => ({
@@ -553,7 +577,7 @@ export function Chat() {
       <div className="flex items-center justify-between px-8 py-4 border-b border-ink-800 gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-cream-50">
-            <DirectionHover text="Chat with Neuro" accentClassName="text-violet-400" />
+            <DirectionHover text={`Chat with ${NAXIE_NAME}`} accentClassName="text-violet-400" />
           </h1>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <p className="text-xs text-cream-300/60">Type what you want done; I'll delegate and report back.</p>
@@ -652,11 +676,11 @@ export function Chat() {
             {/* Same variable-weight hover effect as the NeuroWorks wordmark
                 on the dashboard (DynamicWeightText). */}
             <h2 className="mb-2 flex justify-center">
-              <DynamicWeightText text={activePersona ? `Hi, I'm ${activePersona.name}.` : "Hi, I'm Neuro."} fontSize={30} />
+              <DynamicWeightText text={`Hi, I'm ${NAXIE_NAME}.`} fontSize={30} />
             </h2>
             <p className="text-sm text-cream-300/70 mb-2">
               {activePersona
-                ? `Operating as ${activePersona.role}. Pick a starter or type your own. I'll route it through the right tools.`
+                ? `I'll bring in ${activePersona.name} (${activePersona.role}) where it helps. Pick a starter or type your own.`
                 : "I can search your knowledge base, summarize projects, run digests, capture notes, and sync downloads. Try:"}
             </p>
             {activePersona && personaTemplates.length > 0 && (
@@ -689,6 +713,7 @@ export function Chat() {
               m={m}
               onStartContinuation={startContinuation}
               continuationActive={!!pendingContinuation && pendingContinuation.originalText === m.clarification?.originalText}
+              onFollowup={busy ? undefined : (text) => void send(text)}
             />
           ))}
           {busy && (
@@ -972,7 +997,16 @@ function shortHint(desc: string): string {
   return desc.replace(/\.$/, "").slice(0, 40);
 }
 
-function Bubble({ m, onStartContinuation, continuationActive }: { m: Msg; onStartContinuation?: (c: Clarification, jobId?: string) => void; continuationActive?: boolean }) {
+// Copilot-style quick follow-ups offered under a finished answer — clicking
+// one re-sends a fully-formed message through the normal pipeline, same as
+// typing it (see send()'s overrideText param).
+const FOLLOWUP_CHIPS: { label: string; build: (content: string) => string }[] = [
+  { label: "Make it shorter", build: c => `Make this shorter, keep the key points:\n\n${c}` },
+  { label: "Turn into email", build: c => `Turn this into a professional email:\n\n${c}` },
+  { label: "Make a table", build: c => `Present this as a clean, well-labelled markdown table:\n\n${c}` },
+];
+
+function Bubble({ m, onStartContinuation, continuationActive, onFollowup }: { m: Msg; onStartContinuation?: (c: Clarification, jobId?: string) => void; continuationActive?: boolean; onFollowup?: (text: string) => void }) {
   if (m.role === "user") {
     return (
       <div className="flex justify-end">
@@ -1005,6 +1039,12 @@ function Bubble({ m, onStartContinuation, continuationActive }: { m: Msg; onStar
           </div>
         )}
         {m.jobId && <InlineJob jobId={m.jobId} requiresApproval={m.requiresApproval} templateId={m.templateId} />}
+        {m.handledBy && (
+          <div className="text-[10px] text-cream-300/50">
+            handled by <Link to="/personas" className="text-cream-300/70 hover:text-violet-400">{m.handledBy.personaName}</Link>
+            {m.handledBy.role ? ` · ${m.handledBy.role}` : ""}
+          </div>
+        )}
         {m.brainHits && m.brainHits.length > 0 && (
           <div className="bg-ink-950 border border-ink-800 rounded-lg p-3">
             <div className="text-[10px] uppercase tracking-wider text-cream-300/50 mb-2">Possible brain matches</div>
@@ -1016,6 +1056,20 @@ function Bubble({ m, onStartContinuation, continuationActive }: { m: Msg; onStar
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+        {onFollowup && !m.needsContext && !m.jobId && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {FOLLOWUP_CHIPS.map(chip => (
+              <button
+                key={chip.label}
+                type="button"
+                onClick={() => onFollowup(chip.build(m.content))}
+                className="px-2.5 py-1 bg-ink-900 hover:bg-ink-850 border border-ink-800 hover:border-violet-500/40 rounded-full text-[11px] text-cream-300/80 hover:text-cream-100 transition-colors"
+              >
+                {chip.label}
+              </button>
+            ))}
           </div>
         )}
       </div>

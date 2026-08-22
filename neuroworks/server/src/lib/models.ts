@@ -207,25 +207,54 @@ const ENV_OVERRIDE_KEYS: Record<keyof typeof TASK_PROFILES, string> = {
 const PICK_CACHE = new Map<string, { at: number; name: string }>();
 const PICK_CACHE_MS = 30_000;
 
+// The effort dial (Settings → Models) biases the capability scorer without
+// touching TASK_PROFILES itself. "high" leans on reasoning/longForm/strictness
+// and discounts speed so bigger, slower local models win the sort; "low" leans
+// the opposite way so the fastest installed model wins even for profiles that
+// would normally pull something heavier. "auto" is a no-op — the profile's own
+// weights decide, same as before this dial existed.
+function applyEffort(needs: TaskNeeds, effort: "auto" | "low" | "high"): TaskNeeds {
+  if (effort === "auto") return needs;
+  const clamp = (v: number) => Math.max(0, Math.min(10, v));
+  if (effort === "high") {
+    return {
+      ...needs,
+      reasoning: clamp((needs.reasoning ?? 3) + 3),
+      longForm: needs.longForm !== undefined ? clamp(needs.longForm + 2) : needs.longForm,
+      jsonStrict: needs.jsonStrict !== undefined ? clamp(needs.jsonStrict + 1) : needs.jsonStrict,
+      speed: needs.speed !== undefined ? clamp(needs.speed - 3) : needs.speed,
+    };
+  }
+  // low
+  return {
+    ...needs,
+    speed: clamp((needs.speed ?? 3) + 4),
+    reasoning: needs.reasoning !== undefined ? clamp(needs.reasoning - 2) : needs.reasoning,
+    longForm: needs.longForm !== undefined ? clamp(needs.longForm - 1) : needs.longForm,
+  };
+}
+
 // Convenience for primitives that want to ask "give me the right model for this kind of task".
 export async function pickModelFor(profile: keyof typeof TASK_PROFILES, fallback?: string): Promise<string> {
-  const cacheKey = `${profile}|${fallback ?? ""}`;
+  const cacheKey = `${profile}|${fallback ?? ""}|${config.effortMode}`;
   const hit = PICK_CACHE.get(cacheKey);
   if (hit && Date.now() - hit.at < PICK_CACHE_MS) return hit.name;
-  // Env override wins over the scorer. We still verify the named model is
-  // pulled — if not, we fall back to the scorer to avoid a hard failure when
-  // the user has a stale env pinned to a deleted model.
+  // Env override wins over the scorer (and over the effort dial — an explicit
+  // pin is a deliberate ask). We still verify the named model is pulled — if
+  // not, we fall back to the scorer to avoid a hard failure when the user has
+  // a stale env pinned to a deleted model.
   const envName = process.env[ENV_OVERRIDE_KEYS[profile]]?.trim();
+  const needs = applyEffort(TASK_PROFILES[profile], config.effortMode);
   let name: string;
   if (envName) {
     const all = await listModels();
     if (all.find(m => m.name === envName)) {
       name = envName;
     } else {
-      name = await pickModel(TASK_PROFILES[profile], fallback);
+      name = await pickModel(needs, fallback);
     }
   } else {
-    name = await pickModel(TASK_PROFILES[profile], fallback);
+    name = await pickModel(needs, fallback);
   }
   PICK_CACHE.set(cacheKey, { at: Date.now(), name });
   return name;

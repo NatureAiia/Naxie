@@ -25,6 +25,23 @@ function hashColor(seed: string): string {
   return `hsl(${h % 360}, 58%, 64%)`;
 }
 
+// The 5 storage backends (docs/naxie-storage-architecture.md) rendered as a
+// ring of glowing "hub" nodes around the note cluster — the storage-universe
+// layer. Fixed positions (not part of the physics sim) so they read as a
+// stable network landmark rather than drifting particles. Colors are a fixed
+// palette per backend, not the folder hash notes use, so hubs are always
+// visually distinct from note dots.
+type StoreBackend = { id: "local" | "obsidian" | "github" | "drive" | "supabase"; label: string; configured: boolean; reachable: boolean; detail: string };
+type HubNode = { id: string; label: string; x: number; y: number; color: string; configured: boolean; reachable: boolean; detail: string };
+const HUB_COLORS: Record<StoreBackend["id"], string> = {
+  local: "hsl(200, 75%, 62%)",
+  obsidian: "hsl(265, 60%, 68%)",
+  github: "hsl(0, 0%, 85%)",
+  drive: "hsl(95, 55%, 58%)",
+  supabase: "hsl(160, 70%, 48%)",
+};
+type Star = { x: number; y: number; r: number; a: number };
+
 export function KnowledgeGraph() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -42,6 +59,9 @@ export function KnowledgeGraph() {
   const transformRef = useRef({ x: 0, y: 0, scale: 1 });
   const panRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
   const movedRef = useRef(false);
+  const hubsRef = useRef<HubNode[]>([]);
+  const starsRef = useRef<Star[]>([]);
+  const starsSizeRef = useRef({ width: 0, height: 0 });
 
   useEffect(() => {
     let alive = true;
@@ -66,6 +86,28 @@ export function KnowledgeGraph() {
       linksRef.current = links;
       setCount(nodes.length);
       setLoading(false);
+
+      // Storage-universe ring — 5 fixed hub nodes just outside the note
+      // cluster, one per backend from docs/naxie-storage-architecture.md.
+      // Independent of the note graph fetch: a status-endpoint hiccup
+      // shouldn't block the note graph from rendering.
+      const hubRadius = spread * 1.55;
+      api.storageStatus().then(s => {
+        if (!alive) return;
+        hubsRef.current = s.backends.map((b, i) => {
+          const angle = (i / s.backends.length) * Math.PI * 2 - Math.PI / 2;
+          return {
+            id: b.id,
+            label: b.label,
+            x: Math.cos(angle) * hubRadius,
+            y: Math.sin(angle) * hubRadius,
+            color: HUB_COLORS[b.id],
+            configured: b.configured,
+            reachable: b.reachable,
+            detail: b.detail,
+          };
+        });
+      }).catch(() => { /* storage-universe layer is decorative — tolerate absence */ });
     }).catch(e => { if (alive) { setError(e?.message ?? String(e)); setLoading(false); } });
     return () => { alive = false; };
   }, []);
@@ -95,6 +137,17 @@ export function KnowledgeGraph() {
         transformRef.current.x = width / 2;
         transformRef.current.y = height / 2;
       }
+      // Regenerate the starfield backdrop for the new size — drawn in screen
+      // space (not the pan/zoom transform) so it reads as a fixed universe
+      // backdrop rather than panning with the graph.
+      starsSizeRef.current = { width, height };
+      const starCount = Math.round((width * height) / 2600);
+      starsRef.current = Array.from({ length: starCount }, () => ({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        r: Math.random() * 1.1 + 0.3,
+        a: Math.random() * 0.5 + 0.15,
+      }));
     }
     resize();
     const ro = new ResizeObserver(resize);
@@ -142,6 +195,17 @@ export function KnowledgeGraph() {
       }
 
       ctx!.clearRect(0, 0, width, height);
+
+      // Starfield backdrop — fixed in screen space (drawn before the
+      // pan/zoom transform below) so it reads as a distant universe rather
+      // than panning with the graph itself.
+      for (const star of starsRef.current) {
+        ctx!.beginPath();
+        ctx!.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+        ctx!.fillStyle = `rgba(216,236,248,${star.a})`;
+        ctx!.fill();
+      }
+
       const t = transformRef.current;
       ctx!.save();
       ctx!.translate(t.x, t.y);
@@ -173,6 +237,54 @@ export function KnowledgeGraph() {
           ctx!.fillText(node.label, node.x + radius + 4, node.y + 4);
         }
       }
+
+      // Storage-universe ring — 5 hub nodes drawn on top of the note graph,
+      // glowing (shadowBlur) with a slow pulse. Dimmed for backends that
+      // aren't configured/reachable yet, so the ring itself communicates
+      // status at a glance instead of needing a legend.
+      const hubs = hubsRef.current;
+      if (hubs.length > 0) {
+        // Pentagon spokes: adjacent hubs + a line in toward the note cluster's
+        // center, so the ring reads as a network converging on the vault.
+        ctx!.strokeStyle = "rgba(216,236,248,0.10)";
+        ctx!.lineWidth = 1 / t.scale;
+        for (let i = 0; i < hubs.length; i++) {
+          const a = hubs[i], b = hubs[(i + 1) % hubs.length];
+          ctx!.beginPath();
+          ctx!.moveTo(a.x, a.y);
+          ctx!.lineTo(b.x, b.y);
+          ctx!.stroke();
+          ctx!.beginPath();
+          ctx!.moveTo(a.x, a.y);
+          ctx!.lineTo(0, 0);
+          ctx!.stroke();
+        }
+
+        const now = Date.now();
+        for (let i = 0; i < hubs.length; i++) {
+          const hub = hubs[i];
+          const pulse = 0.55 + 0.45 * Math.sin(now / 900 + i * 1.3);
+          const statusAlpha = hub.reachable ? 1 : hub.configured ? 0.55 : 0.28;
+          const alpha = pulse * statusAlpha;
+          const radius = 9 + pulse * 2;
+
+          ctx!.save();
+          ctx!.shadowBlur = 16 * statusAlpha;
+          ctx!.shadowColor = hub.color;
+          ctx!.beginPath();
+          ctx!.arc(hub.x, hub.y, radius, 0, Math.PI * 2);
+          ctx!.fillStyle = hub.color.replace("hsl", "hsla").replace(")", `, ${Math.max(alpha, 0.22)})`);
+          ctx!.fill();
+          ctx!.restore();
+
+          ctx!.font = "11px ui-sans-serif, system-ui, sans-serif";
+          ctx!.fillStyle = `rgba(255,255,255,${0.4 + 0.4 * statusAlpha})`;
+          ctx!.textAlign = hub.x >= 0 ? "left" : "right";
+          ctx!.fillText(hub.label, hub.x + (hub.x >= 0 ? radius + 6 : -radius - 6), hub.y + 4);
+          ctx!.textAlign = "left";
+        }
+      }
+
       ctx!.restore();
       raf = requestAnimationFrame(step);
     }
