@@ -71,6 +71,10 @@ const DEFAULT_ALLOWLIST = [
   "web.search", "web.fetch", "web.scrape", "web.firecrawl",
   // Document text extraction (read-only)
   "doc.ocr",
+  // n8n workflow automation — status/list/trigger (trigger is a webhook POST
+  // to the operator's own n8n; create/delete stay off the bridge).
+  "n8n.status", "n8n.list_workflows", "n8n.get_workflow",
+  "n8n.list_executions", "n8n.trigger_webhook",
 ];
 
 function allowlist(): Set<string> {

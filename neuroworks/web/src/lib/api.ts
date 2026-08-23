@@ -447,23 +447,25 @@ export const api = {
     req<PresetApplyResult>(`/api/presets/${encodeURIComponent(id)}/apply`, { method: "POST", body: JSON.stringify(body) }),
   integrationsCatalog: () => req<{ providers: IntegrationProvider[] }>("/api/integrations/catalog"),
   listIntegrations: () => req<{ connections: IntegrationConnection[] }>("/api/integrations"),
-  addIntegration: (providerId: string, label: string, values: Record<string, string>) =>
-    req<{ connection: IntegrationConnection }>("/api/integrations", { method: "POST", body: JSON.stringify({ providerId, label, values }) }),
+  addIntegration: (providerId: string, label: string, values: Record<string, string>, expiresAt?: string) =>
+    req<{ connection: IntegrationConnection }>("/api/integrations", { method: "POST", body: JSON.stringify({ providerId, label, values, ...(expiresAt ? { expiresAt } : {}) }) }),
   testIntegration: (id: string) => req<{ ok: boolean; detail: string }>(`/api/integrations/${encodeURIComponent(id)}/test`, { method: "POST" }),
   testAllIntegrations: () => req<{ results: { id: string; ok: boolean; detail: string }[] }>("/api/integrations/test-all", { method: "POST" }),
   removeIntegration: (id: string) => req<{ ok: true }>(`/api/integrations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  rotateIntegration: (id: string, values: Record<string, string>, expiresAt?: string) => req<{ connection: IntegrationConnection }>(`/api/integrations/${encodeURIComponent(id)}/rotate`, { method: "POST", body: JSON.stringify({ values, ...(expiresAt ? { expiresAt } : {}) }) }),
+  setIntegrationExpiry: (id: string, expiresAt: string | null) => req<{ connection: IntegrationConnection }>(`/api/integrations/${encodeURIComponent(id)}/expiry`, { method: "PATCH", body: JSON.stringify({ expiresAt }) }),
+  setIntegrationRoles: (id: string, allowedRoles: string[]) => req<{ connection: IntegrationConnection }>(`/api/integrations/${encodeURIComponent(id)}/roles`, { method: "PATCH", body: JSON.stringify({ allowedRoles }) }),
   // Plan-approval: draft a plan for a task and park it for human sign-off.
   planTask: (task: string) => req<{ jobId: string; status: string }>("/api/tasks/plan", { method: "POST", body: JSON.stringify({ task }) }),
   // Employee voices — report Q&A + TTS tiers (realtime / local sidecar / browser).
   voiceStatus: () => req<{ realtime: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean }>("/api/voice/status"),
   voiceAsk: (jobId: string, question: string, personaId?: string, history?: { q: string; a: string }[]) =>
     req<{ text: string; personaName: string }>("/api/voice/ask", { method: "POST", body: JSON.stringify({ jobId, question, personaId, history }) }),
-  // Naxie's general conversation — a direct model passthrough (no task
-  // planner, no template matching, no canned strings). `model` forces a
-  // specific locally-pulled Ollama model for this turn; omit it to use
-  // whatever model/provider is currently active.
-  voiceConverse: (messages: { role: "user" | "assistant"; content: string }[], model?: string) =>
-    req<{ text: string; model: string }>("/api/voice/converse", { method: "POST", body: JSON.stringify({ messages, ...(model ? { model } : {}) }) }),
+  // Naxie's general conversation — PA master, auto-routes model
+  // (free-tier online for speed, Ollama by size offline). Returns routing
+  // metadata so the UI can show quick-free vs deep vs local visibly.
+  voiceConverse: (messages: { role: "user" | "assistant"; content: string }[]) =>
+    req<{ text: string; model: string; routing?: { tier: string; complexity: string; reason: string; signals: string[]; online: boolean; backend: string } }>("/api/voice/converse", { method: "POST", body: JSON.stringify({ messages }) }),
   voiceTts: async (text: string, personaId?: string): Promise<Blob> => {
     const token = getToken();
     const r = await fetch("/api/voice/tts", {
@@ -497,11 +499,14 @@ export const api = {
   connectorTemplates: () => req<{ templates: ConnectorTemplate[] }>("/api/connectors/templates"),
   listConnectors: () => req<{ connectors: Connector[] }>("/api/connectors"),
   getConnector: (id: string) => req<{ connector: Connector }>(`/api/connectors/${encodeURIComponent(id)}`),
-  addConnector: (body: ConnectorInput) => req<{ connector: Connector }>("/api/connectors", { method: "POST", body: JSON.stringify(body) }),
+  addConnector: (body: ConnectorInput & { keyExpiresAt?: string; allowedRoles?: string[] }) => req<{ connector: Connector }>("/api/connectors", { method: "POST", body: JSON.stringify(body) }),
   updateConnector: (id: string, body: Partial<ConnectorInput>) =>
     req<{ connector: Connector }>(`/api/connectors/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
   removeConnector: (id: string) => req<{ ok: true }>(`/api/connectors/${encodeURIComponent(id)}`, { method: "DELETE" }),
   testConnector: (id: string) => req<{ ok: boolean; detail: string }>(`/api/connectors/${encodeURIComponent(id)}/test`, { method: "POST" }),
+  setConnectorExpiry: (id: string, keyExpiresAt: string | null) => req<{ connector: Connector }>(`/api/connectors/${encodeURIComponent(id)}/expiry`, { method: "PATCH", body: JSON.stringify({ keyExpiresAt }) }),
+  setConnectorRoles: (id: string, allowedRoles: string[]) => req<{ connector: Connector }>(`/api/connectors/${encodeURIComponent(id)}/roles`, { method: "PATCH", body: JSON.stringify({ allowedRoles }) }),
+  rotateConnector: (id: string, values: Record<string, string>, expiresAt?: string) => req<{ connector: Connector }>(`/api/connectors/${encodeURIComponent(id)}/rotate`, { method: "POST", body: JSON.stringify({ values, ...(expiresAt ? { expiresAt } : {}) }) }),
   callConnector: (id: string, body: { method?: string; path: string; query?: Record<string, any>; body?: any; headers?: Record<string, string> }) =>
     req<{ result: ConnectorCallResult }>(`/api/connectors/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(body) }),
   startConnectorOAuth: (id: string) =>
@@ -730,6 +735,11 @@ export type Connector = {
   skipApprovalForReads?: boolean;
   createdAt: string;
   lastTest?: { ok: boolean; detail: string; at: string };
+  keyExpiresAt?: string;
+  lastRotatedAt?: string;
+  allowedRoles?: string[];
+  daysUntilExpiry?: number;
+  expiryState?: "ok" | "soon" | "expired" | "unset";
 };
 export type ConnectorInput = {
   label: string;
@@ -787,6 +797,11 @@ export type IntegrationConnection = {
   secretFields: string[];
   createdAt: string;
   lastTest?: ConnectionTest;
+  expiresAt?: string;
+  lastRotatedAt?: string;
+  allowedRoles?: string[];
+  daysUntilExpiry?: number;
+  expiryState?: "ok" | "soon" | "expired" | "unset";
 };
 
 export type DataSourceKind = "postgres" | "mysql" | "sqlite" | "mssql" | "mongodb";

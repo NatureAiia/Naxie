@@ -5,7 +5,7 @@ import {
   LayoutDashboard, MessageSquare, Users, ListChecks, BookOpen,
   Search as SearchIcon, ChevronRight,
   CalendarDays, Database,
-  Plug, Sparkles,
+  Plug, Sparkles, Puzzle,
   LogOut, Contact, Zap, ThumbsUp, DollarSign,
   Cpu, Inbox, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
@@ -19,6 +19,7 @@ import { api, setToken, type User } from "../lib/api";
 import { preloadRoute, preloadLikelyRoutes } from "../lib/routePreload";
 import { TerminalProvider } from "../lib/terminalContext";
 import { TerminalDrawer } from "./TerminalDrawer";
+import { NaxieWidget } from "./NaxieWidget";
 
 // Atom Material icons (see FileIcon.tsx) for the nav items with a clean
 // conceptual match; everything else keeps its lucide icon — there's no
@@ -97,6 +98,7 @@ const monitoringNav: NavItem[] = [
 ];
 
 const systemNav: NavItem[] = [
+  { to: "/extensions", label: "Extensions", icon: Puzzle },
   { to: "/data-sources", label: "Company data", icon: Database },
   { to: "/data-pipeline", label: "Intellinexus", icon: PipelineIcon },
   { to: "/models", label: "Models", icon: Cpu },
@@ -119,7 +121,7 @@ export function Layout({ children }: { children: ReactNode }) {
   // enforce the same rules — this just stops dead-end clicks.
   const role = (user?.role ?? "") as string;
   const layer = !user ? "superadmin" : role === "superadmin" ? "superadmin" : role === "admin" ? "admin" : "staff";
-  const SECRETS_PAGES = ["/models", "/connectors", "/integrations", "/terminal", "/governance", "/admin", "/data-sources", "/data-pipeline"];
+  const SECRETS_PAGES = ["/extensions", "/models", "/connectors", "/integrations", "/terminal", "/governance", "/admin", "/data-sources", "/data-pipeline"];
   const nav = {
     library: layer === "staff" ? [] : libraryNav,
     watch: layer === "staff" ? [] : watchNav,
@@ -403,6 +405,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </main>
       <CommandPalette />
       <ToastRack />
+      <NaxieWidget />
     </div>
     </TerminalProvider>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Mic, Square, Loader2, Send, VolumeX, Sparkles } from "lucide-react";
 import { api } from "../lib/api";
 import { Button, showToast } from "../components/Card";
@@ -18,11 +19,9 @@ import { KnowledgeGraph } from "../components/KnowledgeGraph";
 // page then splits into the vault's knowledge graph — the "brain" — filling
 // the center, with the Naxie panel on the right, Obsidian-style.
 
-type Turn = { role: "user" | "assistant"; text: string };
-type ModelOption = { value: string; label: string; kind: "ollama" | "provider" };
+type Turn = { role: "user" | "assistant"; text: string; routing?: { tier: string; complexity: string; reason: string; online: boolean; backend: string } };
 
 const STORAGE_KEY = "neuroworks.naxie.turns";
-const MODEL_KEY = "neuroworks.naxie.model";
 
 function loadTurns(): Turn[] {
   try {
@@ -30,10 +29,6 @@ function loadTurns(): Turn[] {
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
   return [];
-}
-
-function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 export function Naxie() {
@@ -52,16 +47,8 @@ export function Naxie() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
-  // Model access — every locally-pulled Ollama model plus every configured
-  // cloud provider, so Naxie isn't pinned to one hardcoded model.
-  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>(() => {
-    try { return localStorage.getItem(MODEL_KEY) ?? ""; } catch { return ""; }
-  });
-
   useEffect(() => {
     api.voiceStatus().then(setVoice).catch(() => setVoice({ realtime: false, localTts: false }));
-    refreshModels();
     return () => stopSpeaking();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -73,57 +60,25 @@ export function Naxie() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [turns]);
 
-  async function refreshModels() {
-    try {
-      const [m, p] = await Promise.all([api.listModels(), api.listModelProviders()]);
-      const options: ModelOption[] = [
-        ...m.models.map(mo => ({ value: `ollama:${mo.name}`, label: `${mo.name}${mo.name === m.default ? " (default)" : ""}`, kind: "ollama" as const })),
-        ...p.providers.map(pr => ({ value: `provider:${pr.id}`, label: `${pr.label} — ${pr.model}${pr.active ? " (active)" : ""}`, kind: "provider" as const })),
-      ];
-      setModelOptions(options);
-      setSelectedModel(prev => {
-        if (prev && options.some(o => o.value === prev)) return prev;
-        const activeProvider = p.providers.find(pr => pr.active);
-        const fallback = activeProvider ? `provider:${activeProvider.id}` : `ollama:${m.default}`;
-        try { localStorage.setItem(MODEL_KEY, fallback); } catch { /* ignore */ }
-        return fallback;
-      });
-    } catch { /* Models page unreachable — Naxie still works on the current default. */ }
-  }
-
-  async function selectModel(value: string) {
-    setSelectedModel(value);
-    try { localStorage.setItem(MODEL_KEY, value); } catch { /* ignore */ }
-    if (value.startsWith("provider:")) {
-      const id = value.slice("provider:".length);
-      try { await api.activateModelProvider(id); await refreshModels(); }
-      catch (e: any) { showToast(e?.message ?? String(e), "error"); }
-    }
-  }
-
-  const currentModelLabel = modelOptions.find(o => o.value === selectedModel)?.label ?? "model";
-
   function stopSpeaking() {
     try { window.speechSynthesis?.cancel(); } catch { /* not supported */ }
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     setSpeaking(false);
   }
 
-  // Same two-tier speak strategy as VoiceDiscussion: local TTS sidecar first,
-  // the browser's own speechSynthesis as the always-available fallback.
+  // TTS: ElevenLabs cloud first (Naxie T1LJmO1i3U7y9K38NWAy — second-in-command), then local sidecar, then Web Speech.
   async function speak(text: string) {
     stopSpeaking();
     setSpeaking(true);
-    if (voice?.localTts) {
-      try {
-        const blob = await api.voiceTts(text);
-        const audio = new Audio(URL.createObjectURL(blob));
-        audioRef.current = audio;
-        audio.onended = () => setSpeaking(false);
-        await audio.play();
-        return;
-      } catch { /* sidecar hiccup → fall through to Web Speech */ }
-    }
+    // Try cloud/local TTS regardless of voiceStatus — /api/voice/tts now prefers ElevenLabs (Naxie voice) and falls back to Kokoro.
+    try {
+      const blob = await api.voiceTts(text, "naxie");
+      const audio = new Audio(URL.createObjectURL(blob));
+      audioRef.current = audio;
+      audio.onended = () => setSpeaking(false);
+      await audio.play();
+      return;
+    } catch { /* ElevenLabs/local hiccup → Web Speech fallback */ }
     try {
       const u = new SpeechSynthesisUtterance(text);
       const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith("en"));
@@ -144,34 +99,16 @@ export function Naxie() {
     const next = [...turns, { role: "user" as const, text: question }];
     setTurns(next);
     try {
-      const modelParam = selectedModel.startsWith("ollama:") ? selectedModel.slice("ollama:".length) : undefined;
-      const r = await api.voiceConverse(next.map(t => ({ role: t.role, content: t.text })), modelParam);
-      setTurns(prev => [...prev, { role: "assistant", text: r.text }]);
+      // Naxie auto-routes: free-tier online for quick simple turns, larger
+      // cloud model for complex turns, Ollama ordered by size when offline.
+      const r = await api.voiceConverse(next.map(t => ({ role: t.role, content: t.text })));
+      setTurns(prev => [...prev, { role: "assistant", text: r.text, routing: r.routing }]);
       void speak(r.text);
     } catch (e: any) {
       showToast(e?.message ?? String(e), "error");
     } finally {
       setBusy(false);
     }
-  }
-
-  // Voice-driven model switching — "switch to llama3.1", "use qwen 7b",
-  // "change model to <provider>". Matched against installed models/providers
-  // by loose substring match (spoken model names rarely land exactly).
-  // Returns true if it handled the command (caller should NOT also ask()).
-  function tryVoiceModelSwitch(text: string): boolean {
-    const m = text.match(/^(?:switch|change|use)\s+(?:to\s+)?(?:model\s+)?(?:to\s+)?(.+)$/i);
-    if (!m) return false;
-    const wanted = normalize(m[1]);
-    if (wanted.length < 2) return false;
-    const hit = modelOptions.find(o => {
-      const n = normalize(o.label);
-      return n.includes(wanted) || wanted.includes(n.replace(/default|active/g, ""));
-    });
-    if (!hit) return false;
-    void selectModel(hit.value);
-    showToast(`Switched Naxie to ${hit.label}`, "success");
-    return true;
   }
 
   // Push-to-talk: tap to start listening, tap again to stop + ask. Browser
@@ -198,15 +135,14 @@ export function Naxie() {
     } catch { /* mic.error already set for display */ }
   }
 
-  // Mic stopped — send whatever final transcript accumulated while listening
-  // (unless it was a "switch model" voice command, which is handled inline).
+  // Mic stopped — send whatever final transcript accumulated while listening.
   const micWasActiveRef = useRef(false);
   useEffect(() => {
     if (micWasActiveRef.current && !mic.active) {
       const text = micTextRef.current.trim();
       micTextRef.current = "";
       setLiveCaption("");
-      if (text && !tryVoiceModelSwitch(text)) void ask(text);
+      if (text) void ask(text);
     }
     micWasActiveRef.current = mic.active;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -267,21 +203,8 @@ export function Naxie() {
               <div className="text-xs text-cream-300/60">Voice assistant — talk or type</div>
             </div>
           </div>
+          <Link to="/naxie/memory" className="text-[11px] px-2 py-1 rounded-md bg-ink-800 hover:bg-ink-700 border border-ink-700 text-cream-300">Memory</Link>
         </div>
-
-        {modelOptions.length > 0 && (
-          <label className="flex items-center gap-2 text-[11px] text-cream-300/50 mb-3">
-            <span className="shrink-0">Model</span>
-            <select
-              value={selectedModel}
-              onChange={e => void selectModel(e.target.value)}
-              title={currentModelLabel}
-              className="flex-1 min-w-0 bg-ink-950 border border-ink-800 rounded-md px-2 py-1.5 text-[11px] text-cream-200 focus:outline-none focus:border-violet-500/60"
-            >
-              {modelOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </label>
-        )}
 
         <div className="flex flex-col items-center justify-center gap-4 py-4">
           <div className={`relative w-48 h-48 grid place-items-center ${orbState === "listening" ? "nw-state-listening" : orbState === "thinking" ? "nw-state-thinking" : orbState === "speaking" ? "nw-state-speaking" : ""}`}>
@@ -363,11 +286,24 @@ export function Naxie() {
                 {t.role === "user" ? (
                   <div className="text-xs text-cream-300/70 bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 w-fit max-w-[85%]">{t.text}</div>
                 ) : (
-                  <div className="text-sm text-cream-100 bg-violet-500/5 border border-violet-500/20 rounded-lg px-3 py-2 w-fit max-w-[85%] flex items-start gap-2">
-                    <button type="button" title="Replay" onClick={() => speak(t.text)} className="text-violet-400 hover:text-violet-300 mt-0.5 shrink-0">
-                      <Sparkles size={13} />
-                    </button>
-                    <span>{t.text}</span>
+                  <div className="flex flex-col gap-1 w-fit max-w-[85%]">
+                    <div className="text-sm text-cream-100 bg-violet-500/5 border border-violet-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
+                      <button type="button" title="Replay" onClick={() => speak(t.text)} className="text-violet-400 hover:text-violet-300 mt-0.5 shrink-0">
+                        <Sparkles size={13} />
+                      </button>
+                      <span>{t.text}</span>
+                    </div>
+                    {t.routing && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full border w-fit"
+                        title={t.routing.reason}
+                        style={{
+                          borderColor: t.routing.tier.includes("free-large") ? "rgba(168,85,247,0.4)" : t.routing.tier.includes("free-small") ? "rgba(34,197,94,0.4)" : t.routing.tier.includes("ollama") ? "rgba(251,146,60,0.4)" : "rgba(100,116,139,0.4)",
+                          color: t.routing.tier.includes("free-large") ? "#c084fc" : t.routing.tier.includes("free-small") ? "#4ade80" : "#fb923c",
+                          background: t.routing.tier.includes("free-large") ? "rgba(168,85,247,0.08)" : t.routing.tier.includes("free-small") ? "rgba(34,197,94,0.08)" : "rgba(251,146,60,0.08)",
+                        }}>
+                        {t.routing.tier === "free-small" ? "⚡ quick free" : t.routing.tier === "free-large" ? "🧠 deep free" : t.routing.tier === "ollama-small" ? "💻 local quick" : "💻 local deep"} · {t.routing.complexity} {t.routing.online ? "· online" : "· offline"}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

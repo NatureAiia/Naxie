@@ -4199,6 +4199,113 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     },
   },
 
+  // ─── n8n workflow automation (self-hosted) ────────────────────────────
+  {
+    name: "n8n.status",
+    description: "Check whether n8n is configured and reachable. Returns { enabled, health }. Requires N8N_BASE_URL + N8N_API_KEY in .env (n8n → Settings → API → Create API Key).",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { isN8nEnabled, n8nHealth } = await import("./n8n.js");
+      return { enabled: isN8nEnabled(), health: await n8nHealth() };
+    },
+  },
+  {
+    name: "n8n.list_workflows",
+    description: "List n8n workflows visible to the API key (id, name, active). Filter by active state or tags. Requires n8n to be configured (N8N_BASE_URL + N8N_API_KEY).",
+    readonly: true,
+    args: [
+      { name: "limit", type: "number", required: false, description: "Max workflows to return (default 20, max 100)" },
+      { name: "active", type: "boolean", required: false, description: "Filter by active=true/false" },
+      { name: "tags", type: "string", required: false, description: "Comma-separated tag filter" },
+    ],
+    handler: async (args) => {
+      const { listWorkflows } = await import("./n8n.js");
+      return await listWorkflows({
+        limit: args.limit ? Number(args.limit) : undefined,
+        active: args.active !== undefined ? Boolean(args.active) : undefined,
+        tags: args.tags ? String(args.tags) : undefined,
+      });
+    },
+  },
+  {
+    name: "n8n.get_workflow",
+    description: "Fetch the full definition of one n8n workflow by id (nodes, connections, settings). Use after n8n.list_workflows.",
+    readonly: true,
+    args: [{ name: "id", type: "string", required: true, description: "Workflow id" }],
+    handler: async (args) => {
+      const { getWorkflow } = await import("./n8n.js");
+      const wf = await getWorkflow(String(args.id));
+      return { workflow: wf };
+    },
+  },
+  {
+    name: "n8n.trigger_webhook",
+    description: "Fire an n8n Webhook-triggered workflow. Pass the full webhook URL (from n8n's Webhook node) as `url`, OR a short `path` like 'my-hook' which resolves to N8N_WEBHOOK_BASE_URL/webhook/my-hook. `body` is the JSON payload sent to the workflow. Returns the workflow's HTTP response.",
+    readonly: false,
+    args: [
+      { name: "url", type: "string", required: false, description: "Full webhook URL (e.g. https://n8n.example.com/webhook/my-hook)" },
+      { name: "path", type: "string", required: false, description: "Webhook path only (e.g. 'my-hook' → N8N_WEBHOOK_BASE_URL/webhook/my-hook)" },
+      { name: "body", type: "string", required: false, description: "JSON payload to send (object or JSON string). Default {}" },
+      { name: "method", type: "string", required: false, description: "HTTP method: GET|POST|PUT|PATCH (default POST)" },
+    ],
+    handler: async (args) => {
+      const { triggerWebhook } = await import("./n8n.js");
+      const coerce = (v: any) => {
+        if (v === undefined || v === null || v === "") return undefined;
+        if (typeof v === "string") { try { return JSON.parse(v); } catch { return v; } }
+        return v;
+      };
+      return await triggerWebhook({
+        url: args.url ? String(args.url) : undefined,
+        path: args.path ? String(args.path) : undefined,
+        method: args.method ? String(args.method) : undefined,
+        body: coerce(args.body) ?? {},
+      });
+    },
+  },
+  {
+    name: "n8n.list_executions",
+    description: "List recent n8n workflow executions (run history). Filter by workflowId or status (success/error/waiting). Requires n8n to be configured.",
+    readonly: true,
+    args: [
+      { name: "workflowId", type: "string", required: false, description: "Filter to one workflow id" },
+      { name: "status", type: "string", required: false, description: "Filter by status: success|error|waiting" },
+      { name: "limit", type: "number", required: false, description: "Max executions to return (default 20, max 100)" },
+    ],
+    handler: async (args) => {
+      const { listExecutions } = await import("./n8n.js");
+      return await listExecutions({
+        workflowId: args.workflowId ? String(args.workflowId) : undefined,
+        status: args.status ? String(args.status) : undefined,
+        limit: args.limit ? Number(args.limit) : undefined,
+      });
+    },
+  },
+  {
+    name: "n8n.create_workflow",
+    description: "Create a new n8n workflow. Pass `name`, `nodes` (array), and `connections` (object) — export a starter workflow from n8n's UI to copy the shape. The workflow is created inactive; activate it via POST /api/n8n/workflows/:id/activate or the n8n UI.",
+    readonly: false,
+    args: [
+      { name: "name", type: "string", required: true, description: "Workflow name" },
+      { name: "nodes", type: "string", required: true, description: "Nodes as a JSON array string or already-parsed array" },
+      { name: "connections", type: "string", required: true, description: "Connections as a JSON object string or already-parsed object" },
+    ],
+    handler: async (args) => {
+      const { createWorkflow } = await import("./n8n.js");
+      const coerce = (v: any) => {
+        if (typeof v === "string") { try { return JSON.parse(v); } catch { return v; } }
+        return v;
+      };
+      const wf = await createWorkflow({
+        name: String(args.name),
+        nodes: coerce(args.nodes) ?? [],
+        connections: coerce(args.connections) ?? {},
+      });
+      return { workflow: wf };
+    },
+  },
+
   // ─── Naxie host tools (docs/naxie-architecture.md §2.2) ─────────────────
   // Ported by behavior from naxionai/backend/agent/tools/pa_tools.py.
   // system_control / manage_clipboard / git_pull are also registered in
@@ -4365,6 +4472,12 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "integration.slack.post":return "Posting to Slack";
     case "integration.gmail.send":return s("to") ? `Sending email to ${s("to")}` : "Sending an email";
     case "integration.gmail.read":return s("query") ? `Reading Gmail for "${s("query")}"` : "Reading Gmail";
+    case "n8n.status":         return "Checking n8n health";
+    case "n8n.list_workflows": return "Listing n8n workflows";
+    case "n8n.get_workflow":   return s("id") ? `Reading n8n workflow ${s("id")}` : "Reading an n8n workflow";
+    case "n8n.trigger_webhook":return s("path") ? `Triggering n8n webhook "${s("path")}"` : s("url") ? `Triggering n8n webhook` : "Triggering an n8n workflow";
+    case "n8n.list_executions":return "Reading n8n execution history";
+    case "n8n.create_workflow":return s("name") ? `Creating n8n workflow "${s("name")}"` : "Creating an n8n workflow";
     case "clock.now":          return "Checking the clock";
     case "web.search":         return s("query") ? `Searching the web for "${s("query")}"` : "Searching the web";
     case "research.deep":      return s("query") ? `Researching "${s("query").slice(0, 80)}${s("query").length > 80 ? "…" : ""}" — vault + web` : "Researching";

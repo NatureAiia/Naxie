@@ -95,6 +95,15 @@ const supabaseSecretKey = pick("SUPABASE_SECRET_KEY", "");
 const heygenApiKey = pick("HEYGEN_API_KEY", "");
 const heygenBaseUrl = pick("HEYGEN_BASE_URL", "https://api.heygen.com");
 
+// n8n — self-hosted workflow automation. When N8N_BASE_URL + N8N_API_KEY are
+// set, agents can list/trigger n8n workflows and fire webhooks. Absent = the
+// n8n.* primitives and /api/n8n routes return a clear "not configured" error.
+// Docker: `docker run -it --rm -p 5678:5678 n8nio/n8n` then set N8N_BASE_URL
+// to http://127.0.0.1:5678. The API key is created in n8n → Settings → API.
+const n8nBaseUrl = pick("N8N_BASE_URL", "");
+const n8nApiKey = pick("N8N_API_KEY", "");
+const n8nWebhookBaseUrl = pick("N8N_WEBHOOK_BASE_URL", n8nBaseUrl);
+
 // Studio image generation — text-to-image. Preferred provider is OpenRouter
 // (Gemini flash image) on the existing OpenRouter key; Ideogram/Muapi are
 // optional env-gated alternatives (absent = not offered):
@@ -203,6 +212,10 @@ export const config = {
   heygenApiKey,
   heygenBaseUrl,
   heygenEnabled: heygenApiKey.length > 0,
+  n8nBaseUrl,
+  n8nApiKey,
+  n8nWebhookBaseUrl,
+  n8nEnabled: n8nBaseUrl.length > 0 && n8nApiKey.length > 0,
   openrouterImageModel,
   ideogramApiKey,
   ideogramBaseUrl,

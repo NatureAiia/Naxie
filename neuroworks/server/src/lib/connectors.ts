@@ -86,6 +86,9 @@ export type Connector = {
   skipApprovalForReads?: boolean;
   createdAt: string;
   lastTest?: { ok: boolean; detail: string; at: string };
+  keyExpiresAt?: string; // ISO — operator-set expiry for the API key/secret
+  lastRotatedAt?: string;
+  allowedRoles?: string[];
 };
 
 // What the API/UI sees — secrets reduced to a boolean.
@@ -94,6 +97,11 @@ export type ConnectorPublic = Omit<Connector, "auth"> & {
     type: ConnectorAuthType; in?: "header" | "query"; name?: string; username?: string; secretSet: boolean;
     tenant?: string; clientId?: string; scope?: string; expiresAt?: number;
   };
+  keyExpiresAt?: string;
+  lastRotatedAt?: string;
+  allowedRoles?: string[];
+  daysUntilExpiry?: number;
+  expiryState?: "ok" | "soon" | "expired" | "unset";
 };
 
 // ─── Persistence (secrets encrypted at rest; legacy plaintext migrated on load) ───
@@ -140,14 +148,26 @@ function save(list: Connector[]): void {
   renameSync(tmp, CONFIG_PATH);
 }
 
+function expiryStateFor(expiresAt?: string): { daysUntilExpiry?: number; expiryState: "ok" | "soon" | "expired" | "unset" } {
+  if (!expiresAt) return { expiryState: "unset" };
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  const days = Math.ceil(ms / (24 * 3600 * 1000));
+  if (days < 0) return { daysUntilExpiry: days, expiryState: "expired" };
+  if (days <= 7) return { daysUntilExpiry: days, expiryState: "soon" };
+  return { daysUntilExpiry: days, expiryState: "ok" };
+}
+
 function toPublic(c: Connector): ConnectorPublic {
   const secretSet = SECRET_AUTH_FIELDS.some(f => typeof c.auth?.[f] === "string" && (c.auth[f] as string).length > 0);
+  const exp = expiryStateFor((c as any).keyExpiresAt);
   return {
     ...c,
     auth: {
       type: c.auth?.type ?? "none", in: c.auth?.in, name: c.auth?.name, username: c.auth?.username, secretSet,
       tenant: c.auth?.tenant, clientId: c.auth?.clientId, scope: c.auth?.scope, expiresAt: c.auth?.expiresAt,
     },
+    daysUntilExpiry: exp.daysUntilExpiry,
+    expiryState: exp.expiryState,
   };
 }
 
@@ -310,6 +330,54 @@ export function removeConnector(id: string): boolean {
   if (next.length === list.length) return false;
   save(next);
   return true;
+}
+
+export function setConnectorExpiry(id: string, expiresAt: string | null): ConnectorPublic | null {
+  const list = load();
+  const c = list.find(x => x.id === id);
+  if (!c) return null;
+  if (expiresAt) {
+    const d = new Date(expiresAt);
+    if (Number.isNaN(d.getTime())) throw new Error("invalid expiresAt");
+    (c as any).keyExpiresAt = d.toISOString();
+  } else {
+    delete (c as any).keyExpiresAt;
+  }
+  save(list);
+  return toPublic(c);
+}
+
+export function setConnectorRoles(id: string, allowedRoles: string[]): ConnectorPublic | null {
+  const valid = ["superadmin", "admin", "staff"];
+  const roles = allowedRoles.map(r => r.toLowerCase()).filter(r => valid.includes(r));
+  if (roles.length === 0) throw new Error("at least one role required");
+  const list = load();
+  const c = list.find(x => x.id === id);
+  if (!c) return null;
+  (c as any).allowedRoles = roles;
+  save(list);
+  return toPublic(c);
+}
+
+export function rotateConnectorSecrets(id: string, values: Record<string, string>): ConnectorPublic | null {
+  const list = load();
+  const c = list.find(x => x.id === id);
+  if (!c) return null;
+  let changed = false;
+  for (const f of SECRET_AUTH_FIELDS) {
+    const v = (values[f] ?? "").trim();
+    if (!v) continue;
+    (c.auth as any)[f] = v;
+    changed = true;
+  }
+  if (!changed) throw new Error("no secret provided");
+  (c as any).lastRotatedAt = new Date().toISOString();
+  if (values.expiresAt) {
+    const d = new Date(values.expiresAt);
+    if (!Number.isNaN(d.getTime())) (c as any).keyExpiresAt = d.toISOString();
+  }
+  save(list);
+  return toPublic(c);
 }
 
 function recordTest(id: string, result: { ok: boolean; detail: string }): void {
@@ -669,6 +737,26 @@ const CONNECTOR_TEMPLATES: ConnectorTemplate[] = [
       { name: "update-task", method: "PATCH",  path: "/me/todo/lists/{listId}/tasks/{taskId}", description: "Update a task, e.g. mark done with { status: \"completed\" }", body: "{ status?, title?, dueDateTime?, reminderDateTime? }" },
       { name: "delete-task", method: "DELETE", path: "/me/todo/lists/{listId}/tasks/{taskId}", description: "Delete a task" },
       { name: "create-list", method: "POST",   path: "/me/todo/lists",                         description: "Create a new task list", body: "{ displayName }" },
+    ],
+  },
+  {
+    id: "n8n",
+    label: "n8n",
+    description: "Self-hosted n8n workflow automation — trigger webhook workflows and manage automations. Set baseUrl to your n8n instance (e.g. http://127.0.0.1:5678) and add your API key (n8n → Settings → API → Create API Key) as a header auth.",
+    baseUrl: "http://127.0.0.1:5678",
+    auth: { type: "header", name: "X-N8N-API-KEY", value: "" },
+    writeEnabled: true,
+    endpoints: [
+      { name: "list-workflows",   method: "GET",    path: "/api/v1/workflows",                         description: "List workflows (supports ?active=true&tags=...&limit=20)" , query: ["limit", "active", "tags"] },
+      { name: "get-workflow",     method: "GET",    path: "/api/v1/workflows/{id}",                     description: "Get a single workflow by id" },
+      { name: "create-workflow",  method: "POST",   path: "/api/v1/workflows",                         description: "Create a workflow", body: "{ name, nodes: [...], connections: {...}, settings? }" },
+      { name: "update-workflow",  method: "PUT",    path: "/api/v1/workflows/{id}",                     description: "Update a workflow", body: "{ name?, nodes?, connections?, settings? }" },
+      { name: "delete-workflow",  method: "DELETE", path: "/api/v1/workflows/{id}",                     description: "Delete a workflow" },
+      { name: "activate-workflow",   method: "POST", path: "/api/v1/workflows/{id}/activate",           description: "Activate a workflow" },
+      { name: "deactivate-workflow", method: "POST", path: "/api/v1/workflows/{id}/deactivate",         description: "Deactivate a workflow" },
+      { name: "list-executions",  method: "GET",    path: "/api/v1/executions",                         description: "List execution history" , query: ["limit", "workflowId", "status"] },
+      { name: "get-execution",    method: "GET",    path: "/api/v1/executions/{id}",                    description: "Get a single execution by id" },
+      { name: "trigger-webhook",  method: "POST",   path: "/webhook/{path}",                            description: "Trigger a webhook workflow (replace {path} with the Webhook node's path)", body: "{ any JSON payload }" },
     ],
   },
 ];

@@ -51,6 +51,9 @@ import { terminalRouter } from "./routes/terminal.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { presetsRouter } from "./routes/presets.js";
 import { connectorsRouter } from "./routes/connectors.js";
+import { extensionsRouter } from "./routes/extensions.js";
+import { n8nRouter } from "./routes/n8n.js";
+import { naxieRouter } from "./routes/naxie.js";
 import { seedAiiAWebsiteConnector, seedPublicApiConnectors } from "./lib/connectors.js";
 import { executorRouter } from "./routes/executor.js";
 import { primitivesRouter } from "./routes/primitives.js";
@@ -73,6 +76,7 @@ import { orchestratorRouter } from "./routes/orchestrator.js";
 import { requireLayer } from "./lib/access.js";
 import { startEmailBridge, stopEmailBridge } from "./lib/email.js";
 import { startTelegramBridge, stopTelegramBridge } from "./lib/telegram-bridge.js";
+import { startExtensionHealthScheduler, stopExtensionHealthScheduler } from "./lib/extension-scheduler.js";
 import { originGuard, ALLOWED_ORIGINS } from "./lib/origin-guard.js";
 import { enterpriseAuthGuard } from "./lib/enterprise-auth.js";
 
@@ -226,6 +230,14 @@ app.use("/api/terminal", requireLayer("superadmin"), terminalRouter); // shell a
 app.use("/api/integrations", requireLayer("superadmin"), integrationsRouter); // service secrets
 app.use("/api/presets", presetsRouter);
 app.use("/api/connectors", requireLayer("superadmin"), connectorsRouter); // connector credentials
+// Webhook ingress is TOKEN-GATED via X-Webhook-Secret (Zapier/Make → PA), not via session —
+// so it must bypass the superadmin session gate like /api/v1/dispatch. We mount a
+// conditional wrapper: /webhook/* skips requireLayer, everything else stays superadmin.
+app.use("/api/extensions", (req, res, next) => {
+  if (req.path.startsWith("/webhook/")) return (extensionsRouter as any)(req, res, next);
+  return (requireLayer("superadmin") as any)(req, res, (err?: any) => err ? next(err) : (extensionsRouter as any)(req, res, next));
+}); // unified plugins/extensions monitor + connect (webhook is public via secret)
+app.use("/api/n8n", requireLayer("superadmin"), n8nRouter); // n8n workflow automation (env-gated: N8N_BASE_URL + N8N_API_KEY)
 app.use("/api/executor", requireLayer("admin"), executorRouter); // flips who/what executes tasks (spend implications)
 // Primitives bridge executes real tools (email.send, db.query, publishes) —
 // built for TOKEN-LESS machine callers (Hermes/MCP), which still pass. A
@@ -235,6 +247,7 @@ app.use("/api/primitives", requireLayer("admin"), primitivesRouter);
 app.use("/api/users", requireLayer("admin"), usersRouter); // directory admin (salary redaction inside)
 app.use("/api/assignments", assignmentsRouter); // human-in-the-loop work (My Work page; per-route access checks inside)
 app.use("/api/voice", voiceRouter); // employee voices: report Q&A, local TTS proxy, realtime session mint
+app.use("/api/naxie", naxieRouter); // RAG/MAG/CAG inspector + remember (second-in-command memory)
 app.use("/api/auth", authRouter);
 app.use("/api/onboarding", onboardingRouter);
 app.use("/api/departments", departmentsRouter);
@@ -320,7 +333,7 @@ process.on("uncaughtException", (err: any) => {
   console.error(`[uncaught-exception] ${err?.stack ?? err}`);
 });
 
-const server = app.listen(config.port, config.bindHost, () => {
+const server = app.listen(config.port, config.bindHost, async () => {
   console.log(`\n  ▶ neuroworks server: http://${config.bindHost}:${config.port}`);
   console.log(`    web ui will open at: http://127.0.0.1:7470`);
   console.log(`    vault:  ${config.vaultPath}`);
@@ -419,6 +432,14 @@ const server = app.listen(config.port, config.bindHost, () => {
     }
   }
 
+  // Seed Naxie MAG identity files (RAG/MAG/CAG — operator, Naxie, subagents) so
+  // Naxie and every subagent remember who they are even after a fresh boot.
+  try {
+    const { ensureMagIdentityFiles } = await import("./lib/mag.js");
+    const seeded = ensureMagIdentityFiles();
+    console.log(`  ⓘ MAG identity seeded — ${Object.values(seeded).join(", ")}`);
+  } catch (e: any) { console.warn(`  ⚠ MAG seed failed: ${e?.message ?? e}`); }
+
   // Auto-spawn a managed worker POOL if we are the primary. With >1 worker,
   // concurrent tasks fan out across the pool (least-loaded routing) instead of
   // funnelling to a single agent — the "only one agent working" fix. Pool size
@@ -487,6 +508,11 @@ const server = app.listen(config.port, config.bindHost, () => {
     console.log(`  ⓘ org daemon armed (${process.env.NEUROWORKS_ORG_DAEMON_CYCLE_SECONDS ?? "300"}s interval)`);
   }
 
+  // Extension health scheduler — hourly test-all + alert (primary-only).
+  if (config.role === "primary") {
+    try { startExtensionHealthScheduler(); } catch (e: any) { console.warn(`  ⚠ extension health scheduler failed: ${e?.message ?? e}`); }
+  }
+
   // Email bridge — inbound IMAP poll + outbound SMTP so users can drive
   // clawbot over email. Primary-only (one poller for the fleet). No-ops with
   // a log when NEUROWORKS_EMAIL_USER / NEUROWORKS_EMAIL_APP_PASSWORD aren't set.
@@ -544,6 +570,8 @@ async function gracefulExit(signal: string) {
   try { stopScheduleScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopOrgDaemon(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopExtensionHealthScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopTelegramBridge(); }
   catch (e: any) { console.warn(`  ⚠ telegram bridge stop failed: ${e?.message ?? e}`); }

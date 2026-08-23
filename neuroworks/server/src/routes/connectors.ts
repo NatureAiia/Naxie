@@ -3,7 +3,10 @@ import {
   listConnectors, getConnectorPublic, addConnector, updateConnector,
   removeConnector, testConnector, callConnector,
   listConnectorTemplates, startOAuthDeviceFlow, pollOAuthDeviceFlow,
+  setConnectorExpiry, setConnectorRoles, rotateConnectorSecrets,
 } from "../lib/connectors.js";
+import { logAudit } from "../lib/audit-log.js";
+import { scanForSecurityRisks, redactHighSeverity } from "../lib/security.js";
 
 // Company-system connectors API — the operator registers external HTTP APIs
 // (an existing in-house system, a SaaS REST API, …) that agents may call.
@@ -40,7 +43,12 @@ connectorsRouter.get("/", (_req, res) => res.json({ connectors: listConnectors()
 // Add a connector. body: { label, baseUrl, description?, auth?, headers?, endpoints?, writeEnabled? }
 connectorsRouter.post("/", (req, res) => {
   try {
-    res.json({ connector: addConnector(req.body ?? {}) });
+    const conn = addConnector(req.body ?? {});
+    // optional key expiry / roles in same payload
+    if (req.body?.keyExpiresAt) { try { setConnectorExpiry(conn.id, String(req.body.keyExpiresAt)); } catch {} }
+    if (Array.isArray(req.body?.allowedRoles)) { try { setConnectorRoles(conn.id, req.body.allowedRoles); } catch {} }
+    logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "connector.add", target: conn.id, detail: conn.label, result: "success" });
+    res.json({ connector: getConnectorPublic(conn.id) ?? conn });
   } catch (e: any) {
     res.status(400).json({ error: String(e?.message ?? e) });
   }
@@ -58,15 +66,51 @@ connectorsRouter.patch("/:id", (req, res) => {
   try {
     const c = updateConnector(String(req.params.id), req.body ?? {});
     if (!c) return res.status(404).json({ error: "connector not found" });
+    logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "connector.update", target: String(req.params.id), detail: Object.keys(req.body ?? {}).join(","), result: "success" });
     res.json({ connector: c });
   } catch (e: any) {
     res.status(400).json({ error: String(e?.message ?? e) });
   }
 });
 
+connectorsRouter.patch("/:id/expiry", (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const expiresAt = req.body?.keyExpiresAt ?? req.body?.expiresAt ?? null;
+    const c = setConnectorExpiry(id, expiresAt ? String(expiresAt) : null);
+    if (!c) return res.status(404).json({ error: "connector not found" });
+    logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "connector.setExpiry", target: id, detail: `expiresAt=${expiresAt ?? "null"}`, result: "success" });
+    res.json({ connector: c });
+  } catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+});
+
+connectorsRouter.patch("/:id/roles", (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const roles = Array.isArray(req.body?.allowedRoles) ? req.body.allowedRoles as string[] : [];
+    const c = setConnectorRoles(id, roles);
+    if (!c) return res.status(404).json({ error: "connector not found" });
+    logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "connector.setRoles", target: id, detail: `roles=${roles.join(",")}`, result: "success" });
+    res.json({ connector: c });
+  } catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+});
+
+connectorsRouter.post("/:id/rotate", (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const values = (req.body?.values && typeof req.body.values === "object") ? req.body.values as Record<string, string> : (req.body ?? {}) as Record<string, string>;
+    const c = rotateConnectorSecrets(id, values);
+    if (!c) return res.status(404).json({ error: "connector not found" });
+    logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "connector.rotate", target: id, detail: `fields=${Object.keys(values).join(",")}`, result: "success" });
+    res.json({ connector: c });
+  } catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+});
+
 connectorsRouter.delete("/:id", (req, res) => {
-  const ok = removeConnector(String(req.params.id));
+  const id = String(req.params.id);
+  const ok = removeConnector(id);
   if (!ok) return res.status(404).json({ error: "connector not found" });
+  logAudit({ level: "warn", actor: (req as any).user?.email ?? "system", action: "connector.remove", target: id, detail: "removed", result: "success" });
   res.json({ ok: true });
 });
 
@@ -93,7 +137,10 @@ connectorsRouter.post("/:id/oauth/poll", async (req, res) => {
 
 connectorsRouter.post("/:id/test", async (req, res) => {
   try {
-    res.json(await testConnector(String(req.params.id)));
+    const id = String(req.params.id);
+    const r = await testConnector(id);
+    logAudit({ level: (r as any).ok ? "info" : "warn", actor: (req as any).user?.email ?? "system", action: "connector.test", target: id, detail: (r as any).detail, result: (r as any).ok ? "success" : "failure" });
+    res.json(r);
   } catch (e: any) {
     res.status(500).json({ error: String(e?.message ?? e) });
   }
@@ -102,10 +149,23 @@ connectorsRouter.post("/:id/test", async (req, res) => {
 // Manual invoke (operator "try it" button). body: { method?, path, query?, body?, headers? }
 connectorsRouter.post("/:id/call", async (req, res) => {
   try {
+    const id = String(req.params.id);
     const b = req.body ?? {};
-    const result = await callConnector(String(req.params.id), {
+    const result: any = await callConnector(id, {
       method: b.method, path: String(b.path ?? ""), query: b.query, body: b.body, headers: b.headers,
     });
+    // Security scan on response — high-severity secrets are redacted, not leaked to UI
+    try {
+      const bodyStr = typeof result.body === "string" ? result.body : JSON.stringify(result.body ?? "");
+      const findings = scanForSecurityRisks(bodyStr, "note");
+      const high = findings.filter(f => f.severity === "high");
+      if (high.length > 0) {
+        logAudit({ level: "warn", actor: (req as any).user?.email ?? "system", action: "connector.call.blocked", target: `${id}:${b.method ?? "GET"} ${b.path ?? ""}`, detail: `redacted high-severity ${high.map(h=>h.type).join(",")}`, result: "success", jobId: id });
+        result.body = redactHighSeverity(bodyStr, findings);
+        result.warning = `Response contained ${high.length} high-severity secret(s) — redacted (${high.map(h=>h.type).join(", ")})`;
+      }
+    } catch {}
+    logAudit({ level: (result as any).ok ? "info" : "warn", actor: (req as any).user?.email ?? "system", action: "connector.call", target: `${id}:${b.method ?? "GET"} ${b.path ?? ""}`, detail: `status=${(result as any).status}`, result: (result as any).ok ? "success" : "failure", jobId: id });
     res.json({ result });
   } catch (e: any) {
     res.status(500).json({ error: String(e?.message ?? e) });

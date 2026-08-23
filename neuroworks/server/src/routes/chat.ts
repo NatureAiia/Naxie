@@ -824,7 +824,21 @@ async function handleChat(req: any, res: any) {
   const baseTask = isContinuation
     ? continuationBlock
     : buildEnrichedTask(text, useThreadContext, recentUserTurns, lastAssistantTurn, persona, intentDetection, hasAttachments);
-  const enrichedTask = baseTask + attachmentBlock;
+  let enrichedTask = baseTask + attachmentBlock;
+  // RAG + MAG injection — so every worker (and Naxie via chat fallback) remembers
+  // who Nature is, who Naxie is, and what subagents exist. RAG hits are folded
+  // into the task so the planner sees them; MAG core is durable memory.
+  try {
+    const { buildNaxieContext } = await import("../lib/naxie-context.js");
+    const ctx = buildNaxieContext(text, { ragLimit: 5 });
+    if (ctx.rag) enrichedTask += "\n\n" + ctx.rag;
+    // Keep MAG hints lightweight here — full CAG prefix is system-side, but a
+    // one-line operator reminder ensures even a 3b local model doesn't forget.
+    if (ctx.mag) {
+      const magSnippet = ctx.mag.split("\n").slice(0, 6).join("\n");
+      enrichedTask += "\n\n[Memory — do not forget]\n" + magSnippet;
+    }
+  } catch { /* RAG/MAG is best-effort — never break chat on retrieval hiccup */ }
   const job = newJob(`insights:general-task`);
   job.template = tpl.id;
   job.title = isContinuation

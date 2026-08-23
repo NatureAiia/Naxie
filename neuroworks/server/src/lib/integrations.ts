@@ -192,6 +192,14 @@ export const PROVIDERS: Provider[] = [
     fields: [{ name: "accessToken", label: "OAuth Access Token", type: "password", secret: true, required: true }],
     note: "OAuth redirect flow coming soon — paste an access token to use now.",
     docsUrl: "https://learn.microsoft.com/en-us/graph/auth/" },
+  { id: "n8n", name: "n8n", category: "dev", auth: "token", testable: true,
+    fields: [
+      { name: "baseUrl", label: "n8n Base URL", type: "url", required: true, placeholder: "http://127.0.0.1:5678" },
+      { name: "apiKey", label: "API Key", type: "password", secret: true, required: true, placeholder: "eyJ..." },
+      { name: "webhookBaseUrl", label: "Webhook Base URL (if behind proxy)", type: "url", required: false, placeholder: "https://n8n.example.com" },
+    ],
+    note: "Self-hosted n8n. Create an API key in n8n → Settings → API. Also powers the env-gated n8n.* primitives (N8N_BASE_URL + N8N_API_KEY).",
+    docsUrl: "https://docs.n8n.io/api/authentication/" },
 ];
 
 export function getProvider(id: string): Provider | undefined {
@@ -215,6 +223,9 @@ type StoredConnection = {
   config: Record<string, string>;    // non-secret fields
   createdAt: string;
   lastTest?: ConnectionTest;
+  expiresAt?: string; // ISO — when the current key/credential expires (operator-set)
+  lastRotatedAt?: string; // ISO — when secret was last rotated
+  allowedRoles?: string[]; // which access layers may use it (default superadmin-only)
 };
 
 export type ConnectionPublic = {
@@ -227,6 +238,11 @@ export type ConnectionPublic = {
   secretFields: string[];   // names of the secrets we hold (values never sent)
   createdAt: string;
   lastTest?: ConnectionTest;   // health signal from the most recent test
+  expiresAt?: string;
+  lastRotatedAt?: string;
+  allowedRoles?: string[];
+  daysUntilExpiry?: number;
+  expiryState?: "ok" | "soon" | "expired" | "unset";
 };
 
 function load(): StoredConnection[] {
@@ -241,8 +257,18 @@ function save(list: StoredConnection[]): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(list, null, 2), "utf8");
 }
 
+function expiryStateFor(expiresAt?: string): { daysUntilExpiry?: number; expiryState: "ok" | "soon" | "expired" | "unset" } {
+  if (!expiresAt) return { expiryState: "unset" };
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  const days = Math.ceil(ms / (24 * 3600 * 1000));
+  if (days < 0) return { daysUntilExpiry: days, expiryState: "expired" };
+  if (days <= 7) return { daysUntilExpiry: days, expiryState: "soon" };
+  return { daysUntilExpiry: days, expiryState: "ok" };
+}
+
 function toPublic(c: StoredConnection): ConnectionPublic {
   const p = getProvider(c.providerId);
+  const exp = expiryStateFor(c.expiresAt);
   return {
     id: c.id,
     providerId: c.providerId,
@@ -253,6 +279,11 @@ function toPublic(c: StoredConnection): ConnectionPublic {
     secretFields: Object.keys(c.secrets),
     createdAt: c.createdAt,
     lastTest: c.lastTest,
+    expiresAt: c.expiresAt,
+    lastRotatedAt: c.lastRotatedAt,
+    allowedRoles: c.allowedRoles,
+    daysUntilExpiry: exp.daysUntilExpiry,
+    expiryState: exp.expiryState,
   };
 }
 
@@ -310,6 +341,55 @@ export function removeConnection(id: string): boolean {
   if (next.length === list.length) return false;
   save(next);
   return true;
+}
+
+export function setConnectionExpiry(id: string, expiresAt: string | null): ConnectionPublic | null {
+  const list = load();
+  const c = list.find(x => x.id === id);
+  if (!c) return null;
+  if (expiresAt) {
+    const d = new Date(expiresAt);
+    if (Number.isNaN(d.getTime())) throw new Error("invalid expiresAt — must be ISO date");
+    c.expiresAt = d.toISOString();
+  } else {
+    delete c.expiresAt;
+  }
+  save(list);
+  return toPublic(c);
+}
+
+export function setConnectionRoles(id: string, allowedRoles: string[]): ConnectionPublic | null {
+  const valid = ["superadmin", "admin", "staff"];
+  const roles = allowedRoles.map(r => r.toLowerCase()).filter(r => valid.includes(r));
+  if (roles.length === 0) throw new Error("at least one role required");
+  const list = load();
+  const c = list.find(x => x.id === id);
+  if (!c) return null;
+  c.allowedRoles = roles;
+  save(list);
+  return toPublic(c);
+}
+
+export function rotateConnectionSecrets(id: string, values: Record<string, string>): ConnectionPublic | null {
+  const list = load();
+  const c = list.find(x => x.id === id);
+  if (!c) return null;
+  const provider = getProvider(c.providerId);
+  if (!provider) throw new Error("unknown provider");
+  for (const f of provider.fields) {
+    if (!f.secret) continue;
+    const v = (values[f.name] ?? "").trim();
+    if (!v) continue; // blank = keep existing
+    c.secrets[f.name] = encrypt(v);
+  }
+  c.lastRotatedAt = new Date().toISOString();
+  // optional expiresAt in values
+  if (values.expiresAt) {
+    const d = new Date(values.expiresAt);
+    if (!Number.isNaN(d.getTime())) c.expiresAt = d.toISOString();
+  }
+  save(list);
+  return toPublic(c);
 }
 
 // Decrypted access for primitives/test only — never exposed via the API as-is.
@@ -527,6 +607,16 @@ async function runConnectionTest(id: string): Promise<{ ok: boolean; detail: str
         const r = await fetch("https://graph.microsoft.com/v1.0/me", { headers: { authorization: `Bearer ${secrets.accessToken}` } });
         const j: any = await r.json();
         return r.ok ? { ok: true, detail: j?.userPrincipalName ?? "token valid" } : { ok: false, detail: j?.error?.message ?? `HTTP ${r.status}` };
+      }
+      case "n8n": {
+        const base = (config.baseUrl ?? "").trim().replace(/\/+$/, "");
+        const key = (secrets.apiKey ?? "").trim();
+        if (!base || !key) return { ok: false, detail: "baseUrl or apiKey missing" };
+        try {
+          const r = await fetch(`${base}/api/v1/workflows?limit=1`, { headers: { "X-N8N-API-KEY": key, accept: "application/json" } });
+          const j: any = await r.json().catch(() => ({}));
+          return r.ok ? { ok: true, detail: `n8n reachable — ${j?.data?.length ?? 0} workflow(s)` } : { ok: false, detail: j?.message ?? `HTTP ${r.status}` };
+        } catch (e: any) { return { ok: false, detail: String(e?.message ?? e) }; }
       }
       default:
         return { ok: false, detail: "no test available for this provider" };

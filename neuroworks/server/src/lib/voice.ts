@@ -25,6 +25,12 @@ const TTS_MODEL = process.env.NEUROWORKS_TTS_MODEL ?? "kokoro";
 const TTS_KEY = process.env.NEUROWORKS_TTS_API_KEY ?? "";
 const REALTIME_MODEL = process.env.NEUROWORKS_REALTIME_MODEL ?? "gpt-realtime";
 
+// ElevenLabs — cloud TTS (Naxie = second-in-command voice, Chat = read-aloud)
+const ELEVENLABS_API_KEY = (process.env.ELEVENLABS_API_KEY ?? "").trim();
+const ELEVENLABS_NAXIE_VOICE = (process.env.ELEVENLABS_VOICE_ID ?? "T1LJmO1i3U7y9K38NWAy").trim();
+const ELEVENLABS_CHAT_VOICE = (process.env.ELEVENLABS_CHAT_VOICE_ID ?? "qBDvhofpxp92JgXJxDjB").trim();
+const ELEVENLABS_MODEL_ID = (process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2").trim();
+
 // Decrypted OpenAI credentials from the provider pool. The fallback chain
 // carries every NON-active registered provider decrypted; if OpenAI happens
 // to be the ACTIVE provider instead, its key was applied to the runtime
@@ -37,6 +43,44 @@ function openaiCreds(): { apiKey: string; baseUrl: string } | null {
     return { apiKey: config.openrouterApiKey, baseUrl: "https://api.openai.com/v1" };
   }
   return null;
+}
+
+export function elevenLabsAvailable(): boolean {
+  return ELEVENLABS_API_KEY.length > 0;
+}
+
+export function elevenLabsVoiceForPersona(personaId: string | undefined): string {
+  const pid = (personaId ?? "").toLowerCase();
+  // Naxie is your second-in-command — dedicated voice T1LJ...
+  if (pid === "naxie" || pid === "neuro" || pid === "clawbot") return ELEVENLABS_NAXIE_VOICE;
+  // Chat read-aloud / general workers use the chat voice qBDv...
+  return ELEVENLABS_CHAT_VOICE || ELEVENLABS_NAXIE_VOICE;
+}
+
+export async function synthesizeElevenLabs(text: string, voiceId: string): Promise<{ audio: Buffer; contentType: string }> {
+  if (!ELEVENLABS_API_KEY) throw new Error("ElevenLabs not configured (ELEVENLABS_API_KEY)");
+  const vid = voiceId || ELEVENLABS_NAXIE_VOICE;
+  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${vid}`, {
+    method: "POST",
+    headers: {
+      "xi-api-key": ELEVENLABS_API_KEY,
+      "Content-Type": "application/json",
+      Accept: "audio/mpeg",
+    },
+    body: JSON.stringify({
+      text: text.slice(0, 5000),
+      model_id: ELEVENLABS_MODEL_ID,
+      voice_settings: { stability: 0.55, similarity_boost: 0.75, style: 0.35, use_speaker_boost: true },
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`ElevenLabs ${r.status}: ${t.slice(0, 300)}`);
+  }
+  const audio = Buffer.from(await r.arrayBuffer());
+  if (audio.length === 0) throw new Error("ElevenLabs returned empty audio");
+  return { audio, contentType: r.headers.get("content-type") ?? "audio/mpeg" };
 }
 
 let ttsProbe: { at: number; ok: boolean } | null = null;
@@ -55,12 +99,15 @@ export async function localTtsAvailable(): Promise<boolean> {
   return ok;
 }
 
-export async function voiceStatus(): Promise<{ realtime: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean }> {
+export async function voiceStatus(): Promise<{ realtime: boolean; localTts: boolean; elevenLabs: boolean; realtimeModel: string; ttsUrlConfigured: boolean; naxieVoiceId: string; chatVoiceId: string }> {
   return {
     realtime: openaiCreds() !== null,
     localTts: await localTtsAvailable(),
+    elevenLabs: elevenLabsAvailable(),
     realtimeModel: REALTIME_MODEL,
     ttsUrlConfigured: TTS_URL.length > 0,
+    naxieVoiceId: ELEVENLABS_NAXIE_VOICE,
+    chatVoiceId: ELEVENLABS_CHAT_VOICE,
   };
 }
 
@@ -77,15 +124,29 @@ function hashIdx(s: string, mod: number): number {
   return h % mod;
 }
 
-export function voiceForPersona(personaId: string | undefined): { openaiVoice: string; localVoice: string } {
+export function voiceForPersona(personaId: string | undefined): { openaiVoice: string; localVoice: string; elevenLabsVoice: string } {
   const key = (personaId ?? "default").toLowerCase();
   return {
     openaiVoice: OPENAI_VOICES[hashIdx(key, OPENAI_VOICES.length)],
     localVoice: LOCAL_VOICES[hashIdx(key, LOCAL_VOICES.length)],
+    elevenLabsVoice: elevenLabsVoiceForPersona(personaId),
   };
 }
 
-// ── tier B: local sidecar synthesis (OpenAI-compatible /audio/speech) ──────
+// ── tier B: ElevenLabs cloud first, then local sidecar ──────
+
+export async function synthesizeWithVoice(text: string, personaId: string | undefined): Promise<{ audio: Buffer; contentType: string }> {
+  // Prefer ElevenLabs when key is set — Naxie T1LJ... / Chat qBDv... are cloud voices
+  if (elevenLabsAvailable()) {
+    try {
+      return await synthesizeElevenLabs(text, elevenLabsVoiceForPersona(personaId));
+    } catch (e) {
+      console.warn(`[voice] ElevenLabs failed, falling back to local sidecar: ${String((e as any)?.message ?? e).slice(0,120)}`);
+    }
+  }
+  const v = voiceForPersona(personaId);
+  return synthesizeLocal(text, v.localVoice);
+}
 
 export async function synthesizeLocal(text: string, voice: string): Promise<{ audio: Buffer; contentType: string }> {
   if (!TTS_URL) throw new Error("no local TTS sidecar configured (NEUROWORKS_TTS_URL)");

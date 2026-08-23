@@ -95,6 +95,9 @@ export function originGuard(req: Request, res: Response, next: NextFunction): vo
   // gated by FINANCE_SYNC_TOKEN inside the handler, which is stronger than a
   // Host/Origin allow-list. See routes/public-finance.ts.
   if (req.path.startsWith("/api/public/")) return next();
+  // Extensions webhook ingress — Zapier/Make → PA via X-Webhook-Secret
+  // (see routes/extensions.ts). Server-to-server, secret-gated, not browser.
+  if (req.path.startsWith("/api/extensions/webhook/")) return next();
 
   const host = String(req.headers.host ?? "").toLowerCase();
   if (!ALLOWED_HOSTS.has(host)) {

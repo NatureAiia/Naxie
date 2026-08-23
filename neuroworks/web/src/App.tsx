@@ -55,6 +55,7 @@ const DataSources = lazy(() => import("./pages/DataSources").then(m => ({ defaul
 const Terminal = lazy(() => import("./pages/Terminal").then(m => ({ default: m.Terminal })));
 const Integrations = lazy(() => import("./pages/Integrations").then(m => ({ default: m.Integrations })));
 const Connectors = lazy(() => import("./pages/Connectors").then(m => ({ default: m.Connectors })));
+const Extensions = lazy(() => import("./pages/Extensions").then(m => ({ default: m.Extensions })));
 const Presets = lazy(() => import("./pages/Presets").then(m => ({ default: m.Presets })));
 const Workforce = lazy(() => import("./pages/Workforce").then(m => ({ default: m.Workforce })));
 const Departments = lazy(() => import("./pages/Departments").then(m => ({ default: m.Departments })));
@@ -69,6 +70,7 @@ const Orchestrate = lazy(() => import("./pages/Orchestrate").then(m => ({ defaul
 const DailyReports = lazy(() => import("./pages/DailyReports").then(m => ({ default: m.DailyReports })));
 const MyWork = lazy(() => import("./pages/MyWork").then(m => ({ default: m.MyWork })));
 const Naxie = lazy(() => import("./pages/Naxie").then(m => ({ default: m.Naxie })));
+const NaxieMemory = lazy(() => import("./pages/NaxieMemory").then(m => ({ default: m.NaxieMemory })));
 
 // Lightweight, layout-shift-free placeholder while a route chunk downloads —
 // on a warm cache this never has time to paint; on a cold load it beats a
@@ -100,6 +102,7 @@ function AppShell() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/naxie" element={<Naxie />} />
+        <Route path="/naxie/memory" element={<NaxieMemory />} />
         <Route path="/team" element={<Team />} />
         <Route path="/presets" element={<Presets />} />
         <Route path="/tasks" element={<Tasks />} />
@@ -123,6 +126,7 @@ function AppShell() {
         <Route path="/terminal" element={<Terminal />} />
         <Route path="/integrations" element={<Integrations />} />
         <Route path="/connectors" element={<Connectors />} />
+        <Route path="/extensions" element={<Extensions />} />
         <Route path="/workforce" element={<Workforce />} />
         <Route path="/departments" element={<Departments />} />
         <Route path="/knowledge-packs" element={<KnowledgePacks />} />

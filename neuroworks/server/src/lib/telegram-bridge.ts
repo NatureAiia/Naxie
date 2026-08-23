@@ -132,19 +132,64 @@ async function tg(token: string, method: string, params: Record<string, unknown>
   }
 }
 
-// Telegram caps a message at 4096 chars — chunk long answers. Sent as PLAIN text
-// (no parse_mode) so the agent's markdown can't trigger a Telegram parse error
-// that drops the whole reply.
+// Telegram caps a message at 4096 chars. Render agent markdown as rich
+// Telegram HTML (like ChatGPT/Claude: bold headings, italic, code, links) —
+// with a plain-text fallback so a parse error never drops the reply.
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function markdownToTelegramHtml(md: string): string {
+  let html = md;
+  // Fenced code blocks ```lang\ncode``` -> <pre>code</pre> (escape inside)
+  html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (_m, _lang, code) => `<pre>${escapeHtml(code.trim())}</pre>`);
+  // Inline code `code` -> <code>code</code>
+  html = html.replace(/`([^`]+?)`/g, (_m, code) => `<code>${escapeHtml(code)}</code>`);
+  // Links [text](url) -> <a href="url">text</a> (escape text)
+  html = html.replace(/\[([^\]]+?)\]\((https?:\/\/[^\)]+?)\)/g, (_m, text, url) => `<a href="${url}">${escapeHtml(text)}</a>`);
+  // Bold **text** -> <b>text</b> (must be before italic to avoid double-replace)
+  html = html.replace(/\*\*([^\*]+?)\*\*/g, (_m, t) => `<b>${escapeHtml(t)}</b>`);
+  // Italic *text* or _text_ -> <i>text</i> (avoid already bold)
+  html = html.replace(/(?<!<b>[^<]*)\*([^\*]+?)\*(?![^<]*<\/b>)/g, (_m, t) => `<i>${escapeHtml(t)}</i>`);
+  html = html.replace(/_([^_]+?)_/g, (_m, t) => `<i>${escapeHtml(t)}</i>`);
+  // Headings ## Heading -> <b>Heading</b>
+  html = html.replace(/^#{1,6}\s+(.+)$/gm, (_m, h) => `<b>${escapeHtml(h.trim())}</b>`);
+  // Blockquote > -> <i> removal or keep as is with italic
+  // Escape any remaining bare & < > outside our tags (already did code/links)
+  // We already escaped inside tags; now escape loose & < > that aren't part of our allowed tags.
+  // Allowlist: <b>, </b>, <i>, </i>, <code>, </code>, <pre>, </pre>, <a href="...">, </a>
+  // Do a pass: temporarily protect our tags, escape, then restore.
+  const placeholders: string[] = [];
+  html = html.replace(/<\/?(b|i|code|pre|a)(?: href="[^"]*")?>/g, (m) => {
+    const idx = placeholders.length;
+    placeholders.push(m);
+    return `\x00${idx}\x00`;
+  });
+  html = escapeHtml(html);
+  html = html.replace(/\x00(\d+)\x00/g, (_m, idx) => placeholders[Number(idx)]);
+  return html;
+}
 async function sendReply(token: string, chatId: number | string, text: string, replyTo?: number): Promise<void> {
   const body = text.trim() || "(no answer produced)";
+  const html = markdownToTelegramHtml(body);
   const chunks: string[] = [];
+  const htmlChunks: string[] = [];
   for (let i = 0; i < body.length; i += 3900) chunks.push(body.slice(i, i + 3900));
-  for (let k = 0; k < chunks.length; k++) {
-    await tg(token, "sendMessage", {
+  for (let i = 0; i < html.length; i += 3900) htmlChunks.push(html.slice(i, i + 3900));
+  // Try HTML first (rich like ChatGPT/Claude), fall back to plain per-chunk on parse error.
+  for (let k = 0; k < htmlChunks.length; k++) {
+    const r = await tg(token, "sendMessage", {
       chat_id: chatId,
-      text: chunks[k],
+      text: htmlChunks[k],
+      parse_mode: "HTML",
       ...(k === 0 && replyTo ? { reply_to_message_id: replyTo } : {}),
     });
+    if (!r?.ok && /parse|can't parse|wrong string/i.test(String(r?.description ?? ""))) {
+      await tg(token, "sendMessage", {
+        chat_id: chatId,
+        text: chunks[k],
+        ...(k === 0 && replyTo ? { reply_to_message_id: replyTo } : {}),
+      });
+    }
   }
 }
 
@@ -218,9 +263,11 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
   try {
     const history = historyFor(chatId);
     const messages = [...history, { role: "user" as const, content: text }];
-    // Pin the generalist so a Telegram message on any topic is handled, not
-    // refused by whatever specialist persona is active in the UI.
-    const r = await apiPost("/api/chat", { messages, persona: "clawbot" });
+    // First point of contact is Naxie (your PA) — she triages and delegates.
+    // Override with NEUROWORKS_TELEGRAM_PERSONA if you want a different
+    // specialist to own Telegram (e.g. "clawbot", "executive-assistant").
+    const persona = (process.env.NEUROWORKS_TELEGRAM_PERSONA ?? "naxie").trim() || "naxie";
+    const r = await apiPost("/api/chat", { messages, persona });
     let answer = "";
     if (r?.kind === "message") {
       answer = String(r.text ?? "").trim() || "I couldn't process that request.";

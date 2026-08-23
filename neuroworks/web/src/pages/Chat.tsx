@@ -1040,9 +1040,12 @@ function Bubble({ m, onStartContinuation, continuationActive, onFollowup }: { m:
         )}
         {m.jobId && <InlineJob jobId={m.jobId} requiresApproval={m.requiresApproval} templateId={m.templateId} />}
         {m.handledBy && (
-          <div className="text-[10px] text-cream-300/50">
-            handled by <Link to="/personas" className="text-cream-300/70 hover:text-violet-400">{m.handledBy.personaName}</Link>
-            {m.handledBy.role ? ` · ${m.handledBy.role}` : ""}
+          <div className={`inline-flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full border w-fit ${
+            m.handledBy.personaId === "naxie" ? "bg-violet-500/10 border-violet-500/30 text-violet-300" : "bg-ink-800 border-ink-700 text-cream-300/70"
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${m.handledBy.personaId === "naxie" ? "bg-violet-400" : "bg-emerald-400"}`} />
+            <span>Chat · <Link to="/personas" className="hover:text-violet-400 underline decoration-dotted">{m.handledBy.personaName}</Link>{m.handledBy.role ? ` — ${m.handledBy.role}` : ""}</span>
+            <span className="opacity-50">· direct worker</span>
           </div>
         )}
         {m.brainHits && m.brainHits.length > 0 && (

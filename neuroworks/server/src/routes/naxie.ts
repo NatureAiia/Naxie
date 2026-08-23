@@ -1,0 +1,115 @@
+import { Router } from "express";
+import { buildNaxieContext, naxieMemoryStats } from "../lib/naxie-context.js";
+import { getOperatorIdentity } from "../lib/mag.js";
+import { cagStats } from "../lib/cag.js";
+import { isCloudReachable, isCloudReachableCached } from "../lib/connectivity.js";
+import { voiceStatus } from "../lib/voice.js";
+import { listSubjects } from "../lib/memory.js";
+import { getSubagentRoster } from "../lib/mag.js";
+
+export const naxieRouter = Router();
+
+// GET /api/naxie/context — inspector for second-in-command memory
+// Returns CAG hash, MAG facts, RAG sample, operator, roster, voice, connectivity
+naxieRouter.get("/context", async (req, res) => {
+  const q = String(req.query.q ?? "operator and naxie second in command").slice(0, 200);
+  try {
+    const ctx = buildNaxieContext(q, { ragLimit: 5 });
+    const op = getOperatorIdentity();
+    const cag = cagStats();
+    const roster = getSubagentRoster();
+    const memSubjects = listSubjects().slice(0, 10);
+    const vs = await voiceStatus();
+    const cached = isCloudReachableCached();
+    res.json({
+      operator: op,
+      cag: { hash: cag.hash, cached: cag.built ? true : false, ageMs: cag.ageMs, prefixChars: ctx.cag.length },
+      magChars: ctx.mag.length,
+      rag: ctx.rag ? ctx.rag.slice(0, 1200) : "(no hits for query)",
+      ragRaw: ctx.rag,
+      roster: { count: roster.length, workers: roster.slice(0, 20) },
+      memorySubjects: memSubjects,
+      connectivity: { cached, probeNeeded: cached === null },
+      voice: { elevenLabs: vs.elevenLabs, naxieVoiceId: vs.naxieVoiceId, chatVoiceId: vs.chatVoiceId, realtime: vs.realtime, localTts: vs.localTts },
+      query: q,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// GET /api/naxie/status — lightweight daemon nudge probe
+// Widget polls this (10s) to show pendingNudge without reading org-tasks
+naxieRouter.get("/status", async (_req, res) => {
+  try {
+    const { listOrgTasks } = await import("../lib/org-tasks.js");
+    const waiting = listOrgTasks({ status: "waiting-on-approval" } as any).slice(0, 5);
+    const vs = await voiceStatus();
+    const cached = isCloudReachableCached();
+    res.json({
+      pendingApprovals: waiting.length,
+      waiting,
+      voice: { elevenLabs: vs.elevenLabs, naxieVoiceId: vs.naxieVoiceId },
+      connectivity: { cached, online: cached ?? (await isCloudReachableCached()) },
+      cag: cagStats(),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// POST /api/naxie/remember — teach Naxie a fact (so she never forgets who you are)
+// Body: { subject?: string, fact: string, date?: YYYY-MM-DD }
+naxieRouter.post("/remember", async (req, res) => {
+  const fact = String(req.body?.fact ?? "").trim();
+  if (!fact) return res.status(400).json({ error: "fact required" });
+  const subject = String(req.body?.subject ?? "operator").trim() || "operator";
+  const date = req.body?.date ? String(req.body.date).trim() : undefined;
+  try {
+    const { noteFact } = await import("../lib/memory.js");
+    const { invalidateCagCache } = await import("../lib/cag.js");
+    const saved = noteFact({ subject, fact, date, source: "naxie-api" });
+    invalidateCagCache();
+    res.json({ ok: true, saved });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// POST /api/naxie/ask — second-in-command delegation endpoint.
+// Nature (or an external system) gives Naxie a task; she classifies it,
+// routes to the right org role queue (scheduler/researcher/executor/admin),
+// and returns the OrgTask. Complex work lands on a role backlog instead of
+// being lost in chat; simple asks still go through /api/voice/converse.
+naxieRouter.post("/ask", async (req, res) => {
+  const text = String(req.body?.text ?? "").trim().slice(0, 4000);
+  if (!text) return res.status(400).json({ error: "text required" });
+  const priority = ["low", "normal", "high", "urgent"].includes(String(req.body?.priority)) ? String(req.body.priority) as any : "normal";
+  try {
+    const { classifyOrgRole, createOrgTask } = await import("../lib/org-tasks.js");
+    // classifyOrgRole is a Job-shape classifier — wrap the raw ask into that shape.
+    const role = classifyOrgRole({ kind: "chat:naxie-delegate", title: text.slice(0, 80), task: text }) ?? "executor";
+    const task = createOrgTask({
+      role,
+      title: text.slice(0, 100),
+      detail: text,
+      priority,
+      createdBy: "user",
+    });
+    res.json({ ok: true, role, task });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// GET /api/naxie/tasks?role=&status= — read the role backlogs (diagnostics)
+naxieRouter.get("/tasks", async (req, res) => {
+  try {
+    const { listOrgTasks } = await import("../lib/org-tasks.js");
+    const role = req.query.role ? String(req.query.role) : undefined;
+    const status = req.query.status ? String(req.query.status) : undefined;
+    res.json({ tasks: listOrgTasks({ role, status } as any).slice(0, 100) });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});

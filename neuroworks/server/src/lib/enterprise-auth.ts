@@ -53,6 +53,7 @@ const EXEMPT_PATHS = new Set<string>([
 const EXEMPT_PREFIXES = [
   "/api/v1/",       // external dispatch — own bearer-key auth (routes/dispatch.ts)
   "/api/public/",    // Finance System ingest — own token gate (routes/public-finance.ts)
+  "/api/extensions/webhook/", // Zapier/Make → PA ingress — own X-Webhook-Secret gate (routes/extensions.ts)
 ];
 
 function isLoopback(addr: string | undefined): boolean {

@@ -31,6 +31,37 @@
 import { listOrgTasks, updateOrgTaskStatus, type OrgTask } from "./org-tasks.js";
 import { getJob } from "./jobs.js";
 import { logAudit } from "./audit-log.js";
+import { notifyToast } from "./host-tools.js";
+
+// Desktop toast nudge — fires when an OrgTask sits in waiting-on-approval
+// past this threshold (docs/naxie-architecture.md §2.3 "needs your attention
+// soon" tier). Silent until you look at the widget; a toast is the only
+// proactive interruption, and only for approvals.
+const NUDGE_AFTER_MS = Number(process.env.NEUROWORKS_ORG_NUDGE_MS) || 30 * 60 * 1000;
+let lastNudgedAt = 0;
+const NUDGE_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_NUDGE_THROTTLE_MS) || 30 * 60 * 1000;
+
+export function maybeNudgePendingApprovals(now = Date.now()): number {
+  const waiting = listOrgTasks({ status: "waiting-on-approval" });
+  if (waiting.length === 0) return 0;
+  // Nudge only when the OLDEST waiting approval has sat longer than the threshold
+  const oldest = waiting.reduce((min, t) => {
+    const at = new Date(t.pendingApproval?.requestedAt ?? t.updatedAt).getTime();
+    return at < min ? at : min;
+  }, Number.MAX_SAFE_INTEGER);
+  if (now - oldest < NUDGE_AFTER_MS) return 0;
+  if (now - lastNudgedAt < NUDGE_THROTTLE_MS) return 0;
+  lastNudgedAt = now;
+  const first = waiting[0];
+  void notifyToast(
+    "Naxie — needs your call",
+    `${waiting.length} task${waiting.length === 1 ? "" : "s"} waiting on your approval. Oldest: "${(first.title ?? "").slice(0, 60)}".`,
+  ).catch(() => { /* toast is best-effort */ });
+  try {
+    logAudit({ level: "info", actor: first.role, action: "org_task.nudge", target: first.title, detail: `${waiting.length} waiting`, result: "success" });
+  } catch { /* best-effort */ }
+  return waiting.length;
+}
 
 export const DAEMON_CYCLE_SECONDS = Number(process.env.NEUROWORKS_ORG_DAEMON_CYCLE_SECONDS ?? "300") || 300;
 
@@ -87,6 +118,7 @@ export function reconcileOrphanedActiveTasks(now = Date.now()): number {
 function tick(): void {
   try { sweepStaleOrgApprovals(); } catch (e) { console.warn(`[org-daemon] sweepStaleOrgApprovals failed: ${(e as Error).message}`); }
   try { reconcileOrphanedActiveTasks(); } catch (e) { console.warn(`[org-daemon] reconcileOrphanedActiveTasks failed: ${(e as Error).message}`); }
+  try { maybeNudgePendingApprovals(); } catch (e) { console.warn(`[org-daemon] maybeNudgePendingApprovals failed: ${(e as Error).message}`); }
   // See the SCOPE NOTE at the top of this file — idle report, chat check-in,
   // proactive research, scheduled briefs, and the Executor check-in nudge
   // all belong here once a notification channel (§2.3) exists to carry them.

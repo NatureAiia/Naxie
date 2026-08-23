@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { pickModelFor, type TaskNeeds } from "./models.js";
 import { openrouterGenerateWithMeta, openrouterHealth, isTransientError, openrouterCircuitOpen, openrouterDailyQuotaExhausted, openrouterBillingExhausted } from "./openrouter.js";
 import { recordLlmCost } from "./cost-tracker.js";
+import { isCloudReachableCached } from "./connectivity.js";
 
 export type LLMCallOptions = {
   model?: string;
@@ -89,6 +90,11 @@ function pickLargeOpenRouterModel(profile: LLMCallOptions["profile"]): string {
 function shouldRouteToOpenRouter(profile?: LLMCallOptions["profile"]): boolean {
   if (!config.openrouterEnabled) return false;
   if (!profile) return false;
+  // Live reachability gate (task 2): if we've probed recently and are
+  // offline, don't route to cloud at all — go straight to Ollama ordered
+  // by size. `null` means no fresh probe, so we still try.
+  const cached = isCloudReachableCached();
+  if (cached === false) return false;
   // SPECIAL CASE: triage stays LOCAL by default even when OR is enabled.
   // Triage is a yes/no classifier with a 16-token output budget; bouncing
   // it to a remote API just adds network latency for zero quality lift.
@@ -152,10 +158,8 @@ async function chooseBackendAndModel(opts: LLMCallOptions, prompt: string, syste
       return { backend: "openrouter", model: opts.model, reason: `explicit remote model "${opts.model}"` };
     }
     // Explicit local model that's too big for local context → bump to OR
-    // (if available) with the LARGE-tier OR model. The caller asked for a
-    // specific local model but a 10k-token prompt won't fit; better a strong
-    // remote model that handles the load than the local one that truncates.
-    if (config.openrouterEnabled && isComplex) {
+    // (if available and actually reachable) with the LARGE-tier OR model.
+    if (config.openrouterEnabled && isComplex && isCloudReachableCached() !== false) {
       const model = pickLargeOpenRouterModel(opts.profile);
       return {
         backend: "openrouter",
@@ -177,8 +181,9 @@ async function chooseBackendAndModel(opts: LLMCallOptions, prompt: string, syste
     return { backend: "openrouter", model: pickOpenRouterModelFor(opts.profile), reason: `profile "${opts.profile}" routed to OpenRouter via config` };
   }
   // Complexity override: even when the profile would have stayed local, a
-  // huge prompt won't fit in local context. Bump it to OR's LARGE-tier.
-  if (config.openrouterEnabled && isComplex) {
+  // huge prompt won't fit in local context. Bump it to OR's LARGE-tier
+  // (only if actually online — offline goes straight to Ollama sized by score).
+  if (config.openrouterEnabled && isComplex && isCloudReachableCached() !== false) {
     const model = pickLargeOpenRouterModel(opts.profile);
     return {
       backend: "openrouter",

@@ -81,12 +81,12 @@ describe("heuristicPlan — false-trigger guards", () => {
 });
 
 describe("planSensitiveTools", () => {
-  it("reports only the gated tools present in a plan", () => {
+  it("reports only the gated tools present in a plan", async () => {
     const plan = { steps: [{ tool: "vault.search" }, { tool: "email.send" }, { tool: "db.query" }] } as any;
-    expect(planSensitiveTools(plan).sort()).toEqual(["db.query", "email.send"]);
+    expect((await planSensitiveTools(plan)).sort()).toEqual(["db.query", "email.send"]);
   });
-  it("returns [] for a plan with no sensitive tools", () => {
-    expect(planSensitiveTools({ steps: [{ tool: "vault.search" }] } as any)).toEqual([]);
-    expect(planSensitiveTools(null)).toEqual([]);
+  it("returns [] for a plan with no sensitive tools", async () => {
+    expect(await planSensitiveTools({ steps: [{ tool: "vault.search" }] } as any)).toEqual([]);
+    expect(await planSensitiveTools(null)).toEqual([]);
   });
 });

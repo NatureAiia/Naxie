@@ -16,7 +16,7 @@
 //                                     (tier A).
 
 import { Router } from "express";
-import { voiceStatus, voiceForPersona, synthesizeLocal, mintRealtimeSession } from "../lib/voice.js";
+import { voiceStatus, voiceForPersona, synthesizeLocal, synthesizeWithVoice, synthesizeElevenLabs, elevenLabsVoiceForPersona, mintRealtimeSession } from "../lib/voice.js";
 import { loadJobById } from "../lib/job-store.js";
 import { getJob } from "../lib/jobs.js";
 
@@ -58,19 +58,23 @@ async function reportContext(jobId: string, personaId?: string): Promise<{ repor
   };
 }
 
-// POST /api/voice/converse — NaxionAI's general-purpose conversation. Unlike
-// /api/chat (which runs the full task/template/planner pipeline — right for
-// the Chat page, wrong for a voice assistant that should just answer),
-// this is a direct passthrough to the model: no calculator shortcut, no
-// template matching, no persona auto-routing, no task creation. Every
-// reply is genuinely generated, never a canned string. `model` lets the
-// caller force a specific locally-pulled Ollama model for this turn; a
-// cloud-provider model is selected by activating that provider first
-// (POST /api/models/providers/:id/activate) and omitting `model` here so
-// normal profile routing picks it up.
+// POST /api/voice/converse — Naxie (PA master) general conversation.
+// Unlike /api/chat (task/template/planner for specific neuros/agents/workers),
+// this is Naxie's own conversational channel. The caller does NOT pick a
+// model — Naxie decides via naxie-router.ts:
+//
+//   • Online + simple  → fast free-tier cloud model (small tier, no local load)
+//   • Online + complex  → large cloud model (large tier)
+//   • Offline           → Ollama ordered by size (small/fast for simple, larger for complex)
+//
+// The response includes `routing` so the UI can show "quick free" vs "deep"
+// vs "local" visibly (task 1). Reachability is probed live (task 2), not just
+// "key is set".
+//
+// Chat (/api/chat) remains the surface for talking to a specific persona/
+// worker — Naxie is the PA master that delegates there when needed.
 voiceRouter.post("/converse", async (req, res) => {
   const messages: { role: string; content: string }[] = Array.isArray(req.body?.messages) ? req.body.messages : [];
-  const model = typeof req.body?.model === "string" ? req.body.model.trim() : "";
   const trimmed = messages.slice(-16).map(m => ({
     role: m?.role === "assistant" ? "NaxionAI" : "User",
     content: String(m?.content ?? "").slice(0, 3000),
@@ -80,21 +84,43 @@ voiceRouter.post("/converse", async (req, res) => {
   try {
     const { llmGenerateWithMeta } = await import("../lib/llm.js");
     const { injectLanguagePrompt } = await import("../lib/language-prompts.js");
-    const system = injectLanguagePrompt(
-      "You are NaxionAI, a helpful, concise voice assistant. Speak naturally, the way a person would say it out loud — " +
+    const { classifyNaxieComplexity, tierFor } = await import("../lib/naxie-router.js");
+    const { isCloudReachable } = await import("../lib/connectivity.js");
+    const { buildNaxieContext } = await import("../lib/naxie-context.js");
+    const baseSystem = injectLanguagePrompt(
+      "You are Naxie, the personal assistant master of the whole system. Speak naturally, the way a person would say it out loud — " +
       "short sentences, no markdown, no headings, no bullet lists, no code fences unless the user explicitly asks for code. " +
-      "Answer directly from your own knowledge; never claim you can't help without actually trying.",
+      "Answer directly from your own knowledge; never claim you can't help without actually trying. " +
+      "You route more complex or specialized work to the appropriate worker/agent when needed — the Chat surface is for those direct worker conversations.",
       "direct",
     );
+    // RAG + MAG + CAG injection — so Naxie never forgets who she is, who Nature is, and what subagents do
+    const naxieCtx = buildNaxieContext(last.content, { ragLimit: 6, includeDated: true });
+    const system = baseSystem + "\n\n" + naxieCtx.combinedSystemAddendum;
     const convo = trimmed.map(m => `${m.role}: ${m.content}`).join("\n");
-    const prompt = (convo ? `${convo}\n` : "") + `User: ${last.content}\nNaxionAI:`;
-    const opts: { profile: "balanced"; maxTokens: number; model?: string } = { profile: "balanced", maxTokens: 500 };
-    // Only an explicit LOCAL model is safe to force here — cloud provider
-    // model ids don't all carry the "provider/model" shape llm.ts uses to
-    // detect an explicit remote model, so forcing one could misroute.
-    if (model && !model.includes("/")) opts.model = model;
-    const result = await llmGenerateWithMeta(prompt, system, opts);
-    res.json({ text: result.text.trim(), model: result.model });
+    // RAG block also goes into the user prompt as grounding (citeable)
+    const prompt = (convo ? `${convo}\n` : "") + (naxieCtx.rag ? naxieCtx.rag + "\n\n" : "") + `User: ${last.content}\nNaxie:`;
+    // 1) classify complexity from the actual user intent (last turn + convo size)
+    const convoTokens = Math.ceil(convo.length / 4);
+    const cls = classifyNaxieComplexity(last.content, convoTokens);
+    // 2) probe reachability (cached 45s) — real online vs just "key present"
+    const online = await isCloudReachable();
+    const tier = tierFor(cls.level, online);
+    const complexityFlag = cls.level === "complex" ? "high" as const : "normal" as const;
+    // Let the LLM router pick the right backend/model for this tier
+    const result = await llmGenerateWithMeta(prompt, system, { profile: "balanced", maxTokens: cls.level === "complex" ? 900 : 500, complexity: complexityFlag });
+    res.json({
+      text: result.text.trim(),
+      model: result.model,
+      routing: {
+        tier,
+        complexity: cls.level,
+        reason: cls.reason,
+        signals: cls.signals,
+        online,
+        backend: result.model.includes("/") ? "openrouter" : "ollama",
+      },
+    });
   } catch (e: any) {
     res.status(400).json({ error: String(e?.message ?? e) });
   }
@@ -132,9 +158,11 @@ voiceRouter.post("/ask", async (req, res) => {
 voiceRouter.post("/tts", async (req, res) => {
   const text = String(req.body?.text ?? "").trim();
   if (!text) return res.status(400).json({ error: "text is required" });
+  // Persona-aware: naxie -> T1LJmO1i3U7y9K38NWAy, chat/read-aloud -> qBDvhofpxp92JgXJxDjB, others default.
+  // Prefers ElevenLabs cloud (your second-in-command voice), falls back to local sidecar.
   try {
-    const v = voiceForPersona(req.body?.personaId ? String(req.body.personaId) : undefined);
-    const out = await synthesizeLocal(text, v.localVoice);
+    const pid = req.body?.personaId ? String(req.body.personaId) : undefined;
+    const out = await synthesizeWithVoice(text, pid);
     res.set("Content-Type", out.contentType);
     res.set("Cache-Control", "no-store");
     res.send(out.audio);
