@@ -93,6 +93,18 @@ export function Approvals() {
                     <div className="mt-3 rounded-md border border-violet-500/30 bg-violet-500/5 p-3 text-xs">
                       <div className="text-[10px] uppercase tracking-wider text-violet-300/70 mb-1.5">Naxie would like to:</div>
                       <div className="text-cream-100">{t.pendingApproval?.actionDescription ?? t.detail}</div>
+                      {t.pendingApproval?.diff && (
+                        <pre className="mt-2 rounded-md border border-ink-700 bg-ink-950 p-2 text-[11px] font-mono overflow-x-auto whitespace-pre">
+                          {t.pendingApproval.diff.split("\n").map((line, i) => {
+                            const cls = line.startsWith("+") && !line.startsWith("+++")
+                              ? "text-leaf-300 bg-leaf-500/5"
+                              : line.startsWith("-") && !line.startsWith("---")
+                              ? "text-flame-300 bg-flame-500/5"
+                              : "text-cream-300/70";
+                            return <div key={i} className={`px-1 ${cls}`}>{line || " "}</div>;
+                          })}
+                        </pre>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2 shrink-0">

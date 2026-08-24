@@ -20,14 +20,14 @@ export type NaxieContext = {
   combinedSystemAddendum: string; // what to append to the base system prompt
 };
 
-export function buildNaxieContext(query: string, opts: { ragLimit?: number; includeDated?: boolean } = {}): NaxieContext {
+export async function buildNaxieContext(query: string, opts: { ragLimit?: number; includeDated?: boolean } = {}): Promise<NaxieContext> {
   ensureOnce();
   const cag = buildCagPrefix();
   // MAG as standalone (fresh) — CAG already contains a mag snapshot but we add a
   // slightly fresher mag slice for recency; dedupe is fine, LLM handles it.
   const mag = buildMagContext({ maxFacts: 8, includeDated: opts.includeDated });
 
-  const hits = ragSearch(query, opts.ragLimit ?? 6);
+  const hits = await ragSearch(query, opts.ragLimit ?? 6);
   const rag = formatRagBlock(hits);
 
   const parts = [cag.prefix, rag].filter(Boolean).join("\n\n");
@@ -48,7 +48,7 @@ export function buildNaxieContext(query: string, opts: { ragLimit?: number; incl
 }
 
 // For subagents: same memory, but preface with "You are <persona> — Naxie's delegate"
-export function buildSubagentContext(personaId: string, query: string): NaxieContext {
+export function buildSubagentContext(personaId: string, query: string): Promise<NaxieContext> {
   // Reuse same RAG/MAG/CAG — subagents share the same durable memory so they
   // also never forget who Nature is. Persona-specific profile is layered by
   // personaSystemSuffix() elsewhere; this just adds the shared memory.

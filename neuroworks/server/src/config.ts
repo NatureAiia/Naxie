@@ -84,6 +84,24 @@ const firecrawlBaseUrl = pick("FIRECRAWL_BASE_URL", "https://api.firecrawl.dev")
 const supabaseUrl = pick("SUPABASE_URL", "");
 const supabasePublishableKey = pick("SUPABASE_PUBLISHABLE_KEY", "");
 const supabaseSecretKey = pick("SUPABASE_SECRET_KEY", "");
+// Direct Postgres connection string for the Supabase project above (Settings →
+// Database → Connection string, "URI" tab). Used by lib/pg-client.ts for the
+// pgvector RAG store (vault_chunks table — see migrations/0001_vault_chunks.sql).
+// Blank = pgvector search is skipped entirely (ragSearch degrades to the
+// existing MiniSearch/memory/fallback paths, same posture as every other
+// optional integration in this file).
+const supabaseDbUrl = pick("SUPABASE_DB_URL", "");
+
+// OpenAI — used ONLY for embeddings (text-embedding-3-small, 1536 dims) to
+// back the pgvector RAG store above. Deliberately independent of whichever
+// provider is active for chat (Gemini by default) since OpenAI's embeddings
+// endpoint is the one clearly OpenAI-compatible embeddings API wired into
+// this codebase today. Blank = lib/embeddings.ts throws a clear error that
+// callers (rag.ts, the re-embed job) catch and treat as "semantic search
+// unavailable" — never a hard failure.
+const openaiEmbeddingApiKey = pick("OPENAI_EMBEDDING_API_KEY", "");
+const openaiEmbeddingBaseUrl = pick("OPENAI_EMBEDDING_BASE_URL", "https://api.openai.com/v1");
+const openaiEmbeddingModel = pick("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small");
 
 // MiniMax removed — image generation goes through OpenRouter (Gemini flash);
 // video/music/tts have no configured provider (see media.* primitives).
@@ -209,6 +227,12 @@ export const config = {
   supabasePublishableKey,
   supabaseSecretKey,
   supabaseEnabled: supabaseUrl.length > 0 && supabaseSecretKey.length > 0,
+  supabaseDbUrl,
+  pgvectorEnabled: supabaseDbUrl.length > 0,
+  openaiEmbeddingApiKey,
+  openaiEmbeddingBaseUrl,
+  openaiEmbeddingModel,
+  openaiEmbeddingEnabled: openaiEmbeddingApiKey.length > 0,
   heygenApiKey,
   heygenBaseUrl,
   heygenEnabled: heygenApiKey.length > 0,

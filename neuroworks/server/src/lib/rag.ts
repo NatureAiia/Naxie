@@ -1,23 +1,94 @@
 // RAG — Retrieval-Augmented Generation
-// Third retrieval path layered alongside MiniSearch + vault-index walk.
-// Today: keyword/MiniSearch + memory search. Future: Supabase pgvector
-// embeddings via the same searchRag() signature.
+// Retrieval paths layered alongside MiniSearch + vault-index walk:
+// keyword/MiniSearch + memory search + fallback walk, PLUS (when configured)
+// Supabase pgvector semantic search over vault_chunks (see lib/rag-embed.ts
+// for how that table gets populated, and lib/pg-client.ts / lib/embeddings.ts
+// for the Postgres + embeddings clients it depends on). The pgvector step is
+// entirely optional — SUPABASE_DB_URL / OPENAI_EMBEDDING_API_KEY unset simply
+// means ragSearch behaves exactly as before.
 
 import { searchVault } from "./vault.js";
 import { searchIndex } from "./vault-index.js";
 import { searchMemory } from "./memory.js";
 import { config } from "../config.js";
+import { getPgPool, isPgAvailable } from "./pg-client.js";
+import { embedText } from "./embeddings.js";
+import { graphNeighbors } from "./vault-graph.js";
 
 export type RagHit = {
-  source: "vault" | "memory" | "persona";
+  source: "vault" | "memory" | "persona" | "vault-semantic";
   path: string;        // vault path or memory subject
   line?: number;
   preview: string;
   score: number;
+  // Graph-augmented retrieval (docs/naxie-storage-architecture.md §6) — 1-hop
+  // wikilink neighbors of a vault-sourced hit's note, best-effort. Only set
+  // for "vault"/"vault-semantic" hits (memory/persona hits have no place in
+  // the wikilink graph) and only when at least one neighbor was found.
+  relatedNotes?: string[];
 };
 
-// Hybrid search: vault-index (MiniSearch) first, then memory, then fallback walk.
-export function ragSearch(query: string, limit = 8): RagHit[] {
+// Vault-sourced hits (as opposed to memory/persona) are the only ones with a
+// path that resolves inside the wikilink graph — everything else has a path
+// like "memory/<subject>", not a real vault file.
+const VAULT_SOURCES = new Set<RagHit["source"]>(["vault", "vault-semantic"]);
+
+// Attach 1-hop wikilink "related notes" to every vault-sourced hit, best-
+// effort (graphNeighbors() itself never throws, but this stays defensive
+// since it runs over every hit on every call).
+function withRelatedNotes(hits: RagHit[]): RagHit[] {
+  for (const h of hits) {
+    if (!VAULT_SOURCES.has(h.source)) continue;
+    try {
+      const neighbors = graphNeighbors(h.path, 1);
+      if (neighbors.length > 0) h.relatedNotes = neighbors.slice(0, 5);
+    } catch { /* best-effort annotation only */ }
+  }
+  return hits;
+}
+
+// Semantic (pgvector) search over vault_chunks. Embeds the query, then
+// nearest-neighbour searches by cosine distance. Returns [] on ANY failure
+// (Postgres unreachable, embeddings unavailable, table missing, etc.) — this
+// is an additive retrieval path, never a hard dependency for chat.
+async function pgvectorSearch(query: string, limit: number): Promise<RagHit[]> {
+  if (!config.pgvectorEnabled || !config.openaiEmbeddingEnabled) return [];
+  try {
+    const available = await isPgAvailable();
+    if (!available) return [];
+    const pool = getPgPool();
+    if (!pool) return [];
+    const [vec] = await embedText([query]);
+    if (!vec) return [];
+    const vecLiteral = `[${vec.join(",")}]`;
+    const { rows } = await pool.query(
+      `select path, heading, title, content, embedding <=> $1::vector as distance
+       from vault_chunks
+       order by embedding <=> $1::vector
+       limit $2`,
+      [vecLiteral, limit],
+    );
+    return rows.map((r: any): RagHit => ({
+      source: "vault-semantic",
+      path: r.path,
+      preview: String(r.content).slice(0, 200),
+      // Cosine distance is 0 (identical) .. 2 (opposite); convert to a
+      // "higher is better" score so it sorts alongside the other sources'
+      // score conventions (MiniSearch scores are typically small positive
+      // numbers, memory hits are pinned at 5).
+      score: Math.max(0, 5 - Number(r.distance) * 5),
+    }));
+  } catch (e: any) {
+    console.debug(`[rag] pgvectorSearch skipped: ${e?.message ?? e}`);
+    return [];
+  }
+}
+
+// Hybrid search: vault-index (MiniSearch) first, then memory, then fallback
+// walk, then (when configured) pgvector semantic search. Async because the
+// pgvector step is a network call (embed the query, then a Postgres round
+// trip) — all callers already run inside async request handlers.
+export async function ragSearch(query: string, limit = 8): Promise<RagHit[]> {
   const q = query.trim();
   if (!q) return [];
   const hits: RagHit[] = [];
@@ -61,23 +132,42 @@ export function ragSearch(query: string, limit = 8): RagHit[] {
     } catch { /* ignore */ }
   }
 
+  // 4) pgvector semantic search — runs ALONGSIDE the steps above (never
+  // replaces them), only when Supabase + embeddings are both configured.
+  // Skips silently (debug log only) on any Postgres/embedding unavailability.
+  try {
+    const semantic = await pgvectorSearch(q, limit);
+    for (const h of semantic) {
+      const key = `vault-semantic:${h.path}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      hits.push(h);
+    }
+  } catch { /* ignore — pgvectorSearch already catches internally */ }
+
   // Sort vault hits by score desc, memory after
   hits.sort((a, b) => b.score - a.score);
-  return hits.slice(0, limit);
+  const top = hits.slice(0, limit);
+  // Graph-augmented retrieval (item 3b) — annotate vault-sourced hits with
+  // their 1-hop wikilink neighbors. Runs only on the final top-N slice, not
+  // every candidate, since graphNeighbors() does a graph walk per call.
+  return withRelatedNotes(top);
 }
 
 // Format hits as injection block for the prompt (keeps citations)
 export function formatRagBlock(hits: RagHit[]): string {
   if (hits.length === 0) return "";
   const lines = hits.map((h, i) => {
+    const related = h.relatedNotes?.length ? ` (related: ${h.relatedNotes.join(", ")})` : "";
     if (h.source === "memory") return `[M${i + 1} memory:${h.path}] ${h.preview}`;
-    return `[R${i + 1} vault:${h.path}${h.line ? `:${h.line}` : ""}] ${h.preview}`;
+    if (h.source === "vault-semantic") return `[S${i + 1} vault-semantic:${h.path}] ${h.preview}${related}`;
+    return `[R${i + 1} vault:${h.path}${h.line ? `:${h.line}` : ""}] ${h.preview}${related}`;
   });
-  return `## RAG — retrieved context (cite as [R#] or [M#] when used)\n${lines.join("\n")}`.trim();
+  return `## RAG — retrieved context (cite as [R#], [M#], or [S#] when used)\n${lines.join("\n")}`.trim();
 }
 
 // Convenience: one-call retrieve + format
-export function retrieveRagBlock(query: string, limit = 6): string {
-  const hits = ragSearch(query, limit);
+export async function retrieveRagBlock(query: string, limit = 6): Promise<string> {
+  const hits = await ragSearch(query, limit);
   return formatRagBlock(hits);
 }

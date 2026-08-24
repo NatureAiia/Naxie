@@ -17,6 +17,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { logAudit } from "./audit-log.js";
+import { config } from "../config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
@@ -29,10 +30,24 @@ export type OrgTaskStatus = "backlog" | "active" | "blocked" | "waiting-on-appro
 export type OrgTaskPriority = "low" | "normal" | "high" | "urgent";
 export type PendingApprovalKind = "external-comms" | "spend" | "calendar-external" | "host-tool" | "architect-change" | "other";
 
+// Architect-specific proposal payload (docs/naxie-architecture.md §7) — a
+// self-contained code-change proposal riding alongside the plain-language
+// PendingApproval.actionDescription. `diff` here and PendingApproval's own
+// top-level `diff` field are allowed to both be populated; the top-level
+// field stays for review-UI code that doesn't know about `proposal` yet.
+export type ArchitectProposal = {
+  diff: string;
+  filesTouched: string[];
+  rationale: string;
+  basedOn?: { auditQuery?: string; sourceFilesRead?: string[] };
+};
+
 export type PendingApproval = {
   actionDescription: string;   // plain language, e.g. "Send email to X saying Y" — never names the internal role
   kind: PendingApprovalKind;
   requestedAt: string;
+  diff?: string;               // optional unified-diff-format text for review UIs
+  proposal?: ArchitectProposal; // Architect-only: structured diff/rationale payload
 };
 
 export type OrgTask = {
@@ -95,6 +110,19 @@ export type ClassifiableJob = {
   scheduledBy?: string;
 };
 
+// Shared text→role regex vocabulary — the single place both classifyOrgRole
+// (Job-shape, already-dispatched work) and naxie-router.ts's classifyChatIntent
+// (raw chat text, deciding whether to delegate at all) pull their role
+// vocabulary from, so the two never drift out of sync. Returns null when no
+// role-specific vocabulary matches (callers pick their own default/fallback).
+export function matchRoleFromText(text: string): OrgRole | null {
+  const lower = text.toLowerCase();
+  if (/\b(remind|reminder|calendar|appointment)\b/.test(lower)) return "scheduler";
+  if (/\b(inbox|email\s*triage|triage|digest|check[- ]?in|routine)\b/.test(lower)) return "admin";
+  if (/\b(research|summari[sz]e|brief(?:ing)?|investigat|look(?:ing)?\s+into|fact[- ]?check)\b/.test(lower)) return "researcher";
+  return null;
+}
+
 export function classifyOrgRole(job: ClassifiableJob): OrgRole | null {
   const kind = job.kind ?? "";
   // Noise that shouldn't clutter the per-role board — mirrors jobs.ts's own
@@ -107,10 +135,9 @@ export function classifyOrgRole(job: ClassifiableJob): OrgRole | null {
   // Scheduler owns, not the task content.
   if (job.scheduledBy) return "scheduler";
 
-  const text = `${job.title ?? ""} ${job.template ?? ""} ${job.task ?? ""}`.toLowerCase();
-  if (/\b(remind|reminder|calendar|appointment)\b/.test(text)) return "scheduler";
-  if (/\b(inbox|email\s*triage|triage|digest|check[- ]?in|routine)\b/.test(text)) return "admin";
-  if (/\b(research|summari[sz]e|brief(?:ing)?|investigat|look(?:ing)?\s+into|fact[- ]?check)\b/.test(text)) return "researcher";
+  const text = `${job.title ?? ""} ${job.template ?? ""} ${job.task ?? ""}`;
+  const matched = matchRoleFromText(text);
+  if (matched) return matched;
   // Default: anything that reached this point (no more specific match) is
   // treated as project-shaped work for Executor — the deliberately broad
   // generalist role (docs §3). Never returns "architect": that role is
@@ -167,6 +194,28 @@ function persist(): void {
     try { cacheMtimeMs = statSync(FILE).mtimeMs; } catch { /* next load() re-reads — harmless */ }
   } catch (e) {
     console.warn(`[org-tasks] persist failed: ${(e as Error).message}`);
+  }
+}
+
+// Snapshot copy for org-daemon.ts's maybeBackupVault tick-phase. STATE_DIR
+// (above) resolves to <repo>/.neuroworks — OUTSIDE config.vaultPath (see
+// config.ts's vaultPath, e.g. .../server/vault) — so a plain vault commit
+// would never capture the org-task backlog. This copies the current
+// on-disk state file into the vault's _neuroworks/ folder (same convention
+// as audit-log.ts's AUDIT_REL, which already lives inside the vault) so the
+// commit-queue's next commit actually includes it. Best-effort: a missing
+// or unwritable vault path shouldn't take down the daemon tick.
+export function snapshotOrgTasksToVault(): boolean {
+  try {
+    if (!existsSync(FILE)) return false;
+    const destDir = resolve(config.vaultPath, "_neuroworks");
+    if (!existsSync(destDir)) mkdirSync(destDir, { recursive: true });
+    const dest = join(destDir, "org-tasks.snapshot.json");
+    writeFileSync(dest, readFileSync(FILE, "utf8"));
+    return true;
+  } catch (e) {
+    console.warn(`[org-tasks] snapshotOrgTasksToVault failed: ${(e as Error).message}`);
+    return false;
   }
 }
 

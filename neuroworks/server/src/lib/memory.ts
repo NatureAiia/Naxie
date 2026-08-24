@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "../config.js";
+import { getPgPool, isPgAvailable } from "./pg-client.js";
 
 const MEMORY_DIR_REL = "_neuroworks/memory";
 
@@ -52,7 +53,78 @@ export function noteFact(args: { subject: string; fact: string; source?: string;
   };
   const file = join(dir, slugify(args.subject) + ".jsonl");
   appendFileSync(file, JSON.stringify(rec) + "\n", "utf8");
+  // Best-effort Supabase mirror (docs/naxie-storage-architecture.md §5, MAG
+  // memory). Fire-and-forget: never await, never throw, never delay the
+  // local write's return on the remote round trip. Local JSONL stays
+  // canonical — this is durability against a wiped machine, not a sync
+  // target read back from live.
+  void mirrorFactToSupabase(rec).catch(() => { /* best-effort — see mirrorFactToSupabase */ });
   return rec;
+}
+
+// Mirror one fact to the `memory_facts` Supabase table (see
+// migrations/0002_memory_facts.sql). Skips silently when pgvector/Postgres
+// isn't configured or reachable — same degrade-gracefully posture as
+// rag.ts's pgvectorSearch. Never throws out of this function.
+async function mirrorFactToSupabase(rec: MemoryFact): Promise<void> {
+  try {
+    if (!(await isPgAvailable())) return;
+    const pool = getPgPool();
+    if (!pool) return;
+    await pool.query(
+      `insert into memory_facts (subject, fact, source, fact_date) values ($1, $2, $3, $4)`,
+      [rec.subject, rec.fact, rec.source ?? null, rec.date ?? null],
+    );
+  } catch (e: any) {
+    console.debug(`[memory] mirrorFactToSupabase skipped: ${e?.message ?? e}`);
+  }
+}
+
+// Boot-time wipe-recovery hydration. If local memory storage is empty (fresh
+// machine / wiped disk), pull facts back from the Supabase `memory_facts`
+// mirror and write them locally. Local stays canonical from then on — this
+// is a one-shot recovery, never a live two-way sync (avoids conflict
+// resolution entirely, per docs/naxie-storage-architecture.md §5).
+export async function hydrateMemoryFromSupabaseIfLocalEmpty(): Promise<number> {
+  try {
+    const dir = root();
+    let hasLocalFacts = false;
+    if (existsSync(dir)) {
+      try {
+        hasLocalFacts = readdirSync(dir).some(f => f.endsWith(".jsonl"));
+      } catch { /* tolerate — treat as empty */ }
+    }
+    if (hasLocalFacts) return 0;
+    if (!(await isPgAvailable())) return 0;
+    const pool = getPgPool();
+    if (!pool) return 0;
+    const { rows } = await pool.query(
+      `select subject, fact, source, fact_date, created_at from memory_facts order by created_at asc`,
+    );
+    if (!rows.length) return 0;
+    mkdirSync(dir, { recursive: true });
+    let restored = 0;
+    for (const r of rows) {
+      try {
+        const rec: MemoryFact = {
+          subject: String(r.subject ?? "").trim(),
+          fact: String(r.fact ?? "").trim().slice(0, 2000),
+          source: r.source ? String(r.source).slice(0, 200) : undefined,
+          date: r.fact_date ? String(r.fact_date).slice(0, 10) : undefined,
+          ts: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+        };
+        if (!rec.subject || !rec.fact) continue;
+        const file = join(dir, slugify(rec.subject) + ".jsonl");
+        appendFileSync(file, JSON.stringify(rec) + "\n", "utf8");
+        restored += 1;
+      } catch { /* tolerate a single bad row */ }
+    }
+    if (restored > 0) console.log(`[memory] hydrated ${restored} fact(s) from Supabase mirror (local memory was empty)`);
+    return restored;
+  } catch (e: any) {
+    console.warn(`[memory] hydrateMemoryFromSupabaseIfLocalEmpty failed (non-fatal): ${e?.message ?? e}`);
+    return 0;
+  }
 }
 
 export function recallSubject(subject: string, limit = 20): MemoryFact[] {

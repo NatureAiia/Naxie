@@ -11,10 +11,11 @@ export function AuditLog() {
   const [level, setLevel] = useState("");
   const [actor, setActor] = useState("");
   const [action, setAction] = useState("");
+  const [role, setRole] = useState("");
 
   const load = () => {
     setLoading(true);
-    api.queryAudit({ limit: 100, level: level || undefined, actor: actor || undefined, action: action || undefined })
+    api.queryAudit({ limit: 100, level: level || undefined, actor: actor || undefined, action: action || undefined, role: role || undefined })
       .then(r => { setEvents(r.events); setTotal(r.total); })
       .catch(() => {}).finally(() => setLoading(false));
   };
@@ -53,6 +54,17 @@ export function AuditLog() {
         <div className="flex flex-col gap-1">
           <label className="text-xs text-cream-300/60">Action</label>
           <input value={action} onChange={e => setAction(e.target.value)} placeholder="Filter by action..." className="text-sm border rounded px-2 py-1 bg-ink-900 w-40" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-cream-300/60">Role</label>
+          <select value={role} onChange={e => setRole(e.target.value)} className="text-sm border rounded px-2 py-1 bg-ink-900">
+            <option value="">All</option>
+            <option value="scheduler">Scheduler</option>
+            <option value="researcher">Researcher</option>
+            <option value="executor">Executor</option>
+            <option value="admin">Admin</option>
+            <option value="architect">Architect</option>
+          </select>
         </div>
         <button onClick={load} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded bg-violet-500 text-white hover:bg-violet-600">
           <Search className="w-4 h-4" /> Search

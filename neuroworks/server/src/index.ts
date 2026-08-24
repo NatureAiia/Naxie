@@ -40,6 +40,7 @@ import { hostToolsRouter } from "./routes/host-tools.js";
 import { orgTasksRouter } from "./routes/org-tasks.js";
 import { naxieConnectorsRouter } from "./routes/naxie-connectors.js";
 import { startOrgDaemon, stopOrgDaemon } from "./lib/org-daemon.js";
+import { hydrateMemoryFromSupabaseIfLocalEmpty } from "./lib/memory.js";
 import { governanceRouter } from "./routes/governance.js";
 import { emailRouter } from "./routes/email.js";
 import { externalAgentsRouter } from "./routes/external-agents.js";
@@ -511,6 +512,16 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // Extension health scheduler — hourly test-all + alert (primary-only).
   if (config.role === "primary") {
     try { startExtensionHealthScheduler(); } catch (e: any) { console.warn(`  ⚠ extension health scheduler failed: ${e?.message ?? e}`); }
+  }
+
+  // MAG memory wipe-recovery (docs/naxie-storage-architecture.md §5) — only
+  // pulls from the Supabase memory_facts mirror when local memory storage is
+  // empty (fresh/wiped machine); no-op otherwise. Fire-and-forget, primary-
+  // only (same reasoning as the vault index warm-up above).
+  if (config.role === "primary") {
+    void hydrateMemoryFromSupabaseIfLocalEmpty().catch(e =>
+      console.warn(`  ⚠ memory hydration from Supabase failed (non-fatal): ${e?.message ?? e}`)
+    );
   }
 
   // Email bridge — inbound IMAP poll + outbound SMTP so users can drive

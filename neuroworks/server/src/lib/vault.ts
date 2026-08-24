@@ -6,6 +6,7 @@ import { simpleGit } from "simple-git";
 import { config } from "../config.js";
 import { scanForSecurityRisks } from "./security.js";
 import { buildIndex, invalidateIndex, searchIndex, indexStats, isBuildInProgress } from "./vault-index.js";
+import { scheduleReembed } from "./rag-embed.js";
 
 const VAULT = config.vaultPath;
 
@@ -436,6 +437,10 @@ function invalidateSearchCache() {
   // same signal so vault.search and the MiniSearch path can't disagree
   // about what's in the vault.
   invalidateIndex();
+  // pgvector RAG store (Phase 2, optional) — debounced re-embed of the whole
+  // vault on the same write signal. No-op when Supabase/embeddings aren't
+  // configured (checked inside scheduleReembed).
+  scheduleReembed();
 }
 
 // External-edit detection. The cache is invalidated whenever

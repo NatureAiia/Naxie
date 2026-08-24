@@ -84,7 +84,7 @@ voiceRouter.post("/converse", async (req, res) => {
   try {
     const { llmGenerateWithMeta } = await import("../lib/llm.js");
     const { injectLanguagePrompt } = await import("../lib/language-prompts.js");
-    const { classifyNaxieComplexity, tierFor } = await import("../lib/naxie-router.js");
+    const { classifyNaxieComplexity, classifyChatIntent, tierFor } = await import("../lib/naxie-router.js");
     const { isCloudReachable } = await import("../lib/connectivity.js");
     const { buildNaxieContext } = await import("../lib/naxie-context.js");
     const baseSystem = injectLanguagePrompt(
@@ -95,7 +95,7 @@ voiceRouter.post("/converse", async (req, res) => {
       "direct",
     );
     // RAG + MAG + CAG injection — so Naxie never forgets who she is, who Nature is, and what subagents do
-    const naxieCtx = buildNaxieContext(last.content, { ragLimit: 6, includeDated: true });
+    const naxieCtx = await buildNaxieContext(last.content, { ragLimit: 6, includeDated: true });
     const system = baseSystem + "\n\n" + naxieCtx.combinedSystemAddendum;
     const convo = trimmed.map(m => `${m.role}: ${m.content}`).join("\n");
     // RAG block also goes into the user prompt as grounding (citeable)
@@ -103,6 +103,38 @@ voiceRouter.post("/converse", async (req, res) => {
     // 1) classify complexity from the actual user intent (last turn + convo size)
     const convoTokens = Math.ceil(convo.length / 4);
     const cls = classifyNaxieComplexity(last.content, convoTokens);
+    // 1b) triage: is this actually a piece of work for a role's backlog, or
+    // just a turn to answer directly? (See naxie-router.ts's classifyChatIntent
+    // doc comment — this is chat's counterpart to naxie.ts's /ask endpoint,
+    // reachable from ordinary conversation instead of only the widget's
+    // `/task ` prefix.)
+    const intent = classifyChatIntent(last.content, convoTokens);
+    if (intent.action === "delegate" && intent.role) {
+      const { createOrgTask } = await import("../lib/org-tasks.js");
+      const task = createOrgTask({
+        role: intent.role,
+        title: last.content.slice(0, 100),
+        detail: last.content,
+        priority: "normal",
+        createdBy: "user",
+      });
+      // Templated ack instead of a full generation call — cheaper, and the
+      // reply can never accidentally narrate the internal role name.
+      res.json({
+        text: "I'll take care of that and follow up.",
+        model: null,
+        routing: {
+          tier: "delegated",
+          complexity: cls.level,
+          reason: intent.reason,
+          signals: cls.signals,
+          online: null,
+          backend: "org-task",
+        },
+        delegated: { taskId: task.id, role: intent.role },
+      });
+      return;
+    }
     // 2) probe reachability (cached 45s) — real online vs just "key present"
     const online = await isCloudReachable();
     const tier = tierFor(cls.level, online);

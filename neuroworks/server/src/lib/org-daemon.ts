@@ -28,10 +28,12 @@
 //     cadence, scheduled PA briefs (all from agency_daemon.py, §2.4)
 //   - Executor check-in nudge for a long-running active task (§6)
 
-import { listOrgTasks, updateOrgTaskStatus, type OrgTask } from "./org-tasks.js";
+import { listOrgTasks, updateOrgTaskStatus, snapshotOrgTasksToVault, type OrgTask } from "./org-tasks.js";
 import { getJob } from "./jobs.js";
 import { logAudit } from "./audit-log.js";
 import { notifyToast } from "./host-tools.js";
+import { enqueueVaultCommit } from "./commit-queue.js";
+import { runArchitectReview } from "./architect.js";
 
 // Desktop toast nudge — fires when an OrgTask sits in waiting-on-approval
 // past this threshold (docs/naxie-architecture.md §2.3 "needs your attention
@@ -61,6 +63,45 @@ export function maybeNudgePendingApprovals(now = Date.now()): number {
     logAudit({ level: "info", actor: first.role, action: "org_task.nudge", target: first.title, detail: `${waiting.length} waiting`, result: "success" });
   } catch { /* best-effort */ }
   return waiting.length;
+}
+
+// Periodic vault backup — piggybacks on the commit-queue's own debounced
+// commitAndPush (commit-queue.ts) rather than calling vault.ts directly, so
+// this never races an in-flight write from some other caller. Hourly is
+// plenty for a backup tick (contrast NUDGE_AFTER_MS above, which is about
+// user-facing latency, not data durability).
+let lastBackedUpAt = 0;
+const BACKUP_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_BACKUP_THROTTLE_MS) || 60 * 60 * 1000;
+
+export function maybeBackupVault(now = Date.now()): boolean {
+  if (now - lastBackedUpAt < BACKUP_THROTTLE_MS) return false;
+  lastBackedUpAt = now;
+  // .neuroworks/ (org-tasks.ts's STATE_DIR) lives outside config.vaultPath,
+  // so copy the org-task backlog into the vault first — otherwise the
+  // commit below would never actually capture it. See
+  // snapshotOrgTasksToVault's own comment in org-tasks.ts for why.
+  try { snapshotOrgTasksToVault(); } catch (e) { console.warn(`[org-daemon] snapshotOrgTasksToVault failed: ${(e as Error).message}`); }
+  void enqueueVaultCommit("daemon: periodic vault backup").catch(() => { /* best-effort — commit-queue already logs/tracks failures */ });
+  return true;
+}
+
+// Weekly Architect self-review (docs/naxie-architecture.md §7) — same
+// throttle-timestamp pattern as maybeBackupVault above, just a much longer
+// cadence: Architect proposals are deliberately infrequent, low-volume, and
+// always land in waiting-on-approval, never auto-applied. A manual trigger
+// also exists (POST /api/naxie/architect/review) for testing/on-demand runs.
+let lastArchitectReviewAt = 0;
+const ARCHITECT_REVIEW_THROTTLE_MS = Number(process.env.NEUROWORKS_ARCHITECT_REVIEW_THROTTLE_MS) || 7 * 24 * 60 * 60 * 1000;
+
+export async function maybeRunArchitectReview(now = Date.now()): Promise<boolean> {
+  if (now - lastArchitectReviewAt < ARCHITECT_REVIEW_THROTTLE_MS) return false;
+  lastArchitectReviewAt = now;
+  try {
+    await runArchitectReview();
+  } catch (e) {
+    console.warn(`[org-daemon] maybeRunArchitectReview failed: ${(e as Error).message}`);
+  }
+  return true;
 }
 
 export const DAEMON_CYCLE_SECONDS = Number(process.env.NEUROWORKS_ORG_DAEMON_CYCLE_SECONDS ?? "300") || 300;
@@ -119,6 +160,8 @@ function tick(): void {
   try { sweepStaleOrgApprovals(); } catch (e) { console.warn(`[org-daemon] sweepStaleOrgApprovals failed: ${(e as Error).message}`); }
   try { reconcileOrphanedActiveTasks(); } catch (e) { console.warn(`[org-daemon] reconcileOrphanedActiveTasks failed: ${(e as Error).message}`); }
   try { maybeNudgePendingApprovals(); } catch (e) { console.warn(`[org-daemon] maybeNudgePendingApprovals failed: ${(e as Error).message}`); }
+  try { maybeBackupVault(); } catch (e) { console.warn(`[org-daemon] maybeBackupVault failed: ${(e as Error).message}`); }
+  try { void maybeRunArchitectReview(); } catch (e) { console.warn(`[org-daemon] maybeRunArchitectReview failed: ${(e as Error).message}`); }
   // See the SCOPE NOTE at the top of this file — idle report, chat check-in,
   // proactive research, scheduled briefs, and the Executor check-in nudge
   // all belong here once a notification channel (§2.3) exists to carry them.

@@ -830,7 +830,7 @@ async function handleChat(req: any, res: any) {
   // into the task so the planner sees them; MAG core is durable memory.
   try {
     const { buildNaxieContext } = await import("../lib/naxie-context.js");
-    const ctx = buildNaxieContext(text, { ragLimit: 5 });
+    const ctx = await buildNaxieContext(text, { ragLimit: 5 });
     if (ctx.rag) enrichedTask += "\n\n" + ctx.rag;
     // Keep MAG hints lightweight here — full CAG prefix is system-side, but a
     // one-line operator reminder ensures even a 3b local model doesn't forget.

@@ -41,6 +41,7 @@ export function queryAudit(opts?: {
   level?: string;
   actor?: string;
   action?: string;
+  role?: string;
   since?: string;
   jobId?: string;
 }): { events: AuditEvent[]; total: number } {
@@ -53,6 +54,12 @@ export function queryAudit(opts?: {
     if (opts?.level) events = events.filter(e => e.level === opts.level);
     if (opts?.actor) events = events.filter(e => e.actor.toLowerCase().includes(opts.actor!.toLowerCase()));
     if (opts?.action) events = events.filter(e => e.action.toLowerCase().includes(opts.action!.toLowerCase()));
+    // Exact match on actor + org_task.* action prefix — deliberately not a
+    // substring match like `actor` above, because schedules.ts also writes
+    // audit events with actor==="scheduler" for unrelated tick-firing events,
+    // and "scheduler" is also an OrgRole value. Exact match + action prefix
+    // keeps this role filter scoped to org-task events only.
+    if (opts?.role) events = events.filter(e => e.actor === opts.role && e.action.startsWith("org_task."));
     if (opts?.jobId) events = events.filter(e => e.jobId === opts.jobId);
     if (opts?.since) {
       const sinceTs = new Date(opts.since).getTime();

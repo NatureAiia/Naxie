@@ -9,7 +9,8 @@ auditRouter.get("/", (req, res) => {
   const level = typeof req.query.level === "string" ? req.query.level : undefined;
   const actor = typeof req.query.actor === "string" ? req.query.actor : undefined;
   const action = typeof req.query.action === "string" ? req.query.action : undefined;
+  const role = typeof req.query.role === "string" ? req.query.role : undefined;
   const since = typeof req.query.since === "string" ? req.query.since : undefined;
   const jobId = typeof req.query.jobId === "string" ? req.query.jobId : undefined;
-  res.json(queryAudit({ limit, offset, level, actor, action, since, jobId }));
+  res.json(queryAudit({ limit, offset, level, actor, action, role, since, jobId }));
 });

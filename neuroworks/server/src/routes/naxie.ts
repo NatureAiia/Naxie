@@ -6,6 +6,8 @@ import { isCloudReachable, isCloudReachableCached } from "../lib/connectivity.js
 import { voiceStatus } from "../lib/voice.js";
 import { listSubjects } from "../lib/memory.js";
 import { getSubagentRoster } from "../lib/mag.js";
+import { callerLayer } from "../lib/access.js";
+import { runArchitectReview } from "../lib/architect.js";
 
 export const naxieRouter = Router();
 
@@ -14,7 +16,7 @@ export const naxieRouter = Router();
 naxieRouter.get("/context", async (req, res) => {
   const q = String(req.query.q ?? "operator and naxie second in command").slice(0, 200);
   try {
-    const ctx = buildNaxieContext(q, { ragLimit: 5 });
+    const ctx = await buildNaxieContext(q, { ragLimit: 5 });
     const op = getOperatorIdentity();
     const cag = cagStats();
     const roster = getSubagentRoster();
@@ -97,6 +99,26 @@ naxieRouter.post("/ask", async (req, res) => {
       createdBy: "user",
     });
     res.json({ ok: true, role, task });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// POST /api/naxie/architect/review — manually trigger the Architect role's
+// self-review pass (docs §7). Admin-gated the same way host-tools.ts gates
+// its settings PATCH: a logged-in human below "admin" is rejected; a
+// token-less machine/operator caller passes (see access.ts's scope note).
+// This is a system-triggered-only surface — Architect is never reachable
+// through chat classification (org-tasks.ts's classifyOrgRole/
+// matchRoleFromText deliberately never return "architect").
+naxieRouter.post("/architect/review", async (req, res) => {
+  const layer = callerLayer(req);
+  if (layer !== null && layer !== "superadmin" && layer !== "admin") {
+    return res.status(403).json({ error: "Triggering an Architect review requires admin access." });
+  }
+  try {
+    const result = await runArchitectReview();
+    res.json(result);
   } catch (e: any) {
     res.status(500).json({ error: String(e?.message ?? e) });
   }

@@ -98,7 +98,7 @@ function AppShell() {
     <Layout>
       <Suspense fallback={<RouteFallback />}>
       <Routes>
-        <Route path="/" element={<Navigate to="/chat" />} />
+        <Route path="/" element={<Navigate to="/naxie" />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/naxie" element={<Naxie />} />

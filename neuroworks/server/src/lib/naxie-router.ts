@@ -8,6 +8,9 @@
 //   • Offline           → Ollama ordered by size (smallest/fastest for simple,
 //                        larger when reasoning/longForm weight grows)
 
+import type { OrgRole } from "./org-tasks.js";
+import { matchRoleFromText } from "./org-tasks.js";
+
 export type NaxieComplexity = "simple" | "complex";
 export type NaxieTier = "free-small" | "free-large" | "ollama-small" | "ollama-large";
 
@@ -71,6 +74,51 @@ export function classifyNaxieComplexity(prompt: string, convoTokens = 0): NaxieC
   }
 
   return { level: "simple", reason: signals.length ? `simple (${signals.join(", ")}) — quick free tier` : "simple — quick free tier", signals: signals.length ? signals : ["simple"] };
+}
+
+// ─── Chat intent triage (answer directly vs delegate to an org role) ─────
+// This is Naxie's live-chat counterpart to org-tasks.ts's classifyOrgRole,
+// which only ever sees ALREADY-DISPATCHED Job shapes. Here we're looking at
+// raw /converse chat text and deciding, before generation, whether this turn
+// is actually a piece of work that belongs on a role's backlog rather than
+// something to just answer. Naxie must never narrate the internal role name
+// back to the user (docs/naxie-architecture.md §0, §8) — callers are
+// responsible for keeping `role` out of any visible reply text.
+export type ChatIntent = {
+  action: "answer" | "delegate";
+  role?: OrgRole;
+  reason: string;
+};
+
+// Imperative, task-shaped verbs that signal "go do this for me" even when the
+// request is short — e.g. "please draft and send a follow-up email to the
+// client" is only ~20 tokens and trips none of classifyNaxieComplexity's
+// complex-signal regexes, so without this the short/simple gate below would
+// wrongly wave it through as small talk.
+const TASK_ACTION_RE = /\b(please\s+)?(draft|compose|send|email|book|schedule|arrange|order|organize|file|submit|follow[- ]up|set[- ]up|create|delegate|take care of|handle|execute|complete|prepare|update|cancel|reply to|respond to)\b/i;
+
+export function classifyChatIntent(text: string, convoTokens = 0): ChatIntent {
+  const trimmed = (text ?? "").trim();
+  const cls = classifyNaxieComplexity(trimmed, convoTokens);
+  const looksLikeTask = TASK_ACTION_RE.test(trimmed);
+
+  // "Definitely direct-answer" gate — mirrors classifyNaxieComplexity's own
+  // short/simple early-return bucket (short + zero complex signals). Quick
+  // questions and small talk land here and never reach role-classification,
+  // UNLESS the text also reads as an actionable task, in which case it's
+  // exactly the kind of short delegate-worthy ask this triage exists for.
+  const obviouslyDirect = cls.signals.length === 1 && cls.signals[0] === "short" && !looksLikeTask;
+  if (obviouslyDirect) {
+    return { action: "answer", reason: `direct-answer gate: ${cls.reason}` };
+  }
+
+  // Not obviously simple — apply role-classification (shared vocabulary with
+  // org-tasks.ts's classifyOrgRole) to decide whether this is delegate-shaped.
+  const role = matchRoleFromText(trimmed) ?? (looksLikeTask ? "executor" : null);
+  if (role) {
+    return { action: "delegate", role, reason: `role-classified as ${role}` };
+  }
+  return { action: "answer", reason: "no delegate-shaped role signal — answer directly" };
 }
 
 export function tierFor(level: NaxieComplexity, online: boolean): NaxieTier {

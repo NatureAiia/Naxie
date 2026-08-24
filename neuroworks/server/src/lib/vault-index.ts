@@ -120,7 +120,12 @@ export function loadPersistedIndex(): boolean {
   }
 }
 
-function* walk(root: string): Generator<string> {
+// Exported so other vault walkers (e.g. lib/rag-chunk.ts's chunker) reuse the
+// exact same traversal/filter rules instead of re-implementing them slightly
+// differently (which has historically caused "why didn't my note show up"
+// bugs when two walkers silently disagreed on hidden-prefix or extension
+// filtering).
+export function* walk(root: string): Generator<string> {
   let entries: any[];
   try { entries = readdirSync(root, { withFileTypes: true }); } catch { return; }
   for (const e of entries) {
@@ -134,7 +139,7 @@ function* walk(root: string): Generator<string> {
   }
 }
 
-function extractTitle(body: string, fallback: string): string {
+export function extractTitle(body: string, fallback: string): string {
   const h1 = body.match(/^#\s+(.+)$/m);
   if (h1) return h1[1].trim().slice(0, 200);
   const fmTitle = body.match(/^title:\s*"?([^"\n]+?)"?\s*$/m);

@@ -132,7 +132,7 @@ export type OrgTask = {
   createdAt: string;
   updatedAt: string;
   createdBy: "naxie" | "user" | "daemon";
-  pendingApproval?: { actionDescription: string; kind: string; requestedAt: string };
+  pendingApproval?: { actionDescription: string; kind: string; requestedAt: string; diff?: string };
 };
 
 export type QualityFlag = {
@@ -599,13 +599,14 @@ export const api = {
   getCostRecords: (since?: string) =>
     req<{ records: any[] }>(`/api/cost/records${since ? `?since=${encodeURIComponent(since)}` : ""}`),
   // Audit log.
-  queryAudit: (params?: { limit?: number; offset?: number; level?: string; actor?: string; action?: string; since?: string; jobId?: string }) => {
+  queryAudit: (params?: { limit?: number; offset?: number; level?: string; actor?: string; action?: string; role?: string; since?: string; jobId?: string }) => {
     const q = new URLSearchParams();
     if (params?.limit) q.set("limit", String(params.limit));
     if (params?.offset) q.set("offset", String(params.offset));
     if (params?.level) q.set("level", params.level);
     if (params?.actor) q.set("actor", params.actor);
     if (params?.action) q.set("action", params.action);
+    if (params?.role) q.set("role", params.role);
     if (params?.since) q.set("since", params.since);
     if (params?.jobId) q.set("jobId", params.jobId);
     return req<{ events: any[]; total: number }>(`/api/audit?${q.toString()}`);

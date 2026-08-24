@@ -13,8 +13,14 @@ export default defineConfig({
         // deploy that only touches app code doesn't invalidate the browser's
         // cached copy of the framework. Pairs with index.ts's immutable
         // long-lived Cache-Control on fingerprinted assets.
-        manualChunks: {
-          vendor: ["react", "react-dom", "react-router-dom"],
+        // FUNCTION form required: this project builds with rolldown-vite
+        // (vite 8), which rejects the object shorthand ("manualChunks is
+        // not a function"). The function form works on both engines.
+        manualChunks(id: string) {
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) {
+            return "vendor";
+          }
+          return undefined;
         },
       },
     },
