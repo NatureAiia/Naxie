@@ -83,6 +83,9 @@ type AgentEntry = {
   responsibilities: string[];
   department: string;
   builtin: boolean;
+  // Hybrid-workforce tier — mirrors Persona.workMode; absent means "agent"
+  // (fully autonomous), same back-compat convention as Persona itself.
+  workMode?: "agent" | "hybrid" | "human";
   // How to reach this worker: activate it, dispatch a chat, or add to a team.
   contact: { activate: string; chat: string };
 };
@@ -121,6 +124,7 @@ workforceRouter.get("/", (req, res) => {
       responsibilities: (p.responsibilities ?? []).slice(0, 4),
       department: personaDepartment(p.role, p.id),
       builtin: builtinIds.has(p.id),
+      workMode: p.workMode ?? "agent",
       contact: { activate: `POST /api/personas/${p.id}/activate`, chat: `dispatch via /chat or /team as ${p.name}` },
     }));
   } catch { agents = []; }

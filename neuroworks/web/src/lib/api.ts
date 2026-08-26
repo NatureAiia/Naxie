@@ -867,6 +867,7 @@ export type WorkforceAgent = {
   responsibilities: string[];
   department: string;
   builtin: boolean;
+  workMode?: WorkMode;
   contact: { activate: string; chat: string };
 };
 export type WorkforcePerson = {
