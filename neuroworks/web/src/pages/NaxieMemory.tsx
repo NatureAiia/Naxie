@@ -11,7 +11,7 @@ type Ctx = {
   roster: { count: number; workers: { id: string; name: string; role: string }[] };
   memorySubjects: { subject: string; count: number; lastTs?: string }[];
   connectivity: { cached: boolean | null; probeNeeded: boolean };
-  voice: { elevenLabs: boolean; naxieVoiceId: string; chatVoiceId: string; realtime: boolean; localTts: boolean };
+  voice: { realtime: boolean; openaiTts: boolean; localTts: boolean };
   query: string;
 };
 
@@ -88,9 +88,7 @@ export function NaxieMemory() {
             <div className="bg-ink-900 border border-ink-800 rounded-xl p-4">
               <div className="text-xs font-semibold flex items-center gap-1.5"><Radio size={12} className="text-coral-400" /> Voices</div>
               <div className="mt-2 text-[11px] font-mono space-y-1">
-                <div>ElevenLabs: {ctx.voice.elevenLabs ? "on" : "off"}</div>
-                <div>Naxie: {ctx.voice.naxieVoiceId.slice(0,8)}… T1LJ · Chat: {ctx.voice.chatVoiceId.slice(0,8)}… qBDv</div>
-                <div>Realtime: {ctx.voice.realtime ? "yes" : "no"} · LocalTTS: {ctx.voice.localTts ? "yes" : "no"}</div>
+                <div>Realtime: {ctx.voice.realtime ? "yes" : "no"} · OpenAI TTS: {ctx.voice.openaiTts ? "yes" : "no"} · LocalTTS: {ctx.voice.localTts ? "yes" : "no"}</div>
               </div>
             </div>
           </div>

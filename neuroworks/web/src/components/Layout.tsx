@@ -5,7 +5,7 @@ import {
   LayoutDashboard, MessageSquare, Users, ListChecks, BookOpen,
   Search as SearchIcon, ChevronRight,
   CalendarDays, Database,
-  Plug, Sparkles, Puzzle,
+  Sparkles, Puzzle,
   LogOut, Contact, Zap, ThumbsUp, DollarSign,
   Cpu, Inbox, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
@@ -34,9 +34,6 @@ const RobotIcon = matIcon("robot");
 const RobotFolderIcon = matIcon("folder-robot");
 const DocsFolderIcon = matIcon("folder-docs");
 const KeyIcon = matIcon("key");
-const PipelineIcon = matIcon("pipeline");
-const ConnectionFolderIcon = matIcon("folder-connection");
-const ConsoleIcon = matIcon("console");
 const CertificateIcon = matIcon("certificate");
 const AdminFolderIcon = matIcon("folder-admin");
 const EventFolderIcon = matIcon("folder-event");
@@ -99,12 +96,7 @@ const monitoringNav: NavItem[] = [
 
 const systemNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
-  { to: "/data-sources", label: "Company data", icon: Database },
-  { to: "/data-pipeline", label: "Intellinexus", icon: PipelineIcon },
-  { to: "/models", label: "Models", icon: Cpu },
-  { to: "/connectors", label: "Connectors", icon: ConnectionFolderIcon },
-  { to: "/integrations", label: "Integrations", icon: Plug },
-  { to: "/terminal", label: "Terminal", icon: ConsoleIcon },
+  { to: "/data-sources", label: "Files", icon: Database },
   { to: "/governance", label: "Instructions and Policies", icon: CertificateIcon },
   { to: "/admin", label: "Admin", icon: AdminFolderIcon },
 ];
@@ -121,7 +113,7 @@ export function Layout({ children }: { children: ReactNode }) {
   // enforce the same rules — this just stops dead-end clicks.
   const role = (user?.role ?? "") as string;
   const layer = !user ? "superadmin" : role === "superadmin" ? "superadmin" : role === "admin" ? "admin" : "staff";
-  const SECRETS_PAGES = ["/extensions", "/models", "/connectors", "/integrations", "/terminal", "/governance", "/admin", "/data-sources", "/data-pipeline"];
+  const SECRETS_PAGES = ["/extensions", "/governance", "/admin", "/data-sources"];
   const nav = {
     library: layer === "staff" ? [] : libraryNav,
     watch: layer === "staff" ? [] : watchNav,
@@ -131,13 +123,24 @@ export function Layout({ children }: { children: ReactNode }) {
   // Per-group open state. Undefined = "not toggled yet"; a group with an active
   // child defaults to open so the current page is always visible in the rail.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  // Two named color themes, both dark: "dark" = Atom One Dark (the existing
-  // default palette — see index.css), "dracula" = the official Dracula
-  // palette. Any older saved "light" value falls back to "dark".
-  const [theme, setTheme] = useState<"dark" | "dracula">(() => {
+  // Four named color themes: "dark" = Atom One Dark (the existing default
+  // palette — see index.css), "dracula" = the official Dracula palette,
+  // "paper-light"/"paper-dark" = the warm cream/teal editorial palette in
+  // its light and dark halves. Any older saved "light"/"paper" value falls
+  // back to "dark".
+  const THEMES = ["dark", "dracula", "paper-light", "paper-dark"] as const;
+  type Theme = typeof THEMES[number];
+  const THEME_LABELS: Record<Theme, string> = {
+    dark: "Atom One Dark", dracula: "Dracula", "paper-light": "Paper (light)", "paper-dark": "Paper (dark)",
+  };
+  // Swatch dot shows the accent color of the theme it represents.
+  const THEME_SWATCH: Record<Theme, string> = {
+    dark: "bg-[#61afef]", dracula: "bg-[#bd93f9]", "paper-light": "bg-[#2B6E63]", "paper-dark": "bg-[#5FBFA9]",
+  };
+  const [theme, setTheme] = useState<Theme>(() => {
     if (typeof window === "undefined") return "dark";
     const saved = localStorage.getItem("neuroworks.theme");
-    return saved === "dracula" ? "dracula" : "dark";
+    return (THEMES as readonly string[]).includes(saved ?? "") ? (saved as Theme) : "dark";
   });
   // Collapsed sidebar — an icon-only rail (~4x narrower) for more working
   // space. Sticky across reloads like the theme choice.
@@ -282,13 +285,13 @@ export function Layout({ children }: { children: ReactNode }) {
           <div className={`flex items-center gap-1 ${collapsed ? "" : "shrink-0"}`}>
             <button
               type="button"
-              onClick={() => setTheme(t => t === "dark" ? "dracula" : "dark")}
-              title={`Switch to ${theme === "dark" ? "Dracula" : "Atom One Dark"} theme`}
+              onClick={() => setTheme(t => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length])}
+              title={`Switch to ${THEME_LABELS[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]]} theme`}
               aria-label="Toggle color theme"
               className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0"
             >
               {/* Swatch shows the theme you'd switch TO, matching the old sun/moon pattern. */}
-              <span className={`block w-3 h-3 rounded-full ${theme === "dark" ? "bg-[#bd93f9]" : "bg-[#61afef]"}`} />
+              <span className={`block w-3 h-3 rounded-full ${THEME_SWATCH[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]]}`} />
             </button>
             <button
               type="button"

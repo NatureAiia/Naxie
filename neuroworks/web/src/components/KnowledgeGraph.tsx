@@ -60,13 +60,19 @@ function hashColor(seed: string): string {
   return `hsl(${h % 360}, 58%, 64%)`;
 }
 
-export function KnowledgeGraph() {
+export function KnowledgeGraph({ focusId }: { focusId?: string | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
   const [hasPersonas, setHasPersonas] = useState(false);
+  // Vault note Naxie's last answer drew from — highlighted + panned to, the
+  // same "answer highlights its source" pattern as jarvis-claude-code's
+  // setFocus(), except riding on the RAG scoring already computed server-side.
+  const focusIdRef = useRef<string | null | undefined>(focusId);
+  const focusPannedRef = useRef<string | null | undefined>(null);
+  useEffect(() => { focusIdRef.current = focusId; }, [focusId]);
 
   // Simulation lives in refs, not state — the rAF loop mutates positions
   // every frame and re-rendering React for that would be far too slow.
@@ -416,8 +422,17 @@ export function KnowledgeGraph() {
       // connector clusters are small enough to always show their label.
       const groupColors = groupColorRef.current;
       const hovered = hoverRef.current;
+      const focusedNode = focusIdRef.current ? byId.get(focusIdRef.current) : undefined;
+      // Pan the camera to the source note once per new focus, rather than on
+      // every frame — the user is still free to pan/zoom away afterward.
+      if (focusedNode && focusPannedRef.current !== focusIdRef.current) {
+        focusPannedRef.current = focusIdRef.current;
+        transformRef.current.x = width / 2 - focusedNode.x * transformRef.current.scale;
+        transformRef.current.y = height / 2 - focusedNode.y * transformRef.current.scale;
+      }
       for (const node of nodes) {
         const isHover = hovered === node;
+        const isFocused = focusedNode === node;
         let radius = 3.5;
         let fill = "rgba(255,255,255,0.7)";
         let alwaysLabel = false;
@@ -457,12 +472,13 @@ export function KnowledgeGraph() {
         }
 
         if (isHover) radius *= 1.7;
+        else if (isFocused) radius *= 1.4;
 
         // Bloom pass first (drawn underneath, additive) so the sharp core
         // painted after it stays crisp — this is what makes nodes read as
         // glowing light sources rather than flat dots against the ambient
         // GlitterBackground star field, which has no bloom of its own.
-        drawGlow(node.x, node.y, radius * (isHover ? 5.5 : 4.2), isHover ? 0.9 : 0.55, fill);
+        drawGlow(node.x, node.y, radius * (isHover ? 5.5 : isFocused ? 5 : 4.2), isHover ? 0.9 : isFocused ? 0.85 : 0.55, isFocused ? "rgba(255,255,255,0.95)" : fill);
 
         ctx!.beginPath();
         ctx!.arc(node.x, node.y, radius, 0, Math.PI * 2);
@@ -476,6 +492,17 @@ export function KnowledgeGraph() {
           ctx!.arc(node.x, node.y, radius + 1.2, 0, Math.PI * 2);
           ctx!.strokeStyle = "rgba(255,255,255,0.5)";
           ctx!.lineWidth = 0.9 / t.scale;
+          ctx!.stroke();
+        }
+
+        // Pulsing white ring on the note that answered Naxie's last reply —
+        // the visible "this is where that came from" cue.
+        if (isFocused) {
+          const pulse = 0.6 + 0.4 * Math.sin(now / 260);
+          ctx!.beginPath();
+          ctx!.arc(node.x, node.y, radius + 6 + pulse * 2, 0, Math.PI * 2);
+          ctx!.strokeStyle = `rgba(255,255,255,${0.55 + 0.35 * pulse})`;
+          ctx!.lineWidth = 1.8 / t.scale;
           ctx!.stroke();
         }
 
@@ -514,12 +541,12 @@ export function KnowledgeGraph() {
           ctx!.restore();
         }
 
-        if (alwaysLabel || node.kind === "tag" || isHover) {
+        if (alwaysLabel || node.kind === "tag" || isHover || isFocused) {
           const labelText = node.kind === "persona" && node.workMode && node.workMode !== "agent"
             ? `${node.label} · ${node.workMode}`
             : node.label;
           ctx!.font = `${alwaysLabel ? 11 : node.kind === "tag" ? 11 : 12}px ui-sans-serif, system-ui, sans-serif`;
-          ctx!.fillStyle = node.kind === "placeholder" ? "rgba(255,255,255,0.4)" : isHover ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.6)";
+          ctx!.fillStyle = node.kind === "placeholder" ? "rgba(255,255,255,0.4)" : (isHover || isFocused) ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.6)";
           ctx!.fillText(labelText, node.x + radius + 4, node.y + 4);
         }
       }

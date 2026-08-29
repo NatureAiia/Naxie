@@ -106,6 +106,66 @@
   --c-leaf-400: #69ff8f;  /* Dracula green */
   --c-leaf-500: #50fa7b;
 }
+[data-theme="paper-light"] {
+  color-scheme: light;
+  /* Warm editorial "paper" palette — cream canvas, serif-friendly ink,
+     teal accent, terracotta highlight. Lifted from the Jarvis Repo Scan
+     artifact palette (2026-08-29) as a third/fourth named theme alongside
+     Atom One Dark and Dracula. This is the light half; see
+     [data-theme="paper-dark"] for the matching dark half. */
+  --c-ink-950: #f0eee8;   /* canvas — paper */
+  --c-ink-900: #e8e5dd;   /* panel (sidebar, rails) — slightly deeper paper */
+  --c-ink-850: #ffffff;   /* card — surface */
+  --c-ink-800: #e1ede9;   /* elevated / hover surface — accent-soft */
+  --c-ink-700: #dad7cd;   /* hairlines, dividers — line */
+  --c-ink-600: #bfbbae;   /* muted structural lines */
+  --c-cream-50:  #1e2124; /* headings, brightest text — ink */
+  --c-cream-100: #33373b; /* body */
+  --c-cream-200: #5b6066; /* secondary — ink-soft */
+  --c-cream-300: #9b9689; /* de-emphasized — low */
+  --bg-glow: rgba(43, 110, 99, 0.06);        /* accent teal wash */
+  --bg-grid: rgba(30, 33, 36, 0.04);         /* 1px architectural grid */
+  --c-flame-400: #b5472b; /* high — terracotta/rust */
+  --c-flame-500: #9c3b22;
+  --c-flame-600: #82301c;
+  --c-coral-400: #c97a4a; /* warmer terracotta, lightened toward amber */
+  --c-coral-500: #b5472b;
+  --c-coral-600: #9c3b22;
+  --c-violet-400: #4f8a7d; /* accent teal, lightened */
+  --c-violet-500: #2b6e63; /* accent — primary teal */
+  --c-violet-600: #1f5349;
+  --c-leaf-400: #6fa88f;  /* sage, adjacent to accent teal */
+  --c-leaf-500: #4f8a7d;
+}
+[data-theme="paper-dark"] {
+  color-scheme: dark;
+  /* Dark half of the "paper" theme — the artifact's dark-mode palette:
+     near-black canvas, warm off-white ink, same teal accent and
+     terracotta highlight, darkened. */
+  --c-ink-950: #17191b;   /* canvas */
+  --c-ink-900: #1c1e20;   /* panel (sidebar, rails) */
+  --c-ink-850: #1e2124;   /* card — surface */
+  --c-ink-800: #20302c;   /* elevated / hover surface — accent-soft */
+  --c-ink-700: #33362f;   /* hairlines, dividers — line */
+  --c-ink-600: #454940;   /* muted structural lines */
+  --c-cream-50:  #edebe4; /* headings, brightest text — ink */
+  --c-cream-100: #d5d2c8; /* body */
+  --c-cream-200: #a5aba6; /* secondary — ink-soft */
+  --c-cream-300: #83887e; /* de-emphasized — low */
+  --bg-glow: rgba(95, 191, 169, 0.08);       /* accent teal wash */
+  --bg-grid: rgba(237, 235, 228, 0.04);      /* 1px architectural grid */
+  --c-flame-400: #e08a6c; /* high — terracotta */
+  --c-flame-500: #c97350;
+  --c-flame-600: #a85c3d;
+  --c-coral-400: #e8a37f; /* warmer terracotta, lightened toward amber */
+  --c-coral-500: #e08a6c;
+  --c-coral-600: #c97350;
+  --c-violet-400: #7fd4bd; /* accent teal, lightened */
+  --c-violet-500: #5fbfa9; /* accent — primary teal */
+  --c-violet-600: #479c87;
+  --c-leaf-400: #8fcbb5;  /* sage, adjacent to accent teal */
+  --c-leaf-500: #5fbfa9;
+}
 
 :root {
   font-family: Inter, system-ui, sans-serif;
