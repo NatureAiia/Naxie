@@ -36,35 +36,11 @@ Local-only browser app. Bind: `127.0.0.1:7470` (web) and `127.0.0.1:7471` (serve
 - **Results** — outcome card for any completed job (duration + top-source previews).
 - **Approvals** — gate for templates marked `requiresApproval`.
 - **Knowledge** — Obsidian vault browser (path set by `VAULT_PATH`) with markdown rendering and full-text search.
-- **Data Pipeline** — the Intellinexus data pipeline. Publishes datasets that agents learn from (see below).
-- **Knowledge Packs** — curated sector packs + published Intellinexus datasets, all indexed for agent retrieval.
+- **Knowledge Packs** — curated sector packs, indexed for agent retrieval.
 - **Models** — pull/remove local Ollama models from a curated catalog (streamed progress), set the default, and plug in cloud model APIs you already use (OpenAI/OpenRouter/Groq/Together/custom). Keys encrypted at rest, applied with no restart.
 - **Personas** — manage AI employees (role, tone, responsibilities, system prompt overrides).
 - **Settings** — model selection, OpenRouter pins, persona-template defaults.
 - **Admin** — vault stats, peer registry, worker status, security gates.
-
-### Data Pipeline (Intellinexus)
-
-The **AI Data Readiness System** is NeuroWorks' main data pipeline. Raw inputs
-(a connected data source, an upload, or inline JSON) flow through:
-Normalization → Cryptographic Hashing (SHA-256 + Merkle batch root) → Confidence
-Scoring → HITL gate → Entity Resolution (golden record) → Publish. Each dataset
-publishes four machine-ready artifacts into the vault under `_datasets/<id>/`:
-ML-ready CSV, knowledge-graph JSONL, RAG chunks, and a knowledge-pack card.
-
-Because the artifacts live in the vault they're indexed automatically, so
-**agents learn from every published dataset** via retrieval, and the dataset
-shows up as a knowledge pack. Agents can also run the pipeline themselves with
-the `data.publish` / `data.list_datasets` primitives. REST: `GET/POST /api/datasets`.
-
-**Omnisignal — the acquisition front-end.** A base research system that gathers
-raw signal from many source kinds (web search, web pages, connected databases,
-local files, the vault), normalizes each into a provenance-tagged record stream,
-and feeds it straight into Intellinexus. One call (`omnisignal.publish` /
-`POST /api/omnisignal/publish`) turns live multi-source research into a hashed,
-deduplicated, readied dataset. Read-only acquisition is `omnisignal.acquire` /
-`POST /api/omnisignal/acquire`. Saved sources live in a registry
-(`GET/POST/DELETE /api/omnisignal/sources`).
 
 ### External agent dispatch (orchestration layer)
 

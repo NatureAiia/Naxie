@@ -69,10 +69,8 @@ class Settings(BaseSettings):
 
     # ── Voice: local STT (faster-whisper) + TTS ─────
     whisper_model_size: str = "base"      # CPU-only machine; start small
-    tts_engine: str = "elevenlabs"        # "elevenlabs" | "piper" | "pyttsx3"
-    piper_voice: str = "en_US-amy-medium"  # female — the real offline voice when there's no internet for ElevenLabs
-    elevenlabs_voice_id: str = "EXAVITQu4vr4xnSDxMaL"  # Sarah — premade voice, works on free-tier API
-    elevenlabs_api_key: str = ""
+    tts_engine: str = "piper"             # "piper" | "pyttsx3"
+    piper_voice: str = "en_US-amy-medium"  # female — the offline voice
     wake_word_default: str = "Hey Naxie"  # surfaced to frontend; not enforced server-side
 
     # ── Vector DB: Qdrant ─────────────────────────────────

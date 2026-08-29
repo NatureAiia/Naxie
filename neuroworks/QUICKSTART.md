@@ -53,7 +53,6 @@ Then open **http://127.0.0.1:7470** in your browser. The API runs on
 
 - The full NeuroWorks UI, agents, tasks, skills, and personas
 - Local model inference via Ollama
-- The Intellinexus **Data Pipeline** (publish datasets that agents learn from)
 - Knowledge Packs and the local vault browser
 
 ## Optional add-ons (edit `.env`)
