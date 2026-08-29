@@ -535,35 +535,6 @@ export async function runReflection(opts: { windowHours?: number; force?: boolea
     } catch (e: any) {
       console.warn(`[reflection] bottleneck index update failed (non-fatal): ${e?.message ?? e}`);
     }
-    // Reflection → Intellinexus. Feed the day's per-template performance rows
-    // through the same pipeline company data goes through (normalize → hash →
-    // score → golden record → publish). The published dataset surfaces as a
-    // knowledge pack, so agents can RAG their own operational history
-    // ("general-task runs ~112s and fails on X") and the operator gets a
-    // versioned, hashed record of every day's performance.
-    try {
-      const { publishFromRows } = await import("./adrs.js");
-      const rows = Object.entries(stats.byTemplate).map(([template, t]) => ({
-        date: stats.date,
-        template,
-        total: t.total,
-        succeeded: t.ok,
-        failed: t.failed,
-        success_rate: t.total > 0 ? Math.round((t.ok / t.total) * 100) / 100 : 0,
-        avg_duration_sec: t.avgDurationSec,
-        top_failure: stats.topFailures.find(f => f.templates.includes(template))?.error?.slice(0, 200) ?? "",
-      }));
-      if (rows.length > 0) {
-        const pub = publishFromRows(`reflections-${stats.date}`, rows, {
-          sector: "operations",
-          source: "Intellinexus daily reflection",
-          keyField: "template",
-        });
-        console.log(`[reflection] published through Intellinexus: ${rows.length} rows → dataset ${(pub as any)?.dataset?.id ?? "?"}`);
-      }
-    } catch (e: any) {
-      console.warn(`[reflection] Intellinexus publish failed (non-fatal): ${e?.message ?? e}`);
-    }
     // Reflection -> living persona profiles. Only personas that actually ran
     // a task today get considered (stats.byPersona) — see persona-profile.ts.
     try {

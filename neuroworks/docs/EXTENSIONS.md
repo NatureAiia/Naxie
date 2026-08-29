@@ -99,17 +99,6 @@ pgvector RAG store + MAG memory. Publishable + secret keys, optional direct Post
 - **Health test:** yes — Test button runs a live check
 - **Connect:** Paste SUPABASE_URL + keys from Project Settings → API.
 
-### voice
-
-#### ElevenLabs (`elevenlabs`)
-
-Cloud TTS — Rachel/Sarah voices for voice.py and realtime calls. Falls back to Piper/pyttsx3.
-
-- **Enable:** set `ELEVENLABS_API_KEY` (+ `ELEVENLABS_VOICE_ID`)
-- **Docs:** https://elevenlabs.io/app/settings/api-keys
-- **Health test:** yes — Test button runs a live check
-- **Connect:** Paste your ElevenLabs API key (sk_…). Default voice is EXAVITQu4vr4xnSDxMaL (Sarah).
-
 ## Webhooks (Zapier / Make)
 
 1. Create: `POST /api/extensions/webhooks` with `{"targetId": "<connector-id>", "targetKind": "connector"}`.

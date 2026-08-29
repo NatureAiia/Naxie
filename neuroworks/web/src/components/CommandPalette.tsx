@@ -17,7 +17,6 @@ const LogIcon = matIcon("log");
 const TemplateIcon = matIcon("template");
 const CertificateIcon = matIcon("certificate");
 const AdminFolderIcon = matIcon("folder-admin");
-const ConsoleIcon = matIcon("console");
 
 type Item = {
   id: string;
@@ -74,8 +73,8 @@ export function CommandPalette() {
     { id: "l-personas", group: "Library", label: "Employees", icon: UserCircle, onSelect: go("/personas"), keywords: "personas roles" },
     { id: "l-governance", group: "Library", label: "Instructions and Policies", icon: CertificateIcon, onSelect: go("/governance"), keywords: "policy guardrail compliance governance" },
     { id: "l-admin", group: "Library", label: "Admin", icon: AdminFolderIcon, onSelect: go("/admin") },
-    { id: "l-integrations", group: "Library", label: "Integrations", icon: Plug, onSelect: go("/integrations"), keywords: "connect slack telegram github notion social oauth api" },
-    { id: "l-terminal", group: "Library", label: "Terminal", icon: ConsoleIcon, onSelect: go("/terminal"), keywords: "shell command console run" },
+    { id: "l-integrations", group: "Library", label: "Extensions — Integrations", icon: Plug, onSelect: go("/extensions?tab=integrations"), keywords: "connect slack telegram github notion social oauth api integrations" },
+    { id: "l-connectors", group: "Library", label: "Extensions — Connectors", icon: Plug, onSelect: go("/extensions?tab=connectors"), keywords: "connect company api base url auth connectors" },
     { id: "l-tools", group: "Library", label: "Tools", icon: Wrench, onSelect: go("/admin"), keywords: "config" },
   ];
 

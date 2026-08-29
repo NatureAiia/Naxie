@@ -117,15 +117,6 @@ describe("skill picker", () => {
     expect(picks.map(p => p.name)).not.toContain("human-handoff");
   });
 
-  it("routes 'publish this dataset to Intellinexus' to dataset-publish", () => {
-    const picks = suggestSkillsForTask(
-      "publish this data to Intellinexus so the other agents can use it",
-      undefined,
-      1,
-    );
-    expect(picks[0].name).toBe("dataset-publish");
-  });
-
   it("routes 'caveman mode' / '/caveman' to caveman-mode", () => {
     expect(suggestSkillsForTask("caveman mode — summarize this", undefined, 1)[0].name).toBe("caveman-mode");
     expect(suggestSkillsForTask("/caveman explain how auth works", undefined, 1)[0].name).toBe("caveman-mode");

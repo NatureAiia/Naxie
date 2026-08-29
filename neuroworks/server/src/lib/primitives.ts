@@ -3,12 +3,11 @@ import { homedir } from "node:os";
 import { resolve, basename, extname, sep, join, dirname } from "node:path";
 import { config } from "../config.js";
 import { ollamaGenerate, ollamaGenerateWithMeta } from "./ollama.js";
-import { listVault, readVaultFile, searchVault, writeVaultFile, importBinaryIntoVault } from "./vault.js";
+import { listVault, readVaultFile, searchVault, writeVaultFile, importBinaryIntoVault, ARCHIVE_DIR, WIKI_DIR } from "./vault.js";
+import { fetchYoutubeTranscript } from "./youtube-transcript.js";
 import { extractDocText, extractDocsParallel } from "./doc-extractor.js";
 import { listOwnedRepos, recentCommits, openPRs, openIssues, readme, octokit } from "./github.js";
 import { getSourceByLabel, getSource, runQuery, describeSource, listSources } from "./data-sources.js";
-import { publishDataset, listDatasets } from "./adrs.js";
-import { acquire as omniAcquire, acquireAndPublish as omniAcquirePublish, type OmniSpec } from "./omnisignal.js";
 import { getConnectionByProvider } from "./integrations.js";
 import { delegateToBestPeer, reviewWithPeer } from "./peers.js";
 import { scanForSecurityRisks, redactHighSeverity, type SecurityKind } from "./security.js";
@@ -231,6 +230,56 @@ export const primitives: Primitive[] = [
       // Commit via the shared queue so concurrent vault writes coalesce.
       void enqueueVaultCommit(`neuroworks: vault.write — ${path}`);
       return { written: path };
+    },
+  },
+  {
+    name: "vault.capture_note",
+    description: `Capture RAW material into the second-brain archive (${ARCHIVE_DIR}/) — call transcripts, voice-note text, meeting notes, or anything pasted in that hasn't been distilled yet. Do NOT use this for polished/final notes (use vault.write / vault.create_zettel for those) — this is deliberately the raw bucket the nightly wiki-compile job reads from to produce distilled ${WIKI_DIR}/ entries. Never write directly to ${WIKI_DIR}/ — that folder is compile-only and the write will be refused.`,
+    readonly: false,
+    args: [
+      { name: "title", type: "string", required: true, description: "Short title — becomes the filename." },
+      { name: "content", type: "string", required: true, description: "The raw text (transcript, notes, pasted content)." },
+      { name: "kind", type: "string", required: false, description: "Category subfolder, e.g. 'calls', 'voice', 'meetings'. Default 'notes'." },
+    ],
+    handler: async (args) => {
+      const title = String(args.title ?? "").trim();
+      if (!title) return { error: "title is required" };
+      const content = String(args.content ?? "");
+      if (!content.trim()) return { error: "content is required" };
+      const kind = String(args.kind ?? "notes").trim().replace(/[^a-z0-9_-]/gi, "-").toLowerCase() || "notes";
+      const stamp = new Date().toISOString().slice(0, 10);
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "capture";
+      const path = `${ARCHIVE_DIR}/${kind}/${stamp}-${slug}.md`;
+      const body = `---\ntitle: ${title}\ncaptured: ${stamp}\nkind: ${kind}\n---\n\n${content.trim()}\n`;
+      writeVaultFile(path, body);
+      void enqueueVaultCommit(`archive: capture ${path}`);
+      return { written: path, note: "Raw capture stored — the nightly wiki-compile job will distill it into the wiki." };
+    },
+  },
+  {
+    name: "vault.capture_youtube",
+    description: `Fetch a YouTube video's transcript (no API key needed) and store it as a raw capture in ${ARCHIVE_DIR}/youtube/. Use when the customer asks to save/capture/archive a YouTube video's content. Best-effort: YouTube's anti-scraping measures block this for many videos — it fails cleanly with a clear error rather than fabricating a transcript. If it fails, ask the customer to paste the transcript text (e.g. from YouTube's own "Show transcript" panel) and use vault.capture_note instead. This is a RAW capture either way — the nightly wiki-compile job distills it into the wiki.`,
+    readonly: false,
+    args: [
+      { name: "url", type: "string", required: true, description: "A YouTube URL (watch/shorts/youtu.be) or bare 11-char video id." },
+      { name: "title", type: "string", required: false, description: "Title for the captured note. Defaults to the video id." },
+      { name: "lang", type: "string", required: false, description: "Preferred caption language code, default 'en'." },
+    ],
+    handler: async (args) => {
+      const url = String(args.url ?? "").trim();
+      if (!url) return { error: "url is required" };
+      const lang = String(args.lang ?? "en").trim() || "en";
+      let transcript;
+      try { transcript = await fetchYoutubeTranscript(url, lang); }
+      catch (e: any) { return { error: e?.message ?? String(e) }; }
+      const title = String(args.title ?? "").trim() || transcript.videoId;
+      const stamp = new Date().toISOString().slice(0, 10);
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || transcript.videoId;
+      const path = `${ARCHIVE_DIR}/youtube/${stamp}-${slug}.md`;
+      const body = `---\ntitle: ${title}\nsource: https://www.youtube.com/watch?v=${transcript.videoId}\ncaptured: ${stamp}\nkind: youtube\nlanguage: ${transcript.languageCode}\n---\n\n${transcript.text}\n`;
+      writeVaultFile(path, body);
+      void enqueueVaultCommit(`archive: capture youtube ${transcript.videoId}`);
+      return { written: path, videoId: transcript.videoId, segments: transcript.segments, note: "Raw transcript stored — the nightly wiki-compile job will distill it into the wiki." };
     },
   },
   {
@@ -2894,120 +2943,6 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     },
   },
   {
-    name: "data.list_datasets",
-    description: "List datasets published by the Intellinexus data pipeline. Returns [{ id, name, sector, source, recordCount, avgConfidence, rootHash, createdAt }]. These are the curated, hashed, golden-record datasets agents learn from — their RAG chunks are in the vault and surface via vault.search. Use this to discover what published data exists before answering a domain question.",
-    readonly: true,
-    args: [],
-    handler: async () => {
-      return {
-        datasets: listDatasets().map(d => ({
-          id: d.id, name: d.name, sector: d.sector, source: d.source,
-          recordCount: d.recordCount, avgConfidence: d.avgConfidence,
-          reviewQueue: d.reviewQueue, rootHash: d.rootHash, createdAt: d.createdAt,
-          fields: d.fields, outputs: d.outputs,
-        })),
-      };
-    },
-  },
-  {
-    name: "omnisignal.acquire",
-    description: "BASE RESEARCH TOOL. Acquire raw signal from many sources at once via Omnisignal (the Intellinexus pipeline's acquisition front-end) and get a merged, provenance-tagged record stream. Each source is a spec object: {kind:'web_search',query} | {kind:'web_page',urls:[...]} | {kind:'db',sourceLabel,query} | {kind:'local_file',path} | {kind:'vault',query}. Read-only — use to gather multi-source research before answering, or before publishing a dataset with omnisignal.publish.",
-    readonly: true,
-    args: [
-      { name: "sources", type: "string", required: true, description: "JSON array of source specs, e.g. '[{\"kind\":\"web_search\",\"query\":\"Zimbabwe mobile tariffs\"},{\"kind\":\"vault\",\"query\":\"pricing\"}]'." },
-    ],
-    handler: async (args) => {
-      let specs: OmniSpec[];
-      try {
-        const parsed = JSON.parse(String(args.sources ?? "[]"));
-        if (!Array.isArray(parsed)) return { error: "sources must be a JSON array of specs" };
-        specs = parsed;
-      } catch { return { error: "sources is not valid JSON" }; }
-      if (specs.length === 0) return { error: "provide at least one source spec" };
-      const result = await omniAcquire(specs);
-      return { total: result.total, report: result.report, records: result.records.slice(0, 200) };
-    },
-  },
-  {
-    name: "omnisignal.publish",
-    description: "BASE RESEARCH SYSTEM. Acquire from multiple sources via Omnisignal, then run the full Intellinexus pipeline and PUBLISH a dataset agents learn from (normalize → hash → score → HITL → golden record → CSV/JSONL/RAG). One call turns live multi-source research into a readied, hashed, deduplicated knowledge pack. Sources use the same spec shape as omnisignal.acquire.",
-    readonly: false,
-    args: [
-      { name: "name", type: "string", required: true, description: "Dataset name (becomes the knowledge-pack title)." },
-      { name: "sources", type: "string", required: true, description: "JSON array of source specs (see omnisignal.acquire)." },
-      { name: "sector", type: "string", required: false, description: "Optional sector tag." },
-      { name: "keyField", type: "string", required: false, description: "Field to merge duplicates on (entity resolution). Omit for hash-only dedup." },
-    ],
-    handler: async (args) => {
-      const name = String(args.name ?? "").trim();
-      if (!name) return { error: "name is required" };
-      let specs: OmniSpec[];
-      try {
-        const parsed = JSON.parse(String(args.sources ?? "[]"));
-        if (!Array.isArray(parsed)) return { error: "sources must be a JSON array of specs" };
-        specs = parsed;
-      } catch { return { error: "sources is not valid JSON" }; }
-      if (specs.length === 0) return { error: "provide at least one source spec" };
-      const out = await omniAcquirePublish(name, specs, {
-        sector: args.sector ? String(args.sector) : undefined,
-        keyField: args.keyField ? String(args.keyField) : undefined,
-      });
-      if (!out.published) return { published: false, note: out.note, report: out.acquisition.report };
-      const m = out.published.manifest;
-      return {
-        published: true, id: m.id, name: m.name, recordCount: m.recordCount, rawCount: m.rawCount,
-        avgConfidence: m.avgConfidence, reviewQueue: m.reviewQueue, rootHash: m.rootHash,
-        report: out.acquisition.report, outputs: m.outputs,
-      };
-    },
-  },
-  {
-    name: "data.publish",
-    description: "Run the Intellinexus data pipeline (normalize → cryptographic hash → confidence score → HITL gate → entity-resolution golden record → publish) and PUBLISH a dataset into the vault as ML CSV + knowledge-graph JSONL + RAG chunks + a knowledge-pack card. The dataset becomes a knowledge pack agents learn from. Provide rows either inline (rows = JSON array string) OR from a connected company data source (source = its label, query = SQL/JSON for that source).",
-    readonly: false,
-    args: [
-      { name: "name", type: "string", required: true, description: "Human name for the dataset (becomes the pack title)." },
-      { name: "rows", type: "string", required: false, description: "Inline records as a JSON array string, e.g. '[{\"name\":\"A\",\"value\":1}]'. Omit if using source+query." },
-      { name: "source", type: "string", required: false, description: "Label of a connected company data source to pull rows from (see db.list)." },
-      { name: "query", type: "string", required: false, description: "SQL (or the source's query syntax) to run against `source`. Read-only." },
-      { name: "sector", type: "string", required: false, description: "Optional sector tag (fintech, agriculture, health, etc.)." },
-      { name: "keyField", type: "string", required: false, description: "Field name used to merge duplicate rows into one golden record (entity resolution). Omit for hash-only dedup." },
-    ],
-    handler: async (args) => {
-      const name = String(args.name ?? "").trim();
-      if (!name) return { error: "name is required" };
-      let rows: Record<string, unknown>[] = [];
-      if (args.source && args.query) {
-        const src = getSourceByLabel(String(args.source));
-        if (!src) return { error: `no connected data source labelled "${args.source}" (see db.list)` };
-        const r = await runQuery(src, String(args.query), 5000);
-        rows = r.rows;
-      } else if (args.rows) {
-        try {
-          const parsed = JSON.parse(String(args.rows));
-          if (!Array.isArray(parsed)) return { error: "rows must be a JSON array" };
-          rows = parsed;
-        } catch { return { error: "rows is not valid JSON" }; }
-      } else {
-        return { error: "provide either rows (inline JSON array) or source+query" };
-      }
-      if (rows.length === 0) return { error: "no rows to publish" };
-      const { manifest } = publishDataset({
-        name,
-        records: rows,
-        sector: args.sector ? String(args.sector) : undefined,
-        source: args.source ? `data-source:${args.source}` : "agent-inline",
-        keyField: args.keyField ? String(args.keyField) : undefined,
-      });
-      return {
-        published: true, id: manifest.id, name: manifest.name,
-        recordCount: manifest.recordCount, rawCount: manifest.rawCount,
-        avgConfidence: manifest.avgConfidence, reviewQueue: manifest.reviewQueue,
-        rootHash: manifest.rootHash, outputs: manifest.outputs,
-      };
-    },
-  },
-  {
     name: "calendar.read_today",
     description: "Read today's events from an iCal feed (URL) or local .ics file. Returns [{ summary, start, end?, location?, description? }]. Source defaults to NEUROWORKS_CALENDAR_ICAL_URL in env — pass `source` to override per call. Use as the first step of a daily-briefing skill or whenever the persona needs to know what's on the calendar.",
     readonly: true,
@@ -3920,7 +3855,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "media.tts",
-    description: "Generate spoken-audio narration of text. NOTE: text-to-speech has no configured provider right now — it returns a friendly 'not available' message, so deliver the finished SCRIPT and note the audio render is pending a provider. (OpenRouter has no TTS; a Kokoro sidecar or ElevenLabs can be wired to enable it.)",
+    description: "Generate spoken-audio narration of text. NOTE: text-to-speech has no configured provider right now — it returns a friendly 'not available' message, so deliver the finished SCRIPT and note the audio render is pending a provider. (OpenRouter has no TTS; a Kokoro sidecar can be wired to enable it.)",
     readonly: false,
     args: [
       { name: "text", type: "string", required: true, description: "The text to speak (markdown is stripped automatically before speaking)" },
@@ -3931,7 +3866,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       const text = String(args.text ?? "").trim().replace(/[#*`_>]/g, "");
       if (!text) return { error: "text is required" };
       // MiniMax removed; OpenRouter offers no text-to-speech. Honest stub until a
-      // TTS provider (Kokoro sidecar / ElevenLabs) is wired.
+      // TTS provider (Kokoro sidecar) is wired.
       return { error: "Text-to-speech isn't available — no audio provider is configured. Deliver the script; the voiceover render is pending a TTS provider." };
     },
   },

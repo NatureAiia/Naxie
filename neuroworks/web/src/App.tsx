@@ -52,16 +52,11 @@ const Governance = lazy(() => import("./pages/Governance").then(m => ({ default:
 const CalendarPage = lazy(() => import("./pages/CalendarPage").then(m => ({ default: m.CalendarPage })));
 const DocEditor = lazy(() => import("./pages/DocEditor").then(m => ({ default: m.DocEditor })));
 const DataSources = lazy(() => import("./pages/DataSources").then(m => ({ default: m.DataSources })));
-const Terminal = lazy(() => import("./pages/Terminal").then(m => ({ default: m.Terminal })));
-const Integrations = lazy(() => import("./pages/Integrations").then(m => ({ default: m.Integrations })));
-const Connectors = lazy(() => import("./pages/Connectors").then(m => ({ default: m.Connectors })));
 const Extensions = lazy(() => import("./pages/Extensions").then(m => ({ default: m.Extensions })));
 const Presets = lazy(() => import("./pages/Presets").then(m => ({ default: m.Presets })));
 const Workforce = lazy(() => import("./pages/Workforce").then(m => ({ default: m.Workforce })));
 const Departments = lazy(() => import("./pages/Departments").then(m => ({ default: m.Departments })));
 const KnowledgePacks = lazy(() => import("./pages/KnowledgePacks").then(m => ({ default: m.KnowledgePacks })));
-const DataPipeline = lazy(() => import("./pages/DataPipeline").then(m => ({ default: m.DataPipeline })));
-const Models = lazy(() => import("./pages/Models").then(m => ({ default: m.Models })));
 const Quality = lazy(() => import("./pages/Quality").then(m => ({ default: m.Quality })));
 const Cost = lazy(() => import("./pages/Cost").then(m => ({ default: m.Cost })));
 const AuditLog = lazy(() => import("./pages/AuditLog").then(m => ({ default: m.AuditLog })));
@@ -123,15 +118,12 @@ function AppShell() {
         <Route path="/governance" element={<Governance />} />
         <Route path="/knowledge/*" element={<Knowledge />} />
         <Route path="/data-sources" element={<DataSources />} />
-        <Route path="/terminal" element={<Terminal />} />
-        <Route path="/integrations" element={<Integrations />} />
-        <Route path="/connectors" element={<Connectors />} />
+        <Route path="/integrations" element={<Navigate to="/extensions?tab=integrations" replace />} />
+        <Route path="/connectors" element={<Navigate to="/extensions?tab=connectors" replace />} />
         <Route path="/extensions" element={<Extensions />} />
         <Route path="/workforce" element={<Workforce />} />
         <Route path="/departments" element={<Departments />} />
         <Route path="/knowledge-packs" element={<KnowledgePacks />} />
-        <Route path="/data-pipeline" element={<DataPipeline />} />
-        <Route path="/models" element={<Models />} />
         <Route path="/quality" element={<Quality />} />
         <Route path="/cost" element={<Cost />} />
         <Route path="/audit" element={<AuditLog />} />

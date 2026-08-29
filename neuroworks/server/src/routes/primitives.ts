@@ -45,11 +45,6 @@ const DEFAULT_ALLOWLIST = [
   // bridge path.
   // Company database connections + department-specific data (read-only)
   "db.list_sources", "db.schema", "db.query", "company.department_data",
-  // ADRS data pipeline — discover published datasets (read-only) and publish
-  // new ones (agents learn from the golden records they publish).
-  "data.list_datasets", "data.publish",
-  // Omnisignal — base research acquisition (read-only) + acquire→ADRS publish.
-  "omnisignal.acquire", "omnisignal.publish",
   // Email — agents send through OUR bridge (Mailjet/SMTP), never an external
   // mail CLI (Himalaya/sendmail). This is the only sanctioned send path.
   "email.send",

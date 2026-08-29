@@ -40,11 +40,8 @@ const preloaders: Record<string, Thunk> = {
   "/orchestrate": () => import("../pages/Orchestrate"),
   "/knowledge": () => import("../pages/Knowledge"),
   "/data-sources": () => import("../pages/DataSources"),
-  "/data-pipeline": () => import("../pages/DataPipeline"),
-  "/models": () => import("../pages/Models"),
   "/connectors": () => import("../pages/Connectors"),
   "/integrations": () => import("../pages/Integrations"),
-  "/terminal": () => import("../pages/Terminal"),
   "/governance": () => import("../pages/Governance"),
   "/admin": () => import("../pages/Admin"),
 };
