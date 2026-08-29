@@ -403,6 +403,14 @@ export function detectResearchSignals(text: string): string | null {
 // it isn't, the fallback is faster than waiting any longer.
 const PLAN_TIMEOUT_MS = Number(process.env.NEUROWORKS_PLAN_TIMEOUT_MS ?? "18000");
 
+// Second-brain identity rule — always on, injected into every downstream LLM
+// call alongside the governance prefix (see the plan() call site below).
+// The many per-topic *Context hints in plan() already push the planner
+// toward vault.search for cases NeuroWorks recognizes; this is the general
+// backstop for everything else, including synth/direct-answer (which those
+// hints don't reach).
+const VAULT_FIRST_RULE = "\n\nIdentity rule: always search the vault (vault.search) before answering from general training data. If the vault, a connected database, or a connector already has the answer, use it and cite it — never answer a business question from memory when the operator's own systems cover it.\n";
+
 export async function plan(task: string, _personaSystemSuffix?: string, push?: (msg: string) => void, workMode?: "agent" | "hybrid" | "human", learn?: { taskKind?: string; persona?: string }): Promise<Plan> {
   // Persona deliberately omitted from the TOOL CHOICE prompt: tool selection
   // is mechanical and must not be gated by role. (Head of AI asking about
@@ -465,7 +473,7 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   // or company KB. Cheap to check: read registry sync + one folder stat.
   // Company knowledge map — a LIVE inventory of every place the answer to a
   // business question might already live (vault, connected databases,
-  // connectors to other apps, published datasets), plus an explicit
+  // connectors to other apps), plus an explicit
   // "figure out the likeliest source FIRST" routing rule. Without this the
   // small planner defaults to research.deep (the public web) even when the
   // operator's own systems hold the answer.
@@ -487,10 +495,6 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
       connectors = (listConnectors() as any[]).map(c => ({ id: c.id, label: c.label, notes: c.notes ?? c.description }));
     } catch { /* connectors optional */ }
 
-    // Published datasets — curated golden records agents learn from via RAG.
-    let datasetCount = 0;
-    try { const { listDatasets } = await import("./adrs.js"); datasetCount = (listDatasets() as any[]).length; } catch { /* optional */ }
-
     const sourceLines: string[] = [];
     if (hasCompanyFolder) sourceLines.push(`VAULT (_company/): policies, playbooks, decks, contracts, meeting notes — via vault.search / vault.read.`);
     if (sources.length > 0) {
@@ -499,8 +503,6 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
     if (connectors.length > 0) {
       sourceLines.push(`CONNECTORS (${connectors.length}): ${connectors.slice(0, 5).map(c => `"${c.label}"${c.notes ? ` — ${String(c.notes).slice(0, 60)}` : ""} (id=${c.id})`).join("; ")} — via connector.list → connector.describe(id) → connector.call(id, endpoint) (respects each connector's read-only gate).`);
     }
-    if (datasetCount > 0) sourceLines.push(`DATASETS (${datasetCount} published): curated golden records — data.list_datasets, then vault.search (their RAG chunks live in the vault).`);
-
     if (sourceLines.length > 0) {
       companyDataContext =
         `\n\nCOMPANY KNOWLEDGE MAP — before planning, decide WHERE the answer most likely lives and go there FIRST, only falling back to research.deep (public web) when none of the operator's own systems would hold it:\n- ${sourceLines.join("\n- ")}\n` +
@@ -676,8 +678,17 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   if (/\b(post|publish|share|tweet|schedule)\b[^]{0,40}\b(social|twitter|\bx\b|linkedin|facebook|instagram|tiktok|threads|feed|timeline)\b/i.test(task) || /\b(social\s+media|our\s+(mentions|followers|engagement|posts)|(mentions|comments|analytics)\s+on\s+(twitter|linkedin|facebook|instagram|social))\b/i.test(task)) {
     socialContext = `\n\nSocial-media context: the task involves social platforms. PUBLISHING → use social.post {post, platforms:["twitter","linkedin",…], mediaUrls?} — it PARKS FOR APPROVAL before going live (expected; don't treat the park as a failure). MONITORING/READING → social.history (recent posts + their ids), social.analytics {id} (engagement), social.comments {id} (comments/mentions). Do NOT use web.* to post or to read our own accounts. When the ask is about an existing post, get its id from social.history first.\n`;
   }
+  // Operator-authored routing table (agents.md at the vault root) — see
+  // lib/agents-routing.ts. Supplements the hardcoded hints above with
+  // whatever custom folders/sources the operator's own org actually uses.
+  let agentsRoutingContext = "";
+  try {
+    const { loadAgentsRoutingContext } = await import("./agents-routing.js");
+    agentsRoutingContext = loadAgentsRoutingContext();
+  } catch { /* optional */ }
+
   // Compact catalog: ~40% smaller prompt → faster planning on small models.
-  const sys = injectLanguagePrompt(PLAN_SYSTEM, "plan") + primitivesPromptCatalog({ compact: true }) + vaultContext + researchContext + companyDataContext + localFsContext + githubContext + emailContext + socialContext + activityContext + memoryContext + financeContext + orgContext + imageGenContext + mediaSendContext + scheduleContext + explicitToolContext + workModeContext + fanOutContext + learnedContext;
+  const sys = injectLanguagePrompt(PLAN_SYSTEM, "plan") + primitivesPromptCatalog({ compact: true }) + vaultContext + researchContext + companyDataContext + agentsRoutingContext + localFsContext + githubContext + emailContext + socialContext + activityContext + memoryContext + financeContext + orgContext + imageGenContext + mediaSendContext + scheduleContext + explicitToolContext + workModeContext + fanOutContext + learnedContext;
 
 
   // Race the planner LLM call against PLAN_TIMEOUT_MS. If the LLM stalls,
@@ -1326,6 +1337,13 @@ export async function planAndExecute(
       opts = { ...opts, personaSystemSuffix: govPrefix + (opts.personaSystemSuffix ?? "") };
     }
   } catch { /* governance is non-fatal — never block a task on its absence */ }
+
+  // Always-on identity rule (not admin-editable — this is baked-in behavior,
+  // not an org policy): search the vault before answering from general
+  // training data. Same injection point as governance above, so it reaches
+  // every downstream LLM call (planner, synth, direct-answer, rescue
+  // retries), not just the plan-phase `sys` prompt built below.
+  opts = { ...opts, personaSystemSuffix: VAULT_FIRST_RULE + (opts.personaSystemSuffix ?? "") };
 
   // Pre-planned execution. Custom templates ship with a saved plan that was
   // verified the first time it ran via the agent. When the caller supplies

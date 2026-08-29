@@ -2,23 +2,12 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 
 import { join, resolve, basename } from "node:path";
 import { config } from "../config.js";
 import { SECTORS, type Sector } from "./sector-packs.js";
-import { listDatasets } from "./adrs.js";
 
 export type KnowledgePack = {
   sectorId: string;
   name: string;
   installed: boolean;
   files: { path: string; title: string; wordCount: number }[];
-  // "sector" = the curated markdown packs below; "dataset" = a dataset the
-  // ADRS pipeline published into the vault (agents learn from these via RAG).
-  kind?: "sector" | "dataset";
-  meta?: {
-    recordCount?: number;
-    avgConfidence?: number;
-    rootHash?: string;
-    source?: string;
-    createdAt?: string;
-  };
 };
 
 const PACKS_DIR = "_knowledge-packs";
@@ -45,33 +34,10 @@ export function listKnowledgePacks(): KnowledgePack[] {
         }
       } catch { /* corrupt dir */ }
     }
-    return { sectorId: sector.id, name: sector.name, installed, files, kind: "sector" as const };
+    return { sectorId: sector.id, name: sector.name, installed, files };
   });
 
-  // Published ADRS datasets surface as knowledge packs too — they're always
-  // "installed" (they exist in the vault the moment they're published) and
-  // their files are the machine-ready artifacts agents retrieve from.
-  const datasetPacks: KnowledgePack[] = listDatasets().map(d => ({
-    sectorId: d.id,
-    name: d.name,
-    installed: true,
-    kind: "dataset" as const,
-    files: [
-      { path: d.outputs.card, title: "Pack card", wordCount: 0 },
-      { path: d.outputs.rag, title: "RAG chunks", wordCount: 0 },
-      { path: d.outputs.csv, title: "ML CSV", wordCount: d.recordCount },
-      { path: d.outputs.jsonl, title: "Knowledge graph JSONL", wordCount: d.recordCount },
-    ],
-    meta: {
-      recordCount: d.recordCount,
-      avgConfidence: d.avgConfidence,
-      rootHash: d.rootHash,
-      source: d.source,
-      createdAt: d.createdAt,
-    },
-  }));
-
-  return [...datasetPacks, ...sectorPacks];
+  return sectorPacks;
 }
 
 export function installKnowledgePack(sectorId: string): { ok: boolean; files: string[] } {

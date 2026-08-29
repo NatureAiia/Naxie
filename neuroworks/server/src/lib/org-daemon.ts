@@ -9,29 +9,34 @@
 // boot so anything overdue during downtime resolves within seconds rather
 // than waiting a full cycle.
 //
-// SCOPE NOTE: this module currently implements only the two behaviors that
-// don't depend on infrastructure this codebase doesn't have yet — there is
-// no chat-push / desktop-toast / email notification channel (§2.3) wired up
-// in neuroworks today (naxionai's Python side has agent/chat_push.py; the TS
-// side has nothing equivalent). Rather than fake those behaviors with a
-// console.log that looks like it works, they're left as explicit stubs
-// below. Implemented now:
+// SCOPE NOTE: §2.3's notification channel now exists (lib/notify.ts —
+// desktop toast + email, tiered by severity) and this module uses it for the
+// two behaviors that produce user-facing events today:
 //   - sweepStaleOrgApprovals: expire an OrgTask parked in waiting-on-approval
-//     too long, mirroring jobs.ts's own sweepStaleApprovals for Job.
+//     too long, mirroring jobs.ts's own sweepStaleApprovals for Job — now
+//     also emails the operator (notify.ts's "urgent" tier) on expiry.
+//   - maybeNudgePendingApprovals: desktop-toasts (notify.ts's "attention"
+//     tier) when an approval has sat long enough to be worth interrupting
+//     for, throttled.
 //   - reconcileOrphanedActiveTasks: an OrgTask can be left "active" forever
 //     if the server restarts mid-job (the in-memory Job map is fresh on
 //     boot, so getJob() returns undefined for anything that was running
 //     before) — this catches that and resolves it to "blocked" instead of a
-//     permanently stuck task.
-// Not yet implemented (blocked on §2.3's notification channel):
+//     permanently stuck task. In-app only (§2.3 "routine" tier) — no toast/
+//     email, the OrgTask table and audit log are the surface.
+//   - maybeGenerateBriefing: once/day, reuses routes/templates.ts's
+//     "daily-briefing" runner and caches the result for GET /api/naxie/status
+//     to push onto the HUD, toasting via notify.ts's "attention" tier.
+// Still not implemented (the channel is no longer the blocker — these are
+// their own separate cadence-tracking features, not yet scoped):
 //   - idle-activity report, chat-inactivity check-in, proactive research
-//     cadence, scheduled PA briefs (all from agency_daemon.py, §2.4)
+//     cadence (all from agency_daemon.py, §2.4)
 //   - Executor check-in nudge for a long-running active task (§6)
 
 import { listOrgTasks, updateOrgTaskStatus, snapshotOrgTasksToVault, type OrgTask } from "./org-tasks.js";
 import { getJob } from "./jobs.js";
 import { logAudit } from "./audit-log.js";
-import { notifyToast } from "./host-tools.js";
+import { notifyAttention, notifyUrgent } from "./notify.js";
 import { enqueueVaultCommit } from "./commit-queue.js";
 import { runArchitectReview } from "./architect.js";
 
@@ -55,10 +60,11 @@ export function maybeNudgePendingApprovals(now = Date.now()): number {
   if (now - lastNudgedAt < NUDGE_THROTTLE_MS) return 0;
   lastNudgedAt = now;
   const first = waiting[0];
-  void notifyToast(
+  void notifyAttention(
     "Naxie — needs your call",
     `${waiting.length} task${waiting.length === 1 ? "" : "s"} waiting on your approval. Oldest: "${(first.title ?? "").slice(0, 60)}".`,
-  ).catch(() => { /* toast is best-effort */ });
+    { actor: first.role, target: first.title },
+  );
   try {
     logAudit({ level: "info", actor: first.role, action: "org_task.nudge", target: first.title, detail: `${waiting.length} waiting`, result: "success" });
   } catch { /* best-effort */ }
@@ -104,6 +110,42 @@ export async function maybeRunArchitectReview(now = Date.now()): Promise<boolean
   return true;
 }
 
+// Proactive daily briefing — the "scheduled PA brief" the SCOPE NOTE above
+// used to list as not-yet-implemented. Reuses the existing "daily-briefing"
+// template (routes/templates.ts's dailyBriefingRunner, already scheduled via
+// presets.ts for email delivery) rather than building a second content
+// pipeline — this just also caches the result in memory so GET
+// /api/naxie/status can push it onto the HUD unprompted, and fires the same
+// notify.ts "attention" toast the other daemon behaviors use.
+let latestBriefing: { text: string; generatedAt: string } | null = null;
+export function getLatestBriefing(): { text: string; generatedAt: string } | null { return latestBriefing; }
+
+let lastBriefingAt = 0;
+const BRIEFING_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_BRIEFING_THROTTLE_MS) || 24 * 3600 * 1000;
+// Local hour (0-23) the briefing is allowed to fire — checked every tick, so
+// with the default 5-min cycle it actually fires within a few minutes of
+// this hour, then the throttle above keeps it to once a day.
+const BRIEFING_HOUR = Number(process.env.NEUROWORKS_ORG_BRIEFING_HOUR ?? "8");
+
+export async function maybeGenerateBriefing(now = Date.now()): Promise<boolean> {
+  if (now - lastBriefingAt < BRIEFING_THROTTLE_MS) return false;
+  if (new Date(now).getHours() !== BRIEFING_HOUR) return false;
+  lastBriefingAt = now;
+  try {
+    const { runFromChat } = await import("../routes/templates.js");
+    const result: any = await runFromChat("daily-briefing", {}, () => { /* progress lines not needed for a headless run */ });
+    const text = String(result?.answer ?? "").trim();
+    if (!text) return false;
+    latestBriefing = { text, generatedAt: new Date(now).toISOString() };
+    void notifyAttention("Naxie — morning briefing ready", text.slice(0, 200), { actor: "naxie" });
+    try { logAudit({ level: "info", actor: "naxie", action: "briefing.generated", target: "daily-briefing", detail: `${text.length} chars`, result: "success" }); } catch { /* best-effort */ }
+  } catch (e) {
+    console.warn(`[org-daemon] maybeGenerateBriefing failed: ${(e as Error).message}`);
+    return false;
+  }
+  return true;
+}
+
 export const DAEMON_CYCLE_SECONDS = Number(process.env.NEUROWORKS_ORG_DAEMON_CYCLE_SECONDS ?? "300") || 300;
 
 // How long an OrgTask may sit at waiting-on-approval before it's stale.
@@ -134,6 +176,14 @@ export function sweepStaleOrgApprovals(now = Date.now()): number {
     if (now - new Date(requestedAt).getTime() <= ORG_APPROVAL_TTL_MS) continue;
     updateOrgTaskStatus(t.id, "blocked");
     auditBestEffort(t, "org_task.approval_expired", `parked longer than the ${Math.round(ORG_APPROVAL_TTL_MS / 3600000)}h approval window`);
+    // §2.3 "time-sensitive" tier: this is exactly "an approval has sat
+    // unanswered past a threshold" — email it, don't just log it and move on.
+    void notifyUrgent(
+      `Naxie — an approval expired unanswered: ${(t.title ?? "").slice(0, 80)}`,
+      `**${t.title}** sat in waiting-on-approval for longer than ${Math.round(ORG_APPROVAL_TTL_MS / 3600000)}h and was moved to **blocked**.\n\n` +
+      `${t.pendingApproval?.actionDescription ?? "Open the Approvals page to review what it was asking for."}`,
+      { actor: t.role, target: t.title },
+    );
     swept += 1;
   }
   return swept;
@@ -162,9 +212,9 @@ function tick(): void {
   try { maybeNudgePendingApprovals(); } catch (e) { console.warn(`[org-daemon] maybeNudgePendingApprovals failed: ${(e as Error).message}`); }
   try { maybeBackupVault(); } catch (e) { console.warn(`[org-daemon] maybeBackupVault failed: ${(e as Error).message}`); }
   try { void maybeRunArchitectReview(); } catch (e) { console.warn(`[org-daemon] maybeRunArchitectReview failed: ${(e as Error).message}`); }
+  try { void maybeGenerateBriefing(); } catch (e) { console.warn(`[org-daemon] maybeGenerateBriefing failed: ${(e as Error).message}`); }
   // See the SCOPE NOTE at the top of this file — idle report, chat check-in,
-  // proactive research, scheduled briefs, and the Executor check-in nudge
-  // all belong here once a notification channel (§2.3) exists to carry them.
+  // proactive research, and the Executor check-in nudge still belong here.
 }
 
 let timer: NodeJS.Timeout | null = null;

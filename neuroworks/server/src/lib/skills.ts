@@ -34,6 +34,16 @@ export type Skill = {
 // list/load call. Bust an entry when its mtime advances.
 const cache = new Map<string, { mtime: number; skill: Skill }>();
 
+// Skills that failed to load or got rejected on the last listSkills() call —
+// same idea as Mark-LI's plugin_loader.list_for_ui(): a bad file is skipped,
+// never crashes discovery, but the reason is kept instead of silently
+// vanishing, so an admin view can show "this skill isn't active, and why".
+export type SkillIssue = { file: string; source: Skill["source"]; error: string };
+let lastIssues: SkillIssue[] = [];
+export function getSkillLoadIssues(): SkillIssue[] {
+  return lastIssues;
+}
+
 function parseFrontmatter(rawIn: string): { meta: Record<string, any>; body: string } {
   // Normalize CRLF first — core.autocrlf on Windows checks these .md files
   // out with \r\n, and the frontmatter regex below requires bare \n. Without
@@ -71,18 +81,26 @@ function loadSkillFromDisk(fullPath: string, source: Skill["source"]): Skill | n
     const raw = readFileSync(fullPath, "utf8");
     const { meta, body } = parseFrontmatter(raw);
     const name = String(meta.name ?? basename(fullPath, ".md")).trim();
+    if (!name) {
+      lastIssues.push({ file: basename(fullPath), source, error: "Empty skill name (no `name:` frontmatter and no usable filename)." });
+      return null;
+    }
     const description = String(meta.description ?? "(no description)").trim();
     const applies_to = Array.isArray(meta.applies_to) ? meta.applies_to.map(String) : [];
     const skill: Skill = { name, description, applies_to, body: body.trim(), source, path: fullPath };
     cache.set(fullPath, { mtime: st.mtimeMs, skill });
     return skill;
-  } catch {
+  } catch (e: any) {
+    lastIssues.push({ file: basename(fullPath), source, error: `Failed to read/parse: ${String(e?.message ?? e).slice(0, 200)}` });
     return null;
   }
 }
 
 export function listSkills(): Skill[] {
   const out: Skill[] = [];
+  const issues: SkillIssue[] = [];
+  lastIssues = issues;
+  const seenBySource = new Map<string, string>(); // "source:name" -> first file that used it
   for (const dir of [SKILLS_BUILTIN, SKILLS_USER]) {
     if (!existsSync(dir)) continue;
     let entries: string[] = [];
@@ -94,7 +112,18 @@ export function listSkills(): Skill[] {
       if (!stat.isFile()) continue;
       const source: Skill["source"] = dir === SKILLS_BUILTIN ? "builtin" : "user";
       const skill = loadSkillFromDisk(full, source);
-      if (skill) out.push(skill);
+      if (!skill) continue;
+      // Same-source name collision (cross-source is fine — user intentionally
+      // overrides builtin, handled in loadSkill()) — the later file loses and
+      // is reported rather than silently shadowed.
+      const dupKey = `${source}:${skill.name.toLowerCase()}`;
+      const firstFile = seenBySource.get(dupKey);
+      if (firstFile) {
+        issues.push({ file: name, source, error: `Name '${skill.name}' already used by '${firstFile}' in the same source — this file is shadowed.` });
+        continue;
+      }
+      seenBySource.set(dupKey, name);
+      out.push(skill);
     }
   }
   return out;
@@ -316,10 +345,9 @@ const SKILL_KEYWORDS: { skill: string; patterns: RegExp[] }[] = [
   { skill: "standup-summary",            patterns: [/\bstand[\s-]?up\s+(?:summary|notes|update|recap)\b/i, /\bdaily stand[\s-]?up\b/i] },
   { skill: "timesheet-fill",             patterns: [/\btimesheet\b/i, /\b(?:fill in|complete|log)\s+(?:my\s+|the\s+)?(?:hours|time|timesheet)\b/i] },
   // ─── 2026-07-08: new-feature skills (email attachments, hybrid-workforce
-  // hand-off, Paynow/Stripe payment collection, Intellinexus publishing) ───
+  // hand-off, Paynow/Stripe payment collection) ───
   { skill: "send-attachment",            patterns: [/\battach(?:ment|ed|ing)?\b/i, /\bsend\s+(?:me\s+|him\s+|her\s+|them\s+)?(?:the\s+|that\s+|this\s+)?(?:file|document|doc|spreadsheet|pdf|report)\b.{0,20}\b(?:email|attached|attachment)\b/i, /\bemail\b.{0,25}\b(?:the\s+|that\s+|this\s+)?(?:file|document|doc|spreadsheet|pdf)\b/i] },
   { skill: "human-handoff",              patterns: [/\bhuman[\s-]?(?:request|handoff|hand[\s-]?off|in[\s-]?the[\s-]?loop)\b/i, /\bask\s+(?:a\s+|the\s+)?human\b/i, /\bwaiting\s+on\s+(?:a\s+)?human\b/i, /\bneeds?\s+(?:human|manual)\s+(?:input|approval|review)\b/i] },
-  { skill: "dataset-publish",            patterns: [/\bpublish\s+(?:this\s+|the\s+)?(?:data|dataset)\b/i, /\bintellinexus\b/i, /\badd\s+(?:this\s+|to\s+)?(?:the\s+)?data\s+pipeline\b/i, /\bturn\s+this\s+into\s+a\s+dataset\b/i, /\bmake\s+(?:this\s+)?(?:data\s+)?(?:available\s+to|queryable\s+by)\s+(?:the\s+)?(?:other\s+)?agents\b/i] },
   { skill: "caveman-mode",                patterns: [/\bcaveman\s+mode\b/i, /\btalk\s+like\s+(?:a\s+)?caveman\b/i, /\/caveman\b/i, /\b(?:be|reply|answer)\s+(?:more\s+)?(?:brief|terse|concise)\b.{0,20}\b(?:tokens?|words?)\b/i, /\bfewer\s+(?:tokens|words)\b/i, /\bless\s+tokens\b/i] },
 ];
 

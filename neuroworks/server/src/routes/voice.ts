@@ -16,7 +16,7 @@
 //                                     (tier A).
 
 import { Router } from "express";
-import { voiceStatus, voiceForPersona, synthesizeLocal, synthesizeWithVoice, synthesizeElevenLabs, elevenLabsVoiceForPersona, mintRealtimeSession } from "../lib/voice.js";
+import { voiceStatus, voiceForPersona, synthesizeWithVoice, mintRealtimeSession } from "../lib/voice.js";
 import { loadJobById } from "../lib/job-store.js";
 import { getJob } from "../lib/jobs.js";
 
@@ -152,6 +152,7 @@ voiceRouter.post("/converse", async (req, res) => {
         online,
         backend: result.model.includes("/") ? "openrouter" : "ollama",
       },
+      sourceNoteId: naxieCtx.sourceNoteId,
     });
   } catch (e: any) {
     res.status(400).json({ error: String(e?.message ?? e) });
@@ -190,8 +191,7 @@ voiceRouter.post("/ask", async (req, res) => {
 voiceRouter.post("/tts", async (req, res) => {
   const text = String(req.body?.text ?? "").trim();
   if (!text) return res.status(400).json({ error: "text is required" });
-  // Persona-aware: naxie -> T1LJmO1i3U7y9K38NWAy, chat/read-aloud -> qBDvhofpxp92JgXJxDjB, others default.
-  // Prefers ElevenLabs cloud (your second-in-command voice), falls back to local sidecar.
+  // Persona-aware: each persona hashes to a stable local sidecar voice.
   try {
     const pid = req.body?.personaId ? String(req.body.personaId) : undefined;
     const out = await synthesizeWithVoice(text, pid);

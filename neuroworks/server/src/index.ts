@@ -9,6 +9,7 @@ import { securityWatch, securityStatus, unblockIp } from "./lib/security-watch.j
 import { reposRouter } from "./routes/repos.js";
 import { brainRouter } from "./routes/brain.js";
 import { storageRouter } from "./routes/storage.js";
+import { filesRouter } from "./routes/files.js";
 import { tasksRouter } from "./routes/tasks.js";
 import { myTasksRouter } from "./routes/my-tasks.js";
 import { templatesRouter } from "./routes/templates.js";
@@ -26,8 +27,11 @@ import { ensurePool, shutdownManagedWorker } from "./lib/worker-manager.js";
 import { loadPersonas } from "./lib/personas.js";
 import { ensureAllPersonasHaveTemplates } from "./lib/persona-templates.js";
 import { startReflectionScheduler, stopReflectionScheduler } from "./lib/reflection.js";
+import { startWikiCompileScheduler, stopWikiCompileScheduler, startWikiDigestScheduler, stopWikiDigestScheduler } from "./lib/wiki-compile.js";
+import { ensureAgentsMdExists } from "./lib/agents-routing.js";
 import { abortInflightJobs } from "./lib/jobs.js";
 import { reflectionRouter } from "./routes/reflection.js";
+import { wikiCompileRouter } from "./routes/wiki-compile.js";
 import { skillsRouter } from "./routes/skills.js";
 import { uploadsRouter } from "./routes/uploads.js";
 import { teamRouter } from "./routes/team.js";
@@ -65,9 +69,7 @@ import { authRouter } from "./routes/auth.js";
 import { onboardingRouter } from "./routes/onboarding.js";
 import { departmentsRouter } from "./routes/departments.js";
 import { knowledgePacksRouter } from "./routes/knowledge-packs.js";
-import { datasetsRouter } from "./routes/datasets.js";
 import { dispatchRouter, dispatchKeysRouter } from "./routes/dispatch.js";
-import { omnisignalRouter } from "./routes/omnisignal.js";
 import { publicFinanceRouter } from "./routes/public-finance.js";
 import { qualityRouter } from "./routes/quality.js";
 import { costRouter } from "./routes/cost.js";
@@ -190,6 +192,7 @@ app.use("/api/status", statusRouter);
 app.use("/api/repos", reposRouter);
 app.use("/api/brain", brainRouter);
 app.use("/api/storage", storageRouter);
+app.use("/api/files", filesRouter);
 app.use("/api/tasks", tasksRouter);
 app.use("/api/my-tasks", myTasksRouter); // operator's personal to-do list — distinct from the agent job queue above
 app.use("/api/templates", templatesRouter);
@@ -198,6 +201,7 @@ app.use("/api/personas", personasRouter);
 app.use("/api/peers", peersRouter);
 app.use("/api/models", requireLayer("superadmin"), modelsRouter); // provider API keys
 app.use("/api/reflection", reflectionRouter);
+app.use("/api/wiki-compile", wikiCompileRouter);
 app.use("/api/skills", skillsRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/team", teamRouter);
@@ -253,8 +257,6 @@ app.use("/api/auth", authRouter);
 app.use("/api/onboarding", onboardingRouter);
 app.use("/api/departments", departmentsRouter);
 app.use("/api/knowledge-packs", knowledgePacksRouter);
-app.use("/api/datasets", datasetsRouter);
-app.use("/api/omnisignal", omnisignalRouter);
 // External agent-dispatch surface (API-key auth; originGuard exempts /api/v1/).
 app.use("/api/v1/dispatch", dispatchRouter);
 // Operator-only API-key management (stays behind originGuard).
@@ -492,6 +494,17 @@ const server = app.listen(config.port, config.bindHost, async () => {
     console.log(`  ⓘ nightly reflection scheduler armed (hour=${process.env.NEUROWORKS_REFLECTION_HOUR ?? "2"})`);
   }
 
+  // Second-brain wiki compile — distills raw captures (_archive/) into
+  // compiled wiki entries (_wiki/) nightly, then emails/toasts a morning
+  // digest a few hours later. Same primary-only, opt-out convention as
+  // reflection above. Also bootstraps a starter agents.md routing table.
+  if (process.env.NEUROWORKS_WIKI_COMPILE !== "0" && config.role === "primary") {
+    ensureAgentsMdExists();
+    startWikiCompileScheduler();
+    startWikiDigestScheduler();
+    console.log(`  ⓘ wiki-compile scheduler armed (compile hour=${process.env.NEUROWORKS_WIKI_COMPILE_HOUR ?? "3"}, digest hour=${process.env.NEUROWORKS_WIKI_DIGEST_HOUR ?? "7"})`);
+  }
+
   // User-defined schedules — fires template runs on a friendly day-of-week +
   // time-of-day cadence. Primary-only so the same schedule doesn't run on
   // every worker. Disable with NEUROWORKS_SCHEDULES=0.
@@ -577,6 +590,8 @@ async function gracefulExit(signal: string) {
   try { await shutdownManagedWorker(); }
   catch (e: any) { console.warn(`  ⚠ worker shutdown failed: ${e?.message ?? e}`); }
   try { stopReflectionScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopWikiCompileScheduler(); stopWikiDigestScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopScheduleScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }

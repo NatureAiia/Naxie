@@ -2,8 +2,8 @@
 // be tracked, routed, and executed reliably instead of getting lost in one
 // undifferentiated job list. See docs/naxie-architecture.md §3-§5.
 //
-// The five roles (scheduler/researcher/executor/admin/architect) are pure
-// implementation detail — Naxie never names them in conversation (§0, §8).
+// The six roles (scheduler/researcher/executor/admin/architect/hermes-reviewer)
+// are pure implementation detail — Naxie never names them in conversation (§0, §8).
 // This store exists so the org's internals are inspectable via the
 // diagnostics dashboard (§8.5) and so approvals/audit have something
 // concrete to point at, not because a user ever addresses a role directly.
@@ -25,10 +25,10 @@ const FILE = join(STATE_DIR, "org-tasks.json");
 
 // Single-user product (docs/naxie-architecture.md §0) — deliberately no
 // ownerId anywhere in this module.
-export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect";
+export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect" | "hermes-reviewer";
 export type OrgTaskStatus = "backlog" | "active" | "blocked" | "waiting-on-approval" | "done";
 export type OrgTaskPriority = "low" | "normal" | "high" | "urgent";
-export type PendingApprovalKind = "external-comms" | "spend" | "calendar-external" | "host-tool" | "architect-change" | "other";
+export type PendingApprovalKind = "external-comms" | "spend" | "calendar-external" | "host-tool" | "architect-change" | "hermes-review" | "other";
 
 // Architect-specific proposal payload (docs/naxie-architecture.md §7) — a
 // self-contained code-change proposal riding alongside the plain-language
@@ -42,12 +42,27 @@ export type ArchitectProposal = {
   basedOn?: { auditQuery?: string; sourceFilesRead?: string[] };
 };
 
+// Hermes-specific critique payload. Unlike ArchitectProposal, this never
+// carries a diff — Hermes is an external, less-trusted agent that only ever
+// produces a critique of an artifact Naxie already generated (e.g. a nightly
+// reflection); it cannot propose code changes directly. `source: "hermes"`
+// lets approval-review UI visually distinguish this from Naxie's own
+// architect subroutine, since the two carry different trust levels.
+export type HermesReviewProposal = {
+  source: "hermes";
+  artifactType: "reflection" | "job-output" | "architect-diff";
+  critique: string;
+  severity: "note" | "concern" | "blocker";
+  suggestedAction?: string;
+};
+
 export type PendingApproval = {
   actionDescription: string;   // plain language, e.g. "Send email to X saying Y" — never names the internal role
   kind: PendingApprovalKind;
   requestedAt: string;
   diff?: string;               // optional unified-diff-format text for review UIs
   proposal?: ArchitectProposal; // Architect-only: structured diff/rationale payload
+  hermesReview?: HermesReviewProposal; // Hermes-reviewer-only: structured critique payload
 };
 
 export type OrgTask = {
@@ -81,6 +96,10 @@ export const ROLE_AUTONOMY: Record<OrgRole, { autonomous: readonly AutonomyCateg
   // No autonomous lane beyond reading its own backlog — every actual change
   // the Architect proposes is a pending-approval item, unconditionally.
   architect: { autonomous: ["read", "own-backlog-update"], alwaysRequiresApproval: true },
+  // Same unconditional gate as architect, for the same reason — Hermes is an
+  // external, less-trusted agent, so nothing it produces auto-applies. It
+  // only ever writes a critique into the approval queue for a human to read.
+  "hermes-reviewer": { autonomous: ["read", "own-backlog-update"], alwaysRequiresApproval: true },
 };
 
 // The one rule with no override anywhere in this system (docs §5, §7): a
@@ -140,8 +159,8 @@ export function classifyOrgRole(job: ClassifiableJob): OrgRole | null {
   if (matched) return matched;
   // Default: anything that reached this point (no more specific match) is
   // treated as project-shaped work for Executor — the deliberately broad
-  // generalist role (docs §3). Never returns "architect": that role is
-  // system-initiated only (docs §7), never reachable from ordinary chat.
+  // generalist role (docs §3). Never returns "architect" or "hermes-reviewer":
+  // both are system-initiated only (docs §7), never reachable from ordinary chat.
   return "executor";
 }
 

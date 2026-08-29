@@ -47,7 +47,6 @@ extensionsRouter.get("/", async (req, res) => {
           case "heygen": return b === "heygen";
           case "ideogram": return b === "ideogram";
           case "muapi": return b === "muapi";
-          case "elevenlabs": return r.profile === "realtime-voice" || b === "elevenlabs";
           case "supabase": return false;
           case "firecrawl": return false;
           case "ayrshare": return false;
@@ -155,7 +154,7 @@ extensionsRouter.get("/analytics", async (req, res) => {
   } catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
 });
 
-// POST /api/extensions/test/:id — test a core extension (openrouter, ollama, elevenlabs, etc.)
+// POST /api/extensions/test/:id — test a core extension (openrouter, ollama, supabase, etc.)
 extensionsRouter.post("/test/:id", async (req, res) => {
   const id = String(req.params.id ?? "");
   try {

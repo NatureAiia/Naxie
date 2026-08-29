@@ -1,5 +1,5 @@
 // Extensions / Plugins registry — platform APIs that are env-gated (OpenRouter,
-// ElevenLabs, Supabase, etc.) plus pointers to the token-based integrations /
+// Supabase, etc.) plus pointers to the token-based integrations /
 // connectors / model providers. This is the single catalog the Extensions page
 // monitors. Env secrets are NEVER returned — only prefix + enabled/health.
 
@@ -44,17 +44,6 @@ export const EXTENSION_CATALOG: ExtensionDef[] = [
     docsUrl: "https://ollama.com",
     testable: true,
     connectHint: "Set OLLAMA_HOST (default http://127.0.0.1:11434) and pull a model with `ollama pull llama3.1:8b`.",
-  },
-  {
-    id: "elevenlabs",
-    name: "ElevenLabs",
-    category: "voice",
-    description: "Cloud TTS — Rachel/Sarah voices for voice.py and realtime calls. Falls back to Piper/pyttsx3.",
-    envKey: "ELEVENLABS_API_KEY",
-    envKeys: ["ELEVENLABS_VOICE_ID"],
-    docsUrl: "https://elevenlabs.io/app/settings/api-keys",
-    testable: true,
-    connectHint: "Paste your ElevenLabs API key (sk_…). Default voice is EXAVITQu4vr4xnSDxMaL (Sarah).",
   },
   {
     id: "supabase",
@@ -181,12 +170,6 @@ export async function getExtensionsStatus(): Promise<ExtensionStatus[]> {
         detail = health ? (health.ok ? `Model ${model} at ${config.ollamaHost}` : health.detail) : `${config.ollamaHost} / ${model}`;
         break;
       }
-      case "elevenlabs": {
-        const naxieV = (process.env.ELEVENLABS_VOICE_ID ?? "").trim() || "T1LJmO1i3U7y9K38NWAy";
-        const chatV = (process.env.ELEVENLABS_CHAT_VOICE_ID ?? "").trim() || "qBDvhofpxp92JgXJxDjB";
-        detail = configured ? `Key set (${prefixOf(raw)}) — Naxie ${naxieV.slice(0,6)}… / Chat ${chatV.slice(0,6)}…` : "Not configured — falls back to Piper/pyttsx3";
-        break;
-      }
       case "supabase": {
         const url = (process.env.SUPABASE_URL ?? "").trim();
         if (!url) detail = "Not configured — Phase 2 pgvector/MAG not wired";
@@ -274,14 +257,6 @@ export async function testExtension(id: string): Promise<{ ok: boolean; detail: 
       try {
         const llm = await llmHealth();
         result = llm.ollama.ok ? { ok: true, detail: `Ollama ok — ${llm.ollama.model}` } : { ok: false, detail: llm.ollama.error ?? "Ollama unreachable" };
-      } catch (e: any) { result = { ok: false, detail: String(e?.message ?? e) }; }
-      break;
-    }
-    case "elevenlabs": {
-      try {
-        const r = await fetch(`https://api.elevenlabs.io/v1/voices`, { headers: { "xi-api-key": raw } });
-        const j: any = await r.json().catch(() => ({}));
-        result = r.ok ? { ok: true, detail: `ElevenLabs ok — ${j?.voices?.length ?? "?"} voices` } : { ok: false, detail: j?.detail?.message ?? j?.detail ?? `HTTP ${r.status}` };
       } catch (e: any) { result = { ok: false, detail: String(e?.message ?? e) }; }
       break;
     }

@@ -32,7 +32,7 @@ naxieRouter.get("/context", async (req, res) => {
       roster: { count: roster.length, workers: roster.slice(0, 20) },
       memorySubjects: memSubjects,
       connectivity: { cached, probeNeeded: cached === null },
-      voice: { elevenLabs: vs.elevenLabs, naxieVoiceId: vs.naxieVoiceId, chatVoiceId: vs.chatVoiceId, realtime: vs.realtime, localTts: vs.localTts },
+      voice: { realtime: vs.realtime, openaiTts: vs.openaiTts, localTts: vs.localTts },
       query: q,
     });
   } catch (e: any) {
@@ -45,15 +45,18 @@ naxieRouter.get("/context", async (req, res) => {
 naxieRouter.get("/status", async (_req, res) => {
   try {
     const { listOrgTasks } = await import("../lib/org-tasks.js");
+    const { getLatestBriefing, DAEMON_CYCLE_SECONDS } = await import("../lib/org-daemon.js");
     const waiting = listOrgTasks({ status: "waiting-on-approval" } as any).slice(0, 5);
     const vs = await voiceStatus();
     const cached = isCloudReachableCached();
     res.json({
       pendingApprovals: waiting.length,
       waiting,
-      voice: { elevenLabs: vs.elevenLabs, naxieVoiceId: vs.naxieVoiceId },
+      voice: { realtime: vs.realtime, openaiTts: vs.openaiTts, localTts: vs.localTts },
       connectivity: { cached, online: cached ?? (await isCloudReachableCached()) },
       cag: cagStats(),
+      briefing: getLatestBriefing(),
+      daemonStatus: { cycleSeconds: DAEMON_CYCLE_SECONDS },
     });
   } catch (e: any) {
     res.status(500).json({ error: String(e?.message ?? e) });

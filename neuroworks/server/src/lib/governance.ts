@@ -392,6 +392,7 @@ export function checkActionAgainstConstraints(action: string, constraints: Extra
 export const CONSEQUENTIAL_TOOLS = new Set([
   "email.send",
   "vault.write", "vault.edit", "vault.create_zettel", "vault.append", "vault.write_pdf",
+  "vault.capture_note", "vault.capture_youtube",
   "fs.import_to_vault",
   "github.create_issue", "github.comment_on_issue", "github.update_issue", "github.request_review",
   "webhook.post", "slack.post", "telegram.send", "discord.post", "msteams.post", "googlechat.post",

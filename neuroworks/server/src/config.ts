@@ -26,6 +26,13 @@ const vaultRepo = pick("VAULT_REPO", "");
 // your own knowledge folder to use one.
 const vaultPathRaw = pick("VAULT_PATH", "./vault");
 const vaultPath = resolve(vaultPathRaw);
+// Dedicated local-disk folder for the Files explorer's "Local Files" pane —
+// deliberately NOT the whole C:\ drive. A sandboxed folder we own, so drag-
+// and-drop file management can't wander into system directories. Override
+// with LOCAL_FILES_PATH; default lands next to the vault convention but on
+// C:\ specifically, per the operator's request.
+const localFilesPathRaw = pick("LOCAL_FILES_PATH", "C:\\NaxieFiles");
+const localFilesPath = resolve(localFilesPathRaw);
 const ollamaHost = pick("OLLAMA_HOST", "http://127.0.0.1:11434");
 const ollamaModel = pick("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0");
 // The separate naxionai/backend (FastAPI, Python) service — hosts Naxie's
@@ -208,6 +215,7 @@ export const config = {
   githubOwner,
   vaultRepo,
   vaultPath,
+  localFilesPath,
   ollamaHost,
   ollamaModel,
   naxionBaseUrl,

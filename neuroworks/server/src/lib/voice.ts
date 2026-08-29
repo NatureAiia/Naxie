@@ -5,9 +5,14 @@
 //               the OpenAI provider key already registered in the model
 //               pool; the server only mints a short-lived client secret and
 //               the browser talks to the provider directly.
+//   openaiTts — OpenAI's cloud text-to-speech (gpt-4o-mini-tts), used for
+//               narration / read-aloud (the /api/voice/tts endpoint). Same
+//               credential lookup as realtime, or a dedicated
+//               OPENAI_TTS_API_KEY. Supports a natural-language `instructions`
+//               field to steer delivery style per persona.
 //   localTts  — an OpenAI-compatible speech sidecar (Kokoro-FastAPI, Piper
 //               behind LocalAI, etc.) at NEUROWORKS_TTS_URL. Free, offline,
-//               per-employee voices.
+//               per-employee voices. Falls back here if openaiTts fails.
 //   webSpeech — the browser's own speechSynthesis. Always there; the client
 //               falls back to it when this module reports both tiers dark.
 //
@@ -25,12 +30,6 @@ const TTS_MODEL = process.env.NEUROWORKS_TTS_MODEL ?? "kokoro";
 const TTS_KEY = process.env.NEUROWORKS_TTS_API_KEY ?? "";
 const REALTIME_MODEL = process.env.NEUROWORKS_REALTIME_MODEL ?? "gpt-realtime";
 
-// ElevenLabs — cloud TTS (Naxie = second-in-command voice, Chat = read-aloud)
-const ELEVENLABS_API_KEY = (process.env.ELEVENLABS_API_KEY ?? "").trim();
-const ELEVENLABS_NAXIE_VOICE = (process.env.ELEVENLABS_VOICE_ID ?? "T1LJmO1i3U7y9K38NWAy").trim();
-const ELEVENLABS_CHAT_VOICE = (process.env.ELEVENLABS_CHAT_VOICE_ID ?? "qBDvhofpxp92JgXJxDjB").trim();
-const ELEVENLABS_MODEL_ID = (process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2").trim();
-
 // Decrypted OpenAI credentials from the provider pool. The fallback chain
 // carries every NON-active registered provider decrypted; if OpenAI happens
 // to be the ACTIVE provider instead, its key was applied to the runtime
@@ -45,43 +44,36 @@ function openaiCreds(): { apiKey: string; baseUrl: string } | null {
   return null;
 }
 
-export function elevenLabsAvailable(): boolean {
-  return ELEVENLABS_API_KEY.length > 0;
+// OpenAI TTS — a DEDICATED key (independent of whichever provider is active
+// for chat/realtime) is preferred so TTS spend isn't silently mixed into a
+// shared key's usage; falls back to the provider-pool/realtime credentials
+// above when no dedicated key is set.
+const OPENAI_TTS_API_KEY = (process.env.OPENAI_TTS_API_KEY ?? "").trim();
+const OPENAI_TTS_BASE_URL = (process.env.OPENAI_TTS_BASE_URL ?? "https://api.openai.com/v1").replace(/\/+$/, "");
+const OPENAI_TTS_MODEL = (process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts").trim();
+
+function openaiTtsCreds(): { apiKey: string; baseUrl: string } | null {
+  if (OPENAI_TTS_API_KEY) return { apiKey: OPENAI_TTS_API_KEY, baseUrl: OPENAI_TTS_BASE_URL };
+  return openaiCreds();
 }
 
-export function elevenLabsVoiceForPersona(personaId: string | undefined): string {
-  const pid = (personaId ?? "").toLowerCase();
-  // Naxie is your second-in-command — dedicated voice T1LJ...
-  if (pid === "naxie" || pid === "neuro" || pid === "clawbot") return ELEVENLABS_NAXIE_VOICE;
-  // Chat read-aloud / general workers use the chat voice qBDv...
-  return ELEVENLABS_CHAT_VOICE || ELEVENLABS_NAXIE_VOICE;
+export function openaiTtsAvailable(): boolean {
+  return openaiTtsCreds() !== null;
 }
 
-export async function synthesizeElevenLabs(text: string, voiceId: string): Promise<{ audio: Buffer; contentType: string }> {
-  if (!ELEVENLABS_API_KEY) throw new Error("ElevenLabs not configured (ELEVENLABS_API_KEY)");
-  const vid = voiceId || ELEVENLABS_NAXIE_VOICE;
-  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${vid}`, {
-    method: "POST",
-    headers: {
-      "xi-api-key": ELEVENLABS_API_KEY,
-      "Content-Type": "application/json",
-      Accept: "audio/mpeg",
-    },
-    body: JSON.stringify({
-      text: text.slice(0, 5000),
-      model_id: ELEVENLABS_MODEL_ID,
-      voice_settings: { stability: 0.55, similarity_boost: 0.75, style: 0.35, use_speaker_boost: true },
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!r.ok) {
-    const t = await r.text().catch(() => "");
-    throw new Error(`ElevenLabs ${r.status}: ${t.slice(0, 300)}`);
-  }
-  const audio = Buffer.from(await r.arrayBuffer());
-  if (audio.length === 0) throw new Error("ElevenLabs returned empty audio");
-  return { audio, contentType: r.headers.get("content-type") ?? "audio/mpeg" };
-}
+// Naxie's voice brief (operator-specified): smooth, mid-range, comforting,
+// approachable, subtle conversational warmth, studio-quality diction, steady
+// professional pacing — reassuring and capable without robotic stiffness or
+// over-the-top excitement. "sage" is OpenAI's calm/measured voice, closest
+// static match; NEUROWORKS_NAXIE_OPENAI_VOICE overrides the voice id and
+// NEUROWORKS_NAXIE_VOICE_INSTRUCTIONS overrides the delivery brief below.
+const NAXIE_OPENAI_VOICE = (process.env.NEUROWORKS_NAXIE_OPENAI_VOICE ?? "sage").trim();
+const NAXIE_VOICE_INSTRUCTIONS = (process.env.NEUROWORKS_NAXIE_VOICE_INSTRUCTIONS ?? (
+  "A smooth, mid-range female voice with a naturally comforting and approachable quality. " +
+  "Subtle conversational warmth, as if speaking with a smile, while maintaining impeccable " +
+  "studio-quality diction, clear pronunciation, and steady, professional pacing. Reassuring, " +
+  "intelligent, and highly capable — avoid any rigid robotic stiffness or over-the-top excitement."
+)).trim();
 
 let ttsProbe: { at: number; ok: boolean } | null = null;
 export async function localTtsAvailable(): Promise<boolean> {
@@ -99,15 +91,13 @@ export async function localTtsAvailable(): Promise<boolean> {
   return ok;
 }
 
-export async function voiceStatus(): Promise<{ realtime: boolean; localTts: boolean; elevenLabs: boolean; realtimeModel: string; ttsUrlConfigured: boolean; naxieVoiceId: string; chatVoiceId: string }> {
+export async function voiceStatus(): Promise<{ realtime: boolean; openaiTts: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean }> {
   return {
     realtime: openaiCreds() !== null,
+    openaiTts: openaiTtsAvailable(),
     localTts: await localTtsAvailable(),
-    elevenLabs: elevenLabsAvailable(),
     realtimeModel: REALTIME_MODEL,
     ttsUrlConfigured: TTS_URL.length > 0,
-    naxieVoiceId: ELEVENLABS_NAXIE_VOICE,
-    chatVoiceId: ELEVENLABS_CHAT_VOICE,
   };
 }
 
@@ -124,28 +114,55 @@ function hashIdx(s: string, mod: number): number {
   return h % mod;
 }
 
-export function voiceForPersona(personaId: string | undefined): { openaiVoice: string; localVoice: string; elevenLabsVoice: string } {
+export function voiceForPersona(personaId: string | undefined): { openaiVoice: string; localVoice: string } {
   const key = (personaId ?? "default").toLowerCase();
-  return {
-    openaiVoice: OPENAI_VOICES[hashIdx(key, OPENAI_VOICES.length)],
-    localVoice: LOCAL_VOICES[hashIdx(key, LOCAL_VOICES.length)],
-    elevenLabsVoice: elevenLabsVoiceForPersona(personaId),
-  };
+  const isNaxie = key === "naxie" || key === "neuro" || key === "clawbot";
+  // Naxie is pinned to specific voices rather than the hash — the hash can
+  // land anywhere in the list, including a voice that doesn't match her
+  // identity (e.g. a male Kokoro voice, or OpenAI's energetic "nova").
+  const localVoice = isNaxie ? "af_heart" : LOCAL_VOICES[hashIdx(key, LOCAL_VOICES.length)];
+  const openaiVoice = isNaxie ? NAXIE_OPENAI_VOICE : OPENAI_VOICES[hashIdx(key, OPENAI_VOICES.length)];
+  return { openaiVoice, localVoice };
 }
 
-// ── tier B: ElevenLabs cloud first, then local sidecar ──────
+// ── tiers B/C: OpenAI cloud TTS, then local sidecar ─────────────
 
 export async function synthesizeWithVoice(text: string, personaId: string | undefined): Promise<{ audio: Buffer; contentType: string }> {
-  // Prefer ElevenLabs when key is set — Naxie T1LJ... / Chat qBDv... are cloud voices
-  if (elevenLabsAvailable()) {
+  const v = voiceForPersona(personaId);
+  const key = (personaId ?? "").toLowerCase();
+  const isNaxie = key === "naxie" || key === "neuro" || key === "clawbot";
+  if (openaiTtsAvailable()) {
     try {
-      return await synthesizeElevenLabs(text, elevenLabsVoiceForPersona(personaId));
+      return await synthesizeOpenAITts(text, v.openaiVoice, isNaxie ? NAXIE_VOICE_INSTRUCTIONS : undefined);
     } catch (e) {
-      console.warn(`[voice] ElevenLabs failed, falling back to local sidecar: ${String((e as any)?.message ?? e).slice(0,120)}`);
+      console.warn(`[voice] OpenAI TTS failed, falling back to local sidecar: ${String((e as any)?.message ?? e).slice(0, 120)}`);
     }
   }
-  const v = voiceForPersona(personaId);
   return synthesizeLocal(text, v.localVoice);
+}
+
+export async function synthesizeOpenAITts(text: string, voice: string, instructions?: string): Promise<{ audio: Buffer; contentType: string }> {
+  const creds = openaiTtsCreds();
+  if (!creds) throw new Error("OpenAI TTS not configured (OPENAI_TTS_API_KEY or a registered OpenAI provider)");
+  const r = await fetch(`${creds.baseUrl}/audio/speech`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${creds.apiKey}` },
+    body: JSON.stringify({
+      model: OPENAI_TTS_MODEL,
+      voice,
+      input: text.slice(0, 4000),
+      response_format: "mp3",
+      ...(instructions ? { instructions: instructions.slice(0, 1000) } : {}),
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`OpenAI TTS ${r.status}: ${t.slice(0, 300)}`);
+  }
+  const audio = Buffer.from(await r.arrayBuffer());
+  if (audio.length === 0) throw new Error("OpenAI TTS returned empty audio");
+  return { audio, contentType: r.headers.get("content-type") ?? "audio/mpeg" };
 }
 
 export async function synthesizeLocal(text: string, voice: string): Promise<{ audio: Buffer; contentType: string }> {

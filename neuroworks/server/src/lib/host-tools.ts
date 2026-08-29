@@ -40,6 +40,11 @@ const SETTINGS_FILE = join(STATE_DIR, "host-tools-settings.json");
 export type HostToolsSettings = {
   allowSystemControl: boolean;
   allowClipboardAccess: boolean;
+  // Desktop-toast delivery for the notification dispatcher (lib/notify.ts,
+  // docs §2.3). Kept as its own toggle rather than folded into
+  // allowSystemControl: a toast is display-only (no OS mutation), so it
+  // doesn't carry the same risk as open_app/clipboard/screenshot — default ON.
+  allowNotifications: boolean;
   // The ONLY repo git_command may ever touch — never supplied by an LLM.
   gitRepoPath: string;
 };
@@ -47,6 +52,7 @@ export type HostToolsSettings = {
 const DEFAULT_SETTINGS: HostToolsSettings = {
   allowSystemControl: false,
   allowClipboardAccess: false,
+  allowNotifications: true,
   gitRepoPath: "",
 };
 
@@ -96,6 +102,12 @@ function isSystemControlAllowed(): boolean {
 }
 function isClipboardAllowed(): boolean {
   try { return load().allowClipboardAccess === true; } catch { return false; }
+}
+// Unlike the two checks above, notifications default ON — but still fail
+// closed (suppress the toast) if settings can't be read at all, rather than
+// crash the caller over a display-only notification.
+export function isNotificationsAllowed(): boolean {
+  try { return load().allowNotifications === true; } catch { return false; }
 }
 
 // ─── PowerShell execution — data over stdin, never interpolated ───────────
@@ -448,5 +460,26 @@ export async function browserOpen(urlOrSearch: string): Promise<string> {
     return `Opened web browser to: ${finalUrl}`;
   } catch (e: any) {
     return `Failed to open browser: ${e?.message ?? e}`;
+  }
+}
+
+// ─── hermes_agent ────────────────────────────────────────────────────────
+// Opens the user's locally-installed Hermes agent (Nous Research's
+// open-source agent harness, run via its CLI) in its own terminal window.
+// Same gate and allowlist posture as system_control's "terminal" open_app
+// target above — the command run inside is a fixed literal ("hermes"),
+// never user- or LLM-supplied, so there's no free-form string reaching the
+// shell. This is a UI-launcher action, not something the agent's planner
+// calls itself (Hermes is a peer agent Naxie talks to over HTTP, not a tool
+// Naxie invokes) — see routes/host-tools.ts's /hermes/launch.
+export async function launchHermesAgent(): Promise<string> {
+  if (!isSystemControlAllowed()) {
+    return "System control is turned off. Enable it in Settings > System Access to let Naxie open the Hermes agent.";
+  }
+  try {
+    spawn("cmd.exe", ["/c", "start", "Hermes Agent", "cmd.exe", "/k", "hermes"], { windowsHide: false, detached: true, stdio: "ignore" }).unref();
+    return "Launched Hermes agent in a new terminal window.";
+  } catch (e: any) {
+    return `Failed to launch Hermes agent: ${e?.message ?? e}`;
   }
 }

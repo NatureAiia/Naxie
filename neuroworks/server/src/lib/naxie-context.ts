@@ -18,6 +18,12 @@ export type NaxieContext = {
   mag: string;           // durable memory block (MAG) — subset of CAG plus fresh facts
   rag: string;           // per-query retrieval block (RAG)
   combinedSystemAddendum: string; // what to append to the base system prompt
+  // The vault path of the top-scored vault-sourced RAG hit, if any — the note
+  // that most likely answered this query, for the client to highlight in
+  // KnowledgeGraph (same "answer highlights its source" pattern as
+  // jarvis-claude-code's top_match()/setFocus(), except riding on the RAG
+  // scoring Naxie already does rather than a separate keyword pass).
+  sourceNoteId: string | null;
 };
 
 export async function buildNaxieContext(query: string, opts: { ragLimit?: number; includeDated?: boolean } = {}): Promise<NaxieContext> {
@@ -29,6 +35,9 @@ export async function buildNaxieContext(query: string, opts: { ragLimit?: number
 
   const hits = await ragSearch(query, opts.ragLimit ?? 6);
   const rag = formatRagBlock(hits);
+  // hits is already sorted score-desc (rag.ts) — first vault/vault-semantic
+  // hit is the note the answer most likely drew from.
+  const sourceNoteId = hits.find(h => h.source === "vault" || h.source === "vault-semantic")?.path ?? null;
 
   const parts = [cag.prefix, rag].filter(Boolean).join("\n\n");
   // Avoid duplicating mag verbatim if cag already contains it — but keep a
@@ -44,6 +53,7 @@ export async function buildNaxieContext(query: string, opts: { ragLimit?: number
     mag,
     rag,
     combinedSystemAddendum,
+    sourceNoteId,
   };
 }
 

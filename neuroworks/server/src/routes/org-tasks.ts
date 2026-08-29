@@ -9,7 +9,7 @@ import { listOrgTasks, getOrgTask, resolveApproval, type OrgRole, type OrgTaskSt
 
 export const orgTasksRouter = Router();
 
-const VALID_ROLES: OrgRole[] = ["scheduler", "researcher", "executor", "admin", "architect"];
+const VALID_ROLES: OrgRole[] = ["scheduler", "researcher", "executor", "admin", "architect", "hermes-reviewer"];
 const VALID_STATUSES: OrgTaskStatus[] = ["backlog", "active", "blocked", "waiting-on-approval", "done"];
 
 // Pure — exported for testing. An unrecognized or absent value silently

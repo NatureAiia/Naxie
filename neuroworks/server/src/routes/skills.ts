@@ -17,7 +17,7 @@
 //                             expanded "click to read playbook" view.
 
 import { Router } from "express";
-import { listSkills, loadSkill } from "../lib/skills.js";
+import { listSkills, loadSkill, getSkillLoadIssues } from "../lib/skills.js";
 
 export const skillsRouter = Router();
 
@@ -41,6 +41,10 @@ skillsRouter.get("/", (_req, res) => {
       applies_to: s.applies_to,
       bodyChars: s.body.length,
     })),
+    // Skill files that failed to load or lost a name collision on this scan —
+    // never silent, same as a rejected plugin still showing up (with its
+    // reason) in a plugin manager instead of just vanishing.
+    issues: getSkillLoadIssues(),
   });
 });
 

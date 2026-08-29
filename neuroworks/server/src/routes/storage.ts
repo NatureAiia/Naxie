@@ -38,7 +38,9 @@ async function pingSupabase(): Promise<boolean> {
 // than missing entirely. Supabase credentials exist but the RAG/MAG pipeline
 // itself is still Phase 2 — configured reflects credential presence, not a
 // working integration.
-storageRouter.get("/status", async (_req, res) => {
+// Shared by GET /status below and the Files explorer (routes/files.ts) so
+// both surfaces agree on what's configured/reachable per backend.
+export async function computeStorageBackends(): Promise<StorageBackendStatus[]> {
   const vaultHealth = getVaultHealth();
   const pull = getVaultPullStatus();
   const commits = vaultCommitStats();
@@ -90,5 +92,9 @@ storageRouter.get("/status", async (_req, res) => {
       : "not configured — see docs/naxie-storage-architecture.md §9",
   };
 
-  res.json({ backends: [local, obsidian, github, drive, supabase] });
+  return [local, obsidian, github, drive, supabase];
+}
+
+storageRouter.get("/status", async (_req, res) => {
+  res.json({ backends: await computeStorageBackends() });
 });

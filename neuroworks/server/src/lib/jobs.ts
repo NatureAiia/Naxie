@@ -300,8 +300,7 @@ const JOURNAL_TO_VAULT = process.env.NEUROWORKS_JOURNAL_TO_VAULT === "1";
 // a knowledge-producing tool. Tunable off with NEUROWORKS_JOURNAL_IMPORTANT=0.
 const JOURNAL_IMPORTANT = process.env.NEUROWORKS_JOURNAL_IMPORTANT !== "0";
 const KNOWLEDGE_TOOLS = new Set([
-  "research.deep", "research.multiperspective", "omnisignal.acquire",
-  "omnisignal.publish", "web.scrape", "web.firecrawl", "data.publish",
+  "research.deep", "research.multiperspective", "web.scrape", "web.firecrawl",
 ]);
 function isImportantForVault(j: Job): boolean {
   if (!JOURNAL_IMPORTANT) return false;

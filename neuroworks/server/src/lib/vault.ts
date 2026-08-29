@@ -20,6 +20,8 @@ export type VaultNode = {
   path: string;
   type: "dir" | "file";
   children?: VaultNode[];
+  size?: number;
+  mtimeMs?: number;
 };
 
 const HIDDEN_PREFIXES = [".obsidian", ".git", "node_modules"];
@@ -117,11 +119,62 @@ export function listVault(rel = ""): VaultNode[] {
     .filter(e => !HIDDEN_PREFIXES.some(p => e.name.startsWith(p)))
     .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
   return entries.map(e => {
-    const childRel = relative(VAULT, join(full, e.name)).split(sep).join("/");
-    return e.isDirectory()
-      ? { name: e.name, path: childRel, type: "dir" as const }
-      : { name: e.name, path: childRel, type: "file" as const };
+    const abs = join(full, e.name);
+    const childRel = relative(VAULT, abs).split(sep).join("/");
+    if (e.isDirectory()) return { name: e.name, path: childRel, type: "dir" as const };
+    const st = statSync(abs);
+    return { name: e.name, path: childRel, type: "file" as const, size: st.size, mtimeMs: st.mtimeMs };
   });
+}
+
+// Generic move/rename within the vault — used by the Files explorer's
+// drag-and-drop. Unlike /api/brain/promote (which rewrites frontmatter) this
+// is a plain filesystem rename: same content, new location. Both endpoints
+// must resolve inside the vault; mkdir the destination's parent so dropping
+// onto a not-yet-created folder still works.
+export function moveVaultEntry(fromRel: string, toRel: string): void {
+  assertVaultExists();
+  // Moving something OUT of _wiki/ is fine (cleanup); moving/renaming INTO
+  // it bypasses the compile-only ownership rule on writeVaultFile, so it
+  // gets the same refusal here.
+  if (isWikiPath(toRel) && !isWikiPath(fromRel)) throw new VaultOwnershipRefusal(toRel);
+  const from = resolve(VAULT, fromRel);
+  const to = resolve(VAULT, toRel);
+  ensureInsideVault(from);
+  ensureInsideVault(to);
+  if (!existsSync(from)) throw new Error(`not found: ${fromRel}`);
+  mkdirSync(resolve(to, ".."), { recursive: true });
+  renameSync(from, to);
+  invalidateSearchCache();
+}
+
+// Generic delete (file or folder, recursive) — unlike /api/brain/discard
+// (restricted to _imports/) this works anywhere in the vault. Gated to
+// admin-layer callers at the route level; the UI confirms before calling.
+export function deleteVaultEntry(rel: string): void {
+  assertVaultExists();
+  const full = resolve(VAULT, rel);
+  ensureInsideVault(full);
+  if (!existsSync(full)) return;
+  rmSync(full, { recursive: true, force: true });
+  invalidateSearchCache();
+}
+
+export function mkdirVaultDir(rel: string): void {
+  assertVaultExists();
+  if (isWikiPath(rel)) throw new VaultOwnershipRefusal(rel);
+  const full = resolve(VAULT, rel);
+  ensureInsideVault(full);
+  mkdirSync(full, { recursive: true });
+}
+
+export function statVaultEntry(rel: string): { exists: boolean; isDir?: boolean; size?: number; mtimeMs?: number } {
+  assertVaultExists();
+  const full = resolve(VAULT, rel);
+  ensureInsideVault(full);
+  if (!existsSync(full)) return { exists: false };
+  const st = statSync(full);
+  return { exists: true, isDir: st.isDirectory(), size: st.size, mtimeMs: st.mtimeMs };
 }
 
 export function readVaultFile(rel: string): string {
@@ -161,8 +214,31 @@ export class VaultSecurityRefusal extends Error {
   }
 }
 
-export function writeVaultFile(rel: string, content: string) {
+// Second-brain folder convention: raw captures vs. compiled knowledge.
+//   ARCHIVE_DIR — raw material (call transcripts, YouTube transcripts, voice
+//     notes, pasted documents). You and Naxie's capture primitives write here.
+//   WIKI_DIR    — distilled, compiled entries. ONLY the nightly wiki-compile
+//     job may write here (see lib/wiki-compile.ts) — enforced below, not just
+//     documented, so an agent/user write attempt fails loudly instead of
+//     silently mixing raw and compiled content in the same tree.
+export const ARCHIVE_DIR = "_archive";
+export const WIKI_DIR = "_wiki";
+
+export class VaultOwnershipRefusal extends Error {
+  constructor(rel: string) {
+    super(`refusing write to "${rel}" — ${WIKI_DIR}/ is compiled knowledge, written ONLY by the nightly wiki-compile job. Write your raw material to ${ARCHIVE_DIR}/ instead; the next compile will distill it into the wiki.`);
+    this.name = "VaultOwnershipRefusal";
+  }
+}
+
+function isWikiPath(rel: string): boolean {
+  const norm = rel.replace(/\\/g, "/").replace(/^\.?\//, "");
+  return norm === WIKI_DIR || norm.startsWith(`${WIKI_DIR}/`);
+}
+
+export function writeVaultFile(rel: string, content: string, opts: { system?: boolean } = {}) {
   assertVaultExists();
+  if (isWikiPath(rel) && !opts.system) throw new VaultOwnershipRefusal(rel);
   const full = resolve(VAULT, rel);
   ensureInsideVault(full);
   if (VAULT_SCAN_ENABLED) {
@@ -191,6 +267,15 @@ export function writeVaultFile(rel: string, content: string) {
   if (!isMachineStatePath(rel)) invalidateSearchCache();
 }
 
+// The ONE legitimate way to write into _wiki/ — used only by
+// lib/wiki-compile.ts's nightly job. Everything else (agents, the user via
+// the Files explorer's editor, primitives) goes through writeVaultFile and
+// gets refused by the ownership guard above.
+export function writeWikiFile(rel: string, content: string) {
+  if (!isWikiPath(rel)) throw new Error(`writeWikiFile called with a non-${WIKI_DIR}/ path: ${rel}`);
+  writeVaultFile(rel, content, { system: true });
+}
+
 // `_neuroworks/` (and its OS path-separator variants) is NeuroWorks's own
 // audit/state tree inside the vault — not user knowledge. Writes there must not
 // disturb the user-knowledge search index.
@@ -208,6 +293,7 @@ function isMachineStatePath(rel: string): boolean {
 // Returns the absolute path written so the caller can compute file size,
 // log provenance, etc.
 export function importBinaryIntoVault(rel: string, sourceAbsPath: string): { rel: string; abs: string; size: number } {
+  if (isWikiPath(rel)) throw new VaultOwnershipRefusal(rel);
   const full = resolve(VAULT, rel);
   ensureInsideVault(full);
   const st = statSync(sourceAbsPath);
