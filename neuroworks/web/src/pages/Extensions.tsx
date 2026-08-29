@@ -1,12 +1,29 @@
 import { useEffect, useState } from "react";
-import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Share2, Webhook, Download } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Share2, Webhook, Download, LayoutGrid } from "lucide-react";
 import { api, type ConnectorAuthType } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
+import { Integrations } from "./Integrations";
+import { Connectors } from "./Connectors";
 
-// Extensions — unified Plugins & Extensions Hub
-// Monitors platform APIs (OpenRouter, ElevenLabs, Supabase… env-gated) plus
+// Extensions — unified Plugins, Connectors & Integrations Hub
+// Monitors platform APIs (OpenRouter, Supabase… env-gated) plus
 // token-based integrations / connectors / model providers in one place.
+// Integrations and Connectors used to be separate pages/routes; they now
+// live as tabs here (old /integrations and /connectors URLs redirect in).
 // Env secrets are never returned — only prefix + enabled/health.
+
+type ExtTab = "overview" | "platform" | "integrations" | "connectors" | "webhooks" | "marketplace" | "audit";
+
+const TABS: { id: ExtTab; label: string; icon: any }[] = [
+  { id: "overview", label: "Overview", icon: LayoutGrid },
+  { id: "platform", label: "Platform APIs", icon: Cpu },
+  { id: "integrations", label: "Integrations", icon: Plug },
+  { id: "connectors", label: "Connectors", icon: Boxes },
+  { id: "webhooks", label: "Webhooks", icon: Webhook },
+  { id: "marketplace", label: "Marketplace", icon: Share2 },
+  { id: "audit", label: "Audit", icon: History },
+];
 
 type ExtensionCore = {
   id: string; name: string; category: string; description: string;
@@ -66,6 +83,12 @@ function ExpiryBadge({ state, days, expiresAt }: { state?: string; days?: number
 }
 
 export function Extensions() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab") as ExtTab | null;
+  const tab: ExtTab = tabParam && TABS.some(t => t.id === tabParam) ? tabParam : "overview";
+  function setTab(t: ExtTab) {
+    setSearchParams(t === "overview" ? {} : { tab: t }, { replace: true });
+  }
   const [data, setData] = useState<ExtensionsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState<string | null>(null);
@@ -178,19 +201,33 @@ export function Extensions() {
         <Button onClick={() => setShowAdd(true)}><Plus size={14} /> Add Plugin / API</Button>
       </div>
 
-      {/* Overview */}
+      {/* Tabs — Integrations & Connectors used to be separate pages; they now
+          live here alongside Platform APIs, Webhooks, Marketplace & Audit. */}
+      <div className="flex flex-wrap gap-1 p-1 bg-ink-950 rounded-lg border border-ink-800 w-fit">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`px-3 py-1.5 rounded-md text-xs flex items-center gap-1.5 transition-colors ${tab === t.id ? "bg-violet-600 text-white" : "text-cream-300/70 hover:text-cream-100"}`}>
+            <t.icon size={13} /> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "overview" && (
+      <>
       <div className="grid grid-cols-4 gap-3">
         {[
-          { label: "Platform APIs enabled", value: `${data.counts.coreEnabled}/${data.counts.coreTotal}`, sub: `${data.counts.coreHealthy} healthy`, icon: Cpu },
-          { label: "Integrations", value: String(data.counts.integrations), sub: "Slack, Telegram, GitHub…", icon: Plug },
-          { label: "Connectors", value: String(data.counts.connectors), sub: "Company systems", icon: Boxes },
-          { label: "Model Providers", value: String(data.counts.modelProviders), sub: `${(data.costSummary?.totalCostUsd ?? 0).toFixed(2)} USD 30d`, icon: Cloud },
+          { id: "platform" as ExtTab, label: "Platform APIs enabled", value: `${data.counts.coreEnabled}/${data.counts.coreTotal}`, sub: `${data.counts.coreHealthy} healthy`, icon: Cpu },
+          { id: "integrations" as ExtTab, label: "Integrations", value: String(data.counts.integrations), sub: "Slack, Telegram, GitHub…", icon: Plug },
+          { id: "connectors" as ExtTab, label: "Connectors", value: String(data.counts.connectors), sub: "Company systems", icon: Boxes },
+          { id: null, label: "Model Providers", value: String(data.counts.modelProviders), sub: `${(data.costSummary?.totalCostUsd ?? 0).toFixed(2)} USD 30d`, icon: Cloud },
         ].map(k => (
-          <Card key={k.label} className="!p-4">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-cream-300/50"><k.icon size={13} /> {k.label}</div>
-            <div className="text-2xl font-semibold text-cream-50 mt-1">{k.value}</div>
-            <div className="text-[11px] text-cream-300/50">{k.sub}</div>
-          </Card>
+          <div key={k.label} onClick={k.id ? () => setTab(k.id!) : undefined}>
+            <Card className={`!p-4 ${k.id ? "cursor-pointer hover:border-violet-500/40" : ""}`}>
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-cream-300/50"><k.icon size={13} /> {k.label}</div>
+              <div className="text-2xl font-semibold text-cream-50 mt-1">{k.value}</div>
+              <div className="text-[11px] text-cream-300/50">{k.sub}</div>
+            </Card>
+          </div>
         ))}
       </div>
 
@@ -258,7 +295,27 @@ export function Extensions() {
         </Card>
       )}
 
-      {/* Platform APIs — env-gated monitor */}
+      {/* Model Providers */}
+      <Card title={`Model Providers · ${data.providers.length}`} action={<Button variant="subtle" onClick={() => window.location.assign("/admin")}><Cpu size={13} /> Manage</Button>}>
+        {data.providers.length === 0 ? (
+          <div className="text-sm text-cream-300/60 py-4 text-center">No BYO providers yet. <a href="/admin" className="text-violet-400 hover:text-violet-300">Add one on Admin →</a> OpenAI / OpenRouter / Groq.</div>
+        ) : (
+          <div className="space-y-2">
+            {data.providers.map(p => (
+              <div key={p.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-ink-950/50 border border-ink-800">
+                <span className={`w-2 h-2 rounded-full ${p.active ? "bg-leaf-500" : "bg-ink-600"}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-cream-100">{p.label} <span className="text-cream-300/40">· {p.kind} · {p.model}</span> {p.active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-leaf-500/10 text-leaf-400">active</span>}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      </>
+      )}
+
+      {tab === "platform" && (
       <Card
         title="Platform APIs"
         action={<Button variant="subtle" onClick={testAll} disabled={testingAll}>{testingAll ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Test all</Button>}
@@ -318,90 +375,16 @@ export function Extensions() {
           Platform APIs are configured via <span className="font-mono text-cream-300/70">neuroworks/.env</span> and <span className="font-mono text-cream-300/70">naxionai/.env</span> (gitignored). Change a key → restart the server. <a href="/admin" className="text-violet-400 hover:text-violet-300">Admin → Health</a> shows live LLM/vault status.
         </div>
       </Card>
+      )}
 
-      {/* Integrations — token-based */}
-      <Card title={`Integrations · ${data.integrations.length} connected`} action={<Button variant="subtle" onClick={() => window.location.assign("/integrations")}><Plug size={13} /> Manage</Button>}>
-        {data.integrations.length === 0 ? (
-          <div className="text-sm text-cream-300/60 py-4 text-center">No integrations yet. <a href="/integrations" className="text-violet-400 hover:text-violet-300">Go to Integrations →</a> to connect Slack, Telegram, GitHub, Ayrshare, etc. Secrets are encrypted.</div>
-        ) : (
-          <div className="space-y-2">
-            {data.integrations.map((c: any) => (
-              <div key={c.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-ink-950/50 border border-ink-800">
-                <HealthDot ok={c.lastTest?.ok} missing={!c.lastTest} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-cream-100 flex items-center gap-1.5 flex-wrap">{c.label} <span className="text-cream-300/40">· {c.providerName}</span>
-                    <ExpiryBadge state={c.expiryState} days={c.daysUntilExpiry} expiresAt={c.expiresAt} />
-                    {c.allowedRoles && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/50 flex items-center gap-1"><Shield size={9} /> {c.allowedRoles.join(",")}</span>}
-                  </div>
-                  <div className="text-[11px] text-cream-300/50">{c.lastTest ? `${c.lastTest.ok ? "Working" : "Failing"} · ${c.lastTest.detail}` : "Not tested yet"}{c.lastRotatedAt ? ` · rotated ${new Date(c.lastRotatedAt).toLocaleDateString()}` : ""}</div>
-                </div>
-                <Button variant="subtle" onClick={() => createWebhook(c.id, "integration")}><Webhook size={13} /> Webhook</Button>
-                <Button variant="subtle" onClick={() => exportSkill(c.id, "integration")}><Download size={13} /> Export</Button>
-                <Button variant="subtle" onClick={() => setRotateTarget({ kind: "integration", id: c.id, label: c.label })}><RefreshCw size={13} /> Rotate</Button>
-                <Button variant="subtle" onClick={async () => {
-                  try {
-                    const r = await api.testIntegration(c.id);
-                    showToast(r.ok ? `✓ ${r.detail}` : `Fail: ${r.detail}`, r.ok ? "success" : "error");
-                    refresh();
-                  } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
-                }}><CheckCircle2 size={13} /> Test</Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      {/* Integrations — full management UI, formerly the /integrations page */}
+      {tab === "integrations" && <Integrations />}
 
-      {/* Connectors */}
-      <Card title={`Connectors · ${data.connectors.length} systems`} action={<Button variant="subtle" onClick={() => window.location.assign("/connectors")}><Boxes size={13} /> Manage</Button>}>
-        {data.connectors.length === 0 ? (
-          <div className="text-sm text-cream-300/60 py-4 text-center">No company connectors yet. <a href="/connectors" className="text-violet-400 hover:text-violet-300">Add one →</a> base URL + auth + endpoint manifest.</div>
-        ) : (
-          <div className="space-y-2">
-            {data.connectors.map((c: any) => (
-              <div key={c.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-ink-950/50 border border-ink-800">
-                <HealthDot ok={c.lastTest?.ok} missing={!c.lastTest} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-cream-100 flex items-center gap-1.5 flex-wrap">{c.label} <span className="font-mono text-[11px] text-cream-300/50">{c.baseUrl}</span>
-                    <ExpiryBadge state={c.expiryState} days={c.daysUntilExpiry} expiresAt={c.keyExpiresAt} />
-                    {c.allowedRoles && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/50 flex items-center gap-1"><Shield size={9} /> {c.allowedRoles.join(",")}</span>}
-                  </div>
-                  <div className="text-[11px] text-cream-300/50">{c.lastTest ? `${c.lastTest.ok ? "Working" : "Failing"} · ${c.lastTest.detail}` : "Not tested yet"}{c.lastRotatedAt ? ` · rotated ${new Date(c.lastRotatedAt).toLocaleDateString()}` : ""}</div>
-                </div>
-                <Button variant="subtle" onClick={() => createWebhook(c.id, "connector")}><Webhook size={13} /> Webhook</Button>
-                <Button variant="subtle" onClick={() => exportSkill(c.id, "connector")}><Download size={13} /> Export</Button>
-                <Button variant="subtle" onClick={() => setRotateTarget({ kind: "connector", id: c.id, label: c.label })}><RefreshCw size={13} /> Rotate</Button>
-                <Button variant="subtle" onClick={async () => {
-                  try {
-                    const r = await api.testConnector(c.id);
-                    showToast(r.ok ? `✓ ${r.detail}` : `Fail: ${r.detail}`, r.ok ? "success" : "error");
-                    refresh();
-                  } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
-                }}><CheckCircle2 size={13} /> Test</Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* Model Providers */}
-      <Card title={`Model Providers · ${data.providers.length}`} action={<Button variant="subtle" onClick={() => window.location.assign("/models")}><Cpu size={13} /> Manage</Button>}>
-        {data.providers.length === 0 ? (
-          <div className="text-sm text-cream-300/60 py-4 text-center">No BYO providers yet. <a href="/models" className="text-violet-400 hover:text-violet-300">Add one on Models →</a> OpenAI / OpenRouter / Groq.</div>
-        ) : (
-          <div className="space-y-2">
-            {data.providers.map(p => (
-              <div key={p.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-ink-950/50 border border-ink-800">
-                <span className={`w-2 h-2 rounded-full ${p.active ? "bg-leaf-500" : "bg-ink-600"}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-cream-100">{p.label} <span className="text-cream-300/40">· {p.kind} · {p.model}</span> {p.active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-leaf-500/10 text-leaf-400">active</span>}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      {/* Connectors — full management UI, formerly the /connectors page */}
+      {tab === "connectors" && <Connectors />}
 
       {/* Webhooks — Zapier/Make → PA ingress */}
+      {tab === "webhooks" && (
       <Card title={`Webhooks · ${webhooks.length} ingress`} action={<Button variant="subtle" onClick={refreshWebhooks}><RefreshCw size={13} /> Refresh</Button>}>
         <div className="text-[11px] text-cream-300/60 mb-3">Create a webhook per connector/integration (via <span className="font-mono text-cream-300/80">Webhook</span> button above) so Zapier/Make can <span className="font-mono text-cream-200">POST JSON</span> to <span className="font-mono text-cream-200">/api/extensions/webhook/:id</span> with <span className="font-mono text-cream-200">X-Webhook-Secret</span>. Verified like email bridge <span className="font-mono">index.ts:490</span>; fallback <span className="font-mono">EXTENSION_WEBHOOK_SECRET</span> env.</div>
         {webhooks.length === 0 ? (
@@ -429,8 +412,10 @@ export function Extensions() {
           </div>
         )}
       </Card>
+      )}
 
       {/* Marketplace — versioned skills */}
+      {tab === "marketplace" && (
       <Card title={`Marketplace · ${marketplace.length} skills`} action={<Button variant="subtle" onClick={() => fetch("/api/extensions/marketplace", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=>r.json()).then(j=> setMarketplace(j.skills ?? [])).catch(()=>{})}><RefreshCw size={13} /> Refresh</Button>}>
         <div className="text-[11px] text-cream-300/50 mb-3">Exported bundles from <span className="font-mono">skills/_user/</span> — versioned on each re-export ( <span className="font-mono">version: 1.0.0 → 1.0.1</span> ). High-severity secrets are blocked by <span className="font-mono">security.ts:14</span> scan.</div>
         {marketplace.length === 0 ? (
@@ -451,8 +436,10 @@ export function Extensions() {
           </div>
         )}
       </Card>
+      )}
 
       {/* Audit — last 20 extension events */}
+      {tab === "audit" && (
       <Card title="Recent Audit" action={<Button variant="subtle" onClick={() => window.location.assign("/audit")}><History size={13} /> Full log</Button>}>
         {audit.length === 0 ? (
           <div className="text-sm text-cream-300/50 py-2">No recent extension events.</div>
@@ -470,6 +457,7 @@ export function Extensions() {
           </div>
         )}
       </Card>
+      )}
 
       {hintFor && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setHintFor(null)}>

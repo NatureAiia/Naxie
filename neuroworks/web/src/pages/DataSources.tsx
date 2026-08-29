@@ -1,27 +1,25 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { Database, Plus, Trash2, Upload, CheckCircle2, AlertTriangle, FileText, Folder, Play, ChevronDown, ChevronRight } from "lucide-react";
+import { Database, Plus, Trash2, Upload, CheckCircle2, AlertTriangle, Play, ChevronDown, ChevronRight } from "lucide-react";
 import { api, type DataSource, type DataSourceKind, type DepartmentDatum } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
+import { FileExplorer } from "../components/FileExplorer";
 
-// Company-data hub.
-//   - Left card: registered DB connections. Add (engine + connection string),
-//     test (SELECT 1), browse schema, delete. Source id is what agents pass
-//     to the db.* primitives — surfaced inline so the operator can copy it
-//     into a chat prompt ("query the production CRM, source_id=…").
-//   - Right card: company-knowledge uploader. Files land in vault under
-//     _company/ which is then searchable via vault.search — no extra wiring.
+// Files hub — hybrid page.
+//   - File explorer: a Windows-Explorer-style file manager over every storage
+//     backend (the Obsidian vault, a sandboxed local-disk folder, and — once
+//     connected — Google Drive / Supabase). Browse, drag-and-drop move
+//     between backends, upload, rename, delete. See components/FileExplorer.tsx.
+//   - Database connections: agents query these live via the db.* primitives.
+//   - Department data: curated facts/policies per team, read via
+//     company.department_data.
 export function DataSources() {
   const [sources, setSources] = useState<DataSource[]>([]);
   const [adding, setAdding] = useState(false);
-  const [companyFiles, setCompanyFiles] = useState<{ name: string; path: string; type: "dir" | "file" }[]>([]);
-  const [companyNote, setCompanyNote] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
 
   async function refresh() {
     try { const r = await api.listDataSources(); setSources(r.sources); } catch {}
-    try { const r = await api.listCompanyFiles(); setCompanyFiles(r.entries); setCompanyNote(r.note ?? null); } catch {}
   }
   useEffect(() => { void refresh(); }, []);
 
@@ -42,70 +40,36 @@ export function DataSources() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Database size={24} /> Company data</h1>
+        <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Database size={24} /> Files</h1>
         <p className="text-sm text-cream-300/70 mt-1">
-          Wire agents into a company database for live querying, or drop static knowledge into the vault. DB queries are read-only by default — agents use the <span className="font-mono">db.list_sources</span>, <span className="font-mono">db.schema</span>, and <span className="font-mono">db.query</span> primitives.
+          Browse and manage every storage location like a file explorer — drag and drop files between the vault, local disk, and (once connected) Google Drive or Supabase. Wire agents into a company database below for live querying: read-only by default via the <span className="font-mono">db.list_sources</span>, <span className="font-mono">db.schema</span>, and <span className="font-mono">db.query</span> primitives.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Card title="Database connections" action={
-          <Button onClick={() => setAdding(a => !a)} variant="subtle"><Plus size={14} /> {adding ? "Cancel" : "Add"}</Button>
-        }>
-          {adding && <AddSourceForm onAdded={() => { setAdding(false); refresh(); }} onCancel={() => setAdding(false)} />}
-          {sources.length === 0 && !adding && (
-            <div className="text-sm text-cream-300/60 italic">
-              No databases connected yet. Click <span className="font-mono">+ Add</span> to register a Postgres, MySQL, SQLite, SQL Server, or MongoDB database. Once added, agents can query it through the <span className="font-mono">db.*</span> primitives.
-            </div>
-          )}
-          <div className="space-y-2">
-            {sources.map(s => (
-              <SourceRow
-                key={s.id}
-                source={s}
-                onTest={() => test(s.id)}
-                onRemove={() => remove(s.id)}
-                testing={testing === s.id}
-                testResult={testResult?.id === s.id ? testResult : null}
-              />
-            ))}
-          </div>
-        </Card>
+      <FileExplorer />
 
-        <Card
-          title={`Company knowledge (_company/)${companyFiles.length ? ` — ${companyFiles.length}` : ""}`}
-          action={
-            <div className="flex items-center gap-2">
-              <Link to="/knowledge/_company" className="text-[11px] text-violet-400 hover:text-violet-500">Browse in Knowledge →</Link>
-              <CompanyUpload onUploaded={refresh} />
-            </div>
-          }
-        >
-          <p className="text-xs text-cream-300/70 mb-3">
-            Drop any document (PDF, DOCX, XLSX, PPTX, TXT, MD). Files are extracted and indexed — agents will find them via <span className="font-mono">vault.search</span> alongside the rest of the knowledge base.
-          </p>
-          {companyFiles.length === 0 ? (
-            <div className="text-sm text-cream-300/60 italic">
-              {companyNote && companyNote.includes("unreachable")
-                ? <>Vault is unreachable — fix that on the Knowledge page first.</>
-                : <>Nothing in <span className="font-mono">_company/</span> yet. Upload a document to get started.</>}
-            </div>
-          ) : (
-            <ul className="space-y-1 max-h-[420px] overflow-y-auto scrollbar-thin">
-              {companyFiles.map(e => (
-                <li key={e.path}>
-                  <Link to={`/knowledge/${e.path}`} className="flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-ink-800">
-                    {e.type === "dir"
-                      ? <Folder size={14} className="text-violet-400 shrink-0" />
-                      : <FileText size={14} className="text-cream-300/60 shrink-0" />}
-                    <span className={`font-mono truncate ${e.type === "dir" ? "text-violet-400" : "text-cream-200"}`}>{e.name}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
+      <Card title="Database connections" action={
+        <Button onClick={() => setAdding(a => !a)} variant="subtle"><Plus size={14} /> {adding ? "Cancel" : "Add"}</Button>
+      }>
+        {adding && <AddSourceForm onAdded={() => { setAdding(false); refresh(); }} onCancel={() => setAdding(false)} />}
+        {sources.length === 0 && !adding && (
+          <div className="text-sm text-cream-300/60 italic">
+            No databases connected yet. Click <span className="font-mono">+ Add</span> to register a Postgres, MySQL, SQLite, SQL Server, or MongoDB database. Once added, agents can query it through the <span className="font-mono">db.*</span> primitives.
+          </div>
+        )}
+        <div className="space-y-2">
+          {sources.map(s => (
+            <SourceRow
+              key={s.id}
+              source={s}
+              onTest={() => test(s.id)}
+              onRemove={() => remove(s.id)}
+              testing={testing === s.id}
+              testResult={testResult?.id === s.id ? testResult : null}
+            />
+          ))}
+        </div>
+      </Card>
 
       <DepartmentDataCard />
     </div>
@@ -448,64 +412,5 @@ function AddSourceForm({ onAdded, onCancel }: { onAdded: () => void; onCancel: (
         Driver packages (<span className="font-mono">pg</span>, <span className="font-mono">mysql2</span>, <span className="font-mono">better-sqlite3</span>, <span className="font-mono">mssql</span>, <span className="font-mono">mongodb</span>) install on first use — the server will tell you which <span className="font-mono">pnpm add</span> to run if one's missing.
       </div>
     </form>
-  );
-}
-
-function CompanyUpload({ onUploaded }: { onUploaded: () => void }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [state, setState] = useState<{ status: "idle" | "uploading" | "saved" | "error"; filename?: string; error?: string; vaultPath?: string }>({ status: "idle" });
-
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (file.size > 20 * 1024 * 1024) {
-      setState({ status: "error", filename: file.name, error: "File too large (max 20 MB)" });
-      return;
-    }
-    setState({ status: "uploading", filename: file.name });
-    try {
-      const buf = await file.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      let binary = "";
-      const CHUNK = 0x8000;
-      for (let i = 0; i < bytes.length; i += CHUNK) {
-        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
-      }
-      const r = await api.upload({
-        filename: file.name,
-        contentBase64: btoa(binary),
-        target: "vault",
-        mimeType: file.type || undefined,
-        vaultFolder: "_company",
-      });
-      setState({ status: "saved", filename: file.name, vaultPath: r.vaultPath });
-      onUploaded();
-      setTimeout(() => setState(s => s.status === "saved" ? { status: "idle" } : s), 4000);
-    } catch (err: any) {
-      setState({ status: "error", filename: file.name, error: err?.message ?? String(err) });
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <input ref={inputRef} type="file" className="hidden" onChange={handleFile} aria-label="Upload company knowledge" />
-      <Button onClick={() => inputRef.current?.click()} disabled={state.status === "uploading"} variant="subtle">
-        <Upload size={12} /> Upload
-      </Button>
-      {state.status === "uploading" && (
-        <span className="text-[11px] text-violet-300">Uploading {state.filename}…</span>
-      )}
-      {state.status === "saved" && state.vaultPath && (
-        <span className="text-[11px] text-leaf-400 inline-flex items-center gap-1">
-          <CheckCircle2 size={11} /> {state.vaultPath}
-        </span>
-      )}
-      {state.status === "error" && (
-        <span className="text-[11px] text-coral-400 inline-flex items-center gap-1" title={state.error}>
-          <AlertTriangle size={11} /> Failed
-        </span>
-      )}
-    </div>
   );
 }

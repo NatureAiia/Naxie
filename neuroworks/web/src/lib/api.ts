@@ -82,24 +82,6 @@ export type KnowledgePack = {
   name: string;
   installed: boolean;
   files: { path: string; title: string; wordCount: number }[];
-  kind?: "sector" | "dataset";
-  meta?: { recordCount?: number; avgConfidence?: number; rootHash?: string; source?: string; createdAt?: string };
-};
-export type DatasetStage = { stage: string; in: number; out: number; note: string };
-export type Dataset = {
-  id: string;
-  name: string;
-  sector?: string;
-  source: string;
-  createdAt: string;
-  rawCount: number;
-  recordCount: number;
-  reviewQueue: number;
-  avgConfidence: number;
-  rootHash: string;
-  fields: string[];
-  stages: DatasetStage[];
-  outputs: { csv: string; jsonl: string; rag: string; card: string };
 };
 export type QualitySummary = {
   totalFlags: number;
@@ -116,7 +98,7 @@ export type QualitySummary = {
     ts: string;
   }[];
 };
-export type HostToolsSettings = { allowSystemControl: boolean; allowClipboardAccess: boolean; gitRepoPath: string };
+export type HostToolsSettings = { allowSystemControl: boolean; allowClipboardAccess: boolean; allowNotifications: boolean; gitRepoPath: string };
 
 export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect";
 export type OrgTaskStatus = "backlog" | "active" | "blocked" | "waiting-on-approval" | "done";
@@ -221,6 +203,7 @@ export const api = {
   hostToolsSettings: () => req<{ settings: HostToolsSettings }>("/api/host-tools/settings"),
   updateHostToolsSettings: (patch: Partial<HostToolsSettings>) =>
     req<{ settings: HostToolsSettings }>("/api/host-tools/settings", { method: "PATCH", body: JSON.stringify(patch) }),
+  launchHermesAgent: () => req<{ result: string }>("/api/host-tools/hermes/launch", { method: "POST" }),
   orgTasks: (filter?: { role?: OrgRole; status?: OrgTaskStatus }) => {
     const q = new URLSearchParams();
     if (filter?.role) q.set("role", filter.role);
@@ -364,6 +347,19 @@ export const api = {
   queryDataSource: (id: string, sql: string, limit?: number) => req<{ rows: any[]; columns: string[]; rowCount: number; truncated: boolean }>(`/api/data-sources/${encodeURIComponent(id)}/query`, { method: "POST", body: JSON.stringify({ sql, ...(limit ? { limit } : {}) }) }),
   describeDataSource: (id: string) => req<{ tables: { name: string; columns: { name: string; type: string }[] }[] }>(`/api/data-sources/${encodeURIComponent(id)}/schema`),
   listCompanyFiles: () => req<{ entries: { name: string; path: string; type: "dir" | "file" }[]; note?: string }>("/api/data-sources/company-files"),
+
+  // Files explorer — unified file manager across the vault, a sandboxed
+  // local-disk folder, and (once connected) Google Drive / Supabase.
+  filesBackends: () => req<{ backends: FileBackendInfo[] }>("/api/files/backends"),
+  filesList: (backend: FileBackendId, path = "") => req<{ backend: string; path: string; entries: FileEntry[] }>(`/api/files/list?backend=${backend}&path=${encodeURIComponent(path)}`),
+  filesMkdir: (backend: FileBackendId, path: string) => req<{ ok: true }>("/api/files/mkdir", { method: "POST", body: JSON.stringify({ backend, path }) }),
+  filesMove: (backend: FileBackendId, from: string, to: string) => req<{ ok: true }>("/api/files/move", { method: "POST", body: JSON.stringify({ backend, from, to }) }),
+  filesTransfer: (srcBackend: FileBackendId, srcPath: string, dstBackend: FileBackendId, dstPath: string) =>
+    req<{ ok: true }>("/api/files/transfer", { method: "POST", body: JSON.stringify({ srcBackend, srcPath, dstBackend, dstPath }) }),
+  filesDelete: (backend: FileBackendId, path: string) => req<{ ok: true }>("/api/files/delete", { method: "POST", body: JSON.stringify({ backend, path }) }),
+  filesUpload: (body: { backend: FileBackendId; path: string; filename: string; contentBase64: string }) =>
+    req<{ ok: true; path: string }>("/api/files/upload", { method: "POST", body: JSON.stringify(body) }),
+  filesDownloadUrl: (backend: FileBackendId, path: string) => `/api/files/download?backend=${backend}&path=${encodeURIComponent(path)}`,
   registerPeer: (url: string) => req<{ added: boolean; url: string }>("/api/peers/register", { method: "POST", body: JSON.stringify({ url }) }),
   deregisterPeer: (url: string) => req<{ removed: boolean }>(`/api/peers/register?url=${encodeURIComponent(url)}`, { method: "DELETE" }),
   discoverPeers: () => req<{ found: number; tried: number }>("/api/peers/discover", { method: "POST" }),
@@ -399,6 +395,7 @@ export const api = {
   listSkills: () => req<{
     count: number;
     skills: { name: string; description: string; source: "builtin" | "user" | "remote"; applies_to: string[]; bodyChars: number }[];
+    issues: { file: string; source: "builtin" | "user" | "remote"; error: string }[];
   }>("/api/skills"),
   getSkill: (name: string) => req<{
     name: string;
@@ -458,14 +455,14 @@ export const api = {
   // Plan-approval: draft a plan for a task and park it for human sign-off.
   planTask: (task: string) => req<{ jobId: string; status: string }>("/api/tasks/plan", { method: "POST", body: JSON.stringify({ task }) }),
   // Employee voices — report Q&A + TTS tiers (realtime / local sidecar / browser).
-  voiceStatus: () => req<{ realtime: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean }>("/api/voice/status"),
+  voiceStatus: () => req<{ realtime: boolean; openaiTts: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean }>("/api/voice/status"),
   voiceAsk: (jobId: string, question: string, personaId?: string, history?: { q: string; a: string }[]) =>
     req<{ text: string; personaName: string }>("/api/voice/ask", { method: "POST", body: JSON.stringify({ jobId, question, personaId, history }) }),
   // Naxie's general conversation — PA master, auto-routes model
   // (free-tier online for speed, Ollama by size offline). Returns routing
   // metadata so the UI can show quick-free vs deep vs local visibly.
   voiceConverse: (messages: { role: "user" | "assistant"; content: string }[]) =>
-    req<{ text: string; model: string; routing?: { tier: string; complexity: string; reason: string; signals: string[]; online: boolean; backend: string } }>("/api/voice/converse", { method: "POST", body: JSON.stringify({ messages }) }),
+    req<{ text: string; model: string; routing?: { tier: string; complexity: string; reason: string; signals: string[]; online: boolean; backend: string }; sourceNoteId?: string | null }>("/api/voice/converse", { method: "POST", body: JSON.stringify({ messages }) }),
   voiceTts: async (text: string, personaId?: string): Promise<Blob> => {
     const token = getToken();
     const r = await fetch("/api/voice/tts", {
@@ -565,22 +562,6 @@ export const api = {
   listKnowledgePacks: () => req<{ packs: KnowledgePack[] }>("/api/knowledge-packs"),
   installKnowledgePack: (sectorId: string) =>
     req<{ ok: boolean; files: string[] }>(`/api/knowledge-packs/${encodeURIComponent(sectorId)}/install`, { method: "POST" }),
-  // ADRS data pipeline — published datasets.
-  listDatasets: () => req<{ datasets: Dataset[] }>("/api/datasets"),
-  getDataset: (id: string) => req<{ dataset: Dataset }>(`/api/datasets/${encodeURIComponent(id)}`),
-  publishDataset: (body: { name: string; sector?: string; keyField?: string; confidenceThreshold?: number; records?: any[]; sourceLabel?: string; query?: string }) =>
-    req<{ ok: true; dataset: Dataset }>("/api/datasets/publish", { method: "POST", body: JSON.stringify(body) }),
-  deleteDataset: (id: string) => req<{ ok: true }>(`/api/datasets/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  // Omnisignal — multi-source acquisition feeding ADRS.
-  omniKinds: () => req<{ kinds: { kind: string; needs: string; description: string }[] }>("/api/omnisignal/kinds"),
-  omniAcquire: (sources: any[]) =>
-    req<{ records: any[]; report: { source: string; kind: string; category: string; count: number; error?: string }[]; total: number }>(
-      "/api/omnisignal/acquire", { method: "POST", body: JSON.stringify({ sources }) }),
-  omniPublish: (body: { name: string; sources: any[]; sector?: string; keyField?: string }) =>
-    req<{ acquisition: { report: any[]; total: number }; published?: { manifest: Dataset }; note?: string }>(
-      "/api/omnisignal/publish", { method: "POST", body: JSON.stringify(body) }),
-  datasetOutputUrl: (id: string, kind: "csv" | "jsonl" | "rag" | "card") =>
-    `/api/datasets/${encodeURIComponent(id)}/output/${kind}`,
   // Quality dashboard.
   submitQualityFlag: (body: { jobId: string; rating: "up" | "down"; note?: string; category?: string; persona?: string; template?: string; score?: number }) =>
     req<{ ok: true; flag: QualityFlag }>("/api/quality/flag", { method: "POST", body: JSON.stringify(body) }),
@@ -825,6 +806,26 @@ export type DepartmentDatum = {
   content: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type FileBackendId = "vault" | "localdisk" | "drive" | "supabase";
+
+export type FileBackendInfo = {
+  id: FileBackendId;
+  label: string;
+  kind: "filesystem" | "unavailable";
+  configured: boolean;
+  reachable: boolean;
+  detail: string;
+  badges?: { label: string; reachable: boolean; configured?: boolean }[];
+};
+
+export type FileEntry = {
+  name: string;
+  path: string;
+  type: "dir" | "file";
+  size?: number;
+  mtimeMs?: number;
 };
 
 // Hand-off relay (sequential team workflow).

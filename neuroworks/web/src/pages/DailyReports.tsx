@@ -7,10 +7,9 @@ import { useLoadMore, LoadMoreButton } from "../components/LoadMore";
 // Daily Reports — the human-readable face of the nightly reflection.
 //
 // Every night the system reflects on what ran (successes, failures, lessons)
-// and (a) publishes the per-template stats through the Intellinexus pipeline
-// so agents learn from them, and (b) writes this markdown report so the
-// OPERATOR learns from them too. This page lists those reports newest-first
-// and renders the full report inline. "Reflect now" runs one on demand.
+// and writes a markdown report so the OPERATOR learns from them. This page
+// lists those reports newest-first and renders the full report inline.
+// "Reflect now" runs one on demand.
 
 type ReflectionMeta = { date: string; path: string; preview: string; stats?: any };
 
@@ -64,7 +63,7 @@ export function DailyReports() {
           <h1 className="text-2xl font-semibold text-cream-100">Daily Reports</h1>
           <p className="text-sm text-cream-300/70 mt-1">
             What your organization did each day — successes, failures, and the lessons the system
-            took from them. The same data flows through Intellinexus so your agents learn from it too.
+            took from them.
           </p>
         </div>
         <button

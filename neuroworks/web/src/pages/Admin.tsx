@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Download, Trash2, Loader2, CheckCircle2, Cloud, Plus, Star, Zap, Gauge } from "lucide-react";
 import { api, type HostToolsSettings, type OrgTask, type OrgRole, type OrgTaskStatus } from "../lib/api";
 import { Card, StatusDot, showToast } from "../components/Card";
 
@@ -85,8 +86,10 @@ export function Admin() {
 
           <div className="grid grid-cols-2 gap-4">
             <SystemAccessCard />
-            <OrgTasksCard />
+            <NotificationsCard />
           </div>
+
+          <OrgTasksCard />
 
           <Card title="Configuration">
             <div className="text-xs text-cream-300/70 mb-3">NeuroWorks reads its config from <span className="font-mono">clawbot/.env</span>. Edit there and restart to apply changes durably.</div>
@@ -476,8 +479,11 @@ function ExternalAgentRow({ agent }: { agent: any }) {
   );
 }
 
+// Models — merged in from the former standalone Models page. Local Ollama
+// models (pull/set-default/delete), the effort dial, and BYO cloud model
+// providers all live here now so "system configuration" has one home.
 function ModelsSection() {
-  const [data, setData] = useState<{ default: string; models: ModelInfo[]; recommendations: Record<string, string>; profiles: Record<string, Record<string, number>> } | null>(null);
+  const [data, setData] = useState<{ default: string; effort: "auto" | "low" | "high"; models: ModelInfo[]; recommendations: Record<string, string>; profiles: Record<string, Record<string, number>> } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
@@ -494,6 +500,14 @@ function ModelsSection() {
       setMsg(`Default is now ${r.default}. ${r.hint}`);
       await load();
     } catch (e: any) { setErr(e.message); }
+    finally { setBusy(null); }
+  }
+
+  async function del(name: string) {
+    if (!confirm(`Delete local model "${name}"? You can re-pull it later.`)) return;
+    setBusy(name);
+    try { await api.deleteModel(name); showToast(`Removed ${name}`, "success"); await load(); }
+    catch (e: any) { showToast(e?.message ?? "Delete failed", "error"); }
     finally { setBusy(null); }
   }
 
@@ -516,57 +530,275 @@ function ModelsSection() {
   }
 
   return (
-    <Card title="Local models">
-      <div className="text-xs text-cream-300/70 mb-3">
-        These are pulled into Ollama. The router scores each against the active task profile and picks the best fit per call.
-        Default model: <span className="font-mono text-cream-100">{data.default}</span>
-      </div>
-      {msg && <div className="text-xs text-leaf-400 bg-leaf-500/10 border border-leaf-500/30 rounded-md px-3 py-2 mb-3">{msg}</div>}
-      {err && <div className="text-xs text-coral-400 bg-coral-500/10 border border-coral-500/30 rounded-md px-3 py-2 mb-3">{err}</div>}
+    <>
+      <EffortDial effort={data.effort} onChange={eff => setData(d => d ? { ...d, effort: eff } : d)} />
 
-      <div className="space-y-2">
-        {ranked.map(m => (
-          <div key={m.name} className={`bg-ink-950 border rounded-lg p-3 ${m.name === data.default ? "border-violet-500/50" : "border-ink-800"}`}>
-            <div className="flex items-start justify-between gap-3 mb-2">
-              <div className="min-w-0">
-                <div className="font-mono text-sm text-cream-50">
-                  {m.name}
-                  {m.name === data.default && <span className="ml-2 text-[10px] uppercase tracking-wider bg-violet-500/20 text-violet-300 px-1.5 py-0.5 rounded border border-violet-500/30">default</span>}
-                </div>
-                <div className="text-[11px] text-cream-300/60 mt-0.5">
-                  {m.family}{m.paramSize ? ` · ${m.paramSize}` : ""}{m.sizeGB ? ` · ${m.sizeGB} GB` : ""}
-                </div>
-                {profileByModel[m.name] && (
-                  <div className="text-[10px] text-cream-300/50 mt-1">
-                    Picked for: {profileByModel[m.name].map(p => <span key={p} className="font-mono text-violet-400 mr-2">{p}</span>)}
+      <Card title="Local models">
+        <div className="text-xs text-cream-300/70 mb-3">
+          These are pulled into Ollama. The router scores each against the active task profile and picks the best fit per call.
+          Default model: <span className="font-mono text-cream-100">{data.default}</span>
+        </div>
+        {msg && <div className="text-xs text-leaf-400 bg-leaf-500/10 border border-leaf-500/30 rounded-md px-3 py-2 mb-3">{msg}</div>}
+        {err && <div className="text-xs text-coral-400 bg-coral-500/10 border border-coral-500/30 rounded-md px-3 py-2 mb-3">{err}</div>}
+
+        {ranked.length === 0 ? (
+          <div className="text-sm text-cream-300/60">No local models yet. Pull one from the catalog below.</div>
+        ) : (
+          <div className="space-y-2">
+            {ranked.map(m => (
+              <div key={m.name} className={`bg-ink-950 border rounded-lg p-3 ${m.name === data.default ? "border-violet-500/50" : "border-ink-800"}`}>
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="min-w-0">
+                    <div className="font-mono text-sm text-cream-50 flex items-center gap-2 flex-wrap">
+                      {m.name}
+                      {m.name === data.default && <span className="text-[10px] uppercase tracking-wider bg-violet-500/20 text-violet-300 px-1.5 py-0.5 rounded border border-violet-500/30 inline-flex items-center gap-1"><Star size={9} /> default</span>}
+                    </div>
+                    <div className="text-[11px] text-cream-300/60 mt-0.5">
+                      {m.family}{m.paramSize ? ` · ${m.paramSize}` : ""}{m.sizeGB ? ` · ${m.sizeGB} GB` : ""}
+                    </div>
+                    {profileByModel[m.name] && (
+                      <div className="text-[10px] text-cream-300/50 mt-1">
+                        Picked for: {profileByModel[m.name].map(p => <span key={p} className="font-mono text-violet-400 mr-2">{p}</span>)}
+                      </div>
+                    )}
                   </div>
-                )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {m.name !== data.default && (
+                      <button
+                        onClick={() => setDefault(m.name)}
+                        disabled={busy === m.name}
+                        className="text-xs text-cream-100 bg-ink-800 hover:bg-ink-700 border border-ink-700 px-3 py-1 rounded-md disabled:opacity-50"
+                      >
+                        {busy === m.name ? "…" : "Set default"}
+                      </button>
+                    )}
+                    <button aria-label={`Delete ${m.name}`} title="Delete model" onClick={() => del(m.name)} disabled={busy === m.name} className="text-cream-300/40 hover:text-coral-400 p-1.5 disabled:opacity-40"><Trash2 size={13} /></button>
+                  </div>
+                </div>
+                <CapabilityBars cap={m.capabilities} />
               </div>
-              {m.name !== data.default && (
-                <button
-                  onClick={() => setDefault(m.name)}
-                  disabled={busy === m.name}
-                  className="text-xs text-cream-100 bg-ink-800 hover:bg-ink-700 border border-ink-700 px-3 py-1 rounded-md disabled:opacity-50"
-                >
-                  {busy === m.name ? "…" : "Set default"}
-                </button>
-              )}
+            ))}
+          </div>
+        )}
+
+        <div className="mt-4 pt-3 border-t border-ink-800">
+          <div className="text-[10px] uppercase tracking-wider text-cream-300/50 mb-2">Profile → Model routing</div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] font-mono">
+            {Object.entries(data.recommendations).map(([profile, model]) => (
+              <div key={profile} className="flex justify-between gap-3">
+                <span className="text-cream-300/60">{profile}</span>
+                <span className="text-cream-100 truncate">{model}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      <ModelCatalog installedNames={new Set(data.models.map(m => m.name))} onChange={load} />
+      <ModelProviders />
+    </>
+  );
+}
+
+const EFFORT_OPTIONS: { value: "auto" | "low" | "high"; label: string; blurb: string }[] = [
+  { value: "low", label: "Low", blurb: "Fastest installed model. Skips auto-escalation to a bigger model on long prompts." },
+  { value: "auto", label: "Auto", blurb: "Default — picks the best model per task automatically." },
+  { value: "high", label: "High", blurb: "Favors reasoning/quality models and always escalates to the large-tier model when available." },
+];
+
+function EffortDial({ effort, onChange }: { effort: "auto" | "low" | "high"; onChange: (e: "auto" | "low" | "high") => void }) {
+  const [busy, setBusy] = useState(false);
+  async function set(mode: "auto" | "low" | "high") {
+    if (mode === effort || busy) return;
+    setBusy(true);
+    try {
+      await api.setEffort(mode);
+      onChange(mode);
+      showToast(`Effort → ${mode}`, "success");
+    } catch (e: any) {
+      showToast(e?.message ?? "Failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card title="Effort">
+      <div className="flex items-center gap-3">
+        <Gauge size={16} className="text-violet-400 shrink-0" />
+        <div className="inline-flex rounded-md border border-ink-700 overflow-hidden">
+          {EFFORT_OPTIONS.map(o => (
+            <button
+              key={o.value}
+              type="button"
+              disabled={busy}
+              onClick={() => set(o.value)}
+              className={`px-3 py-1.5 text-sm disabled:opacity-40 ${
+                effort === o.value ? "bg-violet-500 text-white" : "bg-ink-900 text-cream-300/70 hover:text-cream-100"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-[11px] text-cream-300/60">{EFFORT_OPTIONS.find(o => o.value === effort)?.blurb}</span>
+      </div>
+    </Card>
+  );
+}
+
+function ModelCatalog({ installedNames, onChange }: { installedNames: Set<string>; onChange: () => void }) {
+  const [catalog, setCatalog] = useState<{ name: string; size: string; blurb: string; installed: boolean }[]>([]);
+  const [custom, setCustom] = useState("");
+  const [pulling, setPulling] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string>("");
+
+  const load = () => api.modelCatalog().then(r => setCatalog(r.catalog)).catch(() => {});
+  useEffect(() => { load(); }, [installedNames.size]);
+
+  // Pull is a POST that streams SSE — consume the body stream directly.
+  async function pull(name: string) {
+    if (pulling) return;
+    setPulling(name); setProgress("starting…");
+    try {
+      const resp = await fetch("/api/models/pull", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      if (!resp.body) throw new Error("no stream");
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const frames = buf.split("\n\n");
+        buf = frames.pop() ?? "";
+        for (const f of frames) {
+          const ev = /event: (\w+)/.exec(f)?.[1];
+          const data = /data: (.*)/.exec(f)?.[1];
+          if (!data) continue;
+          const obj = JSON.parse(data);
+          if (ev === "error") throw new Error(obj.error);
+          if (ev === "progress") {
+            const pct = obj.total ? ` ${Math.round((obj.completed / obj.total) * 100)}%` : "";
+            setProgress(`${obj.status ?? ""}${pct}`);
+          }
+          if (ev === "done") setProgress("done");
+        }
+      }
+      showToast(`Pulled ${name}`, "success");
+      load(); onChange();
+    } catch (e: any) {
+      showToast(e?.message ?? "Pull failed", "error");
+    } finally {
+      setPulling(null); setProgress("");
+    }
+  }
+
+  const inputCls = "flex-1 bg-ink-900 border border-ink-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-violet-500 text-cream-100 placeholder:text-cream-300/30";
+
+  return (
+    <Card title="Pull a model">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+        {catalog.map(m => (
+          <div key={m.name} className="flex items-start gap-3 p-3 rounded-lg bg-ink-800/50 border border-ink-700">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-mono text-cream-100">{m.name}</span>
+                <span className="text-[10px] text-cream-300/50">{m.size}</span>
+              </div>
+              <div className="text-[11px] text-cream-300/60 mt-0.5">{m.blurb}</div>
+              {pulling === m.name && <div className="text-[11px] text-violet-300 mt-1">{progress}</div>}
             </div>
-            <CapabilityBars cap={m.capabilities} />
+            {m.installed || installedNames.has(m.name) ? (
+              <span className="text-[11px] text-leaf-400 inline-flex items-center gap-1 shrink-0"><CheckCircle2 size={12} /> installed</span>
+            ) : (
+              <button type="button" onClick={() => pull(m.name)} disabled={pulling !== null} className="shrink-0 text-xs px-2.5 py-1 rounded-md bg-violet-500/15 border border-violet-500/40 text-violet-300 hover:bg-violet-500/25 disabled:opacity-40 inline-flex items-center gap-1.5">
+                {pulling === m.name ? <Loader2 className="animate-spin" size={12} /> : <Download size={12} />} Pull
+              </button>
+            )}
           </div>
         ))}
       </div>
+      <div className="flex gap-2 mt-3 pt-3 border-t border-ink-800">
+        <input className={inputCls} placeholder="or pull any model by name, e.g. llama3.2:1b" value={custom} onChange={e => setCustom(e.target.value)} onKeyDown={e => e.key === "Enter" && custom.trim() && pull(custom.trim())} />
+        <button type="button" onClick={() => custom.trim() && pull(custom.trim())} disabled={pulling !== null || !custom.trim()} className="text-sm px-3 py-2 rounded-md bg-ink-800 border border-ink-700 text-cream-100 hover:border-violet-500/40 disabled:opacity-40 inline-flex items-center gap-1.5"><Download size={14} /> Pull</button>
+      </div>
+    </Card>
+  );
+}
 
-      <div className="mt-4 pt-3 border-t border-ink-800">
-        <div className="text-[10px] uppercase tracking-wider text-cream-300/50 mb-2">Profile → Model routing</div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] font-mono">
-          {Object.entries(data.recommendations).map(([profile, model]) => (
-            <div key={profile} className="flex justify-between gap-3">
-              <span className="text-cream-300/60">{profile}</span>
-              <span className="text-cream-100 truncate">{model}</span>
-            </div>
+function ModelProviders() {
+  const [providers, setProviders] = useState<any[]>([]);
+  const [kinds, setKinds] = useState<Record<string, { label: string; baseUrl: string; modelHint: string }>>({});
+  const [form, setForm] = useState({ kind: "openai", label: "", baseUrl: "", model: "", apiKey: "" });
+  const [busy, setBusy] = useState(false);
+
+  const load = () => api.listModelProviders().then(r => { setProviders(r.providers); setKinds(r.kinds); }).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  async function add() {
+    if (!form.apiKey.trim() || !form.model.trim()) { showToast("Model and API key are required", "error"); return; }
+    setBusy(true);
+    try {
+      await api.addModelProvider({ kind: form.kind, model: form.model.trim(), apiKey: form.apiKey.trim(), label: form.label.trim() || undefined, baseUrl: form.baseUrl.trim() || undefined });
+      showToast("Provider added & activated", "success");
+      setForm({ kind: form.kind, label: "", baseUrl: "", model: "", apiKey: "" });
+      load();
+    } catch (e: any) { showToast(e?.message ?? "Failed", "error"); }
+    finally { setBusy(false); }
+  }
+  async function activate(id: string) { try { await api.activateModelProvider(id); showToast("Activated", "success"); load(); } catch (e: any) { showToast(e?.message ?? "Failed", "error"); } }
+  async function remove(id: string) { if (!confirm("Remove this provider?")) return; try { await api.removeModelProvider(id); showToast("Removed", "success"); load(); } catch (e: any) { showToast(e?.message ?? "Failed", "error"); } }
+
+  const inputCls = "w-full bg-ink-900 border border-ink-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-violet-500 text-cream-100 placeholder:text-cream-300/30";
+  const hint = kinds[form.kind];
+
+  return (
+    <Card title="Cloud model APIs (bring your own)">
+      <p className="text-xs text-cream-300/60 mb-3">Plug in a model API you already pay for. Stored encrypted; applied to the router immediately and on restart. Routed via the OpenAI-compatible chat API.</p>
+
+      {providers.length > 0 && (
+        <ul className="space-y-1.5 mb-4">
+          {providers.map(p => (
+            <li key={p.id} className="flex items-center gap-2 text-sm group">
+              <Cloud size={14} className="text-violet-400 shrink-0" />
+              <span className="text-cream-100">{p.label}</span>
+              <span className="text-cream-300/50 font-mono text-xs">{p.model}</span>
+              <span className="text-cream-300/30 text-[11px]">{p.keyPrefix}</span>
+              {p.active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-leaf-500/15 text-leaf-300 inline-flex items-center gap-1"><Zap size={9} /> active</span>}
+              <span className="flex-1" />
+              {!p.active && <button type="button" onClick={() => activate(p.id)} className="opacity-0 group-hover:opacity-100 text-xs text-cream-300/60 hover:text-violet-300">activate</button>}
+              <button type="button" aria-label="Remove provider" title="Remove provider" onClick={() => remove(p.id)} className="opacity-0 group-hover:opacity-100 text-cream-300/40 hover:text-coral-400 p-1"><Trash2 size={13} /></button>
+            </li>
           ))}
+        </ul>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+        <div>
+          <label className="text-[11px] text-cream-300/60 mb-1 block">Provider</label>
+          <select aria-label="Provider kind" className={inputCls} value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value, baseUrl: "" })}>
+            {Object.entries(kinds).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
         </div>
+        <div>
+          <label className="text-[11px] text-cream-300/60 mb-1 block">Model</label>
+          <input className={inputCls} placeholder={hint?.modelHint || "model name"} value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
+        </div>
+        {form.kind === "custom" && (
+          <div className="md:col-span-2">
+            <label className="text-[11px] text-cream-300/60 mb-1 block">Base URL (OpenAI-compatible)</label>
+            <input className={inputCls} placeholder="https://your-endpoint/v1" value={form.baseUrl} onChange={e => setForm({ ...form, baseUrl: e.target.value })} />
+          </div>
+        )}
+        <div className="md:col-span-2">
+          <label className="text-[11px] text-cream-300/60 mb-1 block">API key</label>
+          <input type="password" className={inputCls} placeholder="sk-… (stored encrypted)" value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
+        </div>
+      </div>
+      <div className="flex justify-end mt-3">
+        <button type="button" onClick={add} disabled={busy} className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-md bg-violet-500 hover:bg-violet-600 text-white disabled:opacity-40">
+          {busy ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />} Add provider
+        </button>
       </div>
     </Card>
   );
@@ -655,6 +887,53 @@ function SystemAccessCard() {
             />
           </div>
         </div>
+      )}
+    </Card>
+  );
+}
+
+// Settings > Notifications (docs/naxie-architecture.md §2.3) — kept as its
+// own card, separate from System Access: a desktop toast is display-only (no
+// OS mutation), so it doesn't carry the same risk as open_app/clipboard, and
+// defaults ON server-side rather than off.
+function NotificationsCard() {
+  const [settings, setSettings] = useState<HostToolsSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    try { const r = await api.hostToolsSettings(); setSettings(r.settings); } catch {}
+  }
+  useEffect(() => { load(); }, []);
+
+  async function update(patch: Partial<HostToolsSettings>) {
+    setBusy(true);
+    try {
+      const r = await api.updateHostToolsSettings(patch);
+      setSettings(r.settings);
+    } catch (e: any) {
+      showToast(e?.message ?? String(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="Notifications">
+      <div className="text-xs text-cream-300/70 mb-3">
+        Desktop toasts for things worth interrupting you for — a task waiting on your approval, an approval that
+        expired unanswered. Display-only; on by default. Time-sensitive items also email you when email is
+        configured, regardless of this toggle.
+      </div>
+      {!settings ? (
+        <div className="text-sm text-cream-300/60">Loading…</div>
+      ) : (
+        <ToggleRow
+          label="Allow desktop notifications"
+          hint="Toast pop-ups for approvals waiting on you and expired-approval alerts."
+          checked={settings.allowNotifications}
+          disabled={busy}
+          onChange={v => update({ allowNotifications: v })}
+        />
       )}
     </Card>
   );

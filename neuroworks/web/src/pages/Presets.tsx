@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, Calendar, Plug, Check, Loader2 } from "lucide-react";
+import { Sparkles, Calendar, Plug, Check, Loader2, TerminalSquare } from "lucide-react";
 import { Card, Button, showToast } from "../components/Card";
 import { api, type Preset, type PresetApplyResult } from "../lib/api";
 import { MagneticRow } from "../components/MagneticRow";
@@ -18,6 +18,23 @@ export function Presets() {
   const [withSchedules, setWithSchedules] = useState(true);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<PresetApplyResult | null>(null);
+  const [hermesLaunching, setHermesLaunching] = useState(false);
+
+  // Hermes isn't a NeuroWorks persona preset — it's a separate, self-hosted
+  // agent (Nous Research's Hermes CLI) running locally that Naxie treats as
+  // a peer to talk to, not a role to activate. So it gets its own launcher
+  // card instead of going through apply()/activate-a-persona below.
+  async function launchHermes() {
+    setHermesLaunching(true);
+    try {
+      const r = await api.launchHermesAgent();
+      showToast(r.result, /turned off/i.test(r.result) ? "error" : "success");
+    } catch (e: any) {
+      showToast(`Couldn't launch Hermes: ${e.message}`, "error");
+    } finally {
+      setHermesLaunching(false);
+    }
+  }
 
   useEffect(() => {
     api.listPresets()
@@ -56,6 +73,19 @@ export function Presets() {
           templates, and can stand up a recurring briefing emailed to you — so a new worker is
           productive in a single click.
         </p>
+      </div>
+
+      <div className="rounded-xl border border-ink-800 bg-ink-900 p-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 rounded-lg bg-violet-500/10 p-2 text-violet-400"><TerminalSquare size={20} /></div>
+          <div>
+            <div className="font-semibold text-cream-50">Hermes Agent</div>
+            <div className="text-sm text-cream-300/70">External, self-hosted (local, 127.0.0.1) — opens in its own terminal window, not a NeuroWorks persona.</div>
+          </div>
+        </div>
+        <Button onClick={launchHermes} disabled={hermesLaunching}>
+          {hermesLaunching ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Opening…</span> : "Open Hermes"}
+        </Button>
       </div>
 
       {loading ? (

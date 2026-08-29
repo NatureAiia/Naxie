@@ -52,8 +52,11 @@ type FullSkill = {
   body: string;
 };
 
+type SkillIssue = { file: string; source: "builtin" | "user" | "remote"; error: string };
+
 function SkillsCatalog() {
   const [skills, setSkills] = useState<SkillRow[]>([]);
+  const [issues, setIssues] = useState<SkillIssue[]>([]);
   const [filter, setFilter] = useState("");
   const [active, setActive] = useState<FullSkill | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,7 +64,7 @@ function SkillsCatalog() {
 
   useEffect(() => {
     api.listSkills()
-      .then(r => setSkills(r.skills))
+      .then(r => { setSkills(r.skills); setIssues(r.issues ?? []); })
       .catch(() => { /* surface as empty */ })
       .finally(() => setLoading(false));
   }, []);
@@ -98,6 +101,23 @@ function SkillsCatalog() {
           Drop a custom .md into <code className="text-cream-200">server/src/skills/_user/</code> to override a built-in.
         </p>
       </div>
+
+      {issues.length > 0 && (
+        <details className="bg-coral-500/5 border border-coral-500/20 rounded-md px-3 py-2">
+          <summary className="text-xs text-coral-300 cursor-pointer select-none">
+            {issues.length} skill file{issues.length === 1 ? "" : "s"} didn't load — click to see why
+          </summary>
+          <div className="mt-2 space-y-1.5">
+            {issues.map((iss, i) => (
+              <div key={i} className="text-xs text-cream-300/80 flex items-start gap-2">
+                <span className="font-mono text-cream-100 shrink-0">{iss.file}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/60 font-mono shrink-0">{iss.source}</span>
+                <span className="text-coral-300/90">{iss.error}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       <div className="flex items-center gap-3">
         <input
