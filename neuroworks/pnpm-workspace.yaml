@@ -1,6 +1,20 @@
 packages:
   - "server"
   - "web"
+  - "theia/packages/*"
+shamefully-hoist: true
 allowBuilds:
+  '@parcel/watcher': true
+  '@theia/ffmpeg': true
+  cpu-features: set this to true or false
+  drivelist: true
   esbuild: true
+  find-git-repositories: set this to true or false
+  keytar: true
+  msgpackr-extract: set this to true or false
+  node-pty: true
+  puppeteer: set this to true or false
+  ssh2: set this to true or false
   tesseract.js: true
+overrides:
+  drivelist: "file:theia/packages/app/shims/drivelist-mock"

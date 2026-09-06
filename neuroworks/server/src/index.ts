@@ -56,6 +56,7 @@ import { terminalRouter } from "./routes/terminal.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { presetsRouter } from "./routes/presets.js";
 import { connectorsRouter } from "./routes/connectors.js";
+import { mcpServersRouter } from "./routes/mcp-servers.js";
 import { extensionsRouter } from "./routes/extensions.js";
 import { n8nRouter } from "./routes/n8n.js";
 import { naxieRouter } from "./routes/naxie.js";
@@ -235,6 +236,7 @@ app.use("/api/terminal", requireLayer("superadmin"), terminalRouter); // shell a
 app.use("/api/integrations", requireLayer("superadmin"), integrationsRouter); // service secrets
 app.use("/api/presets", presetsRouter);
 app.use("/api/connectors", requireLayer("superadmin"), connectorsRouter); // connector credentials
+app.use("/api/mcp-servers", requireLayer("superadmin"), mcpServersRouter); // spawns local processes — superadmin only
 // Webhook ingress is TOKEN-GATED via X-Webhook-Secret (Zapier/Make → PA), not via session —
 // so it must bypass the superadmin session gate like /api/v1/dispatch. We mount a
 // conditional wrapper: /webhook/* skips requireLayer, everything else stays superadmin.

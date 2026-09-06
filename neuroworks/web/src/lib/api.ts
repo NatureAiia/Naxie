@@ -513,6 +513,15 @@ export const api = {
     req<{ status: "pending" | "complete" | "error" | "expired"; error?: string }>(
       `/api/connectors/${encodeURIComponent(id)}/oauth/poll`, { method: "POST", body: JSON.stringify({ flowId }) }),
 
+  // MCP-client servers (local child-process tool servers, e.g. from the community catalog).
+  listMcpServers: () => req<{ servers: McpServer[] }>("/api/mcp-servers"),
+  addMcpServer: (body: McpServerInput) => req<{ server: McpServer }>("/api/mcp-servers", { method: "POST", body: JSON.stringify(body) }),
+  removeMcpServer: (id: string) => req<{ ok: true }>(`/api/mcp-servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setMcpServerDisabled: (id: string, disabled: boolean) => req<{ server: McpServer }>(`/api/mcp-servers/${encodeURIComponent(id)}/disabled`, { method: "PATCH", body: JSON.stringify({ disabled }) }),
+  mcpServerTools: (id: string) => req<{ tools: McpTool[] }>(`/api/mcp-servers/${encodeURIComponent(id)}/tools`),
+  callMcpServer: (id: string, body: { tool: string; arguments?: Record<string, any> }) =>
+    req<{ result: McpCallResult }>(`/api/mcp-servers/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(body) }),
+
   // Personal to-do list.
   myTaskLists: () => req<{ lists: MyTaskList[] }>("/api/my-tasks/lists"),
   addMyTaskList: (name: string) => req<{ list: MyTaskList }>("/api/my-tasks/lists", { method: "POST", body: JSON.stringify({ name }) }),
@@ -756,6 +765,29 @@ export type ConnectorCallResult = {
   ok: boolean; status: number; url: string; method: string;
   contentType?: string; body: any; truncated?: boolean; error?: string;
 };
+
+export type McpServer = {
+  id: string;
+  label: string;
+  description?: string;
+  command: string;
+  args: string[];
+  envKeys: string[]; // names only — values never leave the server
+  disabled?: boolean;
+  createdAt: string;
+  lastError?: string;
+  lastToolCount?: number;
+  lastConnectedAt?: string;
+};
+export type McpServerInput = {
+  label: string;
+  description?: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+};
+export type McpTool = { name: string; description?: string; inputSchema?: any };
+export type McpCallResult = { ok: boolean; content?: any; truncated?: boolean; error?: string };
 
 export type IntegrationProvider = {
   id: string;

@@ -1,0 +1,12 @@
+{
+  "extends": "@theia/cli/tsconfig.node",
+  "compilerOptions": {
+    "outDir": "lib",
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "@naxion/agent-views/*": ["../agent-views/src/*"]
+    }
+  },
+  "include": ["src"]
+}

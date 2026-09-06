@@ -412,7 +412,7 @@ export function Dashboard() {
             <div className="font-display text-2xl text-cream-50">{orgStatus.connectedSystemCount}</div>
             <div className="text-[11px] text-cream-300/50 mt-1 truncate">{orgStatus.connectedSystems.slice(0, 2).join(", ") || "None connected"}</div>
           </Link>
-          <Link to="/admin" className="bg-ink-900 border border-ink-800 hover:border-violet-500/40 rounded-xl p-4 transition-colors">
+          <Link to="/extensions?tab=platform" className="bg-ink-900 border border-ink-800 hover:border-violet-500/40 rounded-xl p-4 transition-colors">
             <div className="flex items-center gap-2 text-xs text-cream-300/60 mb-1.5"><Server size={13} /> Compute mode</div>
             <div className="font-display text-lg text-cream-50 capitalize">{orgStatus.computeMode.replace("-", " ")}</div>
             <div className="text-[11px] text-cream-300/50 mt-1">{orgStatus.computeMode === "local-only" ? "All inference on this machine" : "Some inference may use a cloud LLM"}</div>

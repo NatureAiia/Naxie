@@ -43,7 +43,7 @@ const preloaders: Record<string, Thunk> = {
   "/connectors": () => import("../pages/Connectors"),
   "/integrations": () => import("../pages/Integrations"),
   "/governance": () => import("../pages/Governance"),
-  "/admin": () => import("../pages/Admin"),
+  "/terminal": () => import("../pages/IDE"),
 };
 
 const warmed = new Set<string>();

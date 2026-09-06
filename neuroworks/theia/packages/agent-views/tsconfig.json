@@ -1,0 +1,9 @@
+{
+  "extends": "@theia/cli/tsconfig.browser",
+  "compilerOptions": {
+    "outDir": "lib",
+    "rootDir": "src",
+    "baseUrl": "."
+  },
+  "include": ["src"]
+}

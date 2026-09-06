@@ -32,6 +32,8 @@ Your training knowledge of these numbers is almost certainly stale. Web FIRST.
    - **Sales:** Gong State of Sales, Salesloft, Outreach benchmark reports
    - **Customer success:** Gainsight, ChurnZero benchmark reports
 3. **Fetch the report directly via `smartFetch`.** Don't quote a TechCrunch summary of the report; fetch the report itself.
+   - For a macro/economic benchmark (GDP, inflation, population, trade — Zimbabwe/Africa context especially), check the "World Bank Data" connector FIRST via `connector.call` before web search: `{connector:"World Bank Data", path:"/v2/country/{iso2}/indicator/{indicatorCode}", query:{format:"json"}}` (e.g. country `ZW`, indicator `NY.GDP.MKTP.CD` for GDP, `FP.CPI.TOTL.ZG` for inflation). It's a live, keyless official source — cite it as "World Bank Open Data" with the retrieval date, no separate web fetch needed for that number.
+   - For quick encyclopaedic grounding (what a term/organization/index means before you benchmark against it), the "Wikipedia" connector's `summary` endpoint is faster than a web search and citable.
 4. **Pull the specific table or chart that addresses the question.** Quote the number AND the exact bucket it applies to (e.g. "NDR for $10-50M ARR SaaS: 110-120% [1, Table 4]").
 5. **Triangulate where the number matters.** If the benchmark drives a decision, get TWO sources from different reports. A single 2022 report cited in 2026 is shaky.
 

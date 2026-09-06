@@ -1,0 +1,18 @@
+{
+  "name": "naxion-ide",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Naxion IDE — Theia-based workbench with integrated AI agent views",
+  "scripts": {
+    "build": "pnpm -r build",
+    "watch": "pnpm -r --parallel watch",
+    "dev": "theia dev --port 7472",
+    "start": "theia start --port 7472",
+    "package": "theia package",
+    "clean": "pnpm -r clean"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

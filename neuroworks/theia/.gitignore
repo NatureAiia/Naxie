@@ -1,0 +1,19 @@
+# Theia build artifacts
+lib/
+dist/
+gen/
+webpack.config.js
+package/.usenpm
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/

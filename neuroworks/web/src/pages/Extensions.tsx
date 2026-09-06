@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Share2, Webhook, Download, LayoutGrid } from "lucide-react";
+import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Share2, Webhook, Download, LayoutGrid, Cable } from "lucide-react";
 import { api, type ConnectorAuthType } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { Integrations } from "./Integrations";
 import { Connectors } from "./Connectors";
+import { McpServers } from "./McpServers";
 
 // Extensions — unified Plugins, Connectors & Integrations Hub
 // Monitors platform APIs (OpenRouter, Supabase… env-gated) plus
@@ -13,13 +14,14 @@ import { Connectors } from "./Connectors";
 // live as tabs here (old /integrations and /connectors URLs redirect in).
 // Env secrets are never returned — only prefix + enabled/health.
 
-type ExtTab = "overview" | "platform" | "integrations" | "connectors" | "webhooks" | "marketplace" | "audit";
+type ExtTab = "overview" | "platform" | "integrations" | "connectors" | "mcp" | "webhooks" | "marketplace" | "audit";
 
 const TABS: { id: ExtTab; label: string; icon: any }[] = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
   { id: "platform", label: "Platform APIs", icon: Cpu },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "connectors", label: "Connectors", icon: Boxes },
+  { id: "mcp", label: "MCP Servers", icon: Cable },
   { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "marketplace", label: "Marketplace", icon: Share2 },
   { id: "audit", label: "Audit", icon: History },
@@ -95,6 +97,7 @@ export function Extensions() {
   const [testingAll, setTestingAll] = useState(false);
   const [hintFor, setHintFor] = useState<ExtensionCore | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [addTab, setAddTab] = useState<"integration" | "connector" | "model">("integration");
   const [rotateTarget, setRotateTarget] = useState<{ kind: "integration" | "connector"; id: string; label: string } | null>(null);
   const [audit, setAudit] = useState<any[]>([]);
   const [webhooks, setWebhooks] = useState<any[]>([]);
@@ -296,17 +299,27 @@ export function Extensions() {
       )}
 
       {/* Model Providers */}
-      <Card title={`Model Providers · ${data.providers.length}`} action={<Button variant="subtle" onClick={() => window.location.assign("/admin")}><Cpu size={13} /> Manage</Button>}>
+      <Card title={`Model Providers · ${data.providers.length}`} action={<Button variant="subtle" onClick={() => { setAddTab("model"); setShowAdd(true); }}><Cpu size={13} /> Add provider</Button>}>
         {data.providers.length === 0 ? (
-          <div className="text-sm text-cream-300/60 py-4 text-center">No BYO providers yet. <a href="/admin" className="text-violet-400 hover:text-violet-300">Add one on Admin →</a> OpenAI / OpenRouter / Groq.</div>
+          <div className="text-sm text-cream-300/60 py-4 text-center">No BYO providers yet. <button onClick={() => { setAddTab("model"); setShowAdd(true); }} className="text-violet-400 hover:text-violet-300">Add one →</button> OpenAI / OpenRouter / Groq.</div>
         ) : (
           <div className="space-y-2">
             {data.providers.map(p => (
-              <div key={p.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-ink-950/50 border border-ink-800">
+              <div key={p.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-ink-950/50 border border-ink-800 group">
                 <span className={`w-2 h-2 rounded-full ${p.active ? "bg-leaf-500" : "bg-ink-600"}`} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-cream-100">{p.label} <span className="text-cream-300/40">· {p.kind} · {p.model}</span> {p.active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-leaf-500/10 text-leaf-400">active</span>}</div>
                 </div>
+                {!p.active && (
+                  <button
+                    onClick={async () => { try { await api.activateModelProvider(p.id); showToast("Activated", "success"); refresh(); } catch (e: any) { showToast(e?.message ?? "Failed", "error"); } }}
+                    className="opacity-0 group-hover:opacity-100 text-xs text-cream-300/60 hover:text-violet-300"
+                  >activate</button>
+                )}
+                <button
+                  onClick={async () => { if (!confirm("Remove this provider?")) return; try { await api.removeModelProvider(p.id); showToast("Removed", "success"); refresh(); } catch (e: any) { showToast(e?.message ?? "Failed", "error"); } }}
+                  className="opacity-0 group-hover:opacity-100 text-cream-300/40 hover:text-coral-400 p-1"
+                ><X size={13} /></button>
               </div>
             ))}
           </div>
@@ -372,7 +385,7 @@ export function Extensions() {
           })}
         </div>
         <div className="mt-3 text-[11px] text-cream-300/40">
-          Platform APIs are configured via <span className="font-mono text-cream-300/70">neuroworks/.env</span> and <span className="font-mono text-cream-300/70">naxionai/.env</span> (gitignored). Change a key → restart the server. <a href="/admin" className="text-violet-400 hover:text-violet-300">Admin → Health</a> shows live LLM/vault status.
+          Platform APIs are configured via <span className="font-mono text-cream-300/70">neuroworks/.env</span> and <span className="font-mono text-cream-300/70">naxionai/.env</span> (gitignored). Change a key → restart the server. The health dots above reflect live status.
         </div>
       </Card>
       )}
@@ -382,6 +395,8 @@ export function Extensions() {
 
       {/* Connectors — full management UI, formerly the /connectors page */}
       {tab === "connectors" && <Connectors />}
+
+      {tab === "mcp" && <McpServers />}
 
       {/* Webhooks — Zapier/Make → PA ingress */}
       {tab === "webhooks" && (
@@ -489,7 +504,7 @@ export function Extensions() {
 
       {rotateTarget && <RotateModal target={rotateTarget} onClose={() => setRotateTarget(null)} onRotated={() => { setRotateTarget(null); refresh(); }} />}
 
-      {showAdd && <AddPluginModal onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); refresh(); }} />}
+      {showAdd && <AddPluginModal initialTab={addTab} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); refresh(); }} />}
     </div>
   );
 }
@@ -576,8 +591,8 @@ function RotateModal({ target, onClose, onRotated }: { target: { kind: "integrat
 
 const FIELD = "w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/60 placeholder:text-cream-300/30";
 
-function AddPluginModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
-  const [tab, setTab] = useState<"integration" | "connector" | "model">("integration");
+function AddPluginModal({ onClose, onAdded, initialTab = "integration" }: { onClose: () => void; onAdded: () => void; initialTab?: "integration" | "connector" | "model" }) {
+  const [tab, setTab] = useState<"integration" | "connector" | "model">(initialTab);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>

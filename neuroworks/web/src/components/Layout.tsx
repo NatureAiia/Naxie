@@ -2,12 +2,27 @@ import { NavLink, Link, useLocation } from "react-router-dom";
 import { ReactNode, useEffect, useState, type ComponentType } from "react";
 import { ToastRack } from "./Card";
 import {
-  LayoutDashboard, MessageSquare, Users, ListChecks, BookOpen,
-  Search as SearchIcon, ChevronRight,
-  CalendarDays, Database,
-  Sparkles, Puzzle,
-  LogOut, Contact, Zap, ThumbsUp, DollarSign,
-  Cpu, Inbox, PanelLeftClose, PanelLeftOpen,
+  LayoutDashboard,
+  MessageSquare,
+  Users,
+  ListChecks,
+  BookOpen,
+  Search as SearchIcon,
+  ChevronRight,
+  CalendarDays,
+  Database,
+  Sparkles,
+  Puzzle,
+  LogOut,
+  Contact,
+  Zap,
+  ThumbsUp,
+  DollarSign,
+  Cpu,
+  Inbox,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Terminal,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -35,7 +50,6 @@ const RobotFolderIcon = matIcon("folder-robot");
 const DocsFolderIcon = matIcon("folder-docs");
 const KeyIcon = matIcon("key");
 const CertificateIcon = matIcon("certificate");
-const AdminFolderIcon = matIcon("folder-admin");
 const EventFolderIcon = matIcon("folder-event");
 const WorkspaceFolderIcon = matIcon("folder"); // generic nav-group container glyph
 const SearchIconMat = matIcon("search");
@@ -47,6 +61,7 @@ type NavItem = {
   label: string;
   icon: ComponentType<{ size?: number | string; className?: string }>;
   badgeKey?: "approvals" | "activity";
+  external?: boolean;
 };
 
 // Top-level: the everyday surfaces. Everything else folds into a collapsible
@@ -56,6 +71,8 @@ const primaryNav: NavItem[] = [
   { to: "/chat", label: "Chat", icon: MessageSquare },
   { to: "/team", label: "Focus Team", icon: Users },
   { to: "/presets", label: "Hire a worker", icon: Sparkles },
+  { to: "/ide", label: "IDE", icon: Terminal },
+  { to: "http://127.0.0.1:7472", label: "Naxion IDE", icon: Terminal, external: true },
 ];
 
 const workspaceNav: NavItem[] = [
@@ -98,7 +115,6 @@ const systemNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
   { to: "/data-sources", label: "Files", icon: Database },
   { to: "/governance", label: "Instructions and Policies", icon: CertificateIcon },
-  { to: "/admin", label: "Admin", icon: AdminFolderIcon },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -113,12 +129,17 @@ export function Layout({ children }: { children: ReactNode }) {
   // enforce the same rules — this just stops dead-end clicks.
   const role = (user?.role ?? "") as string;
   const layer = !user ? "superadmin" : role === "superadmin" ? "superadmin" : role === "admin" ? "admin" : "staff";
-  const SECRETS_PAGES = ["/extensions", "/governance", "/admin", "/data-sources"];
+  const SECRETS_PAGES = ["/extensions", "/governance", "/data-sources"];
   const nav = {
     library: layer === "staff" ? [] : libraryNav,
     watch: layer === "staff" ? [] : watchNav,
-    monitoring: layer === "staff" ? [] : monitoringNav.filter(i => i.to !== "/cost" || layer === "superadmin"),
-    system: layer === "staff" ? [] : layer === "superadmin" ? systemNav : systemNav.filter(i => !SECRETS_PAGES.includes(i.to)),
+    monitoring: layer === "staff" ? [] : monitoringNav.filter((i) => i.to !== "/cost" || layer === "superadmin"),
+    system:
+      layer === "staff"
+        ? []
+        : layer === "superadmin"
+          ? systemNav
+          : systemNav.filter((i) => !SECRETS_PAGES.includes(i.to)),
   };
   // Per-group open state. Undefined = "not toggled yet"; a group with an active
   // child defaults to open so the current page is always visible in the rail.
@@ -129,13 +150,19 @@ export function Layout({ children }: { children: ReactNode }) {
   // its light and dark halves. Any older saved "light"/"paper" value falls
   // back to "dark".
   const THEMES = ["dark", "dracula", "paper-light", "paper-dark"] as const;
-  type Theme = typeof THEMES[number];
+  type Theme = (typeof THEMES)[number];
   const THEME_LABELS: Record<Theme, string> = {
-    dark: "Atom One Dark", dracula: "Dracula", "paper-light": "Paper (light)", "paper-dark": "Paper (dark)",
+    dark: "Atom One Dark",
+    dracula: "Dracula",
+    "paper-light": "Paper (light)",
+    "paper-dark": "Paper (dark)",
   };
   // Swatch dot shows the accent color of the theme it represents.
   const THEME_SWATCH: Record<Theme, string> = {
-    dark: "bg-[#61afef]", dracula: "bg-[#bd93f9]", "paper-light": "bg-[#2B6E63]", "paper-dark": "bg-[#5FBFA9]",
+    dark: "bg-[#61afef]",
+    dracula: "bg-[#bd93f9]",
+    "paper-light": "bg-[#2B6E63]",
+    "paper-dark": "bg-[#5FBFA9]",
   };
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof window === "undefined") return "dark";
@@ -192,7 +219,7 @@ export function Layout({ children }: { children: ReactNode }) {
       const running = j.jobs.filter((x: any) => x.status === "running").length;
       const pendingApproval = j.jobs.filter((x: any) => x.status === "awaiting-approval").length;
       setCounts({ approvals: pendingApproval, activity: running });
-      const p = await api.listPersonas().catch(() => ({ active: null } as any));
+      const p = await api.listPersonas().catch(() => ({ active: null }) as any);
       setPersona(p.active);
       const s = await api.session().catch(() => ({ user: null }));
       setUser(s.user);
@@ -200,19 +227,45 @@ export function Layout({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    try { await api.logout(); } catch { /* ignore */ }
+    try {
+      await api.logout();
+    } catch {
+      /* ignore */
+    }
     setToken(null);
     setUser(null);
   }
-  useEffect(() => { tick(); const i = setInterval(tick, 5000); return () => clearInterval(i); }, []);
+  useEffect(() => {
+    tick();
+    const i = setInterval(tick, 5000);
+    return () => clearInterval(i);
+  }, []);
   // Warm the chunks a user almost always opens next, once the app is idle.
-  useEffect(() => { preloadLikelyRoutes(); }, []);
+  useEffect(() => {
+    preloadLikelyRoutes();
+  }, []);
 
   const statusOk = health?.ready === true;
-  const statusLabel = !health ? "connecting" : statusOk ? "All systems nominal" : "Degraded, check Admin";
+  const statusLabel = !health ? "connecting" : statusOk ? "All systems nominal" : "Degraded — check server logs";
 
   const renderNavItem = (n: NavItem) => {
     const Icon = n.icon;
+    if (n.external) {
+      return (
+        <a
+          key={n.to}
+          href={n.to}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={collapsed ? n.label : undefined}
+          className={`flex items-center gap-3 py-2 rounded-md text-sm transition-colors ${collapsed ? "justify-center px-2" : "px-3"} text-cream-300 hover:text-cream-50 hover:bg-ink-800/60`}
+        >
+          <Icon size={16} className="text-cream-300/70 shrink-0" />
+          {!collapsed && <span className="flex-1 truncate">{n.label}</span>}
+          {!collapsed && <span className="text-[9px] text-cream-300/40">↗</span>}
+        </a>
+      );
+    }
     return (
       <NavLink
         key={n.to}
@@ -227,7 +280,9 @@ export function Layout({ children }: { children: ReactNode }) {
         <Icon size={16} className="text-cream-300/70 shrink-0" />
         {!collapsed && <span className="flex-1 truncate">{n.label}</span>}
         {!collapsed && n.badgeKey && counts[n.badgeKey] > 0 && (
-          <span className="bg-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">{counts[n.badgeKey]}</span>
+          <span className="bg-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+            {counts[n.badgeKey]}
+          </span>
         )}
       </NavLink>
     );
@@ -236,29 +291,33 @@ export function Layout({ children }: { children: ReactNode }) {
   // Collapsible nav group (same pattern the Library used). Open when the user
   // has toggled it open, or — until they touch it — whenever it holds the
   // active route so the current page never hides inside a closed group.
-  const renderGroup = (key: string, label: string, Icon: ComponentType<{ size?: number | string; className?: string }>, items: NavItem[], badge = 0) => {
-    const hasActive = items.some(n => location.pathname.startsWith(n.to));
+  const renderGroup = (
+    key: string,
+    label: string,
+    Icon: ComponentType<{ size?: number | string; className?: string }>,
+    items: NavItem[],
+    badge = 0,
+  ) => {
+    const hasActive = items.some((n) => location.pathname.startsWith(n.to));
     const open = openGroups[key] ?? hasActive;
     return (
       <div key={key}>
         <button
           type="button"
-          onClick={() => setOpenGroups(g => ({ ...g, [key]: !(g[key] ?? hasActive) }))}
+          onClick={() => setOpenGroups((g) => ({ ...g, [key]: !(g[key] ?? hasActive) }))}
           className="w-full flex items-center gap-3 px-3 py-2 mt-3 rounded-md text-sm text-cream-300 hover:text-cream-50 hover:bg-ink-800/60 transition-colors"
         >
           <Icon size={16} className="text-cream-300/70 shrink-0" />
           <span className="flex-1 text-left">{label}</span>
           {/* Aggregate badge — keeps a pending count visible even when collapsed. */}
           {badge > 0 && !open && (
-            <span className="bg-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">{badge}</span>
+            <span className="bg-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+              {badge}
+            </span>
           )}
           <ChevronRight size={14} className={`text-cream-300/50 transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
-        {open && (
-          <div className="ml-3 pl-3 border-l border-ink-800 space-y-0.5">
-            {items.map(renderNavItem)}
-          </div>
-        )}
+        {open && <div className="ml-3 pl-3 border-l border-ink-800 space-y-0.5">{items.map(renderNavItem)}</div>}
       </div>
     );
   };
@@ -270,146 +329,186 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <TerminalProvider>
-    <div className="flex h-full">
-      <GlitterBackground />
-      <aside className={`shrink-0 bg-ink-900 border-r border-ink-800 flex flex-col transition-[width] duration-200 overflow-hidden ${collapsed ? "w-16" : "w-60"}`}>
-        <div className={`flex items-center ${collapsed ? "flex-col gap-2 px-2 py-4" : "justify-between px-4 py-4 tablet:px-5 tablet:py-5"}`}>
-          <Link to="/dashboard" className={`flex items-center gap-2.5 min-w-0 ${collapsed ? "justify-center" : ""}`}>
-            <BrandMark size={26} />
-            {!collapsed && (
-              <div className="w-[168px] h-8">
-                <PixelDriftText text="NeuroWorks" />
-              </div>
-            )}
-          </Link>
-          <div className={`flex items-center gap-1 ${collapsed ? "" : "shrink-0"}`}>
-            <button
-              type="button"
-              onClick={() => setTheme(t => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length])}
-              title={`Switch to ${THEME_LABELS[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]]} theme`}
-              aria-label="Toggle color theme"
-              className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0"
-            >
-              {/* Swatch shows the theme you'd switch TO, matching the old sun/moon pattern. */}
-              <span className={`block w-3 h-3 rounded-full ${THEME_SWATCH[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]]}`} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setCollapsed(c => !c)}
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              aria-label="Toggle sidebar"
-              className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0"
-            >
-              {collapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
-            </button>
-          </div>
-        </div>
-
-        {!collapsed && (
-          <div className="px-4 pb-4 tablet:px-5">
-            <div className="w-full aspect-square rounded-full overflow-hidden border border-ink-700">
-              <img src="/brand/logo.jpg" alt="NeuroWorks" className="w-full h-full object-cover" />
-            </div>
-          </div>
-        )}
-
-        <div className={collapsed ? "px-2 pb-3" : "px-2 pb-3 tablet:px-3"}>
-          <Link to="/naxie" onMouseEnter={() => preloadRoute("/naxie")} onFocus={() => preloadRoute("/naxie")} title={collapsed ? "NaxionAI" : undefined} className="w-full flex items-center justify-center gap-1.5 bg-ink-800 hover:bg-ink-700 border border-ink-700 hover:border-violet-500/40 rounded-md py-2 text-sm text-cream-100 transition-colors">
-            <Sparkles size={14} className="text-violet-400" /> {!collapsed && "NaxionAI"}
-          </Link>
-        </div>
-
-        <nav className={`flex-1 space-y-0.5 overflow-y-auto scrollbar-thin ${collapsed ? "px-2" : "px-3"}`}>
-          {primaryNav.map(renderNavItem)}
-          {collapsed ? (
-            // Collapsed rail has no room for group labels/chevrons — flatten
-            // every group to a plain icon stack instead of a broken accordion.
-            <>
-              {workspaceNav.map(renderNavItem)}
-              {nav.watch.map(renderNavItem)}
-              {nav.library.map(renderNavItem)}
-              {nav.monitoring.map(renderNavItem)}
-              {nav.system.map(renderNavItem)}
-            </>
-          ) : (
-            <>
-              {renderGroup("workspace", "Workspace", WorkspaceFolderIcon, workspaceNav)}
-              {nav.watch.length > 0 && renderGroup("watch", "Watch", SearchIconMat, nav.watch, counts.approvals + counts.activity)}
-              {nav.library.length > 0 && renderGroup("library", "Library", DocsFolderIcon, nav.library)}
-              {nav.monitoring.length > 0 && renderGroup("monitoring", "Monitor", BenchmarkFolderIcon, nav.monitoring)}
-              {nav.system.length > 0 && renderGroup("system", "System", ConfigFolderIcon, nav.system)}
-            </>
-          )}
-        </nav>
-
-        <div className="px-3 py-3 border-t border-ink-800">
-          {!collapsed && <div className="px-3 text-[10px] text-cream-300/40">local, 127.0.0.1</div>}
-        </div>
-      </aside>
-
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="flex items-center justify-between px-8 py-3 tablet:px-6 tablet:py-2 border-b border-ink-800">
-          <div className="flex items-center gap-2.5">
-            {user ? (
-              <>
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-coral-500 grid place-items-center text-[11px] font-semibold text-white">
-                  {user.name.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase()}
+      <div className="flex h-full">
+        <GlitterBackground />
+        <aside
+          className={`shrink-0 bg-ink-900 border-r border-ink-800 flex flex-col transition-[width] duration-200 overflow-hidden ${collapsed ? "w-16" : "w-60"}`}
+        >
+          <div
+            className={`flex items-center ${collapsed ? "flex-col gap-2 px-2 py-4" : "justify-between px-4 py-4 tablet:px-5 tablet:py-5"}`}
+          >
+            <Link to="/dashboard" className={`flex items-center gap-2.5 min-w-0 ${collapsed ? "justify-center" : ""}`}>
+              <BrandMark size={26} />
+              {!collapsed && (
+                <div className="w-[168px] h-8">
+                  <PixelDriftText text="NeuroWorks" />
                 </div>
-                <div className="text-sm text-cream-200">{user.name} <span className="text-cream-300/50">· {user.email}</span></div>
-                <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/70">{user.role}</span>
-                <button type="button" onClick={signOut} title="Sign out" className="ml-1 text-cream-300/50 hover:text-coral-400 p-1"><LogOut size={14} /></button>
-              </>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            {persona && (
-              <Link to="/personas" className="nw-shiny-pill flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border bg-violet-500/10 border-violet-500/30 text-violet-300" title="Active persona">
-                <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
-                {persona.name} <span className="opacity-60">· {persona.role}</span>
-              </Link>
-            )}
-            <div className={`nw-shiny-pill flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border ${statusOk ? "bg-leaf-500/10 border-leaf-500/30 text-leaf-400" : "bg-flame-500/10 border-flame-500/30 text-flame-400"}`}>
-              <span className={`inline-block w-1.5 h-1.5 rounded-full ${statusOk ? "bg-leaf-500" : "bg-flame-500 animate-pulse"}`} />
-              {statusLabel}
+              )}
+            </Link>
+            <div className={`flex items-center gap-1 ${collapsed ? "" : "shrink-0"}`}>
+              <button
+                type="button"
+                onClick={() => setTheme((t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length])}
+                title={`Switch to ${THEME_LABELS[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]]} theme`}
+                aria-label="Toggle color theme"
+                className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0"
+              >
+                {/* Swatch shows the theme you'd switch TO, matching the old sun/moon pattern. */}
+                <span
+                  className={`block w-3 h-3 rounded-full ${THEME_SWATCH[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]]}`}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCollapsed((c) => !c)}
+                title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-label="Toggle sidebar"
+                className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0"
+              >
+                {collapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                const ev = new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true, bubbles: true });
-                document.dispatchEvent(ev);
-              }}
-              className="flex items-center gap-2 text-xs px-3 py-1.5 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors"
-              title="Open command palette"
-            >
-              <SearchIcon size={12} />
-              <span>Search</span>
-              <span className="flex items-center gap-0.5"><MetaKey /><Kbd>K</Kbd></span>
-            </button>
           </div>
-        </header>
-        <div className={`flex-1 scrollbar-thin ${clearBackground ? "overflow-hidden" : "overflow-auto"}`}>
-          {/* key re-keys the wrapper on route change, restarting the
+
+          {!collapsed && (
+            <div className="px-4 pb-4 tablet:px-5">
+              <div className="w-full aspect-square rounded-full overflow-hidden border border-ink-700">
+                <img src="/brand/logo.jpg" alt="NeuroWorks" className="w-full h-full object-cover" />
+              </div>
+            </div>
+          )}
+
+          <div className={collapsed ? "px-2 pb-3" : "px-2 pb-3 tablet:px-3"}>
+            <Link
+              to="/naxie"
+              onMouseEnter={() => preloadRoute("/naxie")}
+              onFocus={() => preloadRoute("/naxie")}
+              title={collapsed ? "NaxionAI" : undefined}
+              className="w-full flex items-center justify-center gap-1.5 bg-ink-800 hover:bg-ink-700 border border-ink-700 hover:border-violet-500/40 rounded-md py-2 text-sm text-cream-100 transition-colors"
+            >
+              <Sparkles size={14} className="text-violet-400" /> {!collapsed && "NaxionAI"}
+            </Link>
+          </div>
+
+          <nav className={`flex-1 space-y-0.5 overflow-y-auto scrollbar-thin ${collapsed ? "px-2" : "px-3"}`}>
+            {primaryNav.map(renderNavItem)}
+            {collapsed ? (
+              // Collapsed rail has no room for group labels/chevrons — flatten
+              // every group to a plain icon stack instead of a broken accordion.
+              <>
+                {workspaceNav.map(renderNavItem)}
+                {nav.watch.map(renderNavItem)}
+                {nav.library.map(renderNavItem)}
+                {nav.monitoring.map(renderNavItem)}
+                {nav.system.map(renderNavItem)}
+              </>
+            ) : (
+              <>
+                {renderGroup("workspace", "Workspace", WorkspaceFolderIcon, workspaceNav)}
+                {nav.watch.length > 0 &&
+                  renderGroup("watch", "Watch", SearchIconMat, nav.watch, counts.approvals + counts.activity)}
+                {nav.library.length > 0 && renderGroup("library", "Library", DocsFolderIcon, nav.library)}
+                {nav.monitoring.length > 0 && renderGroup("monitoring", "Monitor", BenchmarkFolderIcon, nav.monitoring)}
+                {nav.system.length > 0 && renderGroup("system", "System", ConfigFolderIcon, nav.system)}
+              </>
+            )}
+          </nav>
+
+          <div className="px-3 py-3 border-t border-ink-800">
+            {!collapsed && <div className="px-3 text-[10px] text-cream-300/40">local, 127.0.0.1</div>}
+          </div>
+        </aside>
+
+        <main className="flex-1 flex flex-col overflow-hidden">
+          <header className="flex items-center justify-between px-8 py-3 tablet:px-6 tablet:py-2 border-b border-ink-800">
+            <div className="flex items-center gap-2.5">
+              {user ? (
+                <>
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-coral-500 grid place-items-center text-[11px] font-semibold text-white">
+                    {user.name
+                      .split(" ")
+                      .map((p) => p[0])
+                      .slice(0, 2)
+                      .join("")
+                      .toUpperCase()}
+                  </div>
+                  <div className="text-sm text-cream-200">
+                    {user.name} <span className="text-cream-300/50">· {user.email}</span>
+                  </div>
+                  <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/70">
+                    {user.role}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={signOut}
+                    title="Sign out"
+                    className="ml-1 text-cream-300/50 hover:text-coral-400 p-1"
+                  >
+                    <LogOut size={14} />
+                  </button>
+                </>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {persona && (
+                <Link
+                  to="/personas"
+                  className="nw-shiny-pill flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border bg-violet-500/10 border-violet-500/30 text-violet-300"
+                  title="Active persona"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
+                  {persona.name} <span className="opacity-60">· {persona.role}</span>
+                </Link>
+              )}
+              <div
+                className={`nw-shiny-pill flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border ${statusOk ? "bg-leaf-500/10 border-leaf-500/30 text-leaf-400" : "bg-flame-500/10 border-flame-500/30 text-flame-400"}`}
+              >
+                <span
+                  className={`inline-block w-1.5 h-1.5 rounded-full ${statusOk ? "bg-leaf-500" : "bg-flame-500 animate-pulse"}`}
+                />
+                {statusLabel}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const ev = new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true, bubbles: true });
+                  document.dispatchEvent(ev);
+                }}
+                className="flex items-center gap-2 text-xs px-3 py-1.5 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors"
+                title="Open command palette"
+              >
+                <SearchIcon size={12} />
+                <span>Search</span>
+                <span className="flex items-center gap-0.5">
+                  <MetaKey />
+                  <Kbd>K</Kbd>
+                </span>
+              </button>
+            </div>
+          </header>
+          <div className={`flex-1 scrollbar-thin ${clearBackground ? "overflow-hidden" : "overflow-auto"}`}>
+            {/* key re-keys the wrapper on route change, restarting the
               nw-page-enter animation. Reduced-motion users get an instant
               swap (the keyframe collapses to no-op in CSS). Naxie gets a
               full-bleed, full-height canvas instead of the max-w-6xl reading
               column — it hosts the knowledge-graph "brain", not prose. */}
-          <div
-            key={location.pathname.split("/")[1] || "/"}
-            className={
-              clearBackground
-                ? "h-full px-4 py-5 tablet:px-6 tablet:py-5 nw-page-enter"
-                : "max-w-6xl mx-auto px-6 py-6 tablet:px-8 tablet:py-7 nw-page-enter"
-            }
-          >
-            {children}
+            <div
+              key={location.pathname.split("/")[1] || "/"}
+              className={
+                clearBackground
+                  ? "h-full px-4 py-5 tablet:px-6 tablet:py-5 nw-page-enter"
+                  : "max-w-6xl mx-auto px-6 py-6 tablet:px-8 tablet:py-7 nw-page-enter"
+              }
+            >
+              {children}
+            </div>
           </div>
-        </div>
-        <TerminalDrawer />
-      </main>
-      <CommandPalette />
-      <ToastRack />
-      <NaxieWidget />
-    </div>
+          <TerminalDrawer />
+        </main>
+        <CommandPalette />
+        <ToastRack />
+        <NaxieWidget />
+      </div>
     </TerminalProvider>
   );
 }

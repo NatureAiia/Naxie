@@ -3,7 +3,7 @@ import { useEffect, useState, type ComponentType } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   MessageSquare, Users, ListChecks, CheckCircle2,
-  BookOpen, Wrench, Sparkles,
+  BookOpen, Sparkles, Terminal,
   UserCircle, PlusCircle, Search as SearchIcon, LayoutDashboard, Calendar,
   Plug,
 } from "lucide-react";
@@ -16,7 +16,6 @@ const ChangelogIcon = matIcon("changelog");
 const LogIcon = matIcon("log");
 const TemplateIcon = matIcon("template");
 const CertificateIcon = matIcon("certificate");
-const AdminFolderIcon = matIcon("folder-admin");
 
 type Item = {
   id: string;
@@ -55,6 +54,7 @@ export function CommandPalette() {
     { id: "n-naxie", group: "Navigate", label: "NaxionAI", icon: Sparkles, onSelect: go("/naxie"), keywords: "voice assistant mic talk speak naxie jarvis" },
     { id: "n-team", group: "Navigate", label: "Focus Team", icon: Users, onSelect: go("/team"), keywords: "team personas employees dispatch" },
     { id: "n-presets", group: "Navigate", label: "Hire a worker (Presets)", icon: Sparkles, onSelect: go("/presets"), keywords: "preset role hire onboard setup wizard sdr assistant recruiter" },
+    { id: "n-terminal", group: "Navigate", label: "IDE", icon: Terminal, onSelect: go("/ide"), keywords: "shell console command exec code editor" },
     { id: "n-tasks", group: "Navigate", label: "Tasks", icon: ListChecks, onSelect: go("/tasks"), keywords: "jobs queue" },
     { id: "n-reports", group: "Navigate", label: "Reports", icon: ChangelogIcon, onSelect: go("/results"), keywords: "results outputs" },
     { id: "n-knowledge", group: "Navigate", label: "Knowledge vault", icon: BookOpen, onSelect: go("/knowledge"), keywords: "vault notes search" },
@@ -72,10 +72,8 @@ export function CommandPalette() {
     { id: "l-skills", group: "Library", label: "Skills", icon: Sparkles, onSelect: go("/skills") },
     { id: "l-personas", group: "Library", label: "Employees", icon: UserCircle, onSelect: go("/personas"), keywords: "personas roles" },
     { id: "l-governance", group: "Library", label: "Instructions and Policies", icon: CertificateIcon, onSelect: go("/governance"), keywords: "policy guardrail compliance governance" },
-    { id: "l-admin", group: "Library", label: "Admin", icon: AdminFolderIcon, onSelect: go("/admin") },
     { id: "l-integrations", group: "Library", label: "Extensions — Integrations", icon: Plug, onSelect: go("/extensions?tab=integrations"), keywords: "connect slack telegram github notion social oauth api integrations" },
     { id: "l-connectors", group: "Library", label: "Extensions — Connectors", icon: Plug, onSelect: go("/extensions?tab=connectors"), keywords: "connect company api base url auth connectors" },
-    { id: "l-tools", group: "Library", label: "Tools", icon: Wrench, onSelect: go("/admin"), keywords: "config" },
   ];
 
   if (!open) return null;

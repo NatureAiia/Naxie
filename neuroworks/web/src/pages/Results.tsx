@@ -98,6 +98,7 @@ export function Results() {
 function Outcomes({ runs, curation }: { runs: any[]; curation?: any }) {
   const items = useMemo(() => extractOutcomes(runs, curation), [runs, curation]);
   const [vaultStats, setVaultStats] = useState<any>(null);
+  const [retry, setRetry] = useState<"idle" | "running" | "ok" | "fail">("idle");
   const hasVaultWrite = items.some(it => it.kind === "write" || it.kind === "capture");
   useEffect(() => {
     if (!hasVaultWrite) return;
@@ -106,13 +107,25 @@ function Outcomes({ runs, curation }: { runs: any[]; curation?: any }) {
   if (items.length === 0) return null;
   const lc = vaultStats?.lastCommit;
   const pushPending = lc && lc.ok === true && lc.pushed === false;
+  async function retryPush() {
+    setRetry("running");
+    try {
+      const r = await api.vaultRetryPush();
+      setRetry(r.pushed ? "ok" : "fail");
+      if (r.pushed) setVaultStats((s: any) => s ? { ...s, lastCommit: { ...s.lastCommit, pushed: true } } : s);
+    } catch { setRetry("fail"); }
+  }
   return (
     <section className="mt-10">
       <h2 className="font-display text-xl text-cream-50 mb-3">Outcomes</h2>
       {pushPending && (
         <div className="mb-3 text-[11px] text-flame-400 bg-flame-500/10 border border-flame-500/30 rounded-md px-3 py-2 flex items-center gap-2 flex-wrap">
           <span>⚠ Saved locally — origin push hasn't completed yet.</span>
-          <Link to="/admin" className="underline hover:text-flame-300">Retry on Admin →</Link>
+          <button onClick={retryPush} disabled={retry === "running"} className="underline hover:text-flame-300 disabled:opacity-50">
+            {retry === "running" ? "Retrying…" : "Retry push →"}
+          </button>
+          {retry === "ok" && <span className="text-leaf-400">✓ synced</span>}
+          {retry === "fail" && <span className="text-coral-400">push failed — try again</span>}
         </div>
       )}
       <ul className="space-y-3">

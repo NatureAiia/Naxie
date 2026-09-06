@@ -182,7 +182,7 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
   async function startCall() {
     if (live !== "off") return;
     if (!status?.realtime) {
-      showToast("Live calls need an OpenAI provider — add one on the Admin page. Meanwhile, ask below and I'll speak the answer.", "error");
+      showToast("Live calls need an OpenAI provider — set OPENROUTER_API_KEY or OPENAI_API_KEY in .env and restart. Meanwhile, ask below and I'll speak the answer.", "error");
       return;
     }
     setLive("connecting");

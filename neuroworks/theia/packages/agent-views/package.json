@@ -1,0 +1,29 @@
+{
+  "name": "@naxion/agent-views",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Naxion AI agent dock views for Theia — Claude Code, Codex, OpenCode, Hermes",
+  "theia": {
+    "target": "browser",
+    "frontend": "lib/browser/agent-views-frontend-module",
+    "backend": "lib/node/agent-views-backend-module"
+  },
+  "dependencies": {
+    "@theia/core": "1.75.0",
+    "@theia/ai-core": "1.75.0",
+    "@theia/ai-chat": "1.75.0",
+    "@theia/editor": "1.75.0",
+    "@theia/process": "1.75.0",
+    "@theia/terminal": "1.75.0"
+  },
+  "devDependencies": {
+    "@theia/cli": "1.75.0",
+    "typescript": "~5.6.3"
+  },
+  "scripts": {
+    "build": "theia build",
+    "watch": "theia build --watch",
+    "clean": "rimraf lib"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

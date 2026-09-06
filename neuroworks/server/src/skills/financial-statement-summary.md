@@ -43,6 +43,11 @@ A founder or board member understands the financial position in two minutes — 
 
 - **Gross margin** = (revenue − COGS) / revenue. **Runway** = cash / monthly net burn. **Current ratio** = current assets / current liabilities. **DSO** = receivables / revenue × days. Compute, don't just define.
 
+## Multi-currency figures
+
+If the statements mix currencies (e.g. local-currency revenue vs. a USD-denominated cost line, or the reader needs a USD view of a ZWL/ZAR statement), convert via the "Frankfurter FX" connector rather than a remembered rate — FX moves fast and a stale rate misstates every downstream ratio:
+`connector.call` with `{connector:"Frankfurter FX", path:"/v1/latest", query:{base:"USD", symbols:"ZAR"}}` (or `/v1/{date}` for the rate as of the period-end date, so the conversion matches the statement's own reporting date). State the rate and its date next to any converted figure — never silently convert.
+
 ## Rules
 
 - **Lead with the headline number and the trend**, not a definition of EBITDA.

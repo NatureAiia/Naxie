@@ -691,16 +691,13 @@ async function handleChat(req: any, res: any) {
       candidates: [],
       reason: "task may send email, query the database, or call a connector — running on the primary so the approval checkpoint lands here",
     };
-  } else if (isHermesPrimary()) {
-    // Hermes is the primary executor — it does the work itself (locally,
-    // through the Hermes adapter below). Never delegate to a clawbot
-    // persona-shifter worker; the persona framing is injected into Hermes.
-    routingDecision = {
-      decision: "local",
-      localInflight: localInflightCount(),
-      candidates: [], reason: "primary executor = hermes — running through the Hermes agent",
-    };
   } else if (DELEGATE_ALL) {
+    // Chain of command: naxie triages, the sub-agent org (persona-shifter
+    // pool) gets first shot when a worker is reachable, Hermes is the
+    // local-execution arm when no worker is reachable, and clawbot's own
+    // pipeline is the last-resort fallback (see the HERMES block below).
+    // Hermes being the configured executor no longer skips this — both run,
+    // each catching what the other can't.
     try {
       // First pass: see if a persona-shifter is reachable. If yes, use the
       // load-aware picker so a busy persona-shifter doesn't suck up work

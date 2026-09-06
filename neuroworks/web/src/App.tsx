@@ -1,28 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense } from "react";
 import { Layout } from "./components/Layout";
 import { Skeleton } from "./components/Card";
-import { api, layerOfRole, type AccessLayer } from "./lib/api";
-
-// Client-side route guard for admin-only pages (Approvals, Security). This is
-// defense-in-depth — the server already gates these APIs with requireLayer —
-// but without it a staff user could navigate straight to the URL and load a
-// page that only 403s on action. No session = loopback operator = full access,
-// mirroring Layout's own layer logic. While the session resolves we render
-// nothing (avoids a flash), then redirect staff to /chat.
-function AdminOnly({ children }: { children: React.ReactNode }) {
-  const [layer, setLayer] = useState<AccessLayer | "loading">("loading");
-  useEffect(() => {
-    let alive = true;
-    api.session()
-      .then(s => { if (alive) setLayer(!s.user ? "superadmin" : layerOfRole(s.user.role)); })
-      .catch(() => { if (alive) setLayer("superadmin"); });
-    return () => { alive = false; };
-  }, []);
-  if (layer === "loading") return null;
-  if (layer === "staff") return <Navigate to="/chat" replace />;
-  return <>{children}</>;
-}
 
 // Route-level code splitting. Onboarding loads eagerly (it's the first thing
 // a fresh workspace sees); everything behind the app shell is fetched on
@@ -40,7 +19,6 @@ const Approvals = lazy(() => import("./pages/Approvals").then(m => ({ default: m
 const Security = lazy(() => import("./pages/Security").then(m => ({ default: m.Security })));
 const Activity = lazy(() => import("./pages/Activity").then(m => ({ default: m.Activity })));
 const Knowledge = lazy(() => import("./pages/Knowledge").then(m => ({ default: m.Knowledge })));
-const Admin = lazy(() => import("./pages/Admin").then(m => ({ default: m.Admin })));
 const Chat = lazy(() => import("./pages/Chat").then(m => ({ default: m.Chat })));
 const Personas = lazy(() => import("./pages/Personas").then(m => ({ default: m.Personas })));
 const Team = lazy(() => import("./pages/Team").then(m => ({ default: m.Team })));
@@ -66,6 +44,7 @@ const DailyReports = lazy(() => import("./pages/DailyReports").then(m => ({ defa
 const MyWork = lazy(() => import("./pages/MyWork").then(m => ({ default: m.MyWork })));
 const Naxie = lazy(() => import("./pages/Naxie").then(m => ({ default: m.Naxie })));
 const NaxieMemory = lazy(() => import("./pages/NaxieMemory").then(m => ({ default: m.NaxieMemory })));
+const IDE = lazy(() => import("./pages/IDE").then(m => ({ default: m.IDE })));
 
 // Lightweight, layout-shift-free placeholder while a route chunk downloads —
 // on a warm cache this never has time to paint; on a cold load it beats a
@@ -107,8 +86,8 @@ function AppShell() {
         <Route path="/daily-reports" element={<DailyReports />} />
         <Route path="/templates" element={<Templates />} />
         <Route path="/skills" element={<Skills />} />
-        <Route path="/approvals" element={<AdminOnly><Approvals /></AdminOnly>} />
-        <Route path="/security" element={<AdminOnly><Security /></AdminOnly>} />
+        <Route path="/approvals" element={<Approvals />} />
+        <Route path="/security" element={<Security />} />
         <Route path="/activity" element={<Activity />} />
         <Route path="/my-work" element={<MyWork />} />
         <Route path="/schedules" element={<Schedules />} />
@@ -129,8 +108,9 @@ function AppShell() {
         <Route path="/audit" element={<AuditLog />} />
         <Route path="/skill-forge" element={<SkillForge />} />
         <Route path="/orchestrate" element={<Orchestrate />} />
-        <Route path="/admin" element={<Admin />} />
         <Route path="/personas" element={<Personas />} />
+        <Route path="/ide" element={<IDE />} />
+        <Route path="/terminal" element={<Navigate to="/ide" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" />} />
       </Routes>
       </Suspense>

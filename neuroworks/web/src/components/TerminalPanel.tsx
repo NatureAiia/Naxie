@@ -19,7 +19,9 @@ export function TerminalPanel({ scrollHeightClass = "h-[58vh]" }: { scrollHeight
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [entries, running]);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [entries, running]);
 
   function submit() {
     if (!input.trim() || running) return;
@@ -29,31 +31,44 @@ export function TerminalPanel({ scrollHeightClass = "h-[58vh]" }: { scrollHeight
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") { e.preventDefault(); submit(); return; }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submit();
+      return;
+    }
     if (e.key === "ArrowUp") {
       e.preventDefault();
       if (history.length === 0) return;
       const next = histIdx === null ? history.length - 1 : Math.max(0, histIdx - 1);
-      setHistIdx(next); setInput(history[next]);
+      setHistIdx(next);
+      setInput(history[next]);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       if (histIdx === null) return;
       const next = histIdx + 1;
-      if (next >= history.length) { setHistIdx(null); setInput(""); }
-      else { setHistIdx(next); setInput(history[next]); }
+      if (next >= history.length) {
+        setHistIdx(null);
+        setInput("");
+      } else {
+        setHistIdx(next);
+        setInput(history[next]);
+      }
     } else if (e.key === "l" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault(); clear();
+      e.preventDefault();
+      clear();
     }
   }
 
   return (
-    <div className="rounded-xl border border-ink-800 bg-ink-950/80 overflow-hidden shadow-inner">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-ink-800 bg-ink-900/60">
+    <div className="rounded-xl border border-white/10 bg-ink-950/50 backdrop-blur-xl overflow-hidden shadow-inner shadow-black/20">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-white/5 backdrop-blur-md">
         <div className="flex items-center gap-2 text-xs text-cream-300/60 font-mono">
           <span className="w-2.5 h-2.5 rounded-full bg-flame-500/60" />
           <span className="w-2.5 h-2.5 rounded-full bg-amber-400/60" />
           <span className="w-2.5 h-2.5 rounded-full bg-leaf-500/60" />
-          <span className="ml-2 truncate max-w-[40ch]" title={cwd}>{cwd || "—"}</span>
+          <span className="ml-2 truncate max-w-[40ch]" title={cwd}>
+            {cwd || "—"}
+          </span>
         </div>
         <button
           type="button"
@@ -66,16 +81,21 @@ export function TerminalPanel({ scrollHeightClass = "h-[58vh]" }: { scrollHeight
       </div>
 
       {enabled === false && (
-        <div className="flex items-start gap-3 px-4 py-3 text-sm text-flame-300 border-b border-ink-800 bg-flame-500/5">
+        <div className="flex items-start gap-3 px-4 py-3 text-sm text-flame-300 border-b border-white/10 bg-flame-500/10 backdrop-blur-md">
           <AlertTriangle size={18} className="shrink-0 mt-0.5" />
           <div>
             <div className="font-medium text-flame-200">Terminal is disabled</div>
-            <div className="mt-0.5 text-flame-300/90">{hint ?? "set NEUROWORKS_TERMINAL=1 in clawbot/.env and restart the server to enable."}</div>
+            <div className="mt-0.5 text-flame-300/90">
+              {hint ?? "set NEUROWORKS_TERMINAL=1 in clawbot/.env and restart the server to enable."}
+            </div>
           </div>
         </div>
       )}
 
-      <div ref={scrollRef} className={`${scrollHeightClass} overflow-y-auto scrollbar-thin px-4 py-3 font-mono text-[13px] leading-relaxed`}>
+      <div
+        ref={scrollRef}
+        className={`${scrollHeightClass} overflow-y-auto scrollbar-thin px-4 py-3 font-mono text-[13px] leading-relaxed`}
+      >
         {entries.length === 0 && !running && (
           <div className="text-cream-300/40 select-none">
             {enabled === false
@@ -96,9 +116,9 @@ export function TerminalPanel({ scrollHeightClass = "h-[58vh]" }: { scrollHeight
               <div className="text-flame-400/80 text-[11px] mt-0.5">
                 {en.timedOut ? "timed out" : `exit ${en.exitCode}`} · {en.elapsedMs} ms
               </div>
-            ) : (en.error ? null : (
+            ) : en.error ? null : (
               <div className="text-cream-300/40 text-[11px] mt-0.5">exit 0 · {en.elapsedMs} ms</div>
-            ))}
+            )}
           </div>
         ))}
         {running && (
@@ -108,12 +128,12 @@ export function TerminalPanel({ scrollHeightClass = "h-[58vh]" }: { scrollHeight
         )}
       </div>
 
-      <div className="flex items-center gap-2 px-4 py-2.5 border-t border-ink-800 bg-ink-900/40">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-t border-white/10 bg-white/5 backdrop-blur-md">
         <span className="font-mono text-[13px] text-violet-400 shrink-0">{prompt(cwd)} ❯</span>
         <input
           ref={inputRef}
           value={input}
-          onChange={e => setInput(e.target.value)}
+          onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
           disabled={enabled === false || running}
           spellCheck={false}

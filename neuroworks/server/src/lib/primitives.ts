@@ -3854,6 +3854,55 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     },
   },
   {
+    name: "mcp.list",
+    description: "List the external MCP (Model Context Protocol) servers the operator has registered — e.g. filesystem, browser, database, or third-party MCP servers from the community catalog. Use to discover which local tool servers you can call before reaching for mcp.call. Returns id, label, description, and connection status — never env secrets.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listMcpServers } = await import("./mcp-clients.js");
+      return {
+        servers: listMcpServers().map(s => ({
+          id: s.id, label: s.label, description: s.description, disabled: s.disabled,
+          lastConnectedAt: s.lastConnectedAt, lastToolCount: s.lastToolCount, lastError: s.lastError,
+        })),
+      };
+    },
+  },
+  {
+    name: "mcp.describe",
+    description: "List the tools exposed by one registered MCP server (name, description, input schema), starting it if it isn't already running. Always describe a server before calling one of its tools. Pass the server id or label.",
+    readonly: true,
+    args: [{ name: "server", type: "string", required: true, description: "MCP server id or label" }],
+    handler: async (args) => {
+      const { listMcpTools } = await import("./mcp-clients.js");
+      try {
+        const tools = await listMcpTools(String(args.server ?? ""));
+        return { tools };
+      } catch (e: any) {
+        return { error: e?.message ?? String(e) };
+      }
+    },
+  },
+  {
+    name: "mcp.call",
+    description: "Call one tool on a registered MCP server (starts the server on first use). Unlike connector.call this is ALWAYS approval-gated — an MCP server is a local process the operator configured, not a scoped HTTP endpoint, so there's no read/write distinction to safely auto-approve. Returns { ok, content } with the tool's result (JSON parsed when possible, truncated if large).",
+    readonly: false,
+    args: [
+      { name: "server", type: "string", required: true, description: "MCP server id or label" },
+      { name: "tool", type: "string", required: true, description: "Tool name, from mcp.describe" },
+      { name: "arguments", type: "string", required: false, description: "Tool arguments as a JSON object, e.g. {\"path\":\"/tmp/x.txt\"}" },
+    ],
+    handler: async (args) => {
+      const { callMcpTool } = await import("./mcp-clients.js");
+      const coerce = (v: any): Record<string, unknown> => {
+        if (v === undefined || v === null || v === "") return {};
+        if (typeof v === "string") { try { return JSON.parse(v); } catch { return {}; } }
+        return v;
+      };
+      return callMcpTool(String(args.server ?? ""), String(args.tool ?? ""), coerce(args.arguments));
+    },
+  },
+  {
     name: "media.tts",
     description: "Generate spoken-audio narration of text. NOTE: text-to-speech has no configured provider right now — it returns a friendly 'not available' message, so deliver the finished SCRIPT and note the audio render is pending a provider. (OpenRouter has no TTS; a Kokoro sidecar can be wired to enable it.)",
     readonly: false,
