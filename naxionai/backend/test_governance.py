@@ -174,12 +174,51 @@ class TestDescribeStepAction:
         assert "a@x.com, b@x.com" in desc
 
 
-class TestConsequentialToolsIsNotWired:
-    def test_consequential_tools_defined_but_unused_marker(self):
-        # This is a documentation test, not a behavior test: CONSEQUENTIAL_TOOLS
-        # (governance.py:32-41) exists and is non-empty but — per the module's
-        # own docstring — is not called from any tool-execution call site in
-        # this pass. Asserting its shape here means a future wiring pass has a
-        # test to update (rather than the constant silently drifting unnoticed).
-        assert "email.send" in gov.CONSEQUENTIAL_TOOLS
-        assert "code.exec" in gov.CONSEQUENTIAL_TOOLS
+class TestConsequentialTools:
+    def test_names_match_real_langchain_tool_names(self):
+        # CONSEQUENTIAL_TOOLS must hold the actual tool names bound in
+        # agent/tools/system_tools.py (get_agent_tools) and agent/tools/pa_tools.py
+        # (get_pa_tools) — not TS-style dotted names, which never match anything
+        # a LangChain tool call in this codebase is actually named.
+        assert gov.CONSEQUENTIAL_TOOLS == {
+            "execute_python", "vault_write", "update_truth_bucket",
+            "system_control", "manage_clipboard", "git_command",
+        }
+        assert "email.send" not in gov.CONSEQUENTIAL_TOOLS
+        assert "code.exec" not in gov.CONSEQUENTIAL_TOOLS
+
+
+class TestIsConsequentialTool:
+    def test_exact_match(self):
+        assert gov.is_consequential_tool("execute_python") is True
+        assert gov.is_consequential_tool("vault_write") is True
+
+    def test_read_only_tool_is_not_consequential(self):
+        assert gov.is_consequential_tool("vault_read") is False
+        assert gov.is_consequential_tool("read_system_context") is False
+        assert gov.is_consequential_tool("query_knowledge") is False
+
+
+class TestCheckStepAgainstGovernance:
+    def test_non_consequential_tool_always_passes(self):
+        c = _constraint("Never write to the vault about layoffs")
+        result = gov.check_step_against_governance("vault_read", {"path": "layoffs.md"}, [c])
+        assert result == {"blocked": False, "violations": []}
+
+    def test_no_enforceable_constraints_passes(self):
+        result = gov.check_step_against_governance("execute_python", {"code": "print(1)"}, [])
+        assert result == {"blocked": False, "violations": []}
+
+    def test_blocks_consequential_tool_on_strong_match(self):
+        c = _constraint("Never publish unreviewed financial statements externally")
+        args = {"content": "Publish the unreviewed financial statement externally"}
+        result = gov.check_step_against_governance("vault_write", args, [c])
+        assert result["blocked"] is True
+        assert result["violations"][0]["rule"] == c["rule"]
+
+    def test_monitor_mode_never_blocks_a_step(self, monkeypatch):
+        monkeypatch.setenv("NAXIONAI_GOVERNANCE_MODE", "monitor")
+        c = _constraint("Never publish unreviewed financial statements externally")
+        args = {"content": "Publish the unreviewed financial statement externally"}
+        result = gov.check_step_against_governance("vault_write", args, [c])
+        assert result == {"blocked": False, "violations": []}

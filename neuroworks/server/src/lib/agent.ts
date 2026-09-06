@@ -425,7 +425,7 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
       // Filename-only scan here too: the planner only needs a hint about
       // whether the vault has anything on this topic. Full content search
       // would cost 10-15s on a big vault before the planner LLM even starts.
-      const hits = searchVaultFilenames(topic, 5);
+      const hits = searchVaultFilenames(topic, 5, { excludeAgentCaptures: true });
       if (hits.length > 0) {
         vaultContext = `\n\nVault context: the user's vault has ${hits.length} note${hits.length === 1 ? "" : "s"} matching this topic. Sample paths: ${hits.slice(0, 3).map(h => h.path).join(", ")}. Strongly prefer vault.search / vault.read over the web for this task; the user wants their own notes prioritised.\n`;
       } else {
@@ -1435,7 +1435,7 @@ export async function planAndExecute(
     const [llmDirect, vaultHits] = await Promise.all([
       heuristicDirect ? Promise.resolve(true) : llmTriage(bareTask).catch(() => false),
       (topic && topic.length >= 2)
-        ? Promise.resolve().then(() => { try { return searchVaultFilenames(topic, 1); } catch { return []; } })
+        ? Promise.resolve().then(() => { try { return searchVaultFilenames(topic, 1, { excludeAgentCaptures: true }); } catch { return []; } })
         : Promise.resolve([] as { path: string; line: number; preview: string }[]),
     ]);
     let direct = llmDirect;
@@ -1444,15 +1444,16 @@ export async function planAndExecute(
     // inputs (greetings, arithmetic) bypass this — "hi" matching a note
     // called "hi-everyone.md" shouldn't promote a greeting to vault search.
     //
-    // EXCLUDE agent-internal job tracker files (_neuroworks/jobs/*) —
-    // those are scratch records of past runs ("Research: who is X"),
-    // not real user knowledge. Without this filter, the second run of
-    // any query routes itself to research.deep because the FIRST run's
-    // job-tracker file matched the topic name. Round-2 harness hit this
-    // for "who is dario amodei" — the bare entity query stayed in
+    // excludeAgentCaptures above already keeps agent-internal captures
+    // (_neuroworks/jobs/* job trackers, reflections, memory, ...) out of
+    // vaultHits — those are scratch records of past runs ("Research: who
+    // is X"), not real user knowledge. Without that filter, the second run
+    // of any query would route itself to research.deep because the FIRST
+    // run's own job-tracker file matched the topic name. Round-2 harness
+    // hit this for "who is dario amodei" — the bare entity query stayed in
     // research mode (which couldn't find him) instead of falling through
     // to direct-answer / world knowledge.
-    const realVaultHits = vaultHits.filter(h => !/^_neuroworks\/jobs\//i.test(h.path));
+    const realVaultHits = vaultHits;
     const priorContext = taskHasPriorTurnContext(task);
     if (direct && realVaultHits.length > 0 && !isTriviallyDirectAnswer(bareTask, priorContext) && topic && topic.length >= 3) {
       push(`Tier 2 — your second brain: found ${realVaultHits.length} note${realVaultHits.length === 1 ? "" : "s"} on "${topic}". Pulling those in instead of going to general knowledge.`);

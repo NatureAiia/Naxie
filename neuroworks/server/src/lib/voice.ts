@@ -20,8 +20,14 @@
 // always sounds like Nova without any manual mapping. (A future persona
 // field can override.)
 
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { getFallbackChain } from "./model-providers.js";
 import { config } from "../config.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ── per-tier availability ──────────────────────────────────────────────────
 
@@ -125,20 +131,69 @@ export function voiceForPersona(personaId: string | undefined): { openaiVoice: s
   return { openaiVoice, localVoice };
 }
 
+// ── on-disk TTS cache ────────────────────────────────────────────────────
+// Same content-hash cache naxionai/backend/api/voice.py already has
+// (_tts_cache_key/_tts_cache_load/_tts_cache_store) — ported here so this
+// side stops re-hitting the TTS provider/sidecar for repeated narration of
+// the same text (a persona re-reading the same report line, a cached
+// tooltip, ...). Key = sha256(text|voice|tier); tier stands in for Python's
+// "engine" dimension (which provider actually produced the audio), since
+// that's what determines the voice namespace here.
+
+export const TTS_CACHE_DIR = resolve(__dirname, "../../../.neuroworks", "tts_cache");
+const TTS_CACHE_EXT_BY_CONTENT_TYPE: Record<string, string> = { "audio/mpeg": "mp3", "audio/wav": "wav" };
+
+export function ttsCacheKey(text: string, voice: string, tier: string): string {
+  return createHash("sha256").update(`${text}|${voice}|${tier}`).digest("hex");
+}
+
+export function ttsCacheLoad(key: string): { audio: Buffer; contentType: string } | null {
+  for (const [contentType, ext] of Object.entries(TTS_CACHE_EXT_BY_CONTENT_TYPE)) {
+    const path = join(TTS_CACHE_DIR, `${key}.${ext}`);
+    if (existsSync(path)) {
+      try { return { audio: readFileSync(path), contentType }; } catch { return null; }
+    }
+  }
+  return null;
+}
+
+export function ttsCacheStore(key: string, audio: Buffer, contentType: string): void {
+  const ext = TTS_CACHE_EXT_BY_CONTENT_TYPE[contentType];
+  if (!ext) return;
+  try {
+    mkdirSync(TTS_CACHE_DIR, { recursive: true });
+    writeFileSync(join(TTS_CACHE_DIR, `${key}.${ext}`), audio);
+  } catch (e) {
+    console.warn(`[voice] Failed to write TTS cache entry: ${String((e as any)?.message ?? e).slice(0, 120)}`);
+  }
+}
+
 // ── tiers B/C: OpenAI cloud TTS, then local sidecar ─────────────
 
 export async function synthesizeWithVoice(text: string, personaId: string | undefined): Promise<{ audio: Buffer; contentType: string }> {
   const v = voiceForPersona(personaId);
   const key = (personaId ?? "").toLowerCase();
   const isNaxie = key === "naxie" || key === "neuro" || key === "clawbot";
+  const openaiCacheKey = ttsCacheKey(text, v.openaiVoice, "openai");
+  const localCacheKey = ttsCacheKey(text, v.localVoice, "local");
+
   if (openaiTtsAvailable()) {
+    const cached = ttsCacheLoad(openaiCacheKey);
+    if (cached) return cached;
     try {
-      return await synthesizeOpenAITts(text, v.openaiVoice, isNaxie ? NAXIE_VOICE_INSTRUCTIONS : undefined);
+      const out = await synthesizeOpenAITts(text, v.openaiVoice, isNaxie ? NAXIE_VOICE_INSTRUCTIONS : undefined);
+      ttsCacheStore(openaiCacheKey, out.audio, out.contentType);
+      return out;
     } catch (e) {
       console.warn(`[voice] OpenAI TTS failed, falling back to local sidecar: ${String((e as any)?.message ?? e).slice(0, 120)}`);
     }
   }
-  return synthesizeLocal(text, v.localVoice);
+
+  const cachedLocal = ttsCacheLoad(localCacheKey);
+  if (cachedLocal) return cachedLocal;
+  const out = await synthesizeLocal(text, v.localVoice);
+  ttsCacheStore(localCacheKey, out.audio, out.contentType);
+  return out;
 }
 
 export async function synthesizeOpenAITts(text: string, voice: string, instructions?: string): Promise<{ audio: Buffer; contentType: string }> {

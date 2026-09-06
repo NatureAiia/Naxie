@@ -515,6 +515,7 @@ export const api = {
 
   // MCP-client servers (local child-process tool servers, e.g. from the community catalog).
   listMcpServers: () => req<{ servers: McpServer[] }>("/api/mcp-servers"),
+  mcpCatalog: () => req<{ catalog: McpCatalogEntry[] }>("/api/mcp-servers/catalog"),
   addMcpServer: (body: McpServerInput) => req<{ server: McpServer }>("/api/mcp-servers", { method: "POST", body: JSON.stringify(body) }),
   removeMcpServer: (id: string) => req<{ ok: true }>(`/api/mcp-servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
   setMcpServerDisabled: (id: string, disabled: boolean) => req<{ server: McpServer }>(`/api/mcp-servers/${encodeURIComponent(id)}/disabled`, { method: "PATCH", body: JSON.stringify({ disabled }) }),
@@ -778,6 +779,16 @@ export type McpServer = {
   lastError?: string;
   lastToolCount?: number;
   lastConnectedAt?: string;
+};
+export type McpCatalogEntry = {
+  id: string;
+  label: string;
+  description: string;
+  command: string;
+  args: string[];
+  env?: { name: string; description: string; required: boolean }[];
+  homepage: string;
+  source: "reference" | "community";
 };
 export type McpServerInput = {
   label: string;

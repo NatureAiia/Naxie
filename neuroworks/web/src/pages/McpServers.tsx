@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { Cable, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Power, ListTree } from "lucide-react";
-import { api, type McpServer, type McpServerInput, type McpTool, type McpCallResult } from "../lib/api";
+import { Cable, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Power, ListTree, Sparkles } from "lucide-react";
+import { api, type McpServer, type McpServerInput, type McpCatalogEntry, type McpTool, type McpCallResult } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 
 // MCP-client servers — register EXTERNAL MCP servers (community catalog, e.g.
@@ -27,8 +27,10 @@ export function McpServers() {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [prefill, setPrefill] = useState<McpCatalogEntry | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [inspecting, setInspecting] = useState<McpServer | null>(null);
+  const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
 
   async function refresh() {
     try { const l = await api.listMcpServers(); setServers(l.servers); }
@@ -36,6 +38,10 @@ export function McpServers() {
     finally { setLoading(false); }
   }
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => { api.mcpCatalog().then(r => setCatalog(r.catalog)).catch(() => {}); }, []);
+
+  const installedCommands = new Set(servers.map(s => `${s.command} ${s.args.join(" ")}`));
+  const suggestions = catalog.filter(c => !installedCommands.has(`${c.command} ${c.args.join(" ")}`));
 
   async function toggle(s: McpServer) {
     setBusy(s.id);
@@ -48,6 +54,11 @@ export function McpServers() {
     if (!confirm(`Remove MCP server "${label}"? The agent will no longer be able to call its tools.`)) return;
     try { await api.removeMcpServer(id); showToast("MCP server removed", "success"); refresh(); }
     catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+  }
+
+  function openWith(entry: McpCatalogEntry | null) {
+    setPrefill(entry);
+    setAdding(true);
   }
 
   return (
@@ -64,8 +75,23 @@ export function McpServers() {
       </div>
 
       <div className="flex justify-end">
-        <Button onClick={() => setAdding(true)}><Plus size={14} /> Add MCP server</Button>
+        <Button onClick={() => openWith(null)}><Plus size={14} /> Add MCP server</Button>
       </div>
+
+      {suggestions.length > 0 && (
+        <Card>
+          <div className="text-[11px] text-cream-300/70 flex items-center gap-1.5 mb-2"><Sparkles size={13} /> Suggested servers — hand-verified against the official MCP servers list</div>
+          <div className="flex flex-wrap gap-2">
+            {suggestions.map(c => (
+              <button key={c.id} type="button" onClick={() => openWith(c)}
+                title={c.description}
+                className="text-[12px] px-2.5 py-1.5 rounded-lg bg-ink-950/50 border border-ink-800 text-cream-200 hover:border-violet-500/50 hover:text-cream-50 flex items-center gap-1.5">
+                <Plus size={11} /> {c.label}
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-cream-300/60"><Loader2 size={16} className="animate-spin" /> Loading MCP servers…</div>
@@ -119,7 +145,7 @@ export function McpServers() {
         </div>
       )}
 
-      {adding && <AddMcpServerModal onClose={() => setAdding(false)} onSaved={() => { setAdding(false); refresh(); }} />}
+      {adding && <AddMcpServerModal prefill={prefill} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); refresh(); }} />}
       {inspecting && <ToolsModal server={inspecting} onClose={() => setInspecting(null)} />}
     </div>
   );
@@ -127,12 +153,12 @@ export function McpServers() {
 
 const FIELD = "w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/60 placeholder:text-cream-300/30";
 
-function AddMcpServerModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [label, setLabel] = useState("");
-  const [description, setDescription] = useState("");
-  const [command, setCommand] = useState("npx");
-  const [argsText, setArgsText] = useState("");
-  const [envJson, setEnvJson] = useState("");
+function AddMcpServerModal({ prefill, onClose, onSaved }: { prefill: McpCatalogEntry | null; onClose: () => void; onSaved: () => void }) {
+  const [label, setLabel] = useState(prefill?.label ?? "");
+  const [description, setDescription] = useState(prefill?.description ?? "");
+  const [command, setCommand] = useState(prefill?.command ?? "npx");
+  const [argsText, setArgsText] = useState(prefill?.args.map(a => a.includes(" ") ? `"${a}"` : a).join(" ") ?? "");
+  const [envJson, setEnvJson] = useState(prefill?.env?.length ? JSON.stringify(Object.fromEntries(prefill.env.map(e => [e.name, ""])), null, 2) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -186,6 +212,11 @@ function AddMcpServerModal({ onClose, onSaved }: { onClose: () => void; onSaved:
             <textarea value={envJson} onChange={e => setEnvJson(e.target.value)} rows={3}
               placeholder={'{ "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..." }'} className={`${FIELD} font-mono text-[12px]`} spellCheck={false} />
             <div className="text-[10px] text-cream-300/40 mt-1">Encrypted at rest, never shown again after saving — for a server's own API keys (e.g. a GitHub MCP server's PAT).</div>
+            {prefill?.env?.length ? (
+              <div className="text-[10px] text-amber-300/70 mt-1">
+                {prefill.label} needs: {prefill.env.map(e => `${e.name}${e.required ? "" : " (optional)"}`).join(", ")} — fill in the values above.
+              </div>
+            ) : null}
           </div>
           <div className="text-[11px] text-cream-300/60 bg-ink-950/40 border border-ink-800 rounded-lg px-3 py-2">
             This runs a local command with the server's own OS permissions. Only add servers from sources you trust —

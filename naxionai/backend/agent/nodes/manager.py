@@ -7,14 +7,42 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AI
 
 logger = logging.getLogger(__name__)
 
+async def _load_enforceable_governance(user_id: str) -> list:
+    """Loads this user's enforceable (reviewed+accepted+hard) governance
+    constraints, mirroring api/chat.py's governance-prefix lookup. Best
+    effort — governance must never block a run on its own failure."""
+    if not user_id:
+        return []
+    try:
+        from database import async_session, GovernancePolicy, GovernanceConstraint
+        from sqlalchemy import select
+        import governance as gov
+        async with async_session() as db:
+            constraint_rows = (await db.execute(
+                select(GovernanceConstraint, GovernancePolicy.name)
+                .join(GovernancePolicy, GovernanceConstraint.policy_id == GovernancePolicy.id)
+                .where(GovernancePolicy.owner_id == user_id)
+            )).all()
+        return gov.filter_enforceable([
+            {"id": c.id, "policy_name": name, "rule": c.rule, "severity": c.severity,
+             "category": c.category, "reviewed": c.reviewed, "accepted": c.accepted}
+            for c, name in constraint_rows
+        ])
+    except Exception as e:
+        logger.warning(f"[Supervisor] Governance constraint lookup failed: {e}")
+        return []
+
+
 async def manager_node(state: AgentState) -> dict:
     from agent.tools.system_tools import get_agent_tools
     from agent.llm import get_tool_llm
-    
+    import governance as gov
+
     logger.info(f"[Supervisor] Waking up Omni-Hub for goal: {str(state.get('goal_id') or 'chat')[:8]}...")
-    
+
     tools = get_agent_tools(state)
     llm = get_tool_llm(temperature=0.2).bind_tools(tools)
+    enforceable_constraints = await _load_enforceable_governance(state.get("created_by", ""))
     
     # ── Map-Reduce Results Stitching ──
     # content_director/distribution_manager run fanned out via Send() and
@@ -99,6 +127,21 @@ If you are done processing the user's intent or you need to reply directly to th
             # Find tool
             tool_func = next((t for t in tools if t.name == tool_name), None)
             if tool_func:
+                # Governance gate — runs BEFORE the tool call, only for
+                # side-effecting tools (see CONSEQUENTIAL_TOOLS in
+                # governance.py). Mirrors neuroworks' checkStepAgainstGovernance
+                # call site in lib/agent.ts's step-execution loop. Fails open:
+                # a governance-check error never blocks a tool call on its own.
+                try:
+                    gate = gov.check_step_against_governance(tool_name, tool_args, enforceable_constraints)
+                except Exception:
+                    gate = {"blocked": False, "violations": []}
+                if gate["blocked"]:
+                    reason = "; ".join(f'"{v["rule"]}" (policy: {v["policy_name"]})' for v in gate["violations"])
+                    msg = f"Blocked by governance policy — {reason}"
+                    logger.warning(f"[Supervisor] Governance blocked {tool_name}: {reason}")
+                    messages.append(ToolMessage(content=msg, tool_call_id=tc["id"]))
+                    continue
                 try:
                     res = await tool_func.ainvoke(tool_args)
                     res_str = str(res)

@@ -4,6 +4,7 @@ import {
   listMcpTools, callMcpTool,
 } from "../lib/mcp-clients.js";
 import { logAudit } from "../lib/audit-log.js";
+import { listMcpCatalog } from "../lib/mcp-catalog.js";
 
 // MCP-client servers API — the operator registers external MCP servers
 // (community catalog: github.com/punkpeye/awesome-mcp-servers) as local
@@ -16,6 +17,10 @@ import { logAudit } from "../lib/audit-log.js";
 export const mcpServersRouter = Router();
 
 mcpServersRouter.get("/", (_req, res) => res.json({ servers: listMcpServers() }));
+
+// Curated suggestions to prefill the "Add server" modal with — hand-verified
+// against modelcontextprotocol/servers, not the operator's own registered servers.
+mcpServersRouter.get("/catalog", (_req, res) => res.json({ catalog: listMcpCatalog() }));
 
 // Add a server. body: { label, description?, command, args?: string[], env?: Record<string,string> }
 mcpServersRouter.post("/", (req, res) => {
