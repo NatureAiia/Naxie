@@ -85,3 +85,36 @@ export async function latestRun(owner: string, repo: string, workflowFile: strin
   const { data } = await octokit.actions.listWorkflowRuns({ owner, repo, workflow_id: workflowFile, per_page: 1 });
   return data.workflow_runs[0] ?? null;
 }
+
+// Search ARBITRARY/trending repos (not scoped to ones we own) — used by the
+// Innovation Scan's "what's new and interesting" broad watch pass. Distinct
+// from listOwnedRepos et al above, which only ever read repos we already
+// have access to. Errors swallow to an empty list (mirrors this file's
+// existing error-handling style) EXCEPT a 401, which rethrows loudly — a
+// dead token silently returning [] here would read as "nothing trending"
+// rather than "the token is broken", same trap rethrowIfAuthError guards
+// against elsewhere in this file.
+export async function searchTrendingRepos(
+  query: string,
+  opts: { limit?: number } = {},
+): Promise<{ name: string; fullName: string; description: string | null; stars: number; url: string }[]> {
+  const limit = Math.min(20, Math.max(1, opts.limit ?? 8));
+  try {
+    const { data } = await octokit.search.repos({
+      q: query,
+      sort: "stars",
+      order: "desc",
+      per_page: limit,
+    });
+    return data.items.map(r => ({
+      name: r.name,
+      fullName: r.full_name,
+      description: r.description ?? null,
+      stars: r.stargazers_count ?? 0,
+      url: r.html_url,
+    }));
+  } catch (e) {
+    rethrowIfAuthError(e);
+    return [];
+  }
+}

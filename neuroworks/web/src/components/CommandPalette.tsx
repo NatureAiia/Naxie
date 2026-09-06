@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import {
   MessageSquare, Users, ListChecks, CheckCircle2,
   BookOpen, Sparkles, Terminal,
-  UserCircle, PlusCircle, Search as SearchIcon, LayoutDashboard, Calendar,
+  UserCircle, PlusCircle, Search as SearchIcon, Calendar,
   Plug,
 } from "lucide-react";
 import { Kbd, MetaKey } from "./Kbd";
@@ -49,29 +49,28 @@ export function CommandPalette() {
   }
 
   const items: Item[] = [
-    { id: "n-dashboard", group: "Navigate", label: "Dashboard", icon: LayoutDashboard, onSelect: go("/dashboard"), keywords: "home overview" },
-    { id: "n-chat", group: "Navigate", label: "Chat", icon: MessageSquare, onSelect: go("/chat"), keywords: "talk message" },
-    { id: "n-naxie", group: "Navigate", label: "NaxionAI", icon: Sparkles, onSelect: go("/naxie"), keywords: "voice assistant mic talk speak naxie jarvis" },
-    { id: "n-team", group: "Navigate", label: "Focus Team", icon: Users, onSelect: go("/team"), keywords: "team personas employees dispatch" },
-    { id: "n-presets", group: "Navigate", label: "Hire a worker (Presets)", icon: Sparkles, onSelect: go("/presets"), keywords: "preset role hire onboard setup wizard sdr assistant recruiter" },
+    { id: "n-naxie", group: "Navigate", label: "Naxie", icon: Sparkles, onSelect: go("/naxie"), keywords: "home overview voice assistant mic talk speak naxie jarvis" },
+    { id: "n-chat", group: "Navigate", label: "Board Meeting", icon: MessageSquare, onSelect: go("/chat"), keywords: "talk message council" },
+    { id: "n-agents", group: "Navigate", label: "Agent Roster", icon: UserCircle, onSelect: go("/agents"), keywords: "personas roles employees workforce" },
+    { id: "n-orchestrate", group: "Navigate", label: "Orchestrate", icon: Users, onSelect: go("/orchestrate"), keywords: "team dispatch focus subagents" },
+    { id: "n-spin-up", group: "Navigate", label: "Spin up an agent", icon: Sparkles, onSelect: go("/spin-up"), keywords: "preset role hire activate setup wizard sdr assistant recruiter" },
     { id: "n-terminal", group: "Navigate", label: "IDE", icon: Terminal, onSelect: go("/ide"), keywords: "shell console command exec code editor" },
-    { id: "n-tasks", group: "Navigate", label: "Tasks", icon: ListChecks, onSelect: go("/tasks"), keywords: "jobs queue" },
-    { id: "n-reports", group: "Navigate", label: "Reports", icon: ChangelogIcon, onSelect: go("/results"), keywords: "results outputs" },
-    { id: "n-knowledge", group: "Navigate", label: "Knowledge vault", icon: BookOpen, onSelect: go("/knowledge"), keywords: "vault notes search" },
-    { id: "n-approvals", group: "Navigate", label: "Approvals", icon: CheckCircle2, onSelect: go("/approvals"), keywords: "review pending" },
-    { id: "n-activity", group: "Navigate", label: "Activity feed", icon: LogIcon, onSelect: go("/activity"), keywords: "live log" },
+    { id: "n-runs", group: "Navigate", label: "Runs", icon: ListChecks, onSelect: go("/runs"), keywords: "jobs queue tasks results outputs activity" },
+    { id: "n-knowledge", group: "Navigate", label: "Library", icon: BookOpen, onSelect: go("/library"), keywords: "vault notes search files" },
+    { id: "n-approvals", group: "Navigate", label: "Agent Approvals", icon: CheckCircle2, onSelect: go("/approvals"), keywords: "review pending" },
     { id: "n-my-work", group: "Navigate", label: "My Work", icon: Users, onSelect: go("/my-work"), keywords: "handoffs assignments human loop upload submit delegate" },
     { id: "n-schedules", group: "Navigate", label: "Schedules", icon: Calendar, onSelect: go("/schedules"), keywords: "cron recurring schedule" },
 
-    { id: "a-new-chat", group: "Actions", label: "New chat", icon: PlusCircle, onSelect: go("/chat"), keywords: "start fresh session" },
-    { id: "a-dispatch-team", group: "Actions", label: "Dispatch a team task", icon: Users, onSelect: go("/team") },
-    { id: "a-search-vault", group: "Actions", label: "Search the vault", icon: SearchIcon, onSelect: go("/knowledge") },
+    { id: "a-new-chat", group: "Actions", label: "New board meeting", icon: PlusCircle, onSelect: go("/chat"), keywords: "start fresh session council" },
+    { id: "a-dispatch-team", group: "Actions", label: "Dispatch to agents", icon: Users, onSelect: go("/orchestrate") },
+    { id: "a-search-vault", group: "Actions", label: "Search the vault", icon: SearchIcon, onSelect: go("/library") },
     { id: "a-new-schedule", group: "Actions", label: "Create a schedule", icon: Calendar, onSelect: go("/schedules"), keywords: "recurring template fire" },
 
     { id: "l-templates", group: "Library", label: "Templates", icon: TemplateIcon, onSelect: go("/templates") },
     { id: "l-skills", group: "Library", label: "Skills", icon: Sparkles, onSelect: go("/skills") },
-    { id: "l-personas", group: "Library", label: "Employees", icon: UserCircle, onSelect: go("/personas"), keywords: "personas roles" },
-    { id: "l-governance", group: "Library", label: "Instructions and Policies", icon: CertificateIcon, onSelect: go("/governance"), keywords: "policy guardrail compliance governance" },
+    { id: "l-squads", group: "Library", label: "Squads", icon: UserCircle, onSelect: go("/squads"), keywords: "departments teams" },
+    { id: "l-policies", group: "Library", label: "Policies", icon: CertificateIcon, onSelect: go("/policies"), keywords: "policy guardrail compliance governance instructions" },
+    { id: "l-audit", group: "Library", label: "Audit Log", icon: LogIcon, onSelect: go("/audit"), keywords: "security intrusion blocked ip log" },
     { id: "l-integrations", group: "Library", label: "Extensions — Integrations", icon: Plug, onSelect: go("/extensions?tab=integrations"), keywords: "connect slack telegram github notion social oauth api integrations" },
     { id: "l-connectors", group: "Library", label: "Extensions — Connectors", icon: Plug, onSelect: go("/extensions?tab=connectors"), keywords: "connect company api base url auth connectors" },
   ];

@@ -12,40 +12,10 @@
 
 import { Router } from "express";
 import { loadPersonas, BUILTIN_PERSONAS } from "../lib/personas.js";
-import { addUser, getUserByEmail, listUsers } from "../lib/users.js";
+import { listUsers } from "../lib/users.js";
 import { callerLayer } from "../lib/access.js";
-import { ingestContacts } from "../lib/doc-ingest.js";
 
 export const workforceRouter = Router();
-
-// POST /api/workforce/import — scan an uploaded document (any type) for people
-// and add them to the Users directory (which populates the contact book). Body:
-// { filename, contentBase64, mimeType? }. Returns what was added / skipped plus
-// any contacts that couldn't be added (no email) so the operator can fix them.
-workforceRouter.post("/import", async (req, res) => {
-  try {
-    const filename = String(req.body?.filename ?? "").trim();
-    const contentBase64 = String(req.body?.contentBase64 ?? "");
-    if (!filename || !contentBase64) return res.status(400).json({ error: "filename and contentBase64 are required" });
-
-    const contacts = await ingestContacts({ filename, contentBase64 });
-    const added: { name: string; email: string; department?: string }[] = [];
-    const skipped: { name: string; reason: string }[] = [];
-    for (const c of contacts) {
-      if (!c.email) { skipped.push({ name: c.name, reason: "no email found in document" }); continue; }
-      if (getUserByEmail(c.email)) { skipped.push({ name: c.name, reason: `already in directory (${c.email})` }); continue; }
-      try {
-        addUser({ name: c.name, email: c.email, role: "member", title: c.title, department: c.department });
-        added.push({ name: c.name, email: c.email, department: c.department });
-      } catch (e: any) {
-        skipped.push({ name: c.name, reason: String(e?.message ?? e).slice(0, 120) });
-      }
-    }
-    res.json({ scanned: contacts.length, added, skipped });
-  } catch (e: any) {
-    res.status(400).json({ error: e?.message ?? String(e) });
-  }
-});
 
 // Map a persona role/id to a department bucket. First match wins; falls back to
 // "General". Ordered so more specific buckets are tested before broad ones.

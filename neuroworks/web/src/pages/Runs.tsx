@@ -1,16 +1,764 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { marked } from "marked";
-import { api } from "../lib/api";
-import { LinkPreview } from "../components/LinkPreview";
+import { ArrowRight, HandHelping, Square, ThumbsUp, ThumbsDown, BarChart3, AlertTriangle } from "lucide-react";
+import { api, type WaitingTask } from "../lib/api";
+import { Card, SkeletonList } from "../components/Card";
 import { useLoadMore, LoadMoreButton } from "../components/LoadMore";
+import { ResultPanel } from "../components/ResultPanel";
+import { MultiStepLoader } from "../components/MultiStepLoader";
+import { LinkPreview } from "../components/LinkPreview";
 import { VoiceDiscussion } from "../components/VoiceDiscussion";
 
-// Customer-facing result document. The Tasks page shows technical detail
-// (steps, models, durations); this page is the polished read — title, the
-// answer rendered as a real document, sources, and a collapsible "how
-// clawbot arrived at this" trace for transparency.
-export function Results() {
+// ─────────────────────────────────────────────────────────────────────────
+// Runs — the merged job list. Folds together what used to be four separate
+// pages:
+//   - Tasks.tsx        → status filters, "waiting on you" panel, live
+//                         activity strip, cancel/resume/human-input actions,
+//                         the two-column "Board" view with a detail panel.
+//   - Results.tsx       → ResultsIndex's "Reports" browsing (all/captured/
+//                         delegated) folded in as an additional filter, not
+//                         a separate page. Results (the per-job document) is
+//                         exported below as `RunDetail`, basically as-is.
+//   - Activity.tsx      → the plain timeline, now the default/simplest view
+//                         mode ("Timeline" vs "Board").
+//   - Quality.tsx       → a "Low quality" filter chip (getLowQualityRuns,
+//                         cross-referenced against jobs by flagged jobId /
+//                         persona) plus a compact, expandable quality-signals
+//                         strip (getQualitySummary/getQualityFlags/
+//                         getQualitySignals) above the list.
+// ─────────────────────────────────────────────────────────────────────────
+
+type EtaStats = { byType: Record<string, { medianMs: number; count: number }>; globalMedianMs: number; count: number };
+type LowQualityRun = { task: string; count: number; rate: number };
+type QualitySignal = { scope: "kind" | "persona"; key: string; samples: number; means: Record<string, number>; weakestAxis: string; weakestGoodness: number };
+
+const AXIS_LABEL: Record<string, string> = {
+  factuality_risk: "factual accuracy",
+  citation_coverage: "citation coverage",
+  persona_fit: "persona & structure",
+  prompt_alignment: "prompt alignment",
+};
+
+// A job counts as "report-shaped" when it's the kind of finished work that
+// gets a polished write-up — general chat tasks, saved custom templates, and
+// delegated peer work. Digests/syncs/etc. have their own result shapes and
+// don't fit the report list (mirrors ResultsIndex's old filter).
+function isReportShaped(job: any): boolean {
+  return job.template === "general-task" || (job.template ?? "").startsWith("custom-") || job.template === "peer:delegate" || job.kind === "peer:delegate";
+}
+
+function personaNameOf(job: any): string | undefined {
+  const r = job.result ?? {};
+  return job.inputs?.activePersona?.name ?? r.activePersona?.name ?? r.peer?.name ?? job.inputs?.activePersona?.id ?? r.activePersona?.id;
+}
+
+// Cross-references a job against the quality signals fetched for the whole
+// workforce: a direct thumbs-down flag on this exact job, or this job's
+// persona showing up in the low-satisfaction list.
+function isLowQuality(job: any, downFlaggedJobIds: Set<string>, lowQualityRuns: LowQualityRun[]): boolean {
+  if (downFlaggedJobIds.has(job.id)) return true;
+  const persona = personaNameOf(job);
+  return !!persona && lowQualityRuns.some(r => r.task === persona);
+}
+
+// Derive the step list + current index for the full-screen activity view from
+// a running job's live plan. Falls back to plain phases before a plan exists.
+function jobLoaderSteps(job: any): { states: { text: string }[]; current: number } {
+  const r = job?.result ?? {};
+  const steps: any[] = r.plan?.steps ?? [];
+  const runs: any[] = r.runs ?? [];
+  const done = runs.filter((x: any) => x?.ok === true).length;
+  if (steps.length === 0) {
+    return { states: [{ text: "Working out a plan" }, { text: "Doing the work" }, { text: "Drafting your answer" }, { text: "Reviewing the draft" }], current: r.phase === "synthesizing" ? 2 : r.phase === "reviewing" ? 3 : r.phase === "executing" ? 1 : 0 };
+  }
+  return { states: steps.map((s: any, i: number) => ({ text: String(s.label ?? s.tool ?? `Step ${i + 1}`) })), current: Math.min(done, steps.length) };
+}
+
+export function Runs() {
+  const [params, setParams] = useSearchParams();
+  const focusId = params.get("focus");
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"all" | "running" | "succeeded" | "failed">("all");
+  const [reportFilter, setReportFilter] = useState<"all" | "reports" | "captured" | "delegated">("all");
+  const [qualityOnly, setQualityOnly] = useState(false);
+  // Timeline is the plain, simplest view (old Activity.tsx); Board is the
+  // richer Tasks.tsx-style two-column layout with a detail panel. A job
+  // focused via ?focus= implies the operator wants the detail view.
+  const [viewMode, setViewMode] = useState<"timeline" | "board">(focusId ? "board" : "timeline");
+  const [eta, setEta] = useState<EtaStats | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [waiting, setWaiting] = useState<WaitingTask[]>([]);
+  const [activityJobId, setActivityJobId] = useState<string | null>(null);
+
+  const [qualitySummary, setQualitySummary] = useState<any>(null);
+  const [qualitySignals, setQualitySignals] = useState<QualitySignal[]>([]);
+  const [lowQualityRuns, setLowQualityRuns] = useState<LowQualityRun[]>([]);
+  const [downFlaggedJobIds, setDownFlaggedJobIds] = useState<Set<string>>(new Set());
+  const [qualityOpen, setQualityOpen] = useState(false);
+
+  async function load() {
+    try { const r = await api.listJobs(); setJobs(r.jobs); } catch {} finally { setLoaded(true); }
+  }
+  useEffect(() => { load(); const i = setInterval(load, 3000); return () => clearInterval(i); }, []);
+  // ETA history refreshes lazily — it barely changes between polls.
+  useEffect(() => { api.taskEtaStats().then(setEta).catch(() => {}); const i = setInterval(() => api.taskEtaStats().then(setEta).catch(() => {}), 30000); return () => clearInterval(i); }, []);
+  // Waiting-on-you queue — tasks paused on a structured human ask. Polled at a
+  // relaxed cadence; answering one triggers an immediate refresh.
+  const loadWaiting = () => api.tasksWaiting().then(r => setWaiting(r.waiting)).catch(() => {});
+  useEffect(() => { loadWaiting(); const i = setInterval(loadWaiting, 10000); return () => clearInterval(i); }, []);
+  // Quality signals — feeds the "Low quality" chip + summary strip. Changes
+  // slowly (feedback is occasional), so a relaxed poll is enough.
+  useEffect(() => {
+    function loadQuality() {
+      Promise.all([
+        api.getQualitySummary(),
+        api.getLowQualityRuns(0.5, 2),
+        api.getQualitySignals().catch(() => ({ signals: [] as QualitySignal[] })),
+        api.getQualityFlags().catch(() => ({ flags: [] as any[] })),
+      ]).then(([s, lq, sig, fl]) => {
+        setQualitySummary(s);
+        setLowQualityRuns(lq.runs);
+        setQualitySignals((sig as any).signals ?? []);
+        setDownFlaggedJobIds(new Set((fl as any).flags.filter((f: any) => f.rating === "down").map((f: any) => f.jobId)));
+      }).catch(() => {});
+    }
+    loadQuality();
+    const i = setInterval(loadQuality, 30000);
+    return () => clearInterval(i);
+  }, []);
+
+  const filtered = useMemo(() => {
+    let list = jobs;
+    if (statusFilter !== "all") list = list.filter(j => j.status === statusFilter);
+    if (reportFilter !== "all") {
+      list = list.filter(j => (j.status === "succeeded" || j.status === "failed") && isReportShaped(j));
+      if (reportFilter === "captured") list = list.filter(j => j.result?.curation?.captured === true);
+      if (reportFilter === "delegated") list = list.filter(j => j.result?.delegated === true);
+    }
+    if (qualityOnly) list = list.filter(j => isLowQuality(j, downFlaggedJobIds, lowQualityRuns));
+    return list;
+  }, [jobs, statusFilter, reportFilter, qualityOnly, downFlaggedJobIds, lowQualityRuns]);
+
+  const taskList = useLoadMore(filtered);
+  const focused = focusId ? jobs.find(j => j.id === focusId) : null;
+  const runningJobs = useMemo(() => jobs.filter(j => j.status === "running" || j.status === "pending"), [jobs]);
+  const lowQualityCount = useMemo(() => jobs.filter(j => isLowQuality(j, downFlaggedJobIds, lowQualityRuns)).length, [jobs, downFlaggedJobIds, lowQualityRuns]);
+  const savedCount = useMemo(() => jobs.filter(j => j.result?.curation?.captured === true).length, [jobs]);
+  const delegatedCount = useMemo(() => jobs.filter(j => j.result?.delegated === true).length, [jobs]);
+
+  // Tick a 1s clock ONLY while something is running, so the elapsed time and
+  // ETA countdown update live without re-polling the server.
+  useEffect(() => {
+    if (runningJobs.length === 0) return;
+    const i = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(i);
+  }, [runningJobs.length]);
+
+  function openInBoard(jobId: string) {
+    setViewMode("board");
+    params.set("focus", jobId);
+    setParams(params);
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-baseline justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-cream-50">Runs</h1>
+          <p className="text-sm text-cream-300/70 mt-1">Everything the workforce is doing — tasks, reports, and quality, all in one place.</p>
+        </div>
+        <div className="flex items-center gap-1 bg-ink-950 rounded-md p-0.5 border border-ink-800 shrink-0">
+          {(["timeline", "board"] as const).map(v => (
+            <button key={v} type="button" onClick={() => setViewMode(v)} className={`px-3 py-1.5 rounded text-xs capitalize ${viewMode === v ? "bg-ink-800 text-cream-50" : "text-cream-300/70 hover:text-cream-100"}`}>
+              {v}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1">
+          {(["all", "running", "succeeded", "failed"] as const).map(f => (
+            <button key={f} type="button" onClick={() => setStatusFilter(f)} className={`px-3 py-1.5 rounded-md text-xs ${statusFilter === f ? "bg-ink-800 text-cream-50 border border-ink-700" : "text-cream-300 hover:text-cream-100 border border-transparent"}`}>
+              {f}
+              <span className="ml-1.5 opacity-60 font-mono">{f === "all" ? jobs.length : jobs.filter(j => j.status === f).length}</span>
+            </button>
+          ))}
+        </div>
+        <div className="w-px h-4 bg-ink-800" />
+        <div className="flex gap-1">
+          {([
+            { id: "all" as const, label: "All" },
+            { id: "reports" as const, label: "Reports" },
+            { id: "captured" as const, label: `Saved to vault (${savedCount})` },
+            { id: "delegated" as const, label: `By employee (${delegatedCount})` },
+          ]).map(f => (
+            <button key={f.id} type="button" onClick={() => setReportFilter(f.id)} className={`px-3 py-1.5 rounded-md text-xs border ${reportFilter === f.id ? "bg-violet-500/15 border-violet-500/40 text-violet-300" : "border-transparent text-cream-300/70 hover:text-cream-100"}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="w-px h-4 bg-ink-800" />
+        <button
+          type="button"
+          onClick={() => setQualityOnly(q => !q)}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border ${qualityOnly ? "bg-coral-500/15 border-coral-500/40 text-coral-300" : "border-transparent text-cream-300/70 hover:text-cream-100"}`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5" /> Low quality{lowQualityCount > 0 ? ` (${lowQualityCount})` : ""}
+        </button>
+      </div>
+
+      {/* Quality signals strip — compact by default, expandable for the full
+          picture (top issue categories, learned weak axes, low-satisfaction
+          personas). Folds in Quality.tsx without dedicating a whole page. */}
+      {qualitySummary && <QualityStrip summary={qualitySummary} lowQualityRuns={lowQualityRuns} signals={qualitySignals} open={qualityOpen} onToggle={() => setQualityOpen(o => !o)} />}
+
+      {/* Waiting on you — tasks the agents paused because only the operator can
+          supply the next piece (info, approval, an offline action). Answering
+          resumes the loop automatically as a continuation task. */}
+      {waiting.length > 0 && <WaitingOnYouPanel waiting={waiting} onResumed={(newJobId) => { loadWaiting(); load(); openInBoard(newJobId); }} />}
+
+      {/* Live activity strip — only when something's actively running. The
+          row shows the customer's view of WHAT is happening, in plain English. */}
+      {runningJobs.length > 0 && <LiveActivityStrip jobs={runningJobs} eta={eta} now={now} onOpenActivity={setActivityJobId} onOpenJob={openInBoard} onCancel={async (id) => { try { await api.cancelJob(id); } catch {} await load(); }} />}
+
+      {/* Full-screen step-by-step activity view for one running task, driven by
+          its live plan progress. Auto-hides when the task leaves running. */}
+      {(() => {
+        const aj = activityJobId ? jobs.find(j => j.id === activityJobId) : null;
+        if (!aj || (aj.status !== "running" && aj.status !== "pending")) return null;
+        const { states, current } = jobLoaderSteps(aj);
+        return <MultiStepLoader loadingStates={states} loading currentState={current} onClose={() => setActivityJobId(null)} />;
+      })()}
+
+      {viewMode === "timeline" ? (
+        <TimelineList
+          loaded={loaded}
+          taskList={taskList}
+          filterActive={statusFilter !== "all" || reportFilter !== "all" || qualityOnly}
+          downFlaggedJobIds={downFlaggedJobIds}
+          lowQualityRuns={lowQualityRuns}
+          onOpen={openInBoard}
+        />
+      ) : (
+        <div className="grid grid-cols-5 gap-5">
+          <div className="col-span-2 space-y-2">
+            {!loaded && <Card><SkeletonList rows={6} /></Card>}
+            {loaded && filtered.length === 0 && <Card><div className="text-sm text-cream-300/60 text-center py-8">No runs match this filter.</div></Card>}
+            {taskList.visible.map((j, i) => (
+              <div key={j.id} className={`nw-fade-up nw-delay-${Math.min(7, i + 1)}`}>
+                <TaskRow
+                  job={j}
+                  focused={focusId === j.id}
+                  eta={eta}
+                  now={now}
+                  lowQuality={isLowQuality(j, downFlaggedJobIds, lowQualityRuns)}
+                  onClick={() => { params.set("focus", j.id); setParams(params); }}
+                />
+              </div>
+            ))}
+            <LoadMoreButton state={taskList} noun="runs" />
+          </div>
+
+          <div className="col-span-3">
+            {focused ? <ResultPanel job={focused} /> : (
+              <Card><div className="text-sm text-cream-300/60 text-center py-8">Pick a run to inspect it.</div></Card>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Compact, expandable quality summary — satisfaction rate + flag counts
+// always visible; issue categories, learned weak-axis signals, and the
+// list of low-satisfaction personas behind a single expand.
+function QualityStrip({ summary, lowQualityRuns, signals, open, onToggle }: { summary: any; lowQualityRuns: LowQualityRun[]; signals: QualitySignal[]; open: boolean; onToggle: () => void }) {
+  const satisfactionPct = summary ? Math.round((summary.rate ?? 0) * 100) : 0;
+  return (
+    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5">
+      <button type="button" onClick={onToggle} className="w-full flex items-center justify-between gap-3 p-3 text-left">
+        <div className="flex items-center gap-3 flex-wrap text-xs">
+          <BarChart3 className="w-4 h-4 text-violet-300 shrink-0" />
+          <span className="text-cream-100 font-medium">{satisfactionPct}% satisfaction</span>
+          <span className="text-cream-300/60">{summary?.totalFlags ?? 0} flags</span>
+          <span className="inline-flex items-center gap-1 text-leaf-400"><ThumbsUp className="w-3 h-3" />{summary?.upvotes ?? 0}</span>
+          <span className="inline-flex items-center gap-1 text-coral-400"><ThumbsDown className="w-3 h-3" />{summary?.downvotes ?? 0}</span>
+          {lowQualityRuns.length > 0 && <span className="text-coral-300">{lowQualityRuns.length} persona{lowQualityRuns.length === 1 ? "" : "s"} below threshold</span>}
+        </div>
+        <span className="text-cream-300/50 text-xs shrink-0">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-3 text-xs">
+          {summary?.topCategories?.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-cream-300/60 mb-1.5">Top issue categories</div>
+              <div className="space-y-1">
+                {summary.topCategories.map((c: any) => (
+                  <div key={c.category} className="flex items-center justify-between">
+                    <span className="capitalize text-cream-200">{c.category}</span>
+                    <span className="text-cream-300/60">{c.count} flags</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {signals.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-cream-300/60 mb-1.5">Learned weak axes (fed back into planning)</div>
+              <div className="space-y-1">
+                {signals.map(s => (
+                  <div key={`${s.scope}:${s.key}`} className="flex items-center justify-between gap-3">
+                    <span className="text-cream-200 truncate">{s.key} <span className="text-cream-300/50">({s.scope === "kind" ? "task type" : "persona"} · {s.samples} runs)</span></span>
+                    <span className="px-2 py-0.5 rounded bg-violet-500/20 text-violet-200 shrink-0">weak: {AXIS_LABEL[s.weakestAxis] ?? s.weakestAxis} ({Math.round(s.weakestGoodness * 100)}%)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {lowQualityRuns.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-cream-300/60 mb-1.5">Below satisfaction threshold</div>
+              <div className="space-y-1">
+                {lowQualityRuns.map(r => (
+                  <div key={r.task} className="flex items-center justify-between">
+                    <span className="text-cream-200">{r.task}</span>
+                    <span className="text-coral-400">{Math.round(r.rate * 100)}% ({r.count} flags)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// "Waiting on you" — each paused task renders its structured ask as real
+// inputs. approval → an Approve button (records "Approved"); everything else →
+// a text box. Submitting resumes the loop server-side (continuation job) and
+// focuses it so the operator watches the task pick back up.
+function WaitingOnYouPanel({ waiting, onResumed }: { waiting: WaitingTask[]; onResumed: (newJobId: string) => void }) {
+  return (
+    <div className="space-y-3">
+      {waiting.map(w => <WaitingCard key={w.id} w={w} onResumed={onResumed} />)}
+    </div>
+  );
+}
+
+function WaitingCard({ w, onResumed }: { w: WaitingTask; onResumed: (newJobId: string) => void }) {
+  const [values, setValues] = useState<Record<number, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const waitedMin = Math.max(0, Math.round((Date.now() - new Date(w.waitingSince).getTime()) / 60000));
+  const waitedLabel = waitedMin < 60 ? `${waitedMin}m` : waitedMin < 60 * 24 ? `${Math.round(waitedMin / 60)}h` : `${Math.round(waitedMin / 1440)}d`;
+  const answered = w.items.filter((_, i) => (values[i] ?? "").trim().length > 0).length;
+
+  const submit = async () => {
+    const responses = w.items
+      .map((it, i) => ({ prompt: it.prompt, response: (values[i] ?? "").trim() }))
+      .filter(r => r.response.length > 0);
+    if (responses.length === 0) { setError("Answer at least one item first."); return; }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const r = await api.submitHumanInput(w.id, responses);
+      onResumed(r.jobId);
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <HandHelping className="w-4 h-4 text-amber-400 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-cream-50 truncate">Waiting on you — {w.title}</div>
+            <div className="text-xs text-cream-300/60">
+              {w.persona ? `${w.persona} · ` : ""}paused {waitedLabel} ago{w.reason ? ` · ${w.reason}` : ""}
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={submitting || answered === 0}
+          className="shrink-0 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 px-3 py-1.5 text-xs font-semibold text-ink-900"
+        >
+          {submitting ? "Resuming…" : `Send & continue${answered > 0 ? ` (${answered}/${w.items.length})` : ""}`}
+        </button>
+      </div>
+      <div className="mt-3 space-y-2">
+        {w.items.map((it, i) => (
+          <div key={i}>
+            <div className="text-xs text-cream-200 mb-1">
+              {i + 1}. {it.prompt}
+              {it.type !== "answer" && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-amber-400/80">{it.type}</span>}
+            </div>
+            {it.type === "approval" ? (
+              <button
+                type="button"
+                onClick={() => setValues(v => ({ ...v, [i]: v[i] ? "" : "Approved" }))}
+                className={`rounded-md px-3 py-1 text-xs border ${values[i] ? "bg-emerald-600/20 border-emerald-500/50 text-emerald-300" : "border-cream-100/20 text-cream-300 hover:text-cream-100"}`}
+              >
+                {values[i] ? "✓ Approved" : "Approve"}
+              </button>
+            ) : (
+              <textarea
+                value={values[i] ?? ""}
+                onChange={e => setValues(v => ({ ...v, [i]: e.target.value }))}
+                rows={values[i] && values[i].length > 120 ? 3 : 1}
+                placeholder={it.type === "upload" ? "Paste the content here (or a vault/file path)" : it.type === "action" ? "What was done / the outcome" : "Your answer"}
+                className="w-full rounded-md bg-ink-900/70 border border-cream-100/10 focus:border-amber-500/50 outline-none px-3 py-1.5 text-xs text-cream-100 placeholder:text-cream-300/40 resize-y"
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
+    </div>
+  );
+}
+
+// Stable type key matching the server's jobTypeKey() so a running job looks up
+// the right historical median (strip any "prefix:" from kind; prefer template).
+function jobTypeKey(job: any): string {
+  const raw = (job.template && String(job.template).trim()) ? String(job.template) : String(job.kind ?? "");
+  return raw.replace(/^[^:]+:/, "") || "task";
+}
+
+// mm:ss for anything ≥ a minute, else "45s". Compact for chips/rows.
+function fmtDur(sec: number): string {
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${m}m${s ? ` ${s}s` : ""}`;
+}
+
+type EtaInfo = { elapsedSec: number; expectedSec: number | null; remainingSec: number | null; overrun: boolean; pct: number | null; label: string };
+
+// Compute a live ETA for a running job from elapsed time + the historical
+// median for its type. Falls back to the global median when the type has too
+// few samples, and to elapsed-only when there's no history at all. `stepPct`
+// (from the plan's completed steps) is preferred for the bar when available —
+// it reflects real progress — with time used as the fallback signal.
+function computeEta(job: any, eta: EtaStats | null, now: number, stepPct: number | null): EtaInfo {
+  const startedMs = job.startedAt ? new Date(job.startedAt).getTime() : now;
+  const elapsedSec = Math.max(0, (now - startedMs) / 1000);
+  const typeStat = eta?.byType?.[jobTypeKey(job)];
+  // Trust a per-type median once it has ≥2 samples; otherwise use the global.
+  const expectedMs = typeStat && typeStat.count >= 2 ? typeStat.medianMs
+    : (eta?.globalMedianMs && eta.globalMedianMs > 0 ? eta.globalMedianMs : null);
+  const expectedSec = expectedMs != null ? expectedMs / 1000 : null;
+  const timeRemainingSec = expectedSec != null ? Math.max(0, expectedSec - elapsedSec) : null;
+  // Project remaining time from REAL step progress when we have it. The
+  // historical median consistently over-promises — tasks finish faster than it
+  // predicts, so a pure median countdown showed "~30s left" on a job about to
+  // complete (the bar was near-full while the timer still ran). elapsed × (100−pct)/pct
+  // is the time left at the current pace. Take the SMALLER of the step and median
+  // estimates: early on (few steps done) the median dominates; as steps complete
+  // the step projection shrinks and wins, so the countdown converges to done and
+  // stays aligned with the progress bar.
+  const p = stepPct != null ? Math.min(99, Math.max(1, stepPct)) : null;
+  const stepRemainingSec = p != null && p >= 5 ? Math.max(0, elapsedSec * (100 - p) / p) : null;
+  const remainingSec = stepRemainingSec != null && timeRemainingSec != null
+    ? Math.min(stepRemainingSec, timeRemainingSec)
+    : (stepRemainingSec ?? timeRemainingSec);
+  const overrun = expectedSec != null && elapsedSec > expectedSec + 1 && (stepPct == null || stepPct < 90);
+  const timePct = expectedSec != null ? Math.min(99, Math.round((elapsedSec / expectedSec) * 100)) : null;
+  const pct = stepPct != null ? stepPct : timePct;
+  let label: string;
+  if (remainingSec == null) label = `running ${fmtDur(elapsedSec)}`;
+  else if (remainingSec <= 1.5) label = `${fmtDur(elapsedSec)} elapsed · wrapping up`;
+  else if (overrun) label = `running ${fmtDur(elapsedSec)} · a bit longer than usual`;
+  else label = `${fmtDur(elapsedSec)} elapsed · ~${fmtDur(remainingSec)} left`;
+  return { elapsedSec, expectedSec, remainingSec, overrun, pct, label };
+}
+
+// Plain-English phase label. Translates the agent's internal phase/state
+// into something a customer would say if they were doing the work themselves.
+function friendlyPhase(job: any): string {
+  if (job.status === "succeeded") return "Done";
+  if (job.status === "failed") {
+    // Classify the failure shape from the error text so the user sees what
+    // KIND of problem it was (transient vs auth vs vault-unreachable vs
+    // unsupported) rather than the cryptic "Hit a snag". The full error
+    // stays below in the technical view; this label scopes the retry choice.
+    const e = String(job.error ?? "").toLowerCase();
+    const hasPartial = typeof job.result?.answer === "string" && job.result.answer.trim().length > 0;
+    if (hasPartial) return "Finished with partial results";
+    if (!e) return "Couldn't complete this task";
+    if (/vault.*unreach|vaultpath|mkdir.*enoent|d:\\\\main brain/.test(e)) return "Couldn't reach your vault";
+    if (/\b(?:401|403|unauthori[sz]ed|forbidden|api key|missing.*token)\b/.test(e)) return "Authorisation problem";
+    if (/\b(?:econnreset|etimedout|enotfound|eai_again|fetch failed|socket hang up|timeout)\b/.test(e)) return "Network hiccup, retry";
+    if (/\b(?:429|rate.?limit|too many requests)\b/.test(e)) return "Rate-limited";
+    if (/cannot read properties of undefined/.test(e)) return "Internal error, retry";
+    if (/no such tool|invalid tool|unknown tool/.test(e)) return "Couldn't route this, try rephrasing";
+    return "Couldn't complete this task";
+  }
+  if (job.status === "rejected") return "Rejected";
+  if (job.status === "awaiting-approval") return "Waiting for your approval";
+  if (job.status === "waiting_on_human") return "Paused — needs something from you (see the amber card above)";
+  if (job.status !== "running" && job.status !== "pending") return job.status;
+  const r = job.result ?? {};
+  const phase = r.phase as string | undefined;
+  const totalSteps = r.plan?.steps?.length ?? 0;
+  const runs: any[] = r.runs ?? [];
+  const doneCount = runs.filter((x: any) => x?.ok === true).length;
+  const inflightCount = runs.filter((x: any) => x && x.startedAt && x.ok === false && !x.error).length;
+  if (phase === "planning") return "Working out a plan";
+  if (phase === "executing") {
+    if (inflightCount > 1) return `${inflightCount} sub-agents working in parallel`;
+    if (totalSteps > 0) return `On step ${doneCount + 1} of ${totalSteps}`;
+    return "Working on it";
+  }
+  if (phase === "synthesizing") return "Drafting your answer";
+  if (phase === "reviewing") return "Reviewing the draft";
+  if (phase === "answering") return "Answering directly";
+  return "Working on it";
+}
+
+// What kind of work is this? Used in the list row + activity strip so the
+// user sees "Research" / "Chat task" / "Daily digest" instead of the raw
+// `kind` ("insights:general-task").
+function friendlyKind(job: any): string {
+  const t = String(job.template ?? job.kind ?? "");
+  if (t.startsWith("custom-")) return "Saved template";
+  if (t === "general-task" || t.endsWith(":general-task")) return "Chat task";
+  if (t === "peer:delegate") return "Delegated work";
+  if (t === "summarize-repo" || t.endsWith(":summarize-repo")) return "Project summary";
+  if (t === "search-brain" || t.endsWith(":search-brain")) return "Vault search";
+  if (t === "add-note" || t.endsWith(":add-note")) return "Note capture";
+  if (t === "run-digest" || t.endsWith(":run-digest")) return "Daily digest";
+  if (t === "sync-downloads" || t.endsWith(":sync-downloads")) return "Downloads sync";
+  if (t === "publish-folder" || t.endsWith(":publish-folder")) return "Folder publish";
+  if (t === "browse-vault" || t.endsWith(":browse-vault")) return "Vault browse";
+  return t || "Task";
+}
+
+function friendlyTitle(job: any): string {
+  const t = (job.title ?? "").replace(/^Ad-hoc:\s*/i, "").trim();
+  return t || friendlyKind(job);
+}
+
+// Customer-friendly relative time. "2 minutes ago" reads better than a full
+// ISO timestamp on a card the customer just opened.
+function friendlyTimeAgo(d: Date): string {
+  const ms = Date.now() - d.getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min${m === 1 ? "" : "s"} ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  const days = Math.floor(h / 24);
+  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+// Compact horizontal strip at the top of the page showing every running
+// task with its live phase + step count. Lets a customer glance at the page
+// and immediately know "the workforce is doing X right now". Each card
+// opens the Board view focused on that job.
+function LiveActivityStrip({ jobs, eta, now, onOpenActivity, onOpenJob, onCancel }: { jobs: any[]; eta: EtaStats | null; now: number; onOpenActivity: (jobId: string) => void; onOpenJob: (jobId: string) => void; onCancel: (jobId: string) => void }) {
+  const [cancelling, setCancelling] = useState<Record<string, boolean>>({});
+  return (
+    <div className="bg-violet-500/10 border border-violet-500/30 rounded-xl p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+        <span className="text-[10px] uppercase tracking-wider text-violet-300/80">Working now</span>
+        <span className="text-[11px] text-cream-300/60">{jobs.length} active task{jobs.length === 1 ? "" : "s"}</span>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        {jobs.map(j => {
+          const r = j.result ?? {};
+          const totalSteps = r.plan?.steps?.length ?? 0;
+          const runs: any[] = r.runs ?? [];
+          const doneCount = runs.filter((x: any) => x?.ok === true).length;
+          const stepPct = totalSteps > 0 ? Math.round((doneCount / totalSteps) * 100) : null;
+          const peerName = r.peer?.name ?? r.delegatedPeer?.name ?? null;
+          const info = computeEta(j, eta, now, stepPct);
+          return (
+            <div
+              key={j.id}
+              onClick={() => onOpenJob(j.id)}
+              className="relative text-left bg-ink-900 border border-ink-800 hover:border-violet-500/40 rounded-lg p-3 transition-colors cursor-pointer"
+            >
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); onOpenActivity(j.id); }}
+                className="absolute top-2 right-2 text-[10px] text-violet-300/80 hover:text-violet-200 inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-violet-500/10"
+                title="Open the step-by-step activity view"
+              >
+                <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4h6v6H4zM14 14h6v6h-6zM14 4h6v6h-6zM4 14h6v6H4z" /></svg>
+                Activity
+              </button>
+              <div className="text-sm text-cream-50 truncate pr-16">{friendlyTitle(j)}</div>
+              <div className="text-[11px] text-cream-300/70 mt-1">{friendlyPhase(j)}</div>
+              {info.pct != null && (
+                <div className="mt-2 h-1 bg-ink-800 rounded-full overflow-hidden">
+                  <div className={`h-full transition-all ${info.overrun ? "bg-amber-500/80" : "bg-gradient-to-r from-violet-500 to-leaf-500"}`} style={{ width: `${info.pct}%` }} />
+                </div>
+              )}
+              <div className={`mt-1.5 text-[10px] ${info.overrun ? "text-amber-300/90" : "text-violet-300/80"}`}>{info.label}</div>
+              <div className="flex items-center gap-2 mt-1 text-[10px] text-cream-300/50 flex-wrap">
+                <span>{friendlyKind(j)}</span>
+                {peerName && <><span>·</span><span>on {peerName}</span></>}
+                {totalSteps > 0 && <><span>·</span><span>{doneCount}/{totalSteps} done</span></>}
+              </div>
+              <button
+                type="button"
+                disabled={cancelling[j.id]}
+                onClick={async e => {
+                  e.stopPropagation();
+                  setCancelling(c => ({ ...c, [j.id]: true }));
+                  try { await onCancel(j.id); } finally { setCancelling(c => ({ ...c, [j.id]: false })); }
+                }}
+                className="mt-2 w-full inline-flex items-center justify-center gap-1.5 text-[11px] rounded-md border border-coral-500/40 text-coral-300 hover:bg-coral-500/10 hover:border-coral-500/60 py-1 transition-colors disabled:opacity-50"
+                title="Stop this run"
+              >
+                <Square size={11} /> {cancelling[j.id] ? "Cancelling…" : "Cancel run"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Board-view row — Tasks.tsx's original row, now also carrying a "low
+// quality" badge (from the merged-in Quality filter) and a link to the
+// polished RunDetail document (was Results.tsx's /results/:jobId).
+function TaskRow({ job, focused, eta, now, lowQuality, onClick }: { job: any; focused: boolean; eta: EtaStats | null; now: number; lowQuality?: boolean; onClick: () => void }) {
+  const isRunning = job.status === "running" || job.status === "pending";
+  const r = job.result ?? {};
+  const runs: any[] = r.runs ?? [];
+  const totalSteps = r.plan?.steps?.length ?? 0;
+  const doneCount = runs.filter((x: any) => x?.ok === true).length;
+  const startedAt = new Date(job.startedAt);
+  const dur = job.finishedAt && job.startedAt
+    ? Math.max(1, Math.round((new Date(job.finishedAt).getTime() - startedAt.getTime()) / 1000))
+    : null;
+  const stepPct = totalSteps > 0 ? Math.round((doneCount / totalSteps) * 100) : null;
+  const info = isRunning ? computeEta(job, eta, now, stepPct) : null;
+  const peerName = r.peer?.name ?? r.delegatedPeer?.name ?? null;
+  const isGeneral = job.template === "general-task" || (job.template ?? "").startsWith("custom-") || job.template === "peer:delegate";
+  const captured = r.curation?.captured === true;
+  return (
+    <button type="button" onClick={onClick}
+      className={`w-full text-left bg-ink-900 border rounded-xl p-4 transition-colors ${focused ? "border-violet-500/60" : "border-ink-800 hover:border-ink-700"}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
+            job.status === "succeeded" ? "bg-leaf-500" :
+            job.status === "failed" || job.status === "rejected" ? "bg-coral-500" :
+            job.status === "waiting_on_human" ? "bg-amber-400" :
+            isRunning ? "bg-violet-500 animate-pulse" : "bg-cream-300/30"
+          }`} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="text-sm text-cream-50 font-medium truncate">{friendlyTitle(job)}</div>
+              {lowQuality && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-coral-500/40 text-coral-400 bg-coral-500/10 shrink-0">low quality</span>}
+              {captured && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-leaf-500/40 text-leaf-400 bg-leaf-500/10 shrink-0">saved</span>}
+            </div>
+            <div className="text-[11px] text-cream-300/70 mt-0.5">{friendlyPhase(job)}</div>
+            {info && (
+              <div className="mt-1.5">
+                {info.pct != null && (
+                  <div className="h-1 bg-ink-800 rounded-full overflow-hidden mb-1">
+                    <div className={`h-full transition-all ${info.overrun ? "bg-amber-500/80" : "bg-gradient-to-r from-violet-500 to-leaf-500"}`} style={{ width: `${info.pct}%` }} />
+                  </div>
+                )}
+                <div className={`text-[10px] ${info.overrun ? "text-amber-300/90" : "text-violet-300/80"}`}>{info.label}</div>
+              </div>
+            )}
+            <div className="flex items-center gap-2 mt-1 text-[10px] text-cream-300/50 flex-wrap">
+              <span>{friendlyKind(job)}</span>
+              {peerName && <><span>·</span><span>on {peerName}</span></>}
+              {dur != null && <><span>·</span><span>{dur >= 60 ? `${Math.round(dur / 60)}m ${dur % 60}s` : `${dur}s`}</span></>}
+              {totalSteps > 0 && isRunning && <><span>·</span><span>{doneCount}/{totalSteps}</span></>}
+            </div>
+          </div>
+        </div>
+        {!isRunning && isGeneral && job.status === "succeeded" && (
+          <Link to={`/runs/${job.id}`} onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-500 shrink-0 mt-0.5">
+            Report <ArrowRight size={11} />
+          </Link>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// Timeline view — the plain, simplest browsing mode (was Activity.tsx). Every
+// filter above still applies; this just renders the result as a flat,
+// timestamped feed instead of the Board's two-column layout.
+function TimelineList({ loaded, taskList, filterActive, downFlaggedJobIds, lowQualityRuns, onOpen }: {
+  loaded: boolean;
+  taskList: ReturnType<typeof useLoadMore<any>>;
+  filterActive: boolean;
+  downFlaggedJobIds: Set<string>;
+  lowQualityRuns: LowQualityRun[];
+  onOpen: (jobId: string) => void;
+}) {
+  if (!loaded) return <Card><SkeletonList rows={6} /></Card>;
+  if (taskList.total === 0) {
+    return <Card><div className="text-sm text-cream-300/60 text-center py-8">No runs {filterActive ? "match this filter" : "yet"}.</div></Card>;
+  }
+  return (
+    <Card>
+      <ul className="relative">
+        <div className="absolute left-2 top-2 bottom-2 w-px bg-ink-700" />
+        {taskList.visible.map(j => {
+          const lowQuality = isLowQuality(j, downFlaggedJobIds, lowQualityRuns);
+          const captured = j.result?.curation?.captured === true;
+          const finishedReport = isReportShaped(j) && (j.status === "succeeded" || j.status === "failed");
+          const preview = typeof j.result?.answer === "string"
+            ? j.result.answer.replace(/^#+\s+.*$/m, "").replace(/[#*`>[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 160)
+            : "";
+          return (
+            <li key={j.id} className="relative pl-8 py-3 border-b border-ink-800 last:border-0">
+              <span className={`absolute left-0.5 top-4 w-3.5 h-3.5 rounded-full border-2 border-ink-900 ${j.status === "succeeded" ? "bg-leaf-500" : j.status === "failed" ? "bg-coral-500" : j.status === "running" ? "bg-flame-400" : "bg-cream-300/30"}`} />
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-cream-50">{friendlyTitle(j)}</span>
+                    {lowQuality && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-coral-500/40 text-coral-400 bg-coral-500/10">low quality</span>}
+                    {captured && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-leaf-500/40 text-leaf-400 bg-leaf-500/10">saved to vault</span>}
+                  </div>
+                  {preview && <p className="text-xs text-cream-300/70 mt-0.5 line-clamp-1">{preview}</p>}
+                  <div className="text-[11px] text-cream-300/50 mt-0.5 font-mono">{new Date(j.startedAt).toLocaleString()} · {j.status}</div>
+                </div>
+                {finishedReport ? (
+                  <Link to={`/runs/${j.id}`} className="text-xs text-violet-400 hover:text-violet-500 shrink-0">view</Link>
+                ) : (
+                  <button type="button" onClick={() => onOpen(j.id)} className="text-xs text-violet-400 hover:text-violet-500 shrink-0">view</button>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <LoadMoreButton state={taskList} noun="runs" />
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// RunDetail — the polished per-job document (was Results.tsx's `Results`).
+// Kept essentially as-is: title, the answer rendered as a real document,
+// outcomes, sources, QA summary, and a collapsible "how this was done" trace.
+// ─────────────────────────────────────────────────────────────────────────
+export function RunDetail() {
   const { jobId } = useParams();
   const [job, setJob] = useState<any>(null);
   const [err, setErr] = useState("");
@@ -52,7 +800,7 @@ export function Results() {
     <article className="max-w-5xl mx-auto -my-2 pb-16">
       <header className="border-b border-ink-800 pb-6 mb-8">
         <div className="flex items-center gap-2 mb-3">
-          <Link to="/tasks" className="text-[11px] text-cream-300/60 hover:text-cream-300 uppercase tracking-wider">← Tasks</Link>
+          <Link to="/runs" className="text-[11px] text-cream-300/60 hover:text-cream-300 uppercase tracking-wider">← Runs</Link>
           <span className="text-cream-300/30">/</span>
           <span className="text-[11px] text-cream-300/60 uppercase tracking-wider font-mono">{job.id.slice(0, 8)}</span>
         </div>
@@ -138,8 +886,8 @@ function Outcomes({ runs, curation }: { runs: any[]; curation?: any }) {
 // Deep, expandable outcome card. The headline (icon + label + detail + link)
 // is always visible; clicking expands a per-outcome detail panel showing
 // every source the underlying tool touched and any artifact bodies. The aim
-// is to make Results the canonical "what happened" record so the user never
-// has to switch back to Tasks to dig into a sub-agent's work.
+// is to make RunDetail the canonical "what happened" record so the user
+// never has to switch back to the Runs list to dig into a sub-agent's work.
 function OutcomeCard({ item, pushPending }: { item: Outcome; pushPending: boolean }) {
   const [open, setOpen] = useState(false);
   const hasDetail = !!item.expanded;
@@ -440,8 +1188,8 @@ type Outcome = {
   topLinks?: { label: string; href: string; external?: boolean }[];
   // When present, the card becomes expandable — `OutcomeDetail` renders the
   // payload using the kind-specific renderer (perspective list, source list,
-  // match list, etc.). Lets the Results page be the complete record without
-  // forcing the user back to Tasks for tool-level depth.
+  // match list, etc.). Lets RunDetail be the complete record without forcing
+  // the user back to the list for tool-level depth.
   expanded?: { kind: string; payload: any };
 };
 
@@ -665,152 +1413,6 @@ function extractOutcomes(runs: any[], curation?: any): Outcome[] {
     }
   }
   return out;
-}
-
-// Reports index — shows every completed general-task (and custom) job as a
-// clickable card with the answer's first line as preview. The detail page is
-// the polished read; this is the "table of contents".
-export function ResultsIndex() {
-  const [jobs, setJobs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "captured" | "delegated">("all");
-
-  useEffect(() => {
-    let alive = true;
-    async function tick() {
-      try {
-        const r = await api.listJobs();
-        if (!alive) return;
-        // Show only general-task + custom-* + delegated peer jobs that finished
-        // — these are the ones with a polished answer. Other templates have
-        // their own result panels and don't fit the report shape.
-        const filtered = (r.jobs ?? [])
-          .filter((j: any) => j.status === "succeeded" || j.status === "failed")
-          .filter((j: any) => j.template === "general-task" || (j.template ?? "").startsWith("custom-") || j.template === "peer:delegate" || j.kind === "peer:delegate")
-          .sort((a: any, b: any) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""));
-        setJobs(filtered);
-      } catch { /* swallow */ }
-      finally { if (alive) setLoading(false); }
-    }
-    tick();
-    const i = setInterval(tick, 5000);
-    return () => { alive = false; clearInterval(i); };
-  }, []);
-
-  const visible = jobs.filter(j => {
-    if (filter === "all") return true;
-    if (filter === "captured") return j.result?.curation?.captured === true;
-    if (filter === "delegated") return j.result?.delegated === true;
-    return true;
-  });
-  const reportList = useLoadMore(visible);
-
-  // Friendlier counts so the customer can see "12 reports · 4 saved to your
-  // vault · 3 done by an employee" at a glance.
-  const counts = useMemo(() => ({
-    all: jobs.length,
-    saved: jobs.filter(j => j.result?.curation?.captured === true).length,
-    employee: jobs.filter(j => j.result?.delegated === true).length,
-  }), [jobs]);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="font-display text-3xl text-cream-50">Reports</h1>
-          <p className="text-sm text-cream-300/70 mt-1">Everything your employees have produced for you. Each report has the answer, the sources, and what was saved to your vault.</p>
-        </div>
-        <div className="flex items-center gap-1 text-[11px]">
-          {([
-            { id: "all" as const, label: `All (${counts.all})` },
-            { id: "captured" as const, label: `Saved to vault (${counts.saved})` },
-            { id: "delegated" as const, label: `Done by employee (${counts.employee})` },
-          ]).map(f => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setFilter(f.id)}
-              className={`px-3 py-1.5 rounded-md border transition-colors ${filter === f.id ? "bg-violet-500/15 border-violet-500/40 text-violet-300" : "border-ink-800 text-cream-300/70 hover:border-ink-700 hover:text-cream-100"}`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {loading && jobs.length === 0 ? (
-        <div className="text-sm text-cream-300/60">Loading reports…</div>
-      ) : visible.length === 0 ? (
-        <div className="text-sm text-cream-300/60 border border-dashed border-ink-700 rounded-lg p-8 text-center">
-          <div className="text-2xl mb-3">📋</div>
-          <div className="font-medium text-cream-200 mb-1">No reports yet</div>
-          <div className="mb-4">Send a task in <Link to="/chat" className="text-violet-400 hover:text-violet-500">Chat</Link> and your employee's report will land here.</div>
-          <Link to="/personas" className="text-[11px] text-cream-300 hover:text-cream-50 underline">Don't have an employee active? Hire one →</Link>
-        </div>
-      ) : (
-        <ul className="space-y-3">
-          {reportList.visible.map(j => <ReportCard key={j.id} job={j} />)}
-          <LoadMoreButton state={reportList} noun="reports" />
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function ReportCard({ job }: { job: any }) {
-  const r = job.result ?? {};
-  const title = cleanTitle(job.title) || job.template || "Report";
-  const startedAt = job.startedAt ? new Date(job.startedAt) : null;
-  const dur = job.finishedAt && job.startedAt
-    ? Math.max(1, Math.round((new Date(job.finishedAt).getTime() - new Date(job.startedAt).getTime()) / 1000))
-    : null;
-  const preview = typeof r.answer === "string"
-    ? r.answer.replace(/^#+\s+.*$/m, "").replace(/[#*`>\[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 220)
-    : "";
-  const captured = r.curation?.captured === true;
-  const delegated = r.delegated === true;
-  const failed = job.status === "failed";
-  const employeeName = r.peer?.name || job.inputs?.activePersona?.name || r.activePersona?.name;
-  return (
-    <li>
-      <Link to={`/results/${job.id}`} className={`block rounded-lg border transition-colors p-4 ${failed ? "border-coral-500/30 bg-coral-500/5 hover:border-coral-500/50" : "border-ink-800 bg-ink-900 hover:border-violet-500/40 hover:bg-ink-850"}`}>
-        <div className="flex items-start gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h3 className="font-display text-lg text-cream-50 truncate">{title}</h3>
-              {failed && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-coral-500/40 text-coral-400 bg-coral-500/10">didn't finish</span>}
-              {captured && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-leaf-500/40 text-leaf-400 bg-leaf-500/10">saved to vault</span>}
-            </div>
-            {preview && <p className="text-sm text-cream-300/80 line-clamp-2">{preview}</p>}
-            <div className="flex items-center gap-3 text-[11px] text-cream-300/50 mt-2 flex-wrap">
-              {employeeName && (
-                <span>by <span className="text-cream-300/80">{employeeName}</span></span>
-              )}
-              {!employeeName && delegated && <span>by a worker</span>}
-              {dur != null && <span>· took {dur >= 60 ? `${Math.round(dur / 60)} min${Math.round(dur / 60) !== 1 ? "s" : ""}` : `${dur}s`}</span>}
-              {startedAt && <span>· {friendlyTimeAgo(startedAt)}</span>}
-            </div>
-          </div>
-          <span className="text-violet-400 self-center text-lg flex-shrink-0">→</span>
-        </div>
-      </Link>
-    </li>
-  );
-}
-
-// Customer-friendly relative time. "2 minutes ago" reads better than a full
-// ISO timestamp on a card the customer just opened.
-function friendlyTimeAgo(d: Date): string {
-  const ms = Date.now() - d.getTime();
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m} min${m === 1 ? "" : "s"} ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
-  const days = Math.floor(h / 24);
-  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function Meta({ job, personaName, durationSec, startedAt }: { job: any; personaName: string; durationSec: number | null; startedAt: Date | null }) {

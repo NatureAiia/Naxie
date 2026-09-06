@@ -53,7 +53,7 @@ export function KnowledgePacks() {
                     {pack.files.map(f => (
                       <button
                         key={f.path}
-                        onClick={() => nav("/knowledge/" + f.path.replace(/\\/g, "/"))}
+                        onClick={() => nav("/library/" + f.path.replace(/\\/g, "/"))}
                         className="w-full flex items-center gap-2 text-xs text-cream-300/70 hover:text-violet-300 text-left"
                       >
                         <FileText className="w-3 h-3 shrink-0" />

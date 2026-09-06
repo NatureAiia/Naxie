@@ -159,8 +159,6 @@ export const api = {
   costTrend: (days = 14) => req<CostTrend>(`/api/cost/trend?days=${days}`),
   securityEvents: () => req<SecurityStatus>("/api/security/events"),
   unblockIp: (ip: string) => req<{ ok: boolean; unblocked: boolean }>("/api/security/unblock", { method: "POST", body: JSON.stringify({ ip }) }),
-  addHumanWork: (body: { rows?: { email: string; date: string; hours: number; description?: string }[]; csv?: string; source?: "upload" | "connector" | "manual" }) =>
-    req<{ added: number; errors: { row: number; error: string }[] }>("/api/cost/human-work", { method: "POST", body: JSON.stringify(body) }),
   updatePersona: (id: string, patch: { workMode?: WorkMode; tone?: string; description?: string; role?: string }) =>
     req<{ persona: any }>(`/api/personas/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
   // First-run bootstrap: is the org empty (no accounts yet)?
@@ -228,6 +226,9 @@ export const api = {
   listReflections: () => req<{ reflections: { date: string; path: string; preview: string; stats?: any }[]; last?: any }>("/api/reflection"),
   runReflection: (windowHours = 24) => req<{ date: string; path: string; stats: any; reflection: string; generatedAt: string; modelUsed?: string }>("/api/reflection/run", { method: "POST", body: JSON.stringify({ windowHours }) }),
   getReflection: (date: string) => req<{ date: string; path: string; body: string }>(`/api/reflection/${encodeURIComponent(date)}`),
+  listInnovationScans: () => req<{ scans: { date: string; path: string; preview: string; stats?: any }[]; last?: any }>("/api/innovation-scan"),
+  runInnovationScan: (force = false) => req<{ date: string; path: string; targeted: any; broad: any; digest: string; generatedAt: string; modelUsed?: string }>("/api/innovation-scan/run", { method: "POST", body: JSON.stringify({ force }) }),
+  getInnovationScan: (date: string) => req<{ date: string; path: string; body: string }>(`/api/innovation-scan/${encodeURIComponent(date)}`),
   triggerDigest: (lookbackDays = 7) => req<{ jobId: string }>("/api/tasks/digest", { method: "POST", body: JSON.stringify({ lookbackDays: String(lookbackDays) }) }),
   chat: (messages: { role: "user" | "assistant" | "system"; content: string }[], opts?: {
     attachments?: { contextId: string }[];
@@ -705,7 +706,7 @@ export type WorkforceCost = {
     byDay: { date: string; hours: number }[];
   };
 };
-export type CostTrend = { days: number; zarPerUsd: number; series: { date: string; neuroUsd: number; humanUsd: number }[] };
+export type CostTrend = { days: number; series: { date: string; neuroUsd: number }[] };
 export type SecurityEvent = {
   at: string; ip: string;
   kind: "scanner-probe" | "traversal" | "injection" | "auth-failure-burst" | "flood" | "blocked-request";

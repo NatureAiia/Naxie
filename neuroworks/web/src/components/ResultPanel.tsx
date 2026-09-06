@@ -299,7 +299,7 @@ function SearchBrainResult({ job }: { job: any }) {
         <ul className="space-y-2.5">
           {r.results.map((m: any, i: number) => (
             <li key={i}>
-              <Link to={`/knowledge/${m.path}`} className="font-mono text-xs text-violet-400 hover:text-violet-500">{m.path}:{m.line}</Link>
+              <Link to={`/library/${m.path}`} className="font-mono text-xs text-violet-400 hover:text-violet-500">{m.path}:{m.line}</Link>
               <div className="text-xs text-cream-200 mt-0.5">{m.preview}</div>
             </li>
           ))}
@@ -316,7 +316,7 @@ function SummarizeRepoResult({ job }: { job: any }) {
   return (
     <Card title={`Project summary · ${job.inputs?.repo ?? ""}`}>
       <MetaRow job={job} />
-      <div className="text-xs text-cream-300/60 mb-3">Saved to <Link to={`/knowledge/${r.path}`} className="text-violet-400 hover:text-violet-500 font-mono">{r.path}</Link></div>
+      <div className="text-xs text-cream-300/60 mb-3">Saved to <Link to={`/library/${r.path}`} className="text-violet-400 hover:text-violet-500 font-mono">{r.path}</Link></div>
       {body ? <div className="prose-vault" dangerouslySetInnerHTML={{ __html: marked.parse(body) as string }} /> : <div className="text-xs text-cream-300/60">Loading summary…</div>}
     </Card>
   );
@@ -329,7 +329,7 @@ function AddNoteResult({ job }: { job: any }) {
   return (
     <Card title="Note captured">
       <MetaRow job={job} />
-      <div className="text-xs text-cream-300/60 mb-3">Saved to <Link to={`/knowledge/${r.path}`} className="text-violet-400 hover:text-violet-500 font-mono">{r.path}</Link></div>
+      <div className="text-xs text-cream-300/60 mb-3">Saved to <Link to={`/library/${r.path}`} className="text-violet-400 hover:text-violet-500 font-mono">{r.path}</Link></div>
       {body && <div className="prose-vault" dangerouslySetInnerHTML={{ __html: marked.parse(body) as string }} />}
     </Card>
   );
@@ -342,7 +342,7 @@ function RunDigestResult({ job }: { job: any }) {
       <MetaRow job={job} />
       <div className="space-y-2 text-sm">
         <div>Lookback window: <span className="font-mono text-cream-100">{r.lookbackDays} days</span></div>
-        <div className="text-cream-300/70">Workflow is running on GitHub Actions. Check the digest in <Link to="/knowledge/_clawbot" className="text-violet-400 hover:text-violet-500">Knowledge › _clawbot</Link> after the run finishes.</div>
+        <div className="text-cream-300/70">Workflow is running on GitHub Actions. Check the digest in <Link to="/library/_clawbot" className="text-violet-400 hover:text-violet-500">Knowledge › _clawbot</Link> after the run finishes.</div>
         <a href="https://github.com/RUBIEM-DEVELOPERS-REPO/neuroworks/actions" target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-violet-400 hover:text-violet-500 mt-2">View on GitHub Actions →</a>
       </div>
     </Card>
@@ -395,7 +395,7 @@ function SyncDownloadsResult({ job }: { job: any }) {
         ))}
       </div>
 
-      <Link to="/knowledge/_knowledge/downloads/inventory.md" className="inline-block text-xs text-violet-400 hover:text-violet-500 mt-4">Open inventory.md →</Link>
+      <Link to="/library/_knowledge/downloads/inventory.md" className="inline-block text-xs text-violet-400 hover:text-violet-500 mt-4">Open inventory.md →</Link>
     </Card>
   );
 }
@@ -565,7 +565,7 @@ function GeneralTaskResult({ job, live = false }: { job: any; live?: boolean }) 
             <div className="flex items-center gap-1.5 flex-wrap mt-2">
               {r.curation.citations.map((c: any, i: number) => (
                 c.path ? (
-                  <Link key={i} to={`/knowledge/${c.path}`} className="px-2 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:border-violet-500/60" title={c.label}>
+                  <Link key={i} to={`/library/${c.path}`} className="px-2 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:border-violet-500/60" title={c.label}>
                     [{i + 1}] {c.label.length > 28 ? `${c.label.slice(0, 28)}…` : c.label}
                   </Link>
                 ) : (
@@ -708,7 +708,7 @@ function StepResultPreview({ tool, result }: { tool: string; result: any }) {
       <ul className="mt-1.5 space-y-0.5 text-[11px]">
         {matches.slice(0, 3).map((m: any, i: number) => (
           <li key={i} className="flex items-baseline gap-2 min-w-0">
-            <Link to={`/knowledge/${m.path}`} className="text-violet-400 hover:text-violet-500 font-mono truncate">{m.path}:{m.line}</Link>
+            <Link to={`/library/${m.path}`} className="text-violet-400 hover:text-violet-500 font-mono truncate">{m.path}:{m.line}</Link>
             <span className="text-cream-300/60 truncate">{m.preview}</span>
           </li>
         ))}
@@ -723,10 +723,10 @@ function StepResultPreview({ tool, result }: { tool: string; result: any }) {
   if (tool === "vault.write" || tool === "vault.append") {
     const p = result.written ?? result.appended;
     if (!p) return null;
-    return <Link to={`/knowledge/${p}`} className="inline-block mt-1 text-[11px] text-violet-400 hover:text-violet-500 font-mono">{p}</Link>;
+    return <Link to={`/library/${p}`} className="inline-block mt-1 text-[11px] text-violet-400 hover:text-violet-500 font-mono">{p}</Link>;
   }
   if (tool === "vault.create_zettel" && result.path) {
-    return <Link to={`/knowledge/${result.path}`} className="inline-block mt-1 text-[11px] text-violet-400 hover:text-violet-500 font-mono">{result.path}</Link>;
+    return <Link to={`/library/${result.path}`} className="inline-block mt-1 text-[11px] text-violet-400 hover:text-violet-500 font-mono">{result.path}</Link>;
   }
   if (tool === "research.deep") {
     const vh = (result.vaultHits ?? []).length;
@@ -734,7 +734,7 @@ function StepResultPreview({ tool, result }: { tool: string; result: any }) {
     return (
       <div className="text-[11px] text-cream-300/60 mt-1 flex items-center gap-3 flex-wrap">
         <span>{vh} vault hit{vh === 1 ? "" : "s"} · {ws} web source{ws === 1 ? "" : "s"}</span>
-        {result.captured?.path && <Link to={`/knowledge/${result.captured.path}`} className="font-mono text-violet-400 hover:text-violet-500">→ {result.captured.path}</Link>}
+        {result.captured?.path && <Link to={`/library/${result.captured.path}`} className="font-mono text-violet-400 hover:text-violet-500">→ {result.captured.path}</Link>}
       </div>
     );
   }
@@ -749,7 +749,7 @@ function StepResultPreview({ tool, result }: { tool: string; result: any }) {
           ))}
           <span className="text-cream-300/60">· {sourceCount} cited source{sourceCount === 1 ? "" : "s"}</span>
         </div>
-        {result.captured?.path && <Link to={`/knowledge/${result.captured.path}`} className="font-mono text-[11px] text-violet-400 hover:text-violet-500">→ {result.captured.path}</Link>}
+        {result.captured?.path && <Link to={`/library/${result.captured.path}`} className="font-mono text-[11px] text-violet-400 hover:text-violet-500">→ {result.captured.path}</Link>}
       </div>
     );
   }
@@ -820,7 +820,7 @@ function CurationBlock({ curation }: { curation: any }) {
         <span className="text-[10px] uppercase tracking-wider text-cream-300/60">Primary curation</span>
         <span className={`text-xs font-medium ${palette.text}`}>{captured ? "captured to vault" : "not captured"}</span>
         {captured && curation.path && (
-          <Link to={`/knowledge/${curation.path}`} className="text-[11px] text-violet-400 hover:text-violet-500 font-mono ml-auto">{curation.path}</Link>
+          <Link to={`/library/${curation.path}`} className="text-[11px] text-violet-400 hover:text-violet-500 font-mono ml-auto">{curation.path}</Link>
         )}
       </div>
       {!captured && curation.reason && (

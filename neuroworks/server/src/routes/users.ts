@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listUsers, addUser, updateUser, setPassword, removeUser, listPendingUsers, approveUser, listSessionViews, revokeSessionByPrefix, orgOverview, sweepEndedSessions } from "../lib/users.js";
+import { listUsers, setPassword, removeUser, listPendingUsers, approveUser, listSessionViews, revokeSessionByPrefix, orgOverview, sweepEndedSessions } from "../lib/users.js";
 import { callerLayer, callerOf, redactUserFor } from "../lib/access.js";
 import { listRestrictions, addRestriction, removeRestriction, CAPABILITIES } from "../lib/task-restrictions.js";
 
@@ -18,31 +18,6 @@ export const usersRouter = Router();
 usersRouter.get("/", (req, res) => {
   const layer = callerLayer(req);
   res.json({ users: listUsers().map(u => redactUserFor(layer, u)) });
-});
-
-usersRouter.post("/", (req, res) => {
-  try {
-    const b = req.body ?? {};
-    res.json({ user: addUser({ name: b.name, email: b.email, role: b.role, title: b.title, department: b.department, password: b.password, workMode: b.workMode, salaryMonthly: b.salaryMonthly }) });
-  } catch (e: any) {
-    res.status(400).json({ error: String(e?.message ?? e) });
-  }
-});
-
-usersRouter.patch("/:id", (req, res) => {
-  const layer = callerLayer(req);
-  const body = req.body ?? {};
-  // Money guard: only a superadmin session (or machine context) may touch
-  // salaries; role changes to/from superadmin need superadmin too.
-  if (layer !== null && layer !== "superadmin") {
-    if (body.salaryMonthly !== undefined) return res.status(403).json({ error: "salaries require super admin access" });
-    if (body.role === "superadmin") return res.status(403).json({ error: "granting super admin requires super admin access" });
-  }
-  let u;
-  try { u = updateUser(String(req.params.id), body); }
-  catch (e: any) { return res.status(400).json({ error: String(e?.message ?? e) }); }
-  if (!u) return res.status(404).json({ error: "user not found" });
-  res.json({ user: redactUserFor(callerLayer(req), u) });
 });
 
 // ── org management (Admin page) — router is admin-gated at the mount ──
@@ -115,12 +90,3 @@ usersRouter.post("/:id/password", (req, res) => {
   res.json({ ok: true });
 });
 
-usersRouter.delete("/:id", (req, res) => {
-  try {
-    const ok = removeUser(String(req.params.id));
-    if (!ok) return res.status(404).json({ error: "user not found" });
-    res.json({ ok: true });
-  } catch (e: any) {
-    res.status(400).json({ error: String(e?.message ?? e) });
-  }
-});

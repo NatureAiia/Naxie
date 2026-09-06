@@ -40,54 +40,6 @@ function ensureDir(): void {
   if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
 }
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function normDate(v: unknown): string | null {
-  const s = String(v ?? "").trim().slice(0, 10);
-  if (DATE_RE.test(s)) return s;
-  const d = new Date(String(v ?? ""));
-  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  return null;
-}
-
-// Validate + normalise a raw row into an entry. Returns null (with a reason)
-// rather than throwing so a bulk ingest reports per-row errors.
-export function coerceEntry(raw: any, source: HumanWorkSource): { entry?: HumanWorkEntry; error?: string } {
-  const email = String(raw?.userEmail ?? raw?.email ?? raw?.user ?? "").trim().toLowerCase();
-  if (!email || !email.includes("@")) return { error: "missing/invalid email" };
-  const date = normDate(raw?.date ?? raw?.day ?? raw?.worked_on);
-  if (!date) return { error: "missing/invalid date (want YYYY-MM-DD)" };
-  const hours = Number(raw?.hours ?? raw?.hrs ?? raw?.duration);
-  if (!Number.isFinite(hours) || hours <= 0 || hours > 24) return { error: "hours must be a number in (0, 24]" };
-  return {
-    entry: {
-      id: randomUUID(),
-      userEmail: email,
-      date,
-      hours: Math.round(hours * 100) / 100,
-      description: raw?.description ? String(raw.description).slice(0, 300) : (raw?.task ? String(raw.task).slice(0, 300) : undefined),
-      taskRef: raw?.taskRef ? String(raw.taskRef).slice(0, 100) : undefined,
-      source,
-      ts: new Date().toISOString(),
-    },
-  };
-}
-
-export function addHumanWork(rows: any[], source: HumanWorkSource): { added: number; errors: { row: number; error: string }[] } {
-  ensureDir();
-  const errors: { row: number; error: string }[] = [];
-  let added = 0;
-  const lines: string[] = [];
-  rows.forEach((raw, i) => {
-    const { entry, error } = coerceEntry(raw, source);
-    if (!entry) { errors.push({ row: i, error: error ?? "invalid row" }); return; }
-    lines.push(JSON.stringify(entry));
-    added += 1;
-  });
-  if (lines.length > 0) appendFileSync(LEDGER_PATH, lines.join("\n") + "\n", "utf8");
-  return { added, errors };
-}
-
 // ─── automatic session-time tracking ───
 // The most accurate human-hours signal we have without asking anyone to fill a
 // timesheet: how long a person was actually signed in. A session is opened at
@@ -136,43 +88,6 @@ export function recordSessionWork(
   return true;
 }
 
-// Minimal CSV parser for timesheets — header row + comma/semicolon delimiter,
-// quoted fields supported. Header names are matched loosely (email/user,
-// date/day, hours/hrs/duration, description/task/notes).
-export function parseTimesheetCsv(text: string): any[] {
-  const rows: string[][] = [];
-  let field = "", row: string[] = [], inQuotes = false;
-  const pushField = () => { row.push(field); field = ""; };
-  const pushRow = () => { if (row.length > 1 || row[0]?.trim()) rows.push(row); row = []; };
-  const delim = text.split("\n")[0]?.includes(";") && !text.split("\n")[0]?.includes(",") ? ";" : ",";
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inQuotes) {
-      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
-      else if (c === '"') inQuotes = false;
-      else field += c;
-    } else if (c === '"') inQuotes = true;
-    else if (c === delim) pushField();
-    else if (c === "\n") { pushField(); pushRow(); }
-    else if (c !== "\r") field += c;
-  }
-  if (field || row.length) { pushField(); pushRow(); }
-  if (rows.length < 2) return [];
-  const header = rows[0].map(h => h.trim().toLowerCase());
-  const col = (names: string[]) => header.findIndex(h => names.some(n => h === n || h.includes(n)));
-  const iEmail = col(["email", "user", "person", "employee"]);
-  const iDate = col(["date", "day", "worked"]);
-  const iHours = col(["hours", "hrs", "duration", "time"]);
-  const iDesc = col(["description", "task", "notes", "activity", "work"]);
-  if (iEmail === -1 || iDate === -1 || iHours === -1) return [];
-  return rows.slice(1).map(r => ({
-    email: r[iEmail],
-    date: r[iDate],
-    hours: r[iHours],
-    description: iDesc >= 0 ? r[iDesc] : undefined,
-  }));
-}
-
 export function listHumanWork(sinceDays = 30): HumanWorkEntry[] {
   if (!existsSync(LEDGER_PATH)) return [];
   const cutoff = new Date(Date.now() - sinceDays * 24 * 3600 * 1000).toISOString().slice(0, 10);
@@ -217,14 +132,4 @@ export function summarizeHumanWork(sinceDays = 30): HumanWorkSummary {
     byUser: [...byUserMap.entries()].map(([email, v]) => ({ email, hours: Math.round(v.hours * 100) / 100, entries: v.entries, lastDate: v.lastDate })).sort((a, b) => b.hours - a.hours),
     byDay: [...byDayMap.entries()].map(([date, hours]) => ({ date, hours: Math.round(hours * 100) / 100 })).sort((a, b) => a.date.localeCompare(b.date)),
   };
-}
-
-// Standard working-hours assumption for converting a monthly salary to an
-// hourly rate: ~21.67 working days × 8h. Kept in one place so the Cost page
-// and time-waste analysis price human hours identically.
-export const WORK_HOURS_PER_MONTH = 21.67 * 8;
-
-export function hourlyRate(salaryMonthly: number | undefined): number | undefined {
-  if (!Number.isFinite(Number(salaryMonthly)) || Number(salaryMonthly) <= 0) return undefined;
-  return Number(salaryMonthly) / WORK_HOURS_PER_MONTH;
 }

@@ -5,10 +5,10 @@ import { Card, Button, showToast } from "../components/Card";
 import { api, type Preset, type PresetApplyResult } from "../lib/api";
 import { MagneticRow } from "../components/MagneticRow";
 
-// Role Presets — one-click "hire a worker" bundles. Picking one activates the
-// persona, ensures its templates, optionally stands up a morning schedule
+// Role Presets — one-click "spin up an agent" bundles. Picking one activates
+// the persona, ensures its templates, optionally stands up a morning schedule
 // (emailed to you), and points you at the integrations that role uses.
-export function Presets() {
+export function SpinUpAgent() {
   const nav = useNavigate();
   const [presets, setPresets] = useState<Preset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +52,7 @@ export function Presets() {
         createSchedules: withSchedules,
       });
       setResult(r);
-      showToast(`Hired ${r.persona.name} — ${r.persona.role}`, "success");
+      showToast(`Activated ${r.persona.name} — ${r.persona.role}`, "success");
     } catch (e: any) {
       showToast(`Apply failed: ${e.message}`, "error");
     } finally {
@@ -66,11 +66,11 @@ export function Presets() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-cream-50 flex items-center gap-2">
-          <Sparkles size={22} className="text-violet-400" /> Hire a worker
+          <Sparkles size={22} className="text-violet-400" /> Spin up an agent
         </h1>
         <p className="text-sm text-cream-300/70 mt-1 max-w-2xl">
           One-click role presets. Each one activates the right persona, sets up its starter
-          templates, and can stand up a recurring briefing emailed to you — so a new worker is
+          templates, and can stand up a recurring briefing emailed to you — so a new agent is
           productive in a single click.
         </p>
       </div>
@@ -166,7 +166,7 @@ export function Presets() {
 
             <div className="flex items-center gap-3 pt-1">
               <Button onClick={() => apply(selected)} disabled={applying}>
-                {applying ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Hiring…</span> : `Hire ${selected.name}`}
+                {applying ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Activating…</span> : `Activate ${selected.name}`}
               </Button>
               <Button variant="ghost" onClick={() => setActive(null)}>Cancel</Button>
             </div>

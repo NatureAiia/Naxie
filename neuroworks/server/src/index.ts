@@ -27,10 +27,12 @@ import { ensurePool, shutdownManagedWorker } from "./lib/worker-manager.js";
 import { loadPersonas } from "./lib/personas.js";
 import { ensureAllPersonasHaveTemplates } from "./lib/persona-templates.js";
 import { startReflectionScheduler, stopReflectionScheduler } from "./lib/reflection.js";
+import { startInnovationScanScheduler, stopInnovationScanScheduler } from "./lib/innovation-scan.js";
 import { startWikiCompileScheduler, stopWikiCompileScheduler, startWikiDigestScheduler, stopWikiDigestScheduler } from "./lib/wiki-compile.js";
 import { ensureAgentsMdExists } from "./lib/agents-routing.js";
 import { abortInflightJobs } from "./lib/jobs.js";
 import { reflectionRouter } from "./routes/reflection.js";
+import { innovationScanRouter } from "./routes/innovation-scan.js";
 import { wikiCompileRouter } from "./routes/wiki-compile.js";
 import { skillsRouter } from "./routes/skills.js";
 import { uploadsRouter } from "./routes/uploads.js";
@@ -203,6 +205,7 @@ app.use("/api/personas", personasRouter);
 app.use("/api/peers", peersRouter);
 app.use("/api/models", requireLayer("superadmin"), modelsRouter); // provider API keys
 app.use("/api/reflection", reflectionRouter);
+app.use("/api/innovation-scan", innovationScanRouter);
 app.use("/api/wiki-compile", wikiCompileRouter);
 app.use("/api/skills", skillsRouter);
 app.use("/api/uploads", uploadsRouter);
@@ -233,7 +236,7 @@ app.use("/api/external-agents", externalAgentsRouter);
 app.use("/api/feedback", feedbackRouter);
 app.use("/api/exports", exportsRouter);
 app.use("/api/calendar", calendarRouter);
-app.use("/api/data-sources", requireLayer("superadmin"), dataSourcesRouter); // external DB credentials (secrets tier, like connectors)
+app.use("/api/data-sources", requireLayer("admin"), dataSourcesRouter); // external DB credentials + department data — admin territory, not the top secrets tier
 app.use("/api/terminal", requireLayer("superadmin"), terminalRouter); // shell access
 app.use("/api/integrations", requireLayer("superadmin"), integrationsRouter); // service secrets
 app.use("/api/presets", presetsRouter);
@@ -498,6 +501,15 @@ const server = app.listen(config.port, config.bindHost, async () => {
     console.log(`  ⓘ nightly reflection scheduler armed (hour=${process.env.NEUROWORKS_REFLECTION_HOUR ?? "2"})`);
   }
 
+  // Innovation Scan — same primary-only guard as reflection above. Offset
+  // default hour (5, vs reflection's 2) so the two nightly LLM-heavy jobs
+  // don't compete for the LLM backend simultaneously. Disable with
+  // NEUROWORKS_INNOVATION_SCAN=0.
+  if (process.env.NEUROWORKS_INNOVATION_SCAN !== "0" && config.role === "primary") {
+    startInnovationScanScheduler();
+    console.log(`  ⓘ nightly innovation scan scheduler armed (hour=${process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "5"})`);
+  }
+
   // Second-brain wiki compile — distills raw captures (_archive/) into
   // compiled wiki entries (_wiki/) nightly, then emails/toasts a morning
   // digest a few hours later. Same primary-only, opt-out convention as
@@ -594,6 +606,8 @@ async function gracefulExit(signal: string) {
   try { await shutdownManagedWorker(); }
   catch (e: any) { console.warn(`  ⚠ worker shutdown failed: ${e?.message ?? e}`); }
   try { stopReflectionScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopInnovationScanScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopWikiCompileScheduler(); stopWikiDigestScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }

@@ -2,27 +2,20 @@ import { NavLink, Link, useLocation } from "react-router-dom";
 import { ReactNode, useEffect, useState, type ComponentType } from "react";
 import { ToastRack } from "./Card";
 import {
-  LayoutDashboard,
-  Users,
   Users2,
-  ListChecks,
-  BookOpen,
   Search as SearchIcon,
   ChevronRight,
   CalendarDays,
-  Database,
   Sparkles,
   Puzzle,
   LogOut,
-  Contact,
   Zap,
-  ThumbsUp,
   DollarSign,
-  Cpu,
   Inbox,
   PanelLeftClose,
   PanelLeftOpen,
   Terminal,
+  Radar,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -48,12 +41,9 @@ const TemplateIcon = matIcon("template");
 const RobotIcon = matIcon("robot");
 const RobotFolderIcon = matIcon("folder-robot");
 const DocsFolderIcon = matIcon("folder-docs");
-const KeyIcon = matIcon("key");
 const CertificateIcon = matIcon("certificate");
 const EventFolderIcon = matIcon("folder-event");
 const WorkspaceFolderIcon = matIcon("folder"); // generic nav-group container glyph
-const SearchIconMat = matIcon("search");
-const BenchmarkFolderIcon = matIcon("folder-benchmark");
 const ConfigFolderIcon = matIcon("folder-config");
 
 type NavItem = {
@@ -64,58 +54,61 @@ type NavItem = {
   external?: boolean;
 };
 
-// Top-level: the everyday surfaces. Everything else folds into a collapsible
-// group (Workspace / Library / System) so the rail stays short.
+// Top-level: Home Base. Everything else folds into a collapsible group so
+// the rail stays short. No role-based filtering below — this is a
+// single-operator app now (see removed staff/admin/superadmin nav logic);
+// server-side gates (requireLayer) still apply where a real secrets
+// boundary exists (e.g. Library's Connections tab), this file just no
+// longer hides a link from the one person using it.
 const primaryNav: NavItem[] = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/naxie", label: "Naxie", icon: Sparkles },
   { to: "/chat", label: "Board Meeting", icon: Users2 },
-  { to: "/team", label: "Focus Team", icon: Users },
-  { to: "/presets", label: "Hire a worker", icon: Sparkles },
-  { to: "/ide", label: "IDE", icon: Terminal },
   { to: "http://127.0.0.1:7472", label: "Naxion IDE", icon: Terminal, external: true },
 ];
 
-const workspaceNav: NavItem[] = [
-  // My Work leads the workspace — it's every person's home base. It now hosts
-  // Reports and the Doc editor as tabs (they were separate nav entries), so a
-  // person's handoffs, the deliverables, and editing all live in one place.
-  // Moved out of Watch (hidden from staff) so staff can reach their own work.
-  { to: "/my-work", label: "My Work", icon: Inbox },
-  { to: "/my-tasks", label: "My Tasks", icon: TodoIcon },
-  { to: "/tasks", label: "Tasks", icon: TodoIcon },
-  { to: "/calendar", label: "Calendar", icon: CalendarDays },
-  { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
+const agentsNav: NavItem[] = [
+  { to: "/agents", label: "Agent Roster", icon: RobotIcon },
+  { to: "/squads", label: "Squads", icon: Zap },
+  { to: "/orchestrate", label: "Orchestrate", icon: RobotFolderIcon },
+  { to: "/spin-up", label: "Spin up an agent", icon: Sparkles },
 ];
 
-const watchNav: NavItem[] = [
-  { to: "/approvals", label: "Approvals", icon: ReviewFolderIcon, badgeKey: "approvals" },
-  { to: "/activity", label: "Activity", icon: LogIcon, badgeKey: "activity" },
+const workNav: NavItem[] = [
+  // My Work leads the queue — it hosts Reports and the Doc editor as tabs,
+  // so a person's handoffs, the deliverables, and editing all live in one
+  // place.
+  { to: "/my-work", label: "My Work", icon: Inbox },
+  { to: "/runs", label: "Runs", icon: TodoIcon, badgeKey: "activity" },
+  { to: "/approvals", label: "Agent Approvals", icon: ReviewFolderIcon, badgeKey: "approvals" },
+  { to: "/my-tasks", label: "My Tasks", icon: TodoIcon },
+  { to: "/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
 ];
 
-const libraryNav: NavItem[] = [
-  { to: "/knowledge", label: "Knowledge", icon: DocsFolderIcon },
+const memoryNav: NavItem[] = [
+  { to: "/library", label: "Library", icon: DocsFolderIcon },
+  { to: "/knowledge-packs", label: "Knowledge Packs", icon: DocsFolderIcon },
+  { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
   { to: "/templates", label: "Templates", icon: TemplateIcon },
   { to: "/skills", label: "Skills", icon: TemplateIcon },
-  { to: "/personas", label: "Employees", icon: RobotIcon },
-  { to: "/workforce", label: "Workforce", icon: RobotFolderIcon },
-  { to: "/departments", label: "Departments", icon: Zap },
-  { to: "/knowledge-packs", label: "Knowledge Packs", icon: DocsFolderIcon },
+  // SkillForge lives as a tab on Skills.
 ];
 
-const monitoringNav: NavItem[] = [
-  { to: "/quality", label: "Quality", icon: ThumbsUp },
-  { to: "/cost", label: "Cost", icon: DollarSign },
-  { to: "/audit", label: "Audit Log", icon: LogIcon },
-  { to: "/security", label: "Security", icon: KeyIcon },
-  // SkillForge now lives as a tab on Skills; Orchestrate as a tab on Focus Team.
-];
-
-const systemNav: NavItem[] = [
+const connectNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
-  { to: "/data-sources", label: "Files", icon: Database },
-  { to: "/governance", label: "Instructions and Policies", icon: CertificateIcon },
+  // Connectors/Integrations/MCP Servers stay as Extensions' internal tabs.
 ];
+
+const governNav: NavItem[] = [
+  { to: "/policies", label: "Policies", icon: CertificateIcon },
+  { to: "/audit", label: "Audit Log", icon: LogIcon },
+  { to: "/cost", label: "Cost", icon: DollarSign },
+];
+
+// Ambient Watch — a single stub slot, not a real group yet (no logic behind
+// it). Not folded into another group so it's obviously a placeholder, not a
+// half-built feature masquerading as done.
+const ambientNav: NavItem = { to: "/ambient", label: "Ambient Watch", icon: Radar };
 
 export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -123,24 +116,6 @@ export function Layout({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [counts, setCounts] = useState<{ approvals: number; activity: number }>({ approvals: 0, activity: 0 });
   const [persona, setPersona] = useState<{ id: string; name: string; role: string } | null>(null);
-  // Access-layer nav filtering. No session (loopback operator) = full nav.
-  // staff → workbench only (no Watch/Monitor/System); admin → no money
-  // (Cost) and no secrets pages; superadmin → everything. Server routes
-  // enforce the same rules — this just stops dead-end clicks.
-  const role = (user?.role ?? "") as string;
-  const layer = !user ? "superadmin" : role === "superadmin" ? "superadmin" : role === "admin" ? "admin" : "staff";
-  const SECRETS_PAGES = ["/extensions", "/governance", "/data-sources"];
-  const nav = {
-    library: layer === "staff" ? [] : libraryNav,
-    watch: layer === "staff" ? [] : watchNav,
-    monitoring: layer === "staff" ? [] : monitoringNav.filter((i) => i.to !== "/cost" || layer === "superadmin"),
-    system:
-      layer === "staff"
-        ? []
-        : layer === "superadmin"
-          ? systemNav
-          : systemNav.filter((i) => !SECRETS_PAGES.includes(i.to)),
-  };
   // Per-group open state. Undefined = "not toggled yet"; a group with an active
   // child defaults to open so the current page is always visible in the rail.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
@@ -337,7 +312,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <div
             className={`flex items-center ${collapsed ? "flex-col gap-2 px-2 py-4" : "justify-between px-4 py-4 tablet:px-5 tablet:py-5"}`}
           >
-            <Link to="/dashboard" className={`flex items-center gap-2.5 min-w-0 ${collapsed ? "justify-center" : ""}`}>
+            <Link to="/naxie" className={`flex items-center gap-2.5 min-w-0 ${collapsed ? "justify-center" : ""}`}>
               <BrandMark size={26} />
               {!collapsed && (
                 <div className="w-[168px] h-8">
@@ -396,20 +371,21 @@ export function Layout({ children }: { children: ReactNode }) {
               // Collapsed rail has no room for group labels/chevrons — flatten
               // every group to a plain icon stack instead of a broken accordion.
               <>
-                {workspaceNav.map(renderNavItem)}
-                {nav.watch.map(renderNavItem)}
-                {nav.library.map(renderNavItem)}
-                {nav.monitoring.map(renderNavItem)}
-                {nav.system.map(renderNavItem)}
+                {agentsNav.map(renderNavItem)}
+                {workNav.map(renderNavItem)}
+                {memoryNav.map(renderNavItem)}
+                {connectNav.map(renderNavItem)}
+                {governNav.map(renderNavItem)}
+                {renderNavItem(ambientNav)}
               </>
             ) : (
               <>
-                {renderGroup("workspace", "Workspace", WorkspaceFolderIcon, workspaceNav)}
-                {nav.watch.length > 0 &&
-                  renderGroup("watch", "Watch", SearchIconMat, nav.watch, counts.approvals + counts.activity)}
-                {nav.library.length > 0 && renderGroup("library", "Library", DocsFolderIcon, nav.library)}
-                {nav.monitoring.length > 0 && renderGroup("monitoring", "Monitor", BenchmarkFolderIcon, nav.monitoring)}
-                {nav.system.length > 0 && renderGroup("system", "System", ConfigFolderIcon, nav.system)}
+                {renderGroup("agents", "Agents & Subagents", RobotFolderIcon, agentsNav)}
+                {renderGroup("work", "Work Queue", WorkspaceFolderIcon, workNav, counts.approvals + counts.activity)}
+                {renderGroup("memory", "Memory & Knowledge", DocsFolderIcon, memoryNav)}
+                {renderGroup("connect", "Connect", Puzzle, connectNav)}
+                {renderGroup("govern", "Govern", ConfigFolderIcon, governNav)}
+                {renderNavItem(ambientNav)}
               </>
             )}
           </nav>
@@ -452,7 +428,7 @@ export function Layout({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-2">
               {persona && (
                 <Link
-                  to="/personas"
+                  to="/agents"
                   className="nw-shiny-pill flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border bg-violet-500/10 border-violet-500/30 text-violet-300"
                   title="Active persona"
                 >

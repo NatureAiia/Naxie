@@ -1,16 +1,14 @@
-import { useState, useEffect, useRef } from "react";
-import { api, type TimeAnalysis, type WorkforceCost, type CostTrend } from "../lib/api";
-import { Loader2, DollarSign, Cpu, BarChart3, TrendingUp, Calendar, Users, Hourglass, Upload } from "lucide-react";
+import { useState, useEffect } from "react";
+import { api, type TimeAnalysis, type CostTrend } from "../lib/api";
+import { Loader2, DollarSign, Cpu, BarChart3, TrendingUp, Calendar, Hourglass } from "lucide-react";
 
 export function Cost() {
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [workforce, setWorkforce] = useState<WorkforceCost | null>(null);
   const [timeA, setTimeA] = useState<TimeAnalysis | null>(null);
   const [trend, setTrend] = useState<CostTrend | null>(null);
 
   const loadSide = () => {
-    api.workforceCost(30).then(setWorkforce).catch(() => {});
     api.timeAnalysis(30).then(setTimeA).catch(() => {});
     api.costTrend(14).then(setTrend).catch(() => {});
   };
@@ -51,100 +49,27 @@ export function Cost() {
         </div>
       </div>
 
-      {/* Human vs agent — the total cost of work over the last 30 days. Agent
-          spend is metered in USD; human spend is logged hours × salary-derived
-          rate in ZAR. Shown side by side, not converted — the point is the
-          shape of the split, not a currency roundtrip. */}
-      {workforce && (
-        <div className="bg-ink-900 rounded-lg border p-4">
-          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-            <h2 className="font-semibold flex items-center gap-2"><Users className="w-4 h-4" /> Humans vs Agents — last {workforce.days} days</h2>
-            <TimesheetUpload onDone={loadSide} />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div className="rounded-lg bg-violet-500/10 border border-violet-500/20 p-3">
-              <div className="text-xs text-violet-300/80">Agent cost</div>
-              <div className="text-xl font-bold">${workforce.agent.costUsd.toFixed(2)}</div>
-              <div className="text-xs text-cream-300/50">{workforce.agent.calls} model calls</div>
-            </div>
-            <div className="rounded-lg bg-leaf-500/10 border border-leaf-500/20 p-3">
-              <div className="text-xs text-leaf-400/90">Human cost</div>
-              <div className="text-xl font-bold">${workforce.human.costUsd.toFixed(2)} <span className="text-sm font-normal text-cream-300/50">≈ R{workforce.human.costZar.toLocaleString()}</span></div>
-              <div className="text-xs text-cream-300/50">{workforce.human.totalHours}h logged{workforce.human.unpricedHours > 0 ? ` · ${workforce.human.unpricedHours}h unpriced (set salaries on the Users page)` : ""} · @R{workforce.human.zarPerUsd}/$</div>
-            </div>
-            <div className="rounded-lg bg-ink-950/60 border border-ink-800 p-3">
-              <div className="text-xs text-cream-300/60">Hourly basis</div>
-              <div className="text-xl font-bold">{workforce.human.workHoursPerMonth}h</div>
-              <div className="text-xs text-cream-300/50">standard month (salary ÷ hours = rate)</div>
-            </div>
-          </div>
-          {workforce.human.byUser.length > 0 ? (
-            <div className="space-y-1">
-              {workforce.human.byUser.map(u => (
-                <div key={u.email} className="flex items-center justify-between text-sm border-b border-ink-800 last:border-0 py-1">
-                  <div className="min-w-0">
-                    <span className="text-cream-100">{u.name ?? u.email}</span>
-                    {u.workMode && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/70">{u.workMode}</span>}
-                  </div>
-                  <div className="flex gap-4 text-xs text-cream-300/60 shrink-0">
-                    <span>{u.hours}h</span>
-                    <span>{u.costUsd !== undefined ? <>${u.costUsd.toFixed(2)} <span className="text-cream-300/40">≈ R{u.costZar?.toLocaleString()}</span></> : "no salary set"}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-xs text-cream-300/50">
-              No human work logged yet. Upload a timesheet CSV (email, date, hours) or point a company-system
-              connector at <span className="font-mono">POST /api/cost/human-work</span>.
-            </div>
-          )}
-
-          {workforce.human.byDepartment && workforce.human.byDepartment.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-ink-800">
-              <div className="text-xs font-semibold text-cream-200 mb-1.5">By department</div>
-              <div className="space-y-1">
-                {workforce.human.byDepartment.map(d => (
-                  <div key={d.department} className="flex items-center justify-between text-sm py-0.5">
-                    <span className="text-cream-100 min-w-0 truncate">{d.department}</span>
-                    <div className="flex gap-4 text-xs text-cream-300/60 shrink-0">
-                      <span>{d.hours}h</span>
-                      <span>{d.costUsd !== undefined ? <>${d.costUsd.toFixed(2)} <span className="text-cream-300/40">≈ R{d.costZar?.toLocaleString()}</span></> : "no salary set"}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Neuro vs human — daily spend, both in USD. No chart lib in this app, so
-          each day is a pair of proportion bars (violet = neuro, amber = human)
-          scaled to the window's max daily spend, matching the "where time goes"
-          bar idiom above. */}
+      {/* LLM/API spend trend — daily, USD. No chart lib in this app, so each
+          day is a proportion bar scaled to the window's max daily spend. */}
       {trend && trend.series.length > 0 && (() => {
-        const max = Math.max(0.0001, ...trend.series.map(d => Math.max(d.neuroUsd, d.humanUsd)));
+        const max = Math.max(0.0001, ...trend.series.map(d => d.neuroUsd));
         const totalNeuro = trend.series.reduce((s, d) => s + d.neuroUsd, 0);
-        const totalHuman = trend.series.reduce((s, d) => s + d.humanUsd, 0);
         return (
           <div className="bg-ink-900 rounded-lg border p-4">
             <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-              <h2 className="font-semibold flex items-center gap-2"><TrendingUp className="w-4 h-4" /> Neuro vs human — daily (last {trend.days} days, USD)</h2>
+              <h2 className="font-semibold flex items-center gap-2"><TrendingUp className="w-4 h-4" /> Daily spend (last {trend.days} days, USD)</h2>
               <div className="flex gap-4 text-xs text-cream-300/60">
-                <span><span className="inline-block w-2 h-2 rounded-full bg-violet-500 mr-1" />neuro ${totalNeuro.toFixed(2)}</span>
-                <span><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1" />human ${totalHuman.toFixed(2)}</span>
+                <span><span className="inline-block w-2 h-2 rounded-full bg-violet-500 mr-1" />total ${totalNeuro.toFixed(2)}</span>
               </div>
             </div>
             <div className="space-y-1.5">
               {trend.series.map(d => (
                 <div key={d.date} className="flex items-center gap-3 text-[11px]">
                   <span className="w-20 shrink-0 text-cream-300/60 font-mono">{d.date.slice(5)}</span>
-                  <div className="flex-1 space-y-0.5">
-                    <div className="h-2 rounded bg-ink-950 overflow-hidden"><div className="h-full bg-violet-500" style={{ width: `${(d.neuroUsd / max) * 100}%` }} title={`neuro $${d.neuroUsd.toFixed(4)}`} /></div>
-                    <div className="h-2 rounded bg-ink-950 overflow-hidden"><div className="h-full bg-amber-500" style={{ width: `${(d.humanUsd / max) * 100}%` }} title={`human $${d.humanUsd.toFixed(2)}`} /></div>
+                  <div className="flex-1">
+                    <div className="h-2 rounded bg-ink-950 overflow-hidden"><div className="h-full bg-violet-500" style={{ width: `${(d.neuroUsd / max) * 100}%` }} title={`$${d.neuroUsd.toFixed(4)}`} /></div>
                   </div>
-                  <span className="w-28 shrink-0 text-right text-cream-300/50 tabular-nums">${d.neuroUsd.toFixed(2)} · ${d.humanUsd.toFixed(2)}</span>
+                  <span className="w-20 shrink-0 text-right text-cream-300/50 tabular-nums">${d.neuroUsd.toFixed(2)}</span>
                 </div>
               ))}
             </div>
@@ -270,46 +195,4 @@ function fmtMs(ms: number): string {
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
   return `${h}h${m % 60 ? ` ${m % 60}m` : ""}`;
-}
-
-// Timesheet CSV upload — the "uploads by users" path for human-work signals.
-// Reads the file client-side and POSTs the raw CSV; the server parses loosely
-// (email/date/hours headers) and reports per-row errors.
-function TimesheetUpload({ onDone }: { onDone: () => void }) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  const onFile = async (f: File | undefined) => {
-    if (!f) return;
-    setBusy(true);
-    setMsg(null);
-    try {
-      const csv = await f.text();
-      const r = await api.addHumanWork({ csv, source: "upload" });
-      setMsg(`${r.added} row${r.added === 1 ? "" : "s"} added${r.errors.length ? ` · ${r.errors.length} skipped` : ""}`);
-      onDone();
-    } catch (e: any) {
-      setMsg(String(e?.message ?? e));
-    } finally {
-      setBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-2">
-      {msg && <span className="text-[11px] text-cream-300/60">{msg}</span>}
-      <button
-        type="button"
-        onClick={() => fileRef.current?.click()}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 text-xs rounded-lg border border-cream-100/15 hover:border-cream-100/30 px-3 py-1.5 text-cream-200 disabled:opacity-50"
-        title="CSV with email, date (YYYY-MM-DD) and hours columns"
-      >
-        <Upload className="w-3.5 h-3.5" /> {busy ? "Uploading…" : "Upload timesheet CSV"}
-      </button>
-      <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" aria-label="Timesheet CSV file" title="Timesheet CSV file" onChange={e => onFile(e.target.files?.[0])} />
-    </div>
-  );
 }

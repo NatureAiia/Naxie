@@ -46,7 +46,17 @@ const BACKEND_ICON: Record<FileBackendId, any> = {
   supabase: DatabaseIcon,
 };
 
-export function FileExplorer() {
+export type FileExplorerProps = {
+  // Fires whenever backend / path / selection changes so a parent (e.g. the
+  // Library page) can render backend-specific chrome (health banner, search,
+  // markdown preview) without FileExplorer itself knowing about any of that.
+  onSelectionChange?: (sel: { backend: FileBackendId; path: string; entries: FileEntry[]; selectedEntry: FileEntry | null }) => void;
+  // Lets a parent inject extra controls into the toolbar row (next to
+  // Refresh/breadcrumb) without forking this component.
+  renderOverlay?: (ctx: { backend: FileBackendId; path: string; selectedEntry: FileEntry | null }) => React.ReactNode;
+};
+
+export function FileExplorer({ onSelectionChange, renderOverlay }: FileExplorerProps = {}) {
   const [backends, setBackends] = useState<FileBackendInfo[]>([]);
   const [backend, setBackend] = useState<FileBackendId>("vault");
   const [path, setPath] = useState("");
@@ -88,12 +98,28 @@ export function FileExplorer() {
     return () => window.removeEventListener("click", closeMenu);
   }, []);
 
+  // Report backend/path/selection to the parent whenever any of them change
+  // (including a fresh entries list — the selected paths may now resolve to
+  // different FileEntry objects, e.g. after a rename/refresh).
+  const selectedEntry = selected.size === 1 ? (entries.find(e => e.path === Array.from(selected)[0]) ?? null) : null;
+  useEffect(() => {
+    onSelectionChange?.({ backend, path, entries, selectedEntry });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backend, path, entries, selected]);
+
   function switchBackend(id: FileBackendId) {
     setBackend(id); setPath(""); setMenu(null);
   }
 
   function openEntry(e: FileEntry) {
-    if (e.type === "dir") { setPath(e.path); }
+    if (e.type === "dir") { setPath(e.path); return; }
+    // Vault text files: double-click selects (rather than no-op'ing) so a
+    // parent watching onSelectionChange's selectedEntry can render a preview
+    // (see Library.tsx's MarkdownPreviewPanel). Every other backend/file type
+    // keeps the previous no-op double-click behavior.
+    if (backend === "vault" && (e.name.endsWith(".md") || e.name.endsWith(".txt") || e.name.endsWith(".json"))) {
+      setSelected(new Set([e.path]));
+    }
   }
 
   function onRowClick(e: FileEntry, idx: number, ev: React.MouseEvent) {
@@ -288,6 +314,7 @@ export function FileExplorer() {
               </button>
             </>
           )}
+          {renderOverlay?.({ backend, path, selectedEntry })}
         </div>
 
         {/* Grid */}

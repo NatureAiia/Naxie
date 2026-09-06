@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, MicOff, Loader2, Send, VolumeX, Sparkles, ChevronDown } from "lucide-react";
+import { Mic, MicOff, Loader2, Send, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign } from "lucide-react";
 import { Button } from "../components/Card";
 import { KnowledgeGraph } from "../components/KnowledgeGraph";
 import { NaxieOrb } from "../components/NaxieOrb";
@@ -10,6 +10,40 @@ import { CapabilityToggles } from "../components/CapabilityToggles";
 import { MicLevelMeter } from "../components/MicLevelMeter";
 import { useNaxieAssistant, type Turn } from "../lib/useNaxieAssistant";
 import { useMicLevel } from "../lib/useMicLevel";
+import { api } from "../lib/api";
+
+// Ambient status — ports Dashboard's headline stats (agent count, running
+// jobs, spend) and Activity's timeline into Naxie now that both of those
+// pages are gone; this is deliberately a thin strip + a collapsible list,
+// not a rebuild of Dashboard's 12-call "mission control" — Naxie is the
+// landing surface now, so it gets a glance, not a report.
+function useAmbientStatus() {
+  const [personaCount, setPersonaCount] = useState<number | null>(null);
+  const [todaySpend, setTodaySpend] = useState<number | null>(null);
+  const [recentJobs, setRecentJobs] = useState<any[]>([]);
+
+  useEffect(() => {
+    api.listPersonas().then(r => setPersonaCount((r.personas ?? []).length)).catch(() => {});
+    api.getCostSummary().then(s => setTodaySpend(typeof s?.todayUsd === "number" ? s.todayUsd : (typeof s?.today === "number" ? s.today : null))).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    async function tick() {
+      try {
+        const { jobs } = await api.listJobs();
+        if (!alive) return;
+        setRecentJobs([...jobs].sort((a, b) => String(b.startedAt ?? "").localeCompare(String(a.startedAt ?? ""))).slice(0, 6));
+      } catch { /* ambient — tolerate a missed poll */ }
+    }
+    void tick();
+    const id = setInterval(tick, 5000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
+  const runningCount = recentJobs.filter(j => j.status === "running").length;
+  return { personaCount, todaySpend, recentJobs, runningCount };
+}
 
 // A general-purpose, always-listening-by-push-to-talk voice assistant, styled
 // as a HUD orb (Iron Man / JARVIS inspiration — see assets/jarvis-reference
@@ -37,6 +71,8 @@ export function Naxie() {
   } = useNaxieAssistant();
   const [input, setInput] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const { personaCount, todaySpend, recentJobs, runningCount } = useAmbientStatus();
 
   const orbLabel = {
     idle: "Standing by",
@@ -72,6 +108,20 @@ export function Naxie() {
             </div>
           </div>
           <Link to="/naxie/memory" className="text-[11px] px-2 py-1 rounded-md bg-ink-800 hover:bg-ink-700 border border-ink-700 text-cream-300">Memory</Link>
+        </div>
+
+        <div className="flex items-center gap-1.5 pb-3 text-[11px] text-cream-300/70">
+          <Link to="/agents" className="flex items-center gap-1 px-2 py-1 rounded-md bg-ink-800/60 hover:bg-ink-800 border border-ink-800">
+            <Bot size={11} className="text-violet-400" /> {personaCount ?? "…"} agent{personaCount === 1 ? "" : "s"}
+          </Link>
+          <Link to="/runs" className="flex items-center gap-1 px-2 py-1 rounded-md bg-ink-800/60 hover:bg-ink-800 border border-ink-800">
+            <ActivityIcon size={11} className={runningCount > 0 ? "text-leaf-400" : "text-cream-300/50"} /> {runningCount} running
+          </Link>
+          {todaySpend !== null && (
+            <Link to="/cost" className="flex items-center gap-1 px-2 py-1 rounded-md bg-ink-800/60 hover:bg-ink-800 border border-ink-800">
+              <DollarSign size={11} className="text-coral-400" /> ${todaySpend.toFixed(2)} today
+            </Link>
+          )}
         </div>
 
         <div className="flex flex-col items-center justify-center gap-4 py-4">
@@ -141,6 +191,24 @@ export function Naxie() {
                   <div key={i} className={`flex ${t.role === "user" ? "justify-end" : "justify-start"}`}>
                     <NaxieResultCard turn={t} onReplay={speak} />
                   </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {recentJobs.length > 0 && (
+            <details open={activityOpen} onToggle={e => setActivityOpen((e.target as HTMLDetailsElement).open)} className="pt-1">
+              <summary className="flex items-center gap-1.5 text-[11px] text-cream-300/50 hover:text-cream-300/80 cursor-pointer select-none list-none">
+                <ChevronDown size={12} className={`transition-transform ${activityOpen ? "" : "-rotate-90"}`} />
+                Recent activity
+              </summary>
+              <div className="mt-2 space-y-1">
+                {recentJobs.map(j => (
+                  <Link key={j.id} to={`/runs/${j.id}`} className="flex items-center gap-2 text-[12px] text-cream-300/80 hover:text-cream-100 px-1 py-1 rounded hover:bg-ink-800/50">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${j.status === "running" ? "bg-leaf-400 animate-pulse" : j.status === "failed" ? "bg-flame-400" : "bg-cream-300/30"}`} />
+                    <span className="truncate flex-1">{j.title ?? j.template ?? j.kind ?? "Task"}</span>
+                    <span className="text-[10px] text-cream-300/40 shrink-0">{j.status}</span>
+                  </Link>
                 ))}
               </div>
             </details>
