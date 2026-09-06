@@ -3,8 +3,8 @@ import { ReactNode, useEffect, useState, type ComponentType } from "react";
 import { ToastRack } from "./Card";
 import {
   LayoutDashboard,
-  MessageSquare,
   Users,
+  Users2,
   ListChecks,
   BookOpen,
   Search as SearchIcon,
@@ -68,7 +68,7 @@ type NavItem = {
 // group (Workspace / Library / System) so the rail stays short.
 const primaryNav: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/chat", label: "Chat", icon: MessageSquare },
+  { to: "/chat", label: "Board Meeting", icon: Users2 },
   { to: "/team", label: "Focus Team", icon: Users },
   { to: "/presets", label: "Hire a worker", icon: Sparkles },
   { to: "/ide", label: "IDE", icon: Terminal },
