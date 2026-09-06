@@ -15,7 +15,7 @@ type Thunk = () => Promise<unknown>;
 
 const preloaders: Record<string, Thunk> = {
   "/dashboard": () => import("../pages/Dashboard"),
-  "/chat": () => import("../pages/Chat"),
+  "/chat": () => import("../pages/BoardMeeting"),
   "/naxie": () => import("../pages/Naxie"),
   "/team": () => import("../pages/Team"),
   "/presets": () => import("../pages/Presets"),

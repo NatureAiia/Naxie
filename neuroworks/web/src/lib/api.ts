@@ -285,6 +285,11 @@ export const api = {
     req<{ runId: string; jobId: string; roster: { personaId: string; role: string; name: string }[] }>("/api/handoff", { method: "POST", body: JSON.stringify(body) }),
   listHandoffs: () => req<{ runs: HandoffRun[] }>("/api/handoff"),
   getHandoff: (id: string) => req<{ run: HandoffRun }>(`/api/handoff/${encodeURIComponent(id)}`),
+  // Board Meeting — LLM council (opinions → anonymized peer review → chairman synthesis).
+  startBoard: (body: { topic: string; personaIds?: string[] }) =>
+    req<{ runId: string; jobId: string; roster: { personaId: string; name: string; role: string }[] }>("/api/board", { method: "POST", body: JSON.stringify(body) }),
+  listBoards: () => req<{ runs: BoardRun[] }>("/api/board"),
+  getBoard: (id: string) => req<{ run: BoardRun }>(`/api/board/${encodeURIComponent(id)}`),
   // Workforce contact book — AI agents + human team, grouped by department.
   getWorkforce: () => req<{ departments: WorkforceDepartment[]; counts: { agents: number; people: number; departments: number } }>("/api/workforce"),
   // Scan an uploaded doc (any type) for people and populate the contact book.
@@ -885,6 +890,38 @@ export type HandoffRun = {
   steps: HandoffStep[];
   status: "running" | "completed" | "exhausted" | "failed";
   finalReport: string;
+  jobId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// Board Meeting (LLM council).
+export type BoardOpinion = {
+  personaId: string;
+  name: string;
+  role: string;
+  label: string;
+  text: string;
+  startedAt?: string;
+  endedAt?: string;
+  elapsedMs?: number;
+  error?: string;
+};
+export type BoardRanking = {
+  personaId: string;
+  name: string;
+  label: string;
+  rankingText: string;
+  error?: string;
+};
+export type BoardRun = {
+  id: string;
+  topic: string;
+  roster: { personaId: string; name: string; role: string }[];
+  status: "running" | "completed" | "failed";
+  opinions: BoardOpinion[];
+  rankings: BoardRanking[];
+  chairmanSynthesis: string;
   jobId?: string;
   createdAt: string;
   updatedAt: string;

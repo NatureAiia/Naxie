@@ -19,7 +19,7 @@ const Approvals = lazy(() => import("./pages/Approvals").then(m => ({ default: m
 const Security = lazy(() => import("./pages/Security").then(m => ({ default: m.Security })));
 const Activity = lazy(() => import("./pages/Activity").then(m => ({ default: m.Activity })));
 const Knowledge = lazy(() => import("./pages/Knowledge").then(m => ({ default: m.Knowledge })));
-const Chat = lazy(() => import("./pages/Chat").then(m => ({ default: m.Chat })));
+const BoardMeeting = lazy(() => import("./pages/BoardMeeting").then(m => ({ default: m.BoardMeeting })));
 const Personas = lazy(() => import("./pages/Personas").then(m => ({ default: m.Personas })));
 const Team = lazy(() => import("./pages/Team").then(m => ({ default: m.Team })));
 const ResultsIndex = lazy(() => import("./pages/Results").then(m => ({ default: m.ResultsIndex })));
@@ -74,7 +74,7 @@ function AppShell() {
       <Routes>
         <Route path="/" element={<Navigate to="/naxie" />} />
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/chat" element={<Chat />} />
+        <Route path="/chat" element={<BoardMeeting />} />
         <Route path="/naxie" element={<Naxie />} />
         <Route path="/naxie/memory" element={<NaxieMemory />} />
         <Route path="/team" element={<Team />} />
