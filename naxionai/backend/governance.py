@@ -10,13 +10,15 @@ and asking an LLM to draft rules) — that's a separate, optional feature.
 Constraints here are entered directly (via api/governance.py) rather than
 auto-extracted from a pasted policy document.
 
-Also not wired in this pass: the pre-tool-execution step gate across every
-tool call site in agent/nodes/*.py and agent/tools/*.py (CONSEQUENTIAL_TOOLS
-below is ported and ready for that, but actually gating each tool call would
-mean touching every call site — flagged as a follow-up, not silently
-claimed). What IS wired (see api/chat.py): the governance prefix + a
+The pre-tool-execution step gate is now wired: manager.py (the only node
+that actually dispatches LangChain-bound tools, see agent/nodes/manager.py's
+tool-call loop) calls check_step_against_governance() right before each
+tool_func.ainvoke(), mirroring governance.ts's checkStepAgainstGovernance +
+its call site in neuroworks/server/src/lib/agent.ts's step-execution loop.
+What was ALREADY wired (see api/chat.py): the governance prefix + a
 post-synth content check on Naxie's replies, mirroring governance.ts's
-"applied to every general-task/synth call" framing.
+"applied to every general-task/synth call" framing. Both checks now run
+against the same enforceable-constraints set.
 """
 
 import math
@@ -27,18 +29,32 @@ from typing import List, TypedDict
 # Tools whose side effects are worth gating before they run — a narrow,
 # explicit allowlist. Read-only tools can't violate a policy by running,
 # only by what they produce, which the content check catches instead.
-# Ported verbatim; not yet wired to naxionai's actual tool call sites (see
-# module docstring).
+#
+# Names are the actual LangChain tool names bound in agent/tools/*.py (see
+# get_agent_tools() in agent/tools/system_tools.py and get_pa_tools() in
+# agent/tools/pa_tools.py) — snake_case function names, not the dotted
+# "vault.write"-style names neuroworks' TS primitives use. An earlier
+# version of this set was ported verbatim from governance.ts's dotted names,
+# which never matched any real tool call here (nothing in this codebase is
+# named "vault.write" or "code.exec") — fixed here so the gate below
+# actually fires.
 CONSEQUENTIAL_TOOLS = {
-    "email.send",
-    "vault.write", "vault.edit", "vault.create_zettel", "vault.append", "vault.write_pdf",
-    "fs.import_to_vault",
-    "github.create_issue", "github.comment_on_issue", "github.update_issue", "github.request_review",
-    "webhook.post", "slack.post", "telegram.send", "discord.post", "msteams.post", "googlechat.post",
-    "connector.call",
-    "db.write",
-    "code.exec",
+    "execute_python",          # arbitrary code execution (was "code.exec")
+    "vault_write",             # writes a vault note (was "vault.write")
+    "update_truth_bucket",     # writes credentials/passwords to the DB
+    "system_control",          # OS-level control (app launch/kill, volume, power, ...)
+    "manage_clipboard",        # can overwrite the live clipboard
+    "git_command",             # can commit/push against a real repo
 }
+
+# Prefix form, for tool families that don't have a fixed enumerable set of
+# names yet — mirrors governance.ts's CONSEQUENTIAL_TOOL_PREFIXES. Empty for
+# now; add a prefix here (e.g. "finance.") if/when such a family exists.
+CONSEQUENTIAL_TOOL_PREFIXES: List[str] = []
+
+
+def is_consequential_tool(tool: str) -> bool:
+    return tool in CONSEQUENTIAL_TOOLS or any(tool.startswith(p) for p in CONSEQUENTIAL_TOOL_PREFIXES)
 
 MAX_PREFIX_BYTES = 32 * 1024
 
@@ -169,6 +185,19 @@ def describe_step_action(tool: str, args: dict) -> str:
         if s.strip():
             parts.append(s[:500])
     return " | ".join(parts)
+
+
+def check_step_against_governance(tool: str, args: dict, enforceable: List[ConstraintLike]) -> dict:
+    """Pre-execution gate for a single tool call — mirrors governance.ts's
+    checkStepAgainstGovernance. Callers load `enforceable` once per turn
+    (via filter_enforceable) and pass it in, rather than this function
+    hitting the DB itself, so it stays a pure function like the rest of
+    this module."""
+    if not is_consequential_tool(tool):
+        return {"blocked": False, "violations": []}
+    if not enforceable:
+        return {"blocked": False, "violations": []}
+    return gate_action(describe_step_action(tool, args), enforceable)
 
 
 def build_governance_prefix(policies: List[dict]) -> str:
