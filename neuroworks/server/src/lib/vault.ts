@@ -677,11 +677,20 @@ export function getVaultPullStatus(): { lastPullAt: number; lastPullResult: type
 // we don't need real matches — we just need a yes/no signal that the topic
 // is present in the vault. Content search is overkill there; the slow walk
 // was the root cause of the 11s gap measured before this fix.
-export function searchVaultFilenames(query: string, limit = 5): SearchHit[] {
+//
+// excludeAgentCaptures skips everything under _neuroworks/ (job trackers,
+// reflections, memory, personas, screenshots, exports, ...) — the agent's
+// own prior output, not real user knowledge. Without it, a self-grounding
+// drift bug is possible: the agent cites its own earlier capture as
+// evidence the vault "has notes on this", when really it's just seeing its
+// own past run. isMachineStatePath() below is the same root-prefix test
+// used elsewhere in this file to identify agent/system-generated content.
+export function searchVaultFilenames(query: string, limit = 5, opts?: { excludeAgentCaptures?: boolean }): SearchHit[] {
   // Triage path — silently return [] when the vault is unreachable so we
   // don't break the planner's "do we have notes on X?" probe. The actual
   // search path (searchVault) still throws so the user sees the cause.
   if (!existsSync(VAULT)) return [];
+  const excludeAgentCaptures = opts?.excludeAgentCaptures ?? false;
   const q = query.toLowerCase();
   // Normalise hyphens/underscores in filenames so "vault edit" matches
   // "vault-edit.md" / "vault_edit.md". Multi-token queries require every
@@ -697,7 +706,11 @@ export function searchVaultFilenames(query: string, limit = 5): SearchHit[] {
       if (out.length >= limit) return;
       if (HIDDEN_PREFIXES.some(p => e.name.startsWith(p))) continue;
       const full = join(dir, e.name);
-      if (e.isDirectory()) { walk(full); continue; }
+      if (e.isDirectory()) {
+        if (excludeAgentCaptures && isMachineStatePath(relative(VAULT, full))) continue;
+        walk(full);
+        continue;
+      }
       if (!e.name.endsWith(".md")) continue;
       const normalised = e.name.slice(0, -3).toLowerCase().replace(/[-_]+/g, " ");
       if (tokens.every(t => normalised.includes(t))) {
