@@ -89,6 +89,10 @@ export function Library() {
 
   const showVaultChrome = tab === "files" && sel.backend === "vault";
   const previewPath = subPath && isPreviewable(subPath) ? subPath : (sel.selectedEntry && isPreviewable(sel.selectedEntry.name) ? sel.selectedEntry.path : "");
+  // A deep link naming a folder (not a previewable file) has nowhere else to
+  // go — hand it to FileExplorer as its starting position so e.g. an old
+  // /knowledge/_clawbot link lands browsing that vault folder instead of root.
+  const initialPath = subPath && !isPreviewable(subPath) ? { backend: "vault" as const, path: subPath } : undefined;
 
   return (
     <div className="space-y-6">
@@ -146,7 +150,7 @@ export function Library() {
             </MarkdownPreviewPanel>
           ) : null}
 
-          <FileExplorer onSelectionChange={onSelectionChange} />
+          <FileExplorer onSelectionChange={onSelectionChange} initialPath={initialPath} />
         </div>
       )}
     </div>

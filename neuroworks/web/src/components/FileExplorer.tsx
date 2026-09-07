@@ -54,12 +54,16 @@ export type FileExplorerProps = {
   // Lets a parent inject extra controls into the toolbar row (next to
   // Refresh/breadcrumb) without forking this component.
   renderOverlay?: (ctx: { backend: FileBackendId; path: string; selectedEntry: FileEntry | null }) => React.ReactNode;
+  // Where to start browsing on first mount (e.g. a deep link to a vault
+  // folder). Read once via useState's lazy initializer — not a controlled
+  // prop, so it never fights the user's own navigation afterward.
+  initialPath?: { backend: FileBackendId; path: string };
 };
 
-export function FileExplorer({ onSelectionChange, renderOverlay }: FileExplorerProps = {}) {
+export function FileExplorer({ onSelectionChange, renderOverlay, initialPath }: FileExplorerProps = {}) {
   const [backends, setBackends] = useState<FileBackendInfo[]>([]);
-  const [backend, setBackend] = useState<FileBackendId>("vault");
-  const [path, setPath] = useState("");
+  const [backend, setBackend] = useState<FileBackendId>(() => initialPath?.backend ?? "vault");
+  const [path, setPath] = useState(() => initialPath?.path ?? "");
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);

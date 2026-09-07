@@ -3,14 +3,9 @@ import { lazy, Suspense } from "react";
 import { Layout } from "./components/Layout";
 import { Skeleton } from "./components/Card";
 
-// Route-level code splitting. Onboarding loads eagerly (it's the first thing
-// a fresh workspace sees); everything behind the app shell is fetched on
-// demand — a user opening the app to check one page shouldn't download all
-// 30+ pages' worth of JS up front. Each page becomes its own fingerprinted
-// chunk (see vite.config.ts's manualChunks for the vendor split that pairs
-// with this), so a change to one page doesn't bust the cache for the others
-// either.
-import { Onboarding } from "./pages/Onboarding";
+// Route-level code splitting — every page is fetched on demand (see
+// vite.config.ts's manualChunks for the vendor split that pairs with this),
+// so a change to one page doesn't bust the cache for the others.
 
 // Home Base
 const Naxie = lazy(() => import("./pages/Naxie").then(m => ({ default: m.Naxie })));
@@ -158,6 +153,7 @@ function AppShell() {
         <Route path="/knowledge/*" element={<Navigate to="/library" replace />} />
         <Route path="/data-sources" element={<Navigate to="/library/data" replace />} />
         <Route path="/terminal" element={<Navigate to="/ide" replace />} />
+        <Route path="/onboarding" element={<Navigate to="/naxie" replace />} />
 
         <Route path="*" element={<Navigate to="/naxie" />} />
       </Routes>
@@ -167,11 +163,5 @@ function AppShell() {
 }
 
 export default function App() {
-  // /onboarding renders bare (no sidebar/header); everything else inside the app shell.
-  return (
-    <Routes>
-      <Route path="/onboarding" element={<Onboarding />} />
-      <Route path="*" element={<AppShell />} />
-    </Routes>
-  );
+  return <AppShell />;
 }

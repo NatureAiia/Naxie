@@ -129,7 +129,6 @@ export type QualityFlag = {
 
 export const api = {
   health: () => req<{ ok: boolean; name: string; version: string; model: string; port: number; ready: boolean; missing: string[]; inflightJobs?: number; peers?: string[] }>("/api/health"),
-  status: () => req<any>("/api/status"),
   listRepos: () => req<{ repos: any[] }>("/api/repos"),
   getRepo: (owner: string, name: string) => req<any>(`/api/repos/${owner}/${name}`),
   listTemplates: () => req<{ roles: Role[]; templates: Template[] }>("/api/templates"),
@@ -155,7 +154,6 @@ export const api = {
     req<{ assignment: Assignment }>(`/api/assignments/${encodeURIComponent(id)}/submit`, { method: "POST", body: JSON.stringify(body) }),
   setAssignmentStatus: (id: string, status: AssignmentStatus) =>
     req<{ assignment: Assignment }>(`/api/assignments/${encodeURIComponent(id)}/status`, { method: "POST", body: JSON.stringify({ status }) }),
-  workforceCost: (days = 30) => req<WorkforceCost>(`/api/cost/workforce?days=${days}`),
   costTrend: (days = 14) => req<CostTrend>(`/api/cost/trend?days=${days}`),
   securityEvents: () => req<SecurityStatus>("/api/security/events"),
   unblockIp: (ip: string) => req<{ ok: boolean; unblocked: boolean }>("/api/security/unblock", { method: "POST", body: JSON.stringify({ ip }) }),
@@ -173,7 +171,6 @@ export const api = {
   rejectUser: (id: string) => req<{ ok: true }>(`/api/users/${encodeURIComponent(id)}/reject`, { method: "POST" }),
   listSessions: () => req<{ sessions: { id: string; userId: string; name?: string; email?: string; role?: UserRole; createdAt: string; lastSeenAt: string }[] }>("/api/users/sessions"),
   revokeSession: (id: string) => req<{ ok: true }>("/api/users/sessions/revoke", { method: "POST", body: JSON.stringify({ id }) }),
-  orgOverview: () => req<{ total: number; pending: number; disabled: number; byDepartment: { department: string; count: number }[]; byLayer: Record<AccessLayer, number>; byWorkMode: Record<"agent" | "hybrid" | "human" | "unset", number> }>("/api/users/overview"),
   // Task restrictions (company-structure guardrails).
   listRestrictions: () => req<{ restrictions: { id: string; scope: string; capability: string; note?: string; createdAt: string }[]; capabilities: string[] }>("/api/users/restrictions"),
   addRestriction: (body: { scope: string; capability: string; note?: string }) =>
@@ -319,7 +316,6 @@ export const api = {
   listPersonaTemplates: (id: string) => req<{ templates: any[] }>(`/api/personas/${id}/templates`),
   previewPersona: (jobDescription: string) => req<{ role: string; description: string; tone: string; responsibilities: string[] }>("/api/personas/preview", { method: "POST", body: JSON.stringify({ jobDescription }) }),
   peers: () => req<{ self: any; peers: any[]; registry?: any[] }>("/api/peers"),
-  externalAgents: () => req<{ agents: { id: string; name: string; kind: string; installed: boolean; configured: boolean; binPath?: string; recentJobs: { last1h: number; last24h: number; succeeded: number; failed: number; total: number }; lastRunAt?: string }[] }>("/api/external-agents"),
   getFeedback: (jobId: string) => req<{ feedback: { rating: "up" | "down"; note?: string; ts: string } | null }>(`/api/feedback?jobId=${encodeURIComponent(jobId)}`),
   postFeedback: (body: { jobId: string; rating: "up" | "down"; note?: string; persona?: string; template?: string; score?: number }) => req<{ ok: true; path: string }>("/api/feedback", { method: "POST", body: JSON.stringify(body) }),
   retryFromFeedback: (jobId: string, note?: string) => req<{ newJobId: string; originalJobId: string }>("/api/feedback/retry", { method: "POST", body: JSON.stringify({ jobId, ...(note ? { note } : {}) }) }),
@@ -327,12 +323,6 @@ export const api = {
   calendarAgenda: (date: string) => req<{ date: string; activity: any[]; meetings: { summary: string; start: string; end?: string; location?: string }[]; meetingsError?: string; schedules: any[] }>(`/api/calendar/agenda?date=${encodeURIComponent(date)}`),
   brainSave: (path: string, content: string) => req<{ ok: true; path: string; bytes: number }>("/api/brain/file", { method: "POST", body: JSON.stringify({ path, content }) }),
   brainEnsureSidecar: (path: string, force = false) => req<{ ok: true; sidecarPath: string; sourcePath: string; regenerated: boolean; reason?: string; bytes?: number }>("/api/brain/ensure-sidecar", { method: "POST", body: JSON.stringify({ path, force }) }),
-  // Onboarding.
-  getOnboarding: () => req<OnboardingData>("/api/onboarding"),
-  setOnboarding: (body: { completed: boolean; sector?: string; customSectorName?: string; orgName?: string }) =>
-    req<{ state: OnboardingState }>("/api/onboarding", { method: "PUT", body: JSON.stringify(body) }),
-  getOnboardingContext: (sector?: string) =>
-    req<{ sector: string; context: string }>(`/api/onboarding/context${sector ? `?sector=${encodeURIComponent(sector)}` : ""}`),
 
   listDataSources: () => req<{ sources: DataSource[] }>("/api/data-sources"),
   addDataSource: (body: { label: string; kind: DataSourceKind; connection: string; notes?: string; department?: string; readonly: boolean }) =>
@@ -566,14 +556,6 @@ export const api = {
   chatHistory: (limit = 50) =>
     req<{ history: { id: string; at: string; prompt: string; response: string; kind?: string; jobId?: string; persona?: string; sessionId?: string; jobStatus?: string }[] }>(`/api/chat/history?limit=${limit}`),
   loginEvents: (limit = 50) => req<{ events: LoginEvent[] }>(`/api/auth/login-events?limit=${limit}`),
-  listUsers: () => req<{ users: User[] }>("/api/users"),
-  addUser: (body: { name: string; email: string; role?: UserRole; title?: string; department?: string; password?: string; workMode?: WorkMode; salaryMonthly?: number }) =>
-    req<{ user: User }>("/api/users", { method: "POST", body: JSON.stringify(body) }),
-  updateUser: (id: string, patch: Partial<{ name: string; email: string; role: UserRole; title: string; department: string; status: UserStatus; workMode: WorkMode | null; salaryMonthly: number | null; reportsTo: string | null }>) =>
-    req<{ user: User }>(`/api/users/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
-  setUserPassword: (id: string, password: string) =>
-    req<{ ok: true }>(`/api/users/${encodeURIComponent(id)}/password`, { method: "POST", body: JSON.stringify({ password }) }),
-  deleteUser: (id: string) => req<{ ok: true }>(`/api/users/${encodeURIComponent(id)}`, { method: "DELETE" }),
   // Knowledge Packs.
   listKnowledgePacks: () => req<{ packs: KnowledgePack[] }>("/api/knowledge-packs"),
   installKnowledgePack: (sectorId: string) =>
@@ -691,21 +673,6 @@ export type Assignment = {
 };
 export type AssignPerson = { name: string; email: string; title?: string; department?: string; workMode?: WorkMode; eligible: boolean; isSelf: boolean };
 
-export type WorkforceCost = {
-  days: number;
-  agent: { costUsd: number; calls: number };
-  human: {
-    totalHours: number;
-    costZar: number;
-    costUsd: number;
-    zarPerUsd: number;
-    unpricedHours: number;
-    workHoursPerMonth: number;
-    byUser: { email: string; name?: string; workMode?: WorkMode; department?: string; hours: number; entries: number; hourlyRateZar?: number; costZar?: number; costUsd?: number; salarySet: boolean }[];
-    byDepartment: { department: string; hours: number; costZar?: number; costUsd?: number }[];
-    byDay: { date: string; hours: number }[];
-  };
-};
 export type CostTrend = { days: number; series: { date: string; neuroUsd: number }[] };
 export type SecurityEvent = {
   at: string; ip: string;
@@ -1008,30 +975,6 @@ export type Schedule = {
   lastError?: string;
   fireCount: number;
   nextFireAt?: number | null;
-};
-
-// Onboarding types.
-export type SectorInfo = {
-  id: string;
-  name: string;
-  nameShona?: string;
-  nameNdebele?: string;
-  description: string;
-  icon: string;
-  suggestedDepartments?: string[];
-  suggestedIntegrations?: string[];
-};
-export type OnboardingState = {
-  completed: boolean;
-  sector?: string;
-  customSectorName?: string;
-  language: string;
-  orgName?: string;
-  completedAt?: string;
-};
-export type OnboardingData = {
-  state: OnboardingState;
-  sectors: SectorInfo[];
 };
 
 export type Preset = {

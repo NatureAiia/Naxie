@@ -70,7 +70,6 @@ import { usersRouter } from "./routes/users.js";
 import { assignmentsRouter } from "./routes/assignments.js";
 import { voiceRouter } from "./routes/voice.js";
 import { authRouter } from "./routes/auth.js";
-import { onboardingRouter } from "./routes/onboarding.js";
 import { departmentsRouter } from "./routes/departments.js";
 import { knowledgePacksRouter } from "./routes/knowledge-packs.js";
 import { dispatchRouter, dispatchKeysRouter } from "./routes/dispatch.js";
@@ -80,7 +79,6 @@ import { costRouter } from "./routes/cost.js";
 import { auditRouter } from "./routes/audit.js";
 import { skillForgeRouter } from "./routes/skill-forge.js";
 import { orchestratorRouter } from "./routes/orchestrator.js";
-import { requireLayer } from "./lib/access.js";
 import { startEmailBridge, stopEmailBridge } from "./lib/email.js";
 import { startTelegramBridge, stopTelegramBridge } from "./lib/telegram-bridge.js";
 import { startExtensionHealthScheduler, stopExtensionHealthScheduler } from "./lib/extension-scheduler.js";
@@ -203,7 +201,7 @@ app.use("/api/templates", templatesRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/personas", personasRouter);
 app.use("/api/peers", peersRouter);
-app.use("/api/models", requireLayer("superadmin"), modelsRouter); // provider API keys
+app.use("/api/models", modelsRouter); // provider API keys
 app.use("/api/reflection", reflectionRouter);
 app.use("/api/innovation-scan", innovationScanRouter);
 app.use("/api/wiki-compile", wikiCompileRouter);
@@ -216,65 +214,52 @@ app.use("/api/board", boardRouter);
 app.use("/api/workforce", workforceRouter);
 app.use("/api/schedules", schedulesRouter);
 app.use("/api/host-tools", hostToolsRouter);
-app.use("/api/org-tasks", requireLayer("admin"), orgTasksRouter); // same activity-data sensitivity as /api/audit below
+app.use("/api/org-tasks", orgTasksRouter);
 // Mounted OUTSIDE /api (naxionai's own prefix, not ours) and BEFORE the SPA
 // fallback below — GET requests here would otherwise be swallowed by the
 // history-fallback `app.get("*", ...)` in production (SERVE_WEB=1).
 app.use("/naxie-api", naxieConnectorsRouter);
-app.use("/api/governance", requireLayer("superadmin"), governanceRouter);
+app.use("/api/governance", governanceRouter);
 // Security watchdog readout — recent attack events + currently blocked IPs.
-app.get("/api/security/events", requireLayer("admin"), (_req, res) => res.json(securityStatus()));
-app.post("/api/security/unblock", requireLayer("admin"), (req, res) => {
+app.get("/api/security/events", (_req, res) => res.json(securityStatus()));
+app.post("/api/security/unblock", (req, res) => {
   const ip = String(req.body?.ip ?? "").trim();
   if (!ip) return res.status(400).json({ error: "ip is required" });
   res.json({ ok: true, unblocked: unblockIp(ip) });
 });
-// Outbound mail is an org-wide megaphone — staff sessions shouldn't be able
-// to send as the org from the API (agents/machine callers pass token-less).
-app.use("/api/email", requireLayer("admin"), emailRouter);
+app.use("/api/email", emailRouter);
 app.use("/api/external-agents", externalAgentsRouter);
 app.use("/api/feedback", feedbackRouter);
 app.use("/api/exports", exportsRouter);
 app.use("/api/calendar", calendarRouter);
-app.use("/api/data-sources", requireLayer("admin"), dataSourcesRouter); // external DB credentials + department data — admin territory, not the top secrets tier
-app.use("/api/terminal", requireLayer("superadmin"), terminalRouter); // shell access
-app.use("/api/integrations", requireLayer("superadmin"), integrationsRouter); // service secrets
+app.use("/api/data-sources", dataSourcesRouter); // external DB credentials + department data
+app.use("/api/terminal", terminalRouter); // shell access
+app.use("/api/integrations", integrationsRouter); // service secrets
 app.use("/api/presets", presetsRouter);
-app.use("/api/connectors", requireLayer("superadmin"), connectorsRouter); // connector credentials
-app.use("/api/mcp-servers", requireLayer("superadmin"), mcpServersRouter); // spawns local processes — superadmin only
-// Webhook ingress is TOKEN-GATED via X-Webhook-Secret (Zapier/Make → PA), not via session —
-// so it must bypass the superadmin session gate like /api/v1/dispatch. We mount a
-// conditional wrapper: /webhook/* skips requireLayer, everything else stays superadmin.
-app.use("/api/extensions", (req, res, next) => {
-  if (req.path.startsWith("/webhook/")) return (extensionsRouter as any)(req, res, next);
-  return (requireLayer("superadmin") as any)(req, res, (err?: any) => err ? next(err) : (extensionsRouter as any)(req, res, next));
-}); // unified plugins/extensions monitor + connect (webhook is public via secret)
-app.use("/api/n8n", requireLayer("superadmin"), n8nRouter); // n8n workflow automation (env-gated: N8N_BASE_URL + N8N_API_KEY)
-app.use("/api/executor", requireLayer("admin"), executorRouter); // flips who/what executes tasks (spend implications)
-// Primitives bridge executes real tools (email.send, db.query, publishes) —
-// built for TOKEN-LESS machine callers (Hermes/MCP), which still pass. A
-// staff session could otherwise bypass the email/data-source layer gates by
-// calling the underlying primitive directly.
-app.use("/api/primitives", requireLayer("admin"), primitivesRouter);
-app.use("/api/users", requireLayer("admin"), usersRouter); // directory admin (salary redaction inside)
+app.use("/api/connectors", connectorsRouter); // connector credentials
+app.use("/api/mcp-servers", mcpServersRouter); // spawns local processes
+app.use("/api/extensions", extensionsRouter); // unified plugins/extensions monitor + connect (webhook is public via secret)
+app.use("/api/n8n", n8nRouter); // n8n workflow automation (env-gated: N8N_BASE_URL + N8N_API_KEY)
+app.use("/api/executor", executorRouter); // flips who/what executes tasks (spend implications)
+app.use("/api/primitives", primitivesRouter);
+app.use("/api/users", usersRouter); // directory admin (salary redaction inside)
 app.use("/api/assignments", assignmentsRouter); // human-in-the-loop work (My Work page; per-route access checks inside)
 app.use("/api/voice", voiceRouter); // employee voices: report Q&A, local TTS proxy, realtime session mint
 app.use("/api/naxie", naxieRouter); // RAG/MAG/CAG inspector + remember (second-in-command memory)
 app.use("/api/auth", authRouter);
-app.use("/api/onboarding", onboardingRouter);
 app.use("/api/departments", departmentsRouter);
 app.use("/api/knowledge-packs", knowledgePacksRouter);
 // External agent-dispatch surface (API-key auth; originGuard exempts /api/v1/).
 app.use("/api/v1/dispatch", dispatchRouter);
 // Operator-only API-key management (stays behind originGuard).
-app.use("/api/dispatch-keys", requireLayer("superadmin"), dispatchKeysRouter); // mints external machine-dispatch API keys (origin-guard-exempt) — operator-only
+app.use("/api/dispatch-keys", dispatchKeysRouter); // mints external machine-dispatch API keys (origin-guard-exempt) — operator-only
 // Public Finance System ingest/read surface (server-to-server; origin-guard
 // exempts /api/public/, writes optionally gated by FINANCE_SYNC_TOKEN).
 app.use("/api/public", publicFinanceRouter);
 app.use("/api/quality", qualityRouter);
-app.use("/api/cost", requireLayer("superadmin"), costRouter); // money
-app.use("/api/audit", requireLayer("admin"), auditRouter); // audit trail (actors, role changes, sensitive-tool calls) — admin+
-app.use("/api/skill-forge", requireLayer("admin"), skillForgeRouter); // writes org-wide agent skill playbooks — admin+
+app.use("/api/cost", costRouter); // money
+app.use("/api/audit", auditRouter); // audit trail (actors, role changes, sensitive-tool calls)
+app.use("/api/skill-forge", skillForgeRouter); // writes org-wide agent skill playbooks
 app.use("/api/orchestrate", orchestratorRouter);
 
 // ── Production SPA serving ─────────────────────────────────────────────
