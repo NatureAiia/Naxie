@@ -528,6 +528,20 @@ export const api = {
     req<{ status: "pending" | "complete" | "error" | "expired"; error?: string }>(
       `/api/connectors/${encodeURIComponent(id)}/oauth/poll`, { method: "POST", body: JSON.stringify({ flowId }) }),
 
+  // Multi-account GitHub credentials + projects (repos grouped per account,
+  // watched for new commits by the github-commit-watcher engine).
+  listGithubAccounts: () => req<{ accounts: GithubAccount[] }>("/api/github-accounts"),
+  addGithubAccount: (label: string, token: string) => req<{ account: GithubAccount }>("/api/github-accounts", { method: "POST", body: JSON.stringify({ label, token }) }),
+  updateGithubAccount: (id: string, patch: { label?: string }) => req<{ account: GithubAccount }>(`/api/github-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  rotateGithubAccount: (id: string, token: string) => req<{ account: GithubAccount }>(`/api/github-accounts/${encodeURIComponent(id)}/rotate`, { method: "POST", body: JSON.stringify({ token }) }),
+  removeGithubAccount: (id: string) => req<{ ok: true }>(`/api/github-accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  listProjects: () => req<{ projects: Project[] }>("/api/projects"),
+  addProject: (body: { name: string; accountId: string; repos: string[] }) => req<{ project: Project }>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
+  updateProject: (id: string, patch: { name?: string; accountId?: string; repos?: string[] }) => req<{ project: Project }>(`/api/projects/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  removeProject: (id: string) => req<{ ok: true }>(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  githubEvents: () => req<{ events: GithubEvent[] }>("/api/projects/events"),
+  schedulerStatus: () => req<{ engines: SchedulerEngine[] }>("/api/scheduler/status"),
+
   // MCP-client servers (local child-process tool servers, e.g. from the community catalog).
   listMcpServers: () => req<{ servers: McpServer[] }>("/api/mcp-servers"),
   mcpCatalog: () => req<{ catalog: McpCatalogEntry[] }>("/api/mcp-servers/catalog"),
@@ -700,6 +714,11 @@ export type SecurityEvent = {
 };
 export type SecurityStatus = { events: SecurityEvent[]; blocked: { ip: string; until: string; score: number }[]; watching: number };
 export type LoginEvent = { at: string; userId?: string; email: string; name?: string; ok: boolean; reason?: string; ip?: string; userAgent?: string };
+
+export type GithubAccount = { id: string; label: string; tokenSet: boolean; createdAt: string; lastRotatedAt?: string };
+export type Project = { id: string; name: string; accountId: string; repos: string[]; lastSeenShas: Record<string, string>; createdAt: string; updatedAt: string };
+export type GithubEvent = { at: string; projectId: string; projectName: string; repo: string; sha: string; message: string; author: string; url: string };
+export type SchedulerEngine = { name: string; intervalSeconds: number; lastRunAt?: string; lastError?: string };
 
 export type ConnectorAuthType = "none" | "apiKey" | "bearer" | "basic" | "header" | "oauth2";
 export type ConnectorAuthCatalog = { type: ConnectorAuthType; label: string; fields: { name: string; label: string; secret: boolean }[] };

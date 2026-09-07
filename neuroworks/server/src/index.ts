@@ -59,6 +59,9 @@ import { terminalRouter } from "./routes/terminal.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { presetsRouter } from "./routes/presets.js";
 import { connectorsRouter } from "./routes/connectors.js";
+import { githubAccountsRouter } from "./routes/github-accounts.js";
+import { projectsRouter } from "./routes/projects.js";
+import { schedulerRouter } from "./routes/scheduler.js";
 import { mcpServersRouter } from "./routes/mcp-servers.js";
 import { extensionsRouter } from "./routes/extensions.js";
 import { n8nRouter } from "./routes/n8n.js";
@@ -82,6 +85,7 @@ import { orchestratorRouter } from "./routes/orchestrator.js";
 import { startEmailBridge, stopEmailBridge } from "./lib/email.js";
 import { startTelegramBridge, stopTelegramBridge } from "./lib/telegram-bridge.js";
 import { startExtensionHealthScheduler, stopExtensionHealthScheduler } from "./lib/extension-scheduler.js";
+import { startGithubWatcher } from "./lib/github-watcher.js";
 import { originGuard, ALLOWED_ORIGINS } from "./lib/origin-guard.js";
 import { enterpriseAuthGuard } from "./lib/enterprise-auth.js";
 
@@ -237,6 +241,9 @@ app.use("/api/terminal", terminalRouter); // shell access
 app.use("/api/integrations", integrationsRouter); // service secrets
 app.use("/api/presets", presetsRouter);
 app.use("/api/connectors", connectorsRouter); // connector credentials
+app.use("/api/github-accounts", githubAccountsRouter); // GitHub PATs, one per account
+app.use("/api/projects", projectsRouter); // repos grouped per account, watched for new commits
+app.use("/api/scheduler", schedulerRouter); // orchestration-core engine introspection
 app.use("/api/mcp-servers", mcpServersRouter); // spawns local processes
 app.use("/api/extensions", extensionsRouter); // unified plugins/extensions monitor + connect (webhook is public via secret)
 app.use("/api/n8n", n8nRouter); // n8n workflow automation (env-gated: N8N_BASE_URL + N8N_API_KEY)
@@ -526,6 +533,14 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // Extension health scheduler — hourly test-all + alert (primary-only).
   if (config.role === "primary") {
     try { startExtensionHealthScheduler(); } catch (e: any) { console.warn(`  ⚠ extension health scheduler failed: ${e?.message ?? e}`); }
+  }
+
+  // Git-commit watcher + project-status check — the first two engines
+  // registered into the new orchestration core (scheduler-registry.ts).
+  // Primary-only, same reasoning as every other scheduler above.
+  if (config.role === "primary") {
+    try { startGithubWatcher(); console.log(`  ⓘ github watcher armed (${process.env.NEUROWORKS_GITHUB_WATCH_INTERVAL_SECONDS ?? "300"}s interval)`); }
+    catch (e: any) { console.warn(`  ⚠ github watcher failed: ${e?.message ?? e}`); }
   }
 
   // MAG memory wipe-recovery (docs/naxie-storage-architecture.md §5) — only

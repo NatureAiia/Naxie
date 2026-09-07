@@ -17,6 +17,7 @@ import {
   Terminal,
   Radar,
   LayoutDashboard,
+  GitBranch,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -99,6 +100,7 @@ const memoryNav: NavItem[] = [
 const connectNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
   // Connectors/Integrations/MCP Servers stay as Extensions' internal tabs.
+  { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
 ];
 
 const governNav: NavItem[] = [
