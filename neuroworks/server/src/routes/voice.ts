@@ -16,11 +16,24 @@
 //                                     (tier A).
 
 import { Router } from "express";
+import { randomUUID } from "node:crypto";
 import { voiceStatus, voiceForPersona, synthesizeWithVoice, mintRealtimeSession } from "../lib/voice.js";
 import { loadJobById } from "../lib/job-store.js";
 import { getJob } from "../lib/jobs.js";
 
 export const voiceRouter = Router();
+
+// Streamed TTS — a POST can't be an <audio> element's `src` (only GET can),
+// so the client posts the text once, gets back a short-lived one-time GET
+// URL, and points <audio> at that. In-memory only (a stream token is
+// meaningless across a restart), same ephemeral-map idiom
+// connectors.ts's OAuth device-code flow already uses.
+const TTS_STREAM_TOKEN_TTL_MS = 60_000;
+const ttsStreamTokens = new Map<string, { text: string; personaId?: string; createdAt: number }>();
+function sweepExpiredTtsTokens() {
+  const cutoff = Date.now() - TTS_STREAM_TOKEN_TTL_MS;
+  for (const [token, entry] of ttsStreamTokens) if (entry.createdAt < cutoff) ttsStreamTokens.delete(token);
+}
 
 voiceRouter.get("/status", async (_req, res) => {
   try { res.json(await voiceStatus()); }
@@ -204,6 +217,41 @@ voiceRouter.post("/tts", async (req, res) => {
   }
 });
 
+// POST /api/voice/tts/token → {text, personaId?} → { streamUrl }. Step 1 of
+// streamed playback (see the comment near ttsStreamTokens above).
+voiceRouter.post("/tts/token", (req, res) => {
+  const text = String(req.body?.text ?? "").trim();
+  if (!text) return res.status(400).json({ error: "text is required" });
+  sweepExpiredTtsTokens();
+  const token = randomUUID();
+  ttsStreamTokens.set(token, { text, personaId: req.body?.personaId ? String(req.body.personaId) : undefined, createdAt: Date.now() });
+  res.json({ streamUrl: `/api/voice/tts/stream/${token}` });
+});
+
+// GET /api/voice/tts/stream/:token → audio bytes, forwarded to the client as
+// they arrive from the provider (chunked transfer — no Content-Length) so an
+// <audio src="..."> element starts playing before the whole clip is
+// synthesized. Single-use: the token is consumed on first request.
+voiceRouter.get("/tts/stream/:token", async (req, res) => {
+  const entry = ttsStreamTokens.get(req.params.token);
+  if (!entry) return res.status(404).json({ error: "stream token not found or expired" });
+  ttsStreamTokens.delete(req.params.token);
+  res.set("Content-Type", "audio/mpeg");
+  res.set("Cache-Control", "no-store");
+  try {
+    await synthesizeWithVoice(entry.text, entry.personaId, chunk => res.write(chunk));
+  } catch (e: any) {
+    // Headers (audio/mpeg, 200) are already committed once the first chunk
+    // writes — there's no clean way to switch to a JSON error mid-stream.
+    // Ending the response here makes the <audio> element fire its own error
+    // event, which useNaxieAssistant's speak() already treats as "fall back
+    // to Web Speech for this utterance", same as a 503 from /tts does today.
+    console.warn(`[voice] tts stream failed: ${String(e?.message ?? e).slice(0, 160)}`);
+  } finally {
+    res.end();
+  }
+});
+
 // The browser reports realtime token usage here (read off the WebRTC data
 // channel's response.done events) so live-call spend is tracked in the Cost
 // monitor — the server can't see it otherwise, the audio streams direct to the
@@ -224,20 +272,37 @@ voiceRouter.post("/usage", async (req, res) => {
   }
 });
 
+// jobId is optional: when present, behavior is unchanged from before (a
+// report-discussion call, VoiceDiscussion.tsx's only caller today). When
+// absent, this mints a live call with Naxie herself — no report to ground
+// in, just her own persona — for the Naxie page's "Start live call" button.
 voiceRouter.post("/realtime-session", async (req, res) => {
   const jobId = String(req.body?.jobId ?? "").trim();
-  if (!jobId) return res.status(400).json({ error: "jobId is required" });
   try {
-    const ctx = await reportContext(jobId, req.body?.personaId ? String(req.body.personaId) : undefined);
-    const v = voiceForPersona(ctx.personaKey);
-    const instructions =
-      `You are ${ctx.personaName}, the employee who produced the report below. You're on a live voice call with a colleague to talk it through. ` +
-      `Open by greeting them in one short sentence and offering the headline finding. Keep answers conversational and short (a few sentences), let them interrupt, ` +
-      `and stay grounded in the report — if something isn't covered, say so honestly. Numbers and names must match the report exactly.\n\n` +
-      `${ctx.personaSuffix ? ctx.personaSuffix + "\n\n" : ""}` +
-      `REPORT — "${ctx.title}":\n---\n${ctx.report}\n---`;
-    const sess = await mintRealtimeSession(instructions, v.openaiVoice);
-    res.json({ ...sess, personaName: ctx.personaName });
+    let instructions: string;
+    let personaName: string;
+    let openaiVoice: string;
+    if (jobId) {
+      const ctx = await reportContext(jobId, req.body?.personaId ? String(req.body.personaId) : undefined);
+      openaiVoice = voiceForPersona(ctx.personaKey).openaiVoice;
+      personaName = ctx.personaName;
+      instructions =
+        `You are ${ctx.personaName}, the employee who produced the report below. You're on a live voice call with a colleague to talk it through. ` +
+        `Open by greeting them in one short sentence and offering the headline finding. Keep answers conversational and short (a few sentences), let them interrupt, ` +
+        `and stay grounded in the report — if something isn't covered, say so honestly. Numbers and names must match the report exactly.\n\n` +
+        `${ctx.personaSuffix ? ctx.personaSuffix + "\n\n" : ""}` +
+        `REPORT — "${ctx.title}":\n---\n${ctx.report}\n---`;
+    } else {
+      const { BUILTIN_NAXIE_PERSONA, personaSystemSuffix } = await import("../lib/personas.js");
+      openaiVoice = voiceForPersona("naxie").openaiVoice;
+      personaName = BUILTIN_NAXIE_PERSONA.name;
+      instructions =
+        `You're on a live voice call with Nature (the operator). Open with a brief, warm greeting and ask what they need. ` +
+        `Keep answers conversational and short (a few sentences), let them interrupt.\n\n` +
+        personaSystemSuffix(BUILTIN_NAXIE_PERSONA);
+    }
+    const sess = await mintRealtimeSession(instructions, openaiVoice);
+    res.json({ ...sess, personaName });
   } catch (e: any) {
     res.status(502).json({ error: String(e?.message ?? e) });
   }

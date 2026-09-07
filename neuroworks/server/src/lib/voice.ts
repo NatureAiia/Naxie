@@ -170,7 +170,12 @@ export function ttsCacheStore(key: string, audio: Buffer, contentType: string): 
 
 // ── tiers B/C: OpenAI cloud TTS, then local sidecar ─────────────
 
-export async function synthesizeWithVoice(text: string, personaId: string | undefined): Promise<{ audio: Buffer; contentType: string }> {
+// `onChunk`, when given, is called with each chunk of audio as it arrives
+// from the provider (or once, with the whole thing, on a cache hit) — this is
+// the only change needed to support streamed playback; the existing
+// fully-buffered callers (routes/voice.ts's /tts) simply omit it and get
+// identical behavior to before.
+export async function synthesizeWithVoice(text: string, personaId: string | undefined, onChunk?: (chunk: Buffer) => void): Promise<{ audio: Buffer; contentType: string }> {
   const v = voiceForPersona(personaId);
   const key = (personaId ?? "").toLowerCase();
   const isNaxie = key === "naxie" || key === "neuro" || key === "clawbot";
@@ -179,9 +184,9 @@ export async function synthesizeWithVoice(text: string, personaId: string | unde
 
   if (openaiTtsAvailable()) {
     const cached = ttsCacheLoad(openaiCacheKey);
-    if (cached) return cached;
+    if (cached) { onChunk?.(cached.audio); return cached; }
     try {
-      const out = await synthesizeOpenAITts(text, v.openaiVoice, isNaxie ? NAXIE_VOICE_INSTRUCTIONS : undefined);
+      const out = await synthesizeOpenAITts(text, v.openaiVoice, isNaxie ? NAXIE_VOICE_INSTRUCTIONS : undefined, onChunk);
       ttsCacheStore(openaiCacheKey, out.audio, out.contentType);
       return out;
     } catch (e) {
@@ -190,13 +195,31 @@ export async function synthesizeWithVoice(text: string, personaId: string | unde
   }
 
   const cachedLocal = ttsCacheLoad(localCacheKey);
-  if (cachedLocal) return cachedLocal;
-  const out = await synthesizeLocal(text, v.localVoice);
+  if (cachedLocal) { onChunk?.(cachedLocal.audio); return cachedLocal; }
+  const out = await synthesizeLocal(text, v.localVoice, onChunk);
   ttsCacheStore(localCacheKey, out.audio, out.contentType);
   return out;
 }
 
-export async function synthesizeOpenAITts(text: string, voice: string, instructions?: string): Promise<{ audio: Buffer; contentType: string }> {
+// Reads a fetch Response body chunk-by-chunk, forwarding each chunk to
+// `onChunk` as it arrives (for streamed playback) while also accumulating
+// the full buffer (for the on-disk cache, and for callers that omit
+// `onChunk` and just want the complete result like before).
+async function collectStreamed(r: Response, onChunk?: (chunk: Buffer) => void): Promise<Buffer> {
+  if (!onChunk || !r.body) return Buffer.from(await r.arrayBuffer());
+  const reader = r.body.getReader();
+  const chunks: Buffer[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const buf = Buffer.from(value);
+    chunks.push(buf);
+    onChunk(buf);
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function synthesizeOpenAITts(text: string, voice: string, instructions?: string, onChunk?: (chunk: Buffer) => void): Promise<{ audio: Buffer; contentType: string }> {
   const creds = openaiTtsCreds();
   if (!creds) throw new Error("OpenAI TTS not configured (OPENAI_TTS_API_KEY or a registered OpenAI provider)");
   const r = await fetch(`${creds.baseUrl}/audio/speech`, {
@@ -215,12 +238,12 @@ export async function synthesizeOpenAITts(text: string, voice: string, instructi
     const t = await r.text().catch(() => "");
     throw new Error(`OpenAI TTS ${r.status}: ${t.slice(0, 300)}`);
   }
-  const audio = Buffer.from(await r.arrayBuffer());
+  const audio = await collectStreamed(r, onChunk);
   if (audio.length === 0) throw new Error("OpenAI TTS returned empty audio");
   return { audio, contentType: r.headers.get("content-type") ?? "audio/mpeg" };
 }
 
-export async function synthesizeLocal(text: string, voice: string): Promise<{ audio: Buffer; contentType: string }> {
+export async function synthesizeLocal(text: string, voice: string, onChunk?: (chunk: Buffer) => void): Promise<{ audio: Buffer; contentType: string }> {
   if (!TTS_URL) throw new Error("no local TTS sidecar configured (NEUROWORKS_TTS_URL)");
   const r = await fetch(`${TTS_URL}/audio/speech`, {
     method: "POST",
@@ -235,7 +258,7 @@ export async function synthesizeLocal(text: string, voice: string): Promise<{ au
     const t = await r.text().catch(() => "");
     throw new Error(`TTS sidecar ${r.status}: ${t.slice(0, 200)}`);
   }
-  const audio = Buffer.from(await r.arrayBuffer());
+  const audio = await collectStreamed(r, onChunk);
   if (audio.length === 0) throw new Error("TTS sidecar returned empty audio");
   return { audio, contentType: r.headers.get("content-type") ?? "audio/mpeg" };
 }

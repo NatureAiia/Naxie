@@ -21,6 +21,7 @@ export type Turn = {
 
 const STORAGE_KEY = "neuroworks.naxie.turns";
 const ALWAYS_LISTENING_KEY = "neuroworks.naxie.alwaysListening";
+const REQUIRE_WAKE_WORD_KEY = "neuroworks.naxie.requireWakeWord";
 const BRIEFING_DISMISSED_KEY = "neuroworks.naxie.briefingDismissedAt";
 // Low-frequency: pendingApprovals/briefing don't need the same cadence a
 // live conversation would — this replaces the widget's old private 10s poll.
@@ -38,6 +39,11 @@ const FINALIZE_DEBOUNCE_MS = 600;
 // window below, stop retrying and let the user restart manually.
 const RESTART_BACKOFF_WINDOW_MS = 10_000;
 const RESTART_BACKOFF_MAX = 5;
+// Zero-dependency wake-word gate — matched against each FINALIZED chunk only
+// (never interim), so a partial "hey nax..." mid-utterance doesn't false-arm.
+// Tolerates an optional comma ("hey, naxie") and either order isn't needed —
+// this is always "hey" first, matching how people actually address her.
+const WAKE_PHRASE_RE = /\bhey,?\s+naxie\b/i;
 
 function loadTurns(): Turn[] {
   try {
@@ -59,6 +65,17 @@ function loadAlwaysListening(): boolean {
   return true;
 }
 
+// Off by default — this changes existing always-listening behavior (nothing
+// gets sent until the phrase is heard), so it's opt-in rather than silently
+// applied to everyone already using always-listening today.
+function loadRequireWakeWord(): boolean {
+  try {
+    const raw = localStorage.getItem(REQUIRE_WAKE_WORD_KEY);
+    if (raw != null) return raw === "1";
+  } catch { /* ignore */ }
+  return false;
+}
+
 export type OrbState = "listening" | "thinking" | "speaking" | "idle";
 
 export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
@@ -70,6 +87,7 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
   const [voice, setVoice] = useState<{ realtime: boolean; openaiTts: boolean; localTts: boolean } | null>(null);
   const [liveCaption, setLiveCaption] = useState("");
   const [alwaysListening, setAlwaysListeningState] = useState<boolean>(loadAlwaysListening);
+  const [requireWakeWord, setRequireWakeWordState] = useState<boolean>(loadRequireWakeWord);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [waitingTasks, setWaitingTasks] = useState<WaitingTask[]>([]);
   const [briefing, setBriefing] = useState<NaxieBriefing | null>(null);
@@ -83,6 +101,8 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
   // Refs mirroring state that async callbacks (mic events, timers) need to
   // read without capturing a stale closure.
   const alwaysListeningRef = useRef(alwaysListening);
+  const requireWakeWordRef = useRef(requireWakeWord);
+  const wakeArmedRef = useRef(false);
   const autoListenRef = useRef(autoListen);
   const micIntentionallyStopped = useRef(true); // starts stopped until the auto-start effect below flips it
   const micPausedForTts = useRef(false);
@@ -92,6 +112,7 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
   const restartWindowStartRef = useRef(0);
 
   useEffect(() => { alwaysListeningRef.current = alwaysListening; }, [alwaysListening]);
+  useEffect(() => { requireWakeWordRef.current = requireWakeWord; wakeArmedRef.current = false; }, [requireWakeWord]);
   useEffect(() => { autoListenRef.current = autoListen; }, [autoListen]);
 
   useEffect(() => {
@@ -158,6 +179,11 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     }
   }
 
+  function setRequireWakeWord(next: boolean) {
+    setRequireWakeWordState(next);
+    try { localStorage.setItem(REQUIRE_WAKE_WORD_KEY, next ? "1" : "0"); } catch { /* ignore */ }
+  }
+
   function clearFinalizeTimer() {
     if (finalizeTimerRef.current) { clearTimeout(finalizeTimerRef.current); finalizeTimerRef.current = null; }
   }
@@ -167,6 +193,9 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     const text = micTextRef.current.trim();
     micTextRef.current = "";
     setLiveCaption("");
+    // Require the phrase again for the next utterance — a wake word arms
+    // one ask, not the rest of the session.
+    wakeArmedRef.current = false;
     if (text) void ask(text);
   }
 
@@ -176,13 +205,22 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     try {
       await mic.start((transcript, isFinal) => {
         if (isFinal) {
-          micTextRef.current = (micTextRef.current ? micTextRef.current.replace(/\s+$/, "") + " " : "") + transcript;
+          let chunk = transcript;
+          if (requireWakeWordRef.current && !wakeArmedRef.current) {
+            const m = chunk.match(WAKE_PHRASE_RE);
+            if (!m) return; // ambient speech pre-wake-word — never touches micTextRef/caption
+            wakeArmedRef.current = true;
+            chunk = chunk.slice(m.index! + m[0].length).trim();
+            if (!chunk) { setLiveCaption("Listening…"); return; } // armed, nothing said yet this chunk
+          }
+          micTextRef.current = (micTextRef.current ? micTextRef.current.replace(/\s+$/, "") + " " : "") + chunk;
           setLiveCaption(micTextRef.current);
           if (alwaysListeningRef.current) {
             clearFinalizeTimer();
             finalizeTimerRef.current = setTimeout(flushPendingSpeech, FINALIZE_DEBOUNCE_MS);
           }
         } else {
+          if (requireWakeWordRef.current && !wakeArmedRef.current) return; // no caption noise pre-wake-word
           const base = micTextRef.current;
           setLiveCaption(base ? base.replace(/\s+$/, "") + " " + transcript : transcript);
         }
@@ -237,11 +275,20 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     }
     setSpeaking(true);
     try {
-      const blob = await api.voiceTts(text, "naxie");
-      const audio = new Audio(URL.createObjectURL(blob));
+      // Streamed playback: the server starts sending audio bytes as they're
+      // synthesized (chunked transfer), and the native <audio> element plays
+      // progressively — no need to wait for the whole clip to finish
+      // generating AND downloading before anything is heard, unlike a
+      // fetch-the-whole-Blob-then-play approach.
+      const { streamUrl } = await api.voiceTtsToken(text, "naxie");
+      const audio = new Audio(streamUrl);
       audioRef.current = audio;
       audio.onended = finishSpeaking;
-      await audio.play();
+      await new Promise<void>((resolve, reject) => {
+        audio.oncanplay = () => resolve();
+        audio.onerror = () => reject(new Error("tts stream failed"));
+        void audio.play().catch(reject);
+      });
       return;
     } catch { /* local sidecar hiccup -> Web Speech fallback */ }
     try {
@@ -363,6 +410,7 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     busy, speaking, voice, liveCaption,
     mic, orbState,
     alwaysListening, setAlwaysListening,
+    requireWakeWord, setRequireWakeWord,
     pendingApprovals, waitingTasks, briefing: briefingVisible, dismissBriefing,
     ask, speak, stopSpeaking, micToggle, delegate,
   };

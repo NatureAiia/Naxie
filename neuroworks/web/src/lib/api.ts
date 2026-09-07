@@ -488,7 +488,16 @@ export const api = {
     if (!r.ok) throw new Error(`tts ${r.status}`);
     return r.blob();
   },
-  voiceRealtimeSession: (jobId: string, personaId?: string) =>
+  // Step 1 of streamed TTS playback — POST the text, get back a one-time GET
+  // URL an <audio> element can point its `src` at directly (see
+  // useNaxieAssistant.ts's speak()). The GET itself isn't fetched through
+  // this client — the browser streams it natively via the audio element.
+  voiceTtsToken: (text: string, personaId?: string) =>
+    req<{ streamUrl: string }>("/api/voice/tts/token", { method: "POST", body: JSON.stringify({ text, personaId }) }),
+  // jobId is optional — omit it for a live call with Naxie herself (no
+  // report to ground in), pass it for a report-discussion call (unchanged
+  // VoiceDiscussion.tsx behavior).
+  voiceRealtimeSession: (jobId?: string, personaId?: string) =>
     req<{ clientSecret: string; expiresAt?: number; model: string; voice: string; personaName: string; baseUrl: string }>("/api/voice/realtime-session", { method: "POST", body: JSON.stringify({ jobId, personaId }) }),
   // Report realtime token usage (read off the call's data channel) so live-call
   // spend lands in the Cost monitor — the server can't observe WebRTC traffic.

@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import { Button, showToast } from "./Card";
 import { Mic, MicOff, Square, Loader2, Volume2, VolumeX, Phone, PhoneOff, Send, MessageCircle } from "lucide-react";
 import { useSpeechRecognition } from "../lib/useSpeechRecognition";
+import { useRealtimeCall } from "../lib/useRealtimeCall";
 
 // Talk to the employee about their report. Three tiers, best available wins:
 //   A. Live call — WebRTC full-duplex with the provider (server mints a
@@ -38,22 +39,17 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [live, setLive] = useState<"off" | "connecting" | "on">("off");
   const mic = useSpeechRecognition();
   const micTextRef = useRef("");
   const micWasActiveRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const liveStreamRef = useRef<MediaStream | null>(null);
-  const dcRef = useRef<RTCDataChannel | null>(null);
-  const connectTimerRef = useRef<any>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  // Accumulates the agent's streamed transcript for the current spoken reply
-  // so text prompts sent mid-call show the answer in the transcript too.
-  const liveReplyRef = useRef<string>("");
-  // Realtime model for this call, so per-response usage can be priced + reported
-  // to the Cost monitor (the server can't see WebRTC traffic).
-  const callModelRef = useRef<string>("gpt-realtime");
+
+  const { live, startCall: startRealtimeCall, endCall, sendToCall } = useRealtimeCall({
+    mintSession: () => api.voiceRealtimeSession(jobId, personaId),
+    // A spoken reply during a live call renders exactly like a typed one did
+    // before — same turn shape, same "🎙 (spoken)" question marker.
+    onTranscript: text => setTurns(prev => [...prev, { q: "🎙 (spoken)", a: text }]),
+  });
 
   useEffect(() => {
     api.voiceStatus().then(setStatus).catch(() => setStatus({ realtime: false, localTts: false }));
@@ -114,7 +110,7 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
     // In a live call, a typed prompt goes INTO the call (spoken back), not to
     // the REST ask path.
     if (live === "on") {
-      if (sendToCall(question)) { setQ(""); return; }
+      if (sendToCall(question)) { setTurns(prev => [...prev, { q: question, a: "…" }]); setQ(""); return; }
       showToast("Call channel not ready yet — one moment.", "error");
       return;
     }
@@ -143,146 +139,16 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
   }
 
   // ── Tier A: live WebRTC call ──────────────────────────────────────────
-  // Handle one event from the Realtime data channel — surface the agent's
-  // spoken transcript into the on-screen transcript so a text prompt sent
-  // mid-call shows its answer, and log server errors instead of silently
-  // dropping them.
-  function onCallEvent(raw: string) {
-    let ev: any;
-    try { ev = JSON.parse(raw); } catch { return; }
-    switch (ev.type) {
-      case "response.audio_transcript.delta":
-      case "response.output_audio_transcript.delta":
-        liveReplyRef.current += ev.delta ?? "";
-        break;
-      case "response.audio_transcript.done":
-      case "response.output_audio_transcript.done": {
-        const text = (ev.transcript ?? liveReplyRef.current).trim();
-        liveReplyRef.current = "";
-        if (text) setTurns(prev => [...prev, { q: "🎙 (spoken)", a: text }]);
-        break;
-      }
-      case "response.done": {
-        // Each completed response carries its token usage. Report it so live
-        // voice-call spend shows up in the Cost monitor.
-        const u = ev.response?.usage;
-        const inTok = Number(u?.input_tokens ?? u?.total_input_tokens ?? 0);
-        const outTok = Number(u?.output_tokens ?? u?.total_output_tokens ?? 0);
-        if (inTok > 0 || outTok > 0) {
-          api.voiceReportUsage(callModelRef.current, inTok, outTok).catch(() => {});
-        }
-        break;
-      }
-      case "error":
-        showToast(`Call: ${ev.error?.message ?? "provider error"}`, "error");
-        break;
-    }
-  }
-
-  async function startCall() {
+  // The connection mechanics live in useRealtimeCall now; this wrapper keeps
+  // the realtime-availability check + its specific error message, which is
+  // this component's own UX concern, not the shared hook's.
+  function startCall() {
     if (live !== "off") return;
     if (!status?.realtime) {
       showToast("Live calls need an OpenAI provider — set OPENROUTER_API_KEY or OPENAI_API_KEY in .env and restart. Meanwhile, ask below and I'll speak the answer.", "error");
       return;
     }
-    setLive("connecting");
-    // Safety: never hang in "connecting" forever — bail after 25s if the peer
-    // connection hasn't reached a connected state (guarded on the live PC ref,
-    // not the closed-over state, so the check stays correct).
-    connectTimerRef.current = setTimeout(() => {
-      if (pcRef.current && pcRef.current.connectionState !== "connected") {
-        endCall(); showToast("Live call didn't connect in time — try again.", "error");
-      }
-    }, 25000);
-    try {
-      // Mic first, with a permission-specific message (the #1 "it didn't work").
-      let mic: MediaStream;
-      try {
-        mic = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch {
-        throw new Error("Microphone blocked — allow mic access in your browser, then Start live call again.");
-      }
-      liveStreamRef.current = mic;
-
-      const sess = await api.voiceRealtimeSession(jobId, personaId);
-      callModelRef.current = sess.model || "gpt-realtime";
-      const pc = new RTCPeerConnection();
-      pcRef.current = pc;
-
-      // Remote audio sink — reuse one element so a reconnect doesn't stack them.
-      const remote = remoteAudioRef.current ?? new Audio();
-      remote.autoplay = true;
-      remoteAudioRef.current = remote;
-      pc.ontrack = (e) => { remote.srcObject = e.streams[0]; remote.play().catch(() => {}); };
-
-      // Auto-recover the UI if the peer connection drops.
-      pc.onconnectionstatechange = () => {
-        const st = pc.connectionState;
-        if (st === "connected") setLive("on");
-        else if (st === "failed" || st === "disconnected" || st === "closed") {
-          // Only act while this PC is still the active one (endCall nulls it).
-          if (pcRef.current === pc) { endCall(); showToast("Live call dropped.", "error"); }
-        }
-      };
-
-      mic.getTracks().forEach(t => pc.addTrack(t, mic));
-
-      // Data channel — used BOTH to receive the agent's transcript and to
-      // inject typed prompts into the conversation mid-call.
-      const dc = pc.createDataChannel("oai-events");
-      dcRef.current = dc;
-      dc.onmessage = (e) => onCallEvent(typeof e.data === "string" ? e.data : "");
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      const base = (sess.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
-      const r = await fetch(`${base}/realtime/calls?model=${encodeURIComponent(sess.model)}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${sess.clientSecret}`, "Content-Type": "application/sdp" },
-        body: offer.sdp,
-      });
-      if (!r.ok) {
-        const detail = await r.text().catch(() => "");
-        throw new Error(`Call setup failed (${r.status})${detail ? `: ${detail.slice(0, 120)}` : ""}`);
-      }
-      await pc.setRemoteDescription({ type: "answer", sdp: await r.text() });
-      // connectionstatechange flips us to "on"; keep a fallback in case the
-      // browser never emits "connected" (some report only "connecting").
-      setLive("on");
-    } catch (e: any) {
-      endCall();
-      showToast(e?.message ?? String(e), "error");
-    }
-  }
-
-  // Send a typed prompt INTO the live call over the data channel: create a
-  // user message, then ask for a spoken response. This is the "prompt the
-  // agent through the live call" path.
-  function sendToCall(text: string): boolean {
-    const dc = dcRef.current;
-    if (!dc || dc.readyState !== "open") return false;
-    try {
-      dc.send(JSON.stringify({
-        type: "conversation.item.create",
-        item: { type: "message", role: "user", content: [{ type: "input_text", text }] },
-      }));
-      dc.send(JSON.stringify({ type: "response.create" }));
-      setTurns(prev => [...prev, { q: text, a: "…" }]);
-      return true;
-    } catch { return false; }
-  }
-
-  function endCall() {
-    if (connectTimerRef.current) { clearTimeout(connectTimerRef.current); connectTimerRef.current = null; }
-    try { dcRef.current?.close(); } catch { /* ignore */ }
-    dcRef.current = null;
-    liveStreamRef.current?.getTracks().forEach(t => t.stop());
-    liveStreamRef.current = null;
-    if (remoteAudioRef.current) { remoteAudioRef.current.srcObject = null; }
-    try { pcRef.current?.close(); } catch { /* ignore */ }
-    pcRef.current = null;
-    liveReplyRef.current = "";
-    setLive("off");
+    void startRealtimeCall();
   }
 
   const name = personaName ?? "the employee";
