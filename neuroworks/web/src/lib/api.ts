@@ -488,7 +488,16 @@ export const api = {
     if (!r.ok) throw new Error(`tts ${r.status}`);
     return r.blob();
   },
-  voiceRealtimeSession: (jobId: string, personaId?: string) =>
+  // Step 1 of streamed TTS playback — POST the text, get back a one-time GET
+  // URL an <audio> element can point its `src` at directly (see
+  // useNaxieAssistant.ts's speak()). The GET itself isn't fetched through
+  // this client — the browser streams it natively via the audio element.
+  voiceTtsToken: (text: string, personaId?: string) =>
+    req<{ streamUrl: string }>("/api/voice/tts/token", { method: "POST", body: JSON.stringify({ text, personaId }) }),
+  // jobId is optional — omit it for a live call with Naxie herself (no
+  // report to ground in), pass it for a report-discussion call (unchanged
+  // VoiceDiscussion.tsx behavior).
+  voiceRealtimeSession: (jobId?: string, personaId?: string) =>
     req<{ clientSecret: string; expiresAt?: number; model: string; voice: string; personaName: string; baseUrl: string }>("/api/voice/realtime-session", { method: "POST", body: JSON.stringify({ jobId, personaId }) }),
   // Report realtime token usage (read off the call's data channel) so live-call
   // spend lands in the Cost monitor — the server can't observe WebRTC traffic.
@@ -541,6 +550,14 @@ export const api = {
   removeProject: (id: string) => req<{ ok: true }>(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" }),
   githubEvents: () => req<{ events: GithubEvent[] }>("/api/projects/events"),
   schedulerStatus: () => req<{ engines: SchedulerEngine[] }>("/api/scheduler/status"),
+
+  // Vector store (pgvector RAG) — already-running re-embed pipeline; this
+  // just surfaces status and lets Supabase DB URL / OpenAI embedding key be
+  // set from the UI instead of only .env.
+  ragStatus: () => req<RagStatus>("/api/extensions/rag/status"),
+  ragSetConfig: (patch: { supabaseDbUrl?: string; openaiEmbeddingApiKey?: string }) =>
+    req<RagStatus & { ok: true }>("/api/extensions/rag/config", { method: "POST", body: JSON.stringify(patch) }),
+  ragReembedNow: () => req<{ ok: boolean; error?: string; lastRun: RagStatus["lastRun"] }>("/api/extensions/rag/reembed", { method: "POST" }),
 
   // MCP-client servers (local child-process tool servers, e.g. from the community catalog).
   listMcpServers: () => req<{ servers: McpServer[] }>("/api/mcp-servers"),
@@ -719,6 +736,16 @@ export type GithubAccount = { id: string; label: string; tokenSet: boolean; crea
 export type Project = { id: string; name: string; accountId: string; repos: string[]; lastSeenShas: Record<string, string>; createdAt: string; updatedAt: string };
 export type GithubEvent = { at: string; projectId: string; projectName: string; repo: string; sha: string; message: string; author: string; url: string };
 export type SchedulerEngine = { name: string; intervalSeconds: number; lastRunAt?: string; lastError?: string };
+
+export type RagStatus = {
+  pgvectorEnabled: boolean;
+  openaiEmbeddingEnabled: boolean;
+  connected: boolean;
+  lastRun: { at: number; chunks: number; ok: boolean; error?: string } | null;
+  pending: boolean;
+  running: boolean;
+  overrides: { supabaseDbUrlOverridden: boolean; openaiEmbeddingApiKeyOverridden: boolean };
+};
 
 export type ConnectorAuthType = "none" | "apiKey" | "bearer" | "basic" | "header" | "oauth2";
 export type ConnectorAuthCatalog = { type: ConnectorAuthType; label: string; fields: { name: string; label: string; secret: boolean }[] };

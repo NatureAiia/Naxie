@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Share2, Webhook, Download, LayoutGrid, Cable } from "lucide-react";
-import { api, type ConnectorAuthType } from "../lib/api";
+import { api, type ConnectorAuthType, type RagStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { Integrations } from "./Integrations";
 import { Connectors } from "./Connectors";
@@ -104,6 +104,38 @@ export function Extensions() {
   const [scheduler, setScheduler] = useState<any>(null);
   const [analytics, setAnalytics] = useState<any>(null);
   const [marketplace, setMarketplace] = useState<any[]>([]);
+  const [ragStatus, setRagStatus] = useState<RagStatus | null>(null);
+  const [ragDbUrl, setRagDbUrl] = useState("");
+  const [ragEmbedKey, setRagEmbedKey] = useState("");
+  const [ragSaving, setRagSaving] = useState(false);
+  const [ragReembedding, setRagReembedding] = useState(false);
+
+  function refreshRagStatus() {
+    api.ragStatus().then(setRagStatus).catch(() => {});
+  }
+  async function saveRagConfig() {
+    if (!ragDbUrl.trim() && !ragEmbedKey.trim()) return;
+    setRagSaving(true);
+    try {
+      const patch: { supabaseDbUrl?: string; openaiEmbeddingApiKey?: string } = {};
+      if (ragDbUrl.trim()) patch.supabaseDbUrl = ragDbUrl.trim();
+      if (ragEmbedKey.trim()) patch.openaiEmbeddingApiKey = ragEmbedKey.trim();
+      const r = await api.ragSetConfig(patch);
+      setRagStatus(r);
+      setRagDbUrl(""); setRagEmbedKey("");
+      showToast("Vector store credentials saved", "success");
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setRagSaving(false); }
+  }
+  async function reembedNow() {
+    setRagReembedding(true);
+    try {
+      const r = await api.ragReembedNow();
+      showToast(r.ok ? `Re-embedded ${r.lastRun?.chunks ?? 0} chunk(s)` : (r.error ?? "Re-embed failed"), r.ok ? "success" : "error");
+      refreshRagStatus();
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setRagReembedding(false); }
+  }
 
   async function refresh() {
     try {
@@ -125,6 +157,7 @@ export function Extensions() {
     fetch("/api/extensions/scheduler/status", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(setScheduler).catch(()=>{});
     fetch("/api/extensions/analytics?days=14", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(setAnalytics).catch(()=>{});
     fetch("/api/extensions/marketplace", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(j=> setMarketplace(j.skills ?? [])).catch(()=>{});
+    refreshRagStatus();
   }, []);
 
   async function refreshWebhooks() {
@@ -386,6 +419,47 @@ export function Extensions() {
         </div>
         <div className="mt-3 text-[11px] text-cream-300/40">
           Platform APIs are configured via <span className="font-mono text-cream-300/70">neuroworks/.env</span> and <span className="font-mono text-cream-300/70">naxionai/.env</span> (gitignored). Change a key → restart the server. The health dots above reflect live status.
+        </div>
+      </Card>
+      )}
+
+      {tab === "platform" && ragStatus && (
+      <Card
+        title="Vector store"
+        action={<Button variant="subtle" onClick={reembedNow} disabled={ragReembedding || !ragStatus.pgvectorEnabled || !ragStatus.openaiEmbeddingEnabled}>{ragReembedding ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Re-embed now</Button>}
+      >
+        <p className="text-xs text-cream-300/60 mb-3">
+          Naxie's vault gets re-embedded into a pgvector store (Supabase Postgres) on every write, powering semantic search over your notes.
+          Already running once both values below are set — no restart needed, no code change either way.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap mb-3">
+          <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full ${ragStatus.pgvectorEnabled && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "bg-leaf-500/10 text-leaf-400" : "bg-amber-500/10 text-amber-300") : "bg-ink-800 text-cream-300/50"}`}>
+            <HealthDot ok={ragStatus.connected} missing={!ragStatus.pgvectorEnabled || !ragStatus.openaiEmbeddingEnabled} />
+            {ragStatus.pgvectorEnabled && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "Active" : "Configured, unreachable") : "Not configured"}
+          </div>
+          {ragStatus.lastRun && (
+            <span className="text-[11px] text-cream-300/50">
+              last run {new Date(ragStatus.lastRun.at).toLocaleString()} — {ragStatus.lastRun.ok ? `${ragStatus.lastRun.chunks} chunk(s)` : `failed: ${ragStatus.lastRun.error}`}
+            </span>
+          )}
+          {ragStatus.pending && <span className="text-[11px] text-violet-400">re-embed pending…</span>}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] text-cream-300/50">Supabase DB URL {ragStatus.pgvectorEnabled && <span className="text-leaf-400">({ragStatus.overrides.supabaseDbUrlOverridden ? "set via settings" : "set via .env"})</span>}</label>
+            <input type="password" value={ragDbUrl} onChange={e => setRagDbUrl(e.target.value)} placeholder={ragStatus.pgvectorEnabled ? "•••••••••••••••• (leave blank to keep)" : "postgresql://..."}
+              className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-xs text-cream-100 focus:outline-none focus:border-violet-500/60" />
+          </div>
+          <div>
+            <label className="text-[11px] text-cream-300/50">OpenAI embedding API key {ragStatus.openaiEmbeddingEnabled && <span className="text-leaf-400">({ragStatus.overrides.openaiEmbeddingApiKeyOverridden ? "set via settings" : "set via .env"})</span>}</label>
+            <input type="password" value={ragEmbedKey} onChange={e => setRagEmbedKey(e.target.value)} placeholder={ragStatus.openaiEmbeddingEnabled ? "•••••••••••••••• (leave blank to keep)" : "sk-..."}
+              className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-xs text-cream-100 focus:outline-none focus:border-violet-500/60" />
+          </div>
+        </div>
+        <div className="mt-3">
+          <Button onClick={saveRagConfig} disabled={ragSaving || (!ragDbUrl.trim() && !ragEmbedKey.trim())}>
+            {ragSaving ? <Loader2 size={13} className="animate-spin" /> : <KeyRound size={13} />} Save
+          </Button>
         </div>
       </Card>
       )}

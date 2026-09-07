@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, MicOff, Loader2, Send, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign } from "lucide-react";
+import { Mic, MicOff, Loader2, Send, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign, Phone, PhoneOff } from "lucide-react";
 import { Button } from "../components/Card";
 import { KnowledgeGraph } from "../components/KnowledgeGraph";
 import { NaxieOrb } from "../components/NaxieOrb";
@@ -9,6 +9,7 @@ import { ToggleRow } from "../components/ToggleRow";
 import { CapabilityToggles } from "../components/CapabilityToggles";
 import { MicLevelMeter } from "../components/MicLevelMeter";
 import { useNaxieAssistant, type Turn } from "../lib/useNaxieAssistant";
+import { useRealtimeCall } from "../lib/useRealtimeCall";
 import { useMicLevel } from "../lib/useMicLevel";
 import { api } from "../lib/api";
 
@@ -66,13 +67,25 @@ function useAmbientStatus() {
 export function Naxie() {
   const {
     turns, chatTurns, lastExchange, sourceNoteId, busy, speaking, liveCaption, mic, orbState, alwaysListening, setAlwaysListening,
+    requireWakeWord, setRequireWakeWord, voice,
     waitingTasks, briefing, dismissBriefing,
     ask, speak, stopSpeaking, micToggle,
   } = useNaxieAssistant();
   const [input, setInput] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [liveCallCaption, setLiveCallCaption] = useState("");
+  const { live: callLive, startCall: startLiveCall, endCall: endLiveCall } = useRealtimeCall({
+    // No jobId — a live call with Naxie herself, not a report discussion.
+    mintSession: () => api.voiceRealtimeSession(),
+    onTranscript: setLiveCallCaption,
+  });
   const { personaCount, todaySpend, recentJobs, runningCount } = useAmbientStatus();
+  // A live call and the always-listening/push-to-talk mic can't both own the
+  // microphone — keep this simple and safe rather than reaching into
+  // useNaxieAssistant's internals to arbitrate a real conflict: only offer
+  // the live call when neither is active.
+  const liveCallBlocked = alwaysListening || mic.active;
 
   const orbLabel = {
     idle: "Standing by",
@@ -163,8 +176,42 @@ export function Naxie() {
             </button>
           </div>
           {!mic.supported && <div className="text-[11px] text-cream-300/40">Mic capture isn't supported in this browser — type below instead.</div>}
+
+          {voice?.realtime && (
+            <div className="w-full max-w-[220px]">
+              {callLive === "off" ? (
+                <button
+                  type="button"
+                  onClick={() => startLiveCall()}
+                  disabled={liveCallBlocked}
+                  title={liveCallBlocked ? "Turn off Always listening (or stop the mic) to start a live call" : "Start a live duplex call with Naxie"}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-xs"
+                >
+                  <Phone size={13} /> Start live call
+                </button>
+              ) : (
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={() => { endLiveCall(); setLiveCallCaption(""); }}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-coral-500/40 bg-coral-500/10 text-coral-300 hover:bg-coral-500/20 text-xs"
+                  >
+                    {callLive === "connecting" ? <Loader2 size={13} className="animate-spin" /> : <PhoneOff size={13} />}
+                    {callLive === "connecting" ? "Connecting…" : "End call"}
+                  </button>
+                  {liveCallCaption && (
+                    <div className="text-[11px] text-cream-300/70 bg-ink-950/70 border border-violet-500/20 rounded-lg px-2.5 py-1.5 text-center">{liveCallCaption}</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="w-full max-w-[220px] flex flex-col gap-2 pt-1 border-t border-ink-800/60">
             <ToggleRow label="Always listening" checked={alwaysListening} onChange={setAlwaysListening} />
+            {alwaysListening && (
+              <ToggleRow label={'Require "Hey Naxie"'} checked={requireWakeWord} onChange={setRequireWakeWord} />
+            )}
             <CapabilityToggles />
           </div>
         </div>

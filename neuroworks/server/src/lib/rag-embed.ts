@@ -38,6 +38,18 @@ export function reembedStats() {
   return { lastRun, debounceMs: DEBOUNCE_MS, pending: timer !== null, running: inFlight !== null };
 }
 
+// Manual trigger for a settings-page "re-embed now" button — same underlying
+// run as the debounced scheduler, but fires immediately and reports whether
+// it could even start (vs. scheduleReembed's silent no-op when unconfigured).
+export async function runReembedNow(): Promise<{ ok: boolean; error?: string }> {
+  if (!config.pgvectorEnabled || !config.openaiEmbeddingEnabled) {
+    return { ok: false, error: "not configured — set both a Supabase DB URL and an OpenAI embedding API key" };
+  }
+  if (timer) { clearTimeout(timer); timer = null; }
+  await runReembed();
+  return lastRun?.ok === false ? { ok: false, error: lastRun.error } : { ok: true };
+}
+
 async function runReembed(): Promise<void> {
   timer = null;
   if (inFlight) {

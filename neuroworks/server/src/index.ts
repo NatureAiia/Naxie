@@ -88,10 +88,15 @@ import { startExtensionHealthScheduler, stopExtensionHealthScheduler } from "./l
 import { startGithubWatcher } from "./lib/github-watcher.js";
 import { originGuard, ALLOWED_ORIGINS } from "./lib/origin-guard.js";
 import { enterpriseAuthGuard } from "./lib/enterprise-auth.js";
+import { applyRagOverrides } from "./lib/rag-config.js";
 
 // Fail-fast: refuse to boot on a fatal misconfiguration (bad port, SERVE_WEB
 // without a build, missing required env in production). No-op warnings locally.
 validateConfig();
+// UI-settable vector-store credentials (see routes/extensions.ts's /rag/config)
+// win over whatever config.ts already picked from .env — apply them before
+// anything reads config.pgvectorEnabled/openaiEmbeddingEnabled.
+applyRagOverrides();
 
 const app = express();
 // Gzip/brotli every compressible response — the built SPA's JS/CSS, JSON API
