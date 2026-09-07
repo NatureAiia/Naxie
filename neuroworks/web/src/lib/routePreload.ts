@@ -9,48 +9,45 @@
 // cached fetch is the only cost.
 //
 // Keys are matched by longest-prefix against location.pathname, so
-// "/results/:id" preloads via the "/results" entry.
+// "/runs/:id" preloads via the "/runs" entry.
 
 type Thunk = () => Promise<unknown>;
 
 const preloaders: Record<string, Thunk> = {
-  "/dashboard": () => import("../pages/Dashboard"),
-  "/chat": () => import("../pages/BoardMeeting"),
   "/naxie": () => import("../pages/Naxie"),
-  "/team": () => import("../pages/Team"),
-  "/presets": () => import("../pages/Presets"),
-  "/tasks": () => import("../pages/Tasks"),
+  "/chat": () => import("../pages/BoardMeeting"),
+  "/agents": () => import("../pages/AgentRoster"),
+  "/squads": () => import("../pages/Squads"),
+  "/orchestrate": () => import("../pages/Orchestrate"),
+  "/spin-up": () => import("../pages/SpinUpAgent"),
+  "/runs": () => import("../pages/Runs"),
+  "/approvals": () => import("../pages/AgentApprovals"),
+  "/my-tasks": () => import("../pages/MyTasks"),
   "/calendar": () => import("../pages/CalendarPage"),
-  "/results": () => import("../pages/Results"),
-  "/daily-reports": () => import("../pages/DailyReports"),
-  "/edit": () => import("../pages/DocEditor"),
-  "/approvals": () => import("../pages/Approvals"),
-  "/activity": () => import("../pages/Activity"),
   "/schedules": () => import("../pages/Schedules"),
+  "/ide": () => import("../pages/IDE"),
+  "/library": () => import("../pages/Library"),
+  "/knowledge-packs": () => import("../pages/KnowledgePacks"),
+  "/daily-reports": () => import("../pages/DailyReports"),
   "/templates": () => import("../pages/Templates"),
   "/skills": () => import("../pages/Skills"),
-  "/personas": () => import("../pages/Personas"),
-  "/workforce": () => import("../pages/Workforce"),
-  "/departments": () => import("../pages/Departments"),
-  "/knowledge-packs": () => import("../pages/KnowledgePacks"),
-  "/quality": () => import("../pages/Quality"),
-  "/cost": () => import("../pages/Cost"),
-  "/audit": () => import("../pages/AuditLog"),
-  "/skill-forge": () => import("../pages/SkillForge"),
-  "/orchestrate": () => import("../pages/Orchestrate"),
-  "/knowledge": () => import("../pages/Knowledge"),
-  "/data-sources": () => import("../pages/DataSources"),
+  "/extensions": () => import("../pages/Extensions"),
   "/connectors": () => import("../pages/Connectors"),
   "/integrations": () => import("../pages/Integrations"),
-  "/governance": () => import("../pages/Governance"),
-  "/terminal": () => import("../pages/IDE"),
+  "/policies": () => import("../pages/Policies"),
+  "/audit": () => import("../pages/AuditLog"),
+  "/cost": () => import("../pages/Cost"),
+  "/ambient": () => import("../pages/AmbientWatch"),
+  "/edit": () => import("../pages/DocEditor"),
+  "/my-work": () => import("../pages/MyWork"),
+  "/skill-forge": () => import("../pages/SkillForge"),
 };
 
 const warmed = new Set<string>();
 
 /** Warm the chunk for a route path (idempotent — each chunk fetched at most once). */
 export function preloadRoute(path: string): void {
-  // Longest-prefix match so nested paths (/results/123) hit their parent entry.
+  // Longest-prefix match so nested paths (/runs/123) hit their parent entry.
   let best = "";
   for (const key of Object.keys(preloaders)) {
     if (path === key || path.startsWith(key + "/")) {
@@ -64,7 +61,7 @@ export function preloadRoute(path: string): void {
 
 /** After first paint, prefetch the routes a user almost always visits next. */
 export function preloadLikelyRoutes(): void {
-  const run = () => { preloadRoute("/chat"); preloadRoute("/tasks"); preloadRoute("/results"); };
+  const run = () => { preloadRoute("/chat"); preloadRoute("/runs"); };
   if (typeof (window as any).requestIdleCallback === "function") {
     (window as any).requestIdleCallback(run, { timeout: 2500 });
   } else {

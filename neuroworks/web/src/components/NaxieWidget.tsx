@@ -26,11 +26,11 @@ export function NaxieWidget() {
   const [pendingNudge, setPendingNudge] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  // Don't show floating orb on /naxie itself and during onboarding — also
-  // tells the shared hook not to auto-listen here, so the widget and the
-  // full /naxie page (which has its own hook instance) never fight over
-  // the microphone at the same time.
-  const hidden = location.pathname.startsWith("/naxie") || location.pathname === "/onboarding";
+  // Don't show floating orb on /naxie itself — also tells the shared hook
+  // not to auto-listen here, so the widget and the full /naxie page (which
+  // has its own hook instance) never fight over the microphone at the same
+  // time.
+  const hidden = location.pathname.startsWith("/naxie");
   const {
     turns, chatTurns, lastExchange, busy, speaking, mic, orbState, alwaysListening, setAlwaysListening,
     pendingApprovals, waitingTasks, briefing, dismissBriefing,

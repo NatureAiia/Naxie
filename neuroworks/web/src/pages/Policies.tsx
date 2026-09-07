@@ -5,7 +5,7 @@ import { Shield, Upload, Trash2, FileText, AlertTriangle, CheckCircle2, ChevronR
 import { api, type GovernancePolicy, type ExtractedConstraint } from "../lib/api";
 import { Card, Button } from "../components/Card";
 
-export function Governance() {
+export function Policies() {
   const [policies, setPolicies] = useState<GovernancePolicy[]>([]);
   const [prefixBytes, setPrefixBytes] = useState(0);
   const [prefixActive, setPrefixActive] = useState(false);
@@ -85,9 +85,9 @@ export function Governance() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-cream-50">Instructions and Policies</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-cream-50">Policies for my agents</h1>
         <p className="text-sm text-cream-300/70 mt-1">
-          Upload policies, codes of conduct, data-handling rules, brand voice guides. These are the rules and regulations Neuro follows before working in the system — every file here becomes a guardrail prepended to its system prompt on every task.
+          Upload the rules you want your agents to follow — codes of conduct, data-handling rules, brand voice guides. Every file here becomes a guardrail prepended to its system prompt on every task.
         </p>
       </div>
 
@@ -139,7 +139,7 @@ export function Governance() {
       <Card title="Active policies">
         {policies.length === 0 ? (
           <div className="text-sm text-cream-300/60">
-            No policies uploaded yet. Upload a Markdown file and the agent will start honoring it.
+            No policies uploaded yet. Upload a Markdown file and your agents will start honoring it.
           </div>
         ) : (
           <ul className="divide-y divide-ink-800">
@@ -171,7 +171,7 @@ export function Governance() {
                       </button>
                       <div className="text-[11px] text-cream-300/60 mt-0.5">
                         {(p.bytes / 1024).toFixed(1)} KB
-                        <Link to={`/knowledge/${p.path}`} className="ml-2 text-violet-400 hover:text-violet-500">view</Link>
+                        <Link to={`/library/${p.path}`} className="ml-2 text-violet-400 hover:text-violet-500">view</Link>
                         <a href={api.governanceDownloadUrl(p.name)} download={`${p.name}.md`} className="ml-2 text-violet-400 hover:text-violet-500"><Download size={11} /> download</a>
                         {policyConstraints.length > 0 && (
                           <span className="ml-2 text-cream-300/50">{policyConstraints.filter(c => c.accepted).length}/{policyConstraints.length} constraints active</span>
@@ -274,7 +274,7 @@ export function Governance() {
       {/* HITL gate: test an action against active constraints */}
       {acceptedCount > 0 && (
         <Card title="Test action against constraints">
-          <p className="text-xs text-cream-300/60 mb-3">Check whether a proposed agent action violates any active constraints.</p>
+          <p className="text-xs text-cream-300/60 mb-3">Check whether a proposed action by one of your agents violates any active policy.</p>
           <div className="flex items-center gap-2">
             <input
               value={action}

@@ -14,7 +14,7 @@ const EDITABLE_ARGS: Record<string, string[]> = {
   "connector.call": ["connector", "id", "path", "endpoint"],
 };
 
-export function Approvals() {
+export function AgentApprovals() {
   const [jobs, setJobs] = useState<any[]>([]);
   const jobList = useLoadMore(jobs);
   const [busy, setBusy] = useState<string | null>(null);
@@ -77,8 +77,8 @@ export function Approvals() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl text-cream-50">Approvals</h1>
-        <p className="text-sm text-cream-300/70 mt-1">Tasks that write to GitHub or your vault wait here for your sign-off.</p>
+        <h1 className="font-display text-3xl text-cream-50">Agent Approvals</h1>
+        <p className="text-sm text-cream-300/70 mt-1">When an agent wants to write to GitHub or your vault, it asks here for you to greenlight it first.</p>
       </div>
 
       {orgTasks.length > 0 && (
@@ -122,8 +122,8 @@ export function Approvals() {
         <Card>
           <div className="text-center py-12">
             <div className="text-cream-300/40 text-4xl mb-3">✓</div>
-            <div className="text-sm text-cream-200">Nothing waiting for approval.</div>
-            <div className="text-xs text-cream-300/50 mt-1">Tasks with destructive scope (publishing folders, writing to vault) will queue here.</div>
+            <div className="text-sm text-cream-200">No agent is waiting on you.</div>
+            <div className="text-xs text-cream-300/50 mt-1">When an agent's task has destructive scope (publishing folders, writing to vault), it queues here for your greenlight.</div>
           </div>
         </Card>
       ) : jobs.length > 0 && (

@@ -20,7 +20,7 @@ type DeptInfo = {
   custom?: boolean;
 };
 
-export function Departments() {
+export function Squads() {
   const [depts, setDepts] = useState<DeptInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState<string | null>(null);
@@ -39,8 +39,8 @@ export function Departments() {
   useEffect(() => { load(); api.session().then(r => setMe(r.user)).catch(() => {}); }, []);
 
   async function removeDept(id: string, name: string) {
-    if (!window.confirm(`Delete the custom department "${name}"? (Agents already hired stay.)`)) return;
-    try { await api.deleteDepartment(id); showToast("Department deleted", "success"); load(); }
+    if (!window.confirm(`Delete the custom squad "${name}"? (Agents already hired stay.)`)) return;
+    try { await api.deleteDepartment(id); showToast("Squad deleted", "success"); load(); }
     catch (e: any) { showToast(e?.message ?? String(e), "error"); }
   }
 
@@ -60,17 +60,17 @@ export function Departments() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-cream-50 flex items-center gap-2">
-            <Zap size={22} className="text-violet-400" /> Department Marketplace
+            <Zap size={22} className="text-violet-400" /> Squad Marketplace
           </h1>
           <p className="text-sm text-cream-300/70 mt-1 max-w-2xl">
-            Pre-configured department bundles. Each one creates the agent(s), templates, and workflows for a complete team — ready to hire in one click.
+            Pre-configured squad bundles. Each one creates the agent(s), templates, and workflows for a complete squad — ready to spin up in one click.
           </p>
         </div>
-        {isAdmin && <Button onClick={() => setCreating(true)}><Plus size={14} /> Create department</Button>}
+        {isAdmin && <Button onClick={() => setCreating(true)}><Plus size={14} /> Create squad</Button>}
       </div>
 
       {loading ? (
-        <div className="text-cream-300/60 text-sm flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading departments…</div>
+        <div className="text-cream-300/60 text-sm flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading squads…</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {depts.map(d => {
@@ -95,7 +95,7 @@ export function Departments() {
                   {d.custom && (
                     <div className="flex items-center gap-1.5">
                       <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-violet-500/30 text-violet-300">custom</span>
-                      {isAdmin && <button type="button" onClick={() => removeDept(d.id, d.name)} className="text-cream-300/40 hover:text-coral-400 p-0.5" title="Delete department"><Trash2 size={13} /></button>}
+                      {isAdmin && <button type="button" onClick={() => removeDept(d.id, d.name)} className="text-cream-300/40 hover:text-coral-400 p-0.5" title="Delete squad"><Trash2 size={13} /></button>}
                     </div>
                   )}
                 </div>
@@ -115,7 +115,7 @@ export function Departments() {
                   disabled={applying === d.id}
                   className="mt-4 w-full flex items-center justify-center gap-2 bg-ink-800 hover:bg-violet-500/20 border border-ink-700 hover:border-violet-500/40 disabled:opacity-50 text-cream-100 text-sm py-2.5 rounded-lg transition-colors"
                 >
-                  {applying === d.id ? <><Loader2 size={14} className="animate-spin" /> Deploying…</> : <><Zap size={14} className="text-violet-400" /> Deploy department</>}
+                  {applying === d.id ? <><Loader2 size={14} className="animate-spin" /> Deploying…</> : <><Zap size={14} className="text-violet-400" /> Deploy squad</>}
                 </button>
               </div>
             );
@@ -136,7 +136,7 @@ export function Departments() {
                   <UserPlus size={14} className="text-violet-400" />
                   <span className="font-medium">{p.name}</span>
                   <span className="text-cream-300/50">· {p.role}</span>
-                  <Link to="/personas" className="text-violet-400 hover:text-violet-500 ml-auto text-xs">Manage →</Link>
+                  <Link to="/agent-roster" className="text-violet-400 hover:text-violet-500 ml-auto text-xs">Manage →</Link>
                 </li>
               ))}
             </ul>
@@ -176,7 +176,7 @@ function CreateDepartmentModal({ onClose, onCreated }: { onClose: () => void; on
   const FIELD = "w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2.5 focus:outline-none focus:border-violet-500/60 placeholder:text-cream-300/30";
 
   async function create() {
-    if (!name.trim()) { showToast("Department name is required", "error"); return; }
+    if (!name.trim()) { showToast("Squad name is required", "error"); return; }
     setBusy(true);
     try {
       await api.createDepartment({
@@ -194,8 +194,8 @@ function CreateDepartmentModal({ onClose, onCreated }: { onClose: () => void; on
   return (
     <div className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4" onClick={onClose}>
       <div className="bg-ink-900 border border-ink-800 rounded-2xl p-6 w-full max-w-lg space-y-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-2 text-cream-50 font-display text-xl"><Building2 size={20} className="text-violet-400" /> Create a department</div>
-        <p className="text-xs text-cream-300/60 -mt-2">A custom department groups people and the roles it needs. List the roles and you can hire agents into them from the deployed card.</p>
+        <div className="flex items-center gap-2 text-cream-50 font-display text-xl"><Building2 size={20} className="text-violet-400" /> Create a squad</div>
+        <p className="text-xs text-cream-300/60 -mt-2">A custom squad groups the roles it needs. List the roles and you can spin up agents into them from the deployed card.</p>
         <div>
           <label className="block text-[11px] text-cream-300/70 mb-1">Name</label>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Research & Development" autoFocus className={FIELD} />

@@ -10,13 +10,13 @@ import {
   FileText, FileEdit,
 } from "lucide-react";
 import { getToken } from "../lib/api";
-import { ResultsIndex } from "./Results";
+import { Runs } from "./Runs";
 import { DocEditor } from "./DocEditor";
 
 // Combined personal workspace: My Work (handoffs + assignments), Reports (the
-// deliverables the workforce produced), and the Doc editor — three tabs on one
-// page instead of three nav entries. The individual routes (/results, /edit)
-// still work for deep links.
+// deliverables the workforce produced — the merged Runs list), and the Doc
+// editor — three tabs on one page instead of three nav entries. The
+// individual routes (/runs, /edit) still work for deep links.
 export function MyWork() {
   const [tab, setTab] = useState<"work" | "reports" | "editor">("work");
   return (
@@ -35,7 +35,7 @@ export function MyWork() {
           </button>
         ))}
       </div>
-      {tab === "work" ? <MyWorkInner /> : tab === "reports" ? <ResultsIndex /> : <DocEditor />}
+      {tab === "work" ? <MyWorkInner /> : tab === "reports" ? <Runs /> : <DocEditor />}
     </div>
   );
 }
@@ -191,7 +191,7 @@ function MyWorkInner() {
 // output each prompt produced. Server-side per-user store (GET /api/chat/history
 // resolves the caller from their token — no one else's turns can appear here).
 // Prompts that became background jobs show the finished job's deliverable and
-// deep-link into /results/<jobId>.
+// deep-link into /runs/<jobId>.
 type PromptExchange = { id: string; at: string; prompt: string; response: string; kind?: string; jobId?: string; persona?: string; jobStatus?: string };
 
 // Hoisted to module scope (NOT nested in MyPromptsSection) so its identity is
@@ -219,7 +219,7 @@ function PromptRow({ h }: { h: PromptExchange }) {
         <div className="px-3 pb-3 pt-1 border-t border-ink-800/60">
           <div className="text-sm text-cream-200/90 whitespace-pre-wrap break-words max-h-96 overflow-y-auto">{h.response || "(no output yet)"}</div>
           {h.jobId && (
-            <Link to={`/results/${h.jobId}`} className="inline-block mt-2 text-xs text-violet-400 hover:text-violet-300">
+            <Link to={`/runs/${h.jobId}`} className="inline-block mt-2 text-xs text-violet-400 hover:text-violet-300">
               Open full result →
             </Link>
           )}
@@ -313,7 +313,7 @@ function HandoffCard({ w, onDone }: { w: WaitingTask; onDone: () => void }) {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Link to={`/tasks?focus=${w.id}`} className="text-xs text-cream-300/60 hover:text-cream-100">task →</Link>
+          <Link to={`/runs?focus=${w.id}`} className="text-xs text-cream-300/60 hover:text-cream-100">task →</Link>
           <Button variant="subtle" onClick={() => setOpenForm(v => !v)}>
             {openForm ? <ChevronUp size={13} /> : <ChevronDown size={13} />} Respond
           </Button>
@@ -393,7 +393,7 @@ function AssignmentRow({ a, me, onChanged, canSubmit, canSignOff }: {
             <span>→ {a.assignedToEmail}</span>
             <span className="inline-flex items-center gap-1"><Clock size={10} />{ago(a.createdAt)}</span>
             {a.dueAt && <span className={overdue ? "text-coral-400" : ""}>{overdue ? "⚠ overdue " : "due "}{new Date(a.dueAt).toLocaleDateString()}</span>}
-            {a.fromJobId && <Link to={`/tasks?focus=${a.fromJobId}`} className="text-violet-400 hover:text-violet-300">source task →</Link>}
+            {a.fromJobId && <Link to={`/runs?focus=${a.fromJobId}`} className="text-violet-400 hover:text-violet-300">source task →</Link>}
           </div>
         </div>
         <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border shrink-0 ${STATUS_STYLE[a.status]}`}>{STATUS_LABEL[a.status]}</span>

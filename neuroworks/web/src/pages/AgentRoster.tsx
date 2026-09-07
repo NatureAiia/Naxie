@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../lib/api";
+import { Link } from "react-router-dom";
+import { Bot, ArrowRight } from "lucide-react";
+import { api, type WorkforceDepartment } from "../lib/api";
 import { Card, Button } from "../components/Card";
 
 type Persona = {
@@ -7,7 +9,13 @@ type Persona = {
   tone?: string; responsibilities: string[]; createdAt: string;
 };
 
-export function Personas() {
+// Agent Roster — persona management (create/activate/edit/delete an agent,
+// see and refresh its starter templates) plus a compact summary of the
+// agent-only roster grouped by squad, pulled from the same /api/workforce
+// endpoint the old Workforce contact book used. The human-directory half of
+// that old page (add/edit/disable/remove people, salaries) is intentionally
+// gone — this is a single-operator app now, so the roster is just "my agents".
+export function AgentRoster() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -25,6 +33,10 @@ export function Personas() {
   const [previewBusy, setPreviewBusy] = useState(false);
   const previewTimer = useRef<any>(null);
 
+  // Agent-only roster, grouped by squad (department), from /api/workforce.
+  const [departments, setDepartments] = useState<WorkforceDepartment[]>([]);
+  const [agentCounts, setAgentCounts] = useState<{ agents: number; departments: number } | null>(null);
+
   async function load() {
     try {
       const r = await api.listPersonas();
@@ -40,7 +52,17 @@ export function Personas() {
     }
     catch (e: any) { setErr(e.message); }
   }
-  useEffect(() => { load(); }, []);
+  function loadRoster() {
+    api.getWorkforce()
+      .then(r => {
+        // Drop the human half entirely — only squads with at least one agent.
+        const withAgents = r.departments.filter(d => d.agents.length > 0);
+        setDepartments(withAgents);
+        setAgentCounts({ agents: r.counts.agents, departments: withAgents.length });
+      })
+      .catch(() => {});
+  }
+  useEffect(() => { load(); loadRoster(); }, []);
 
   async function refreshTemplates(personaId: string) {
     setRefreshState(s => ({ ...s, [personaId]: { state: "running" } }));
@@ -77,13 +99,14 @@ export function Personas() {
       await api.createPersona({ name: name.trim(), jobDescription: jd, tone: tone || preview?.tone, role: preview?.role, description: preview?.description, responsibilities: preview?.responsibilities, workMode } as any);
       setName(""); setJd(""); setTone(""); setPreview(null);
       await load();
+      loadRoster();
     } catch (e: any) { setErr(e.message); }
     finally { setCreating(false); }
   }
 
   async function activate(id: string | "default") { try { await api.activatePersona(id); await load(); } catch (e: any) { setErr(e.message); } }
   async function deactivate() { try { await api.deactivatePersona(); await load(); } catch (e: any) { setErr(e.message); } }
-  async function remove(id: string) { try { await api.deletePersona(id); await load(); } catch (e: any) { setErr(e.message); } }
+  async function remove(id: string) { try { await api.deletePersona(id); await load(); loadRoster(); } catch (e: any) { setErr(e.message); } }
 
   function uploadFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]; if (!f) return;
@@ -95,8 +118,8 @@ export function Personas() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl text-cream-50">Employees</h1>
-        <p className="text-sm text-cream-300/70 mt-1">Upload a job description and Neuro adopts that role — plans, replies, and tool choices all framed by the persona.</p>
+        <h1 className="font-display text-3xl text-cream-50">Agent Roster</h1>
+        <p className="text-sm text-cream-300/70 mt-1">Upload a job description and Neuro adopts that role — plans, replies, and tool choices all framed by the persona. Every agent you spin up shows up here, grouped by squad below.</p>
       </div>
 
       {err && <div className="text-coral-400 text-sm">{err}</div>}
@@ -159,12 +182,12 @@ export function Personas() {
       </Card>
 
       <div className="flex items-baseline justify-between">
-        <h2 className="font-display text-xl text-cream-50">Available personas</h2>
+        <h2 className="font-display text-xl text-cream-50">Available agents</h2>
         {activeId && <Button variant="subtle" onClick={deactivate}>Switch to default (no persona)</Button>}
       </div>
 
       {personas.length === 0 ? (
-        <Card><div className="text-sm text-cream-300/60 text-center py-6">No personas yet. Create one above.</div></Card>
+        <Card><div className="text-sm text-cream-300/60 text-center py-6">No agents yet. Create one above.</div></Card>
       ) : (
         <div className="grid grid-cols-2 gap-3">
           {personas.map(p => (
@@ -233,6 +256,43 @@ export function Personas() {
               </div>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* Compact squad/count summary — the agent half of the old Workforce
+          contact book. No human-directory management here anymore. */}
+      {departments.length > 0 && (
+        <div>
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-display text-xl text-cream-50">By squad</h2>
+            {agentCounts && <span className="text-xs text-cream-300/50">{agentCounts.agents} agents · {agentCounts.departments} squads</span>}
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
+            {departments.map(dept => (
+              <Card key={dept.department} title={`${dept.department} · ${dept.agents.length}`}>
+                <ul className="space-y-2">
+                  {dept.agents.map(a => (
+                    <li key={a.id} className="border border-ink-800 rounded-lg p-2.5 bg-ink-950">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm text-cream-50 font-medium flex items-center gap-2">
+                            <Bot size={12} className="text-cream-300/50 shrink-0" />
+                            <span className="truncate">{a.name}</span>
+                            {a.builtin && <span className="text-[9px] uppercase tracking-wider text-cream-300/40">built-in</span>}
+                          </div>
+                          <div className="text-[11px] text-cream-300/60">{a.role}</div>
+                        </div>
+                        <Link to="/team" className="text-[11px] text-violet-400 hover:text-violet-300 inline-flex items-center gap-1 shrink-0" title="Dispatch on the Team page">
+                          Dispatch <ArrowRight size={11} />
+                        </Link>
+                      </div>
+                      {a.description && <div className="text-[11px] text-cream-300/70 mt-1 line-clamp-2">{a.description}</div>}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            ))}
+          </div>
         </div>
       )}
     </div>

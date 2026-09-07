@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Database, Plus, Trash2, Upload, CheckCircle2, AlertTriangle, Play, ChevronDown, ChevronRight } from "lucide-react";
-import { api, type DataSource, type DataSourceKind, type DepartmentDatum } from "../lib/api";
-import { Card, Button, showToast } from "../components/Card";
-import { FileExplorer } from "../components/FileExplorer";
+import { api, type DataSource, type DataSourceKind, type DepartmentDatum } from "../../lib/api";
+import { Card, Button, showToast } from "../Card";
 
-// Files hub — hybrid page.
-//   - File explorer: a Windows-Explorer-style file manager over every storage
-//     backend (the Obsidian vault, a sandboxed local-disk folder, and — once
-//     connected — Google Drive / Supabase). Browse, drag-and-drop move
-//     between backends, upload, rename, delete. See components/FileExplorer.tsx.
+// Moved verbatim from DataSources.tsx: the DB-connections block (SourceRow,
+// AddSourceForm) AND the department-data block (DepartmentDataCard,
+// AddDepartmentDatum). This intentionally does NOT render <FileExplorer/> —
+// that moved to Library.tsx's "Files" tab.
 //   - Database connections: agents query these live via the db.* primitives.
 //   - Department data: curated facts/policies per team, read via
 //     company.department_data.
-export function DataSources() {
+export function LibraryConnections() {
   const [sources, setSources] = useState<DataSource[]>([]);
   const [adding, setAdding] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
@@ -40,13 +38,11 @@ export function DataSources() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Database size={24} /> Files</h1>
+        <h2 className="font-display text-xl text-cream-50 flex items-center gap-2"><Database size={20} /> Database connections</h2>
         <p className="text-sm text-cream-300/70 mt-1">
-          Browse and manage every storage location like a file explorer — drag and drop files between the vault, local disk, and (once connected) Google Drive or Supabase. Wire agents into a company database below for live querying: read-only by default via the <span className="font-mono">db.list_sources</span>, <span className="font-mono">db.schema</span>, and <span className="font-mono">db.query</span> primitives.
+          Wire agents into a company database for live querying: read-only by default via the <span className="font-mono">db.list_sources</span>, <span className="font-mono">db.schema</span>, and <span className="font-mono">db.query</span> primitives.
         </p>
       </div>
-
-      <FileExplorer />
 
       <Card title="Database connections" action={
         <Button onClick={() => setAdding(a => !a)} variant="subtle"><Plus size={14} /> {adding ? "Cancel" : "Add"}</Button>
