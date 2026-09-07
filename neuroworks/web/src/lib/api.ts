@@ -551,6 +551,14 @@ export const api = {
   githubEvents: () => req<{ events: GithubEvent[] }>("/api/projects/events"),
   schedulerStatus: () => req<{ engines: SchedulerEngine[] }>("/api/scheduler/status"),
 
+  // Vector store (pgvector RAG) — already-running re-embed pipeline; this
+  // just surfaces status and lets Supabase DB URL / OpenAI embedding key be
+  // set from the UI instead of only .env.
+  ragStatus: () => req<RagStatus>("/api/extensions/rag/status"),
+  ragSetConfig: (patch: { supabaseDbUrl?: string; openaiEmbeddingApiKey?: string }) =>
+    req<RagStatus & { ok: true }>("/api/extensions/rag/config", { method: "POST", body: JSON.stringify(patch) }),
+  ragReembedNow: () => req<{ ok: boolean; error?: string; lastRun: RagStatus["lastRun"] }>("/api/extensions/rag/reembed", { method: "POST" }),
+
   // MCP-client servers (local child-process tool servers, e.g. from the community catalog).
   listMcpServers: () => req<{ servers: McpServer[] }>("/api/mcp-servers"),
   mcpCatalog: () => req<{ catalog: McpCatalogEntry[] }>("/api/mcp-servers/catalog"),
@@ -728,6 +736,16 @@ export type GithubAccount = { id: string; label: string; tokenSet: boolean; crea
 export type Project = { id: string; name: string; accountId: string; repos: string[]; lastSeenShas: Record<string, string>; createdAt: string; updatedAt: string };
 export type GithubEvent = { at: string; projectId: string; projectName: string; repo: string; sha: string; message: string; author: string; url: string };
 export type SchedulerEngine = { name: string; intervalSeconds: number; lastRunAt?: string; lastError?: string };
+
+export type RagStatus = {
+  pgvectorEnabled: boolean;
+  openaiEmbeddingEnabled: boolean;
+  connected: boolean;
+  lastRun: { at: number; chunks: number; ok: boolean; error?: string } | null;
+  pending: boolean;
+  running: boolean;
+  overrides: { supabaseDbUrlOverridden: boolean; openaiEmbeddingApiKeyOverridden: boolean };
+};
 
 export type ConnectorAuthType = "none" | "apiKey" | "bearer" | "basic" | "header" | "oauth2";
 export type ConnectorAuthCatalog = { type: ConnectorAuthType; label: string; fields: { name: string; label: string; secret: boolean }[] };

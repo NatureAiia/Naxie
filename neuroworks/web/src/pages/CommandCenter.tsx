@@ -2,9 +2,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   LayoutDashboard, Bot, PlayCircle, CheckCircle2, Loader2, DollarSign,
-  ShieldAlert, ShieldCheck, Brain, Clock, TrendingUp, Hourglass, Cpu,
+  ShieldAlert, ShieldCheck, Brain, Clock, TrendingUp, Hourglass, Cpu, Database,
 } from "lucide-react";
-import { api, type TimeAnalysis, type QualitySummary, type SecurityStatus, type SchedulerEngine } from "../lib/api";
+import { api, type TimeAnalysis, type QualitySummary, type SecurityStatus, type SchedulerEngine, type RagStatus } from "../lib/api";
 
 // The mission-control view Naxie.tsx's own comment deferred: "not a rebuild
 // of Dashboard's 12-call mission control." This is that view, now that it
@@ -23,6 +23,7 @@ export function CommandCenter() {
   const [audit, setAudit] = useState<{ events: any[]; total: number } | null>(null);
   const [security, setSecurity] = useState<SecurityStatus | null>(null);
   const [engines, setEngines] = useState<SchedulerEngine[]>([]);
+  const [ragStatus, setRagStatus] = useState<RagStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Fast-moving: polled every 5s, same cadence as Naxie.tsx's ambient strip.
@@ -52,6 +53,7 @@ export function CommandCenter() {
     api.cacheStats().then(setCache).catch(() => {});
     api.queryAudit({ limit: 5 }).then(setAudit).catch(() => {});
     api.schedulerStatus().then(r => setEngines(r.engines)).catch(() => {});
+    api.ragStatus().then(setRagStatus).catch(() => {});
     api.securityEvents().then(setSecurity).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
@@ -82,6 +84,12 @@ export function CommandCenter() {
           <Tile icon={<CheckCircle2 className="w-4 h-4" />} label="Waiting on your approval" value={naxie?.pendingApprovals ?? 0} />
           <Tile icon={<ShieldCheck className="w-4 h-4" />} label="Connectivity" value={health?.ready ? "Ready" : "Degraded"} tone={health?.ready ? "ok" : "warn"} />
           <Tile icon={<Cpu className="w-4 h-4" />} label="Orchestration" value={`${engines.length} engine${engines.length === 1 ? "" : "s"}`} />
+          <Tile
+            icon={<Database className="w-4 h-4" />}
+            label="Vector store"
+            value={ragStatus ? (ragStatus.pgvectorEnabled && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "Active" : "Unreachable") : "Not configured") : "—"}
+            tone={ragStatus ? (ragStatus.pgvectorEnabled && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "ok" : "warn") : undefined) : undefined}
+          />
         </div>
         {naxie?.briefing?.text && (
           <div className="mt-4 text-xs text-cream-300/70 bg-ink-950 rounded-lg p-3 border border-ink-800">

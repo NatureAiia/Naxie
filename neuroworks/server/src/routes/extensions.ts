@@ -8,6 +8,10 @@ import { getCostRecords, getCostSummary } from "../lib/cost-tracker.js";
 import { logAudit } from "../lib/audit-log.js";
 import { createWebhook, listWebhooks, getWebhook, rotateWebhookSecret, removeWebhook, recordHit, verifySecret } from "../lib/extension-webhooks.js";
 import { getExtensionSchedulerStatus, runExtensionHealthCheckNow } from "../lib/extension-scheduler.js";
+import { reembedStats, runReembedNow } from "../lib/rag-embed.js";
+import { setRagOverrides, getRagOverridesStatus } from "../lib/rag-config.js";
+import { isPgAvailable } from "../lib/pg-client.js";
+import { config } from "../config.js";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -293,6 +297,45 @@ extensionsRouter.post("/scheduler/run", async (_req, res) => {
   try {
     const r = await runExtensionHealthCheckNow();
     res.json({ ok: true, ...r });
+  } catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
+});
+
+// ── Vector store (pgvector RAG) — already-running re-embed pipeline,      ──
+// ── surfaced here with a status check + a settings-page config/run path.  ──
+extensionsRouter.get("/rag/status", async (_req, res) => {
+  try {
+    const connected = config.pgvectorEnabled ? await isPgAvailable() : false;
+    const stats = reembedStats();
+    res.json({
+      pgvectorEnabled: config.pgvectorEnabled,
+      openaiEmbeddingEnabled: config.openaiEmbeddingEnabled,
+      connected,
+      lastRun: stats.lastRun,
+      pending: stats.pending,
+      running: stats.running,
+      overrides: getRagOverridesStatus(),
+    });
+  } catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
+});
+
+extensionsRouter.post("/rag/config", async (req, res) => {
+  try {
+    const supabaseDbUrl = req.body?.supabaseDbUrl !== undefined ? String(req.body.supabaseDbUrl) : undefined;
+    const openaiEmbeddingApiKey = req.body?.openaiEmbeddingApiKey !== undefined ? String(req.body.openaiEmbeddingApiKey) : undefined;
+    if (supabaseDbUrl === undefined && openaiEmbeddingApiKey === undefined) {
+      return res.status(400).json({ error: "supabaseDbUrl or openaiEmbeddingApiKey required" });
+    }
+    await setRagOverrides({ supabaseDbUrl, openaiEmbeddingApiKey });
+    logAudit({ level: "info", actor: "operator", action: "rag.config", target: "vector-store", detail: "updated vector store credentials", result: "success" });
+    const connected = config.pgvectorEnabled ? await isPgAvailable() : false;
+    res.json({ ok: true, pgvectorEnabled: config.pgvectorEnabled, openaiEmbeddingEnabled: config.openaiEmbeddingEnabled, connected, overrides: getRagOverridesStatus() });
+  } catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+});
+
+extensionsRouter.post("/rag/reembed", async (_req, res) => {
+  try {
+    const r = await runReembedNow();
+    res.json({ ...r, lastRun: reembedStats().lastRun });
   } catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
 });
 
