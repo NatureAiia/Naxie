@@ -23,7 +23,7 @@ import { randomUUID } from "node:crypto";
 import { requireLayer } from "../lib/access.js";
 import {
   listVault, moveVaultEntry, deleteVaultEntry, mkdirVaultDir, statVaultEntry,
-  importBinaryIntoVault,
+  importBinaryIntoVault, vaultFileLineage, gitStatusForDir,
 } from "../lib/vault.js";
 import { config } from "../config.js";
 import {
@@ -91,6 +91,35 @@ filesRouter.get("/list", (req, res) => {
     if (backend === "localdisk") return res.json({ backend, path, entries: listLocal(path) });
     if (backend === "drive" || backend === "supabase") return notConnected(res, backend);
     return badBackend(res, backend);
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message ?? String(e) });
+  }
+});
+
+// GET /api/files/lineage?backend=vault&path=... — last commit that touched
+// this one file (Library's hover tooltip). Vault-only: every other backend
+// either isn't a git repo (localdisk) or isn't a filesystem at all (supabase).
+filesRouter.get("/lineage", async (req, res) => {
+  const backend = String(req.query.backend ?? "vault") as Backend;
+  const path = String(req.query.path ?? "");
+  if (backend !== "vault") return res.json({ lineage: null });
+  try {
+    res.json({ lineage: await vaultFileLineage(path) });
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message ?? String(e) });
+  }
+});
+
+// GET /api/files/git-status?backend=vault|localdisk — branch + dirty-file
+// count for the backend's root directory, if it's a git repo at all. Powers
+// the IDE page's toolbar strip; drive/supabase aren't filesystems so they
+// always report isRepo:false.
+filesRouter.get("/git-status", async (req, res) => {
+  const backend = String(req.query.backend ?? "vault") as Backend;
+  try {
+    if (backend === "vault") return res.json(await gitStatusForDir(config.vaultPath));
+    if (backend === "localdisk") return res.json(await gitStatusForDir(config.localFilesPath));
+    return res.json({ isRepo: false });
   } catch (e: any) {
     res.status(400).json({ error: e?.message ?? String(e) });
   }

@@ -177,6 +177,45 @@ export function statVaultEntry(rel: string): { exists: boolean; isDir?: boolean;
   return { exists: true, isDir: st.isDirectory(), size: st.size, mtimeMs: st.mtimeMs };
 }
 
+// Last commit that touched this one file — powers Library's hover tooltip
+// (Data lineage: "modified 3 days ago · a1b2c3d · fixed onboarding copy").
+// Lazy/on-demand only (called per hovered file, never bulk-attached to a
+// folder listing) so browsing stays fast even on a large vault. Returns null
+// when the vault isn't a git repo, or the file has no commit history yet
+// (freshly created, not yet committed).
+// Generic git-status probe for any local directory (not vault-specific,
+// despite living in this file alongside every other simpleGit usage) —
+// powers the IDE page's toolbar branch/dirty-count strip for whichever
+// backend it's currently browsing. Cheap and read-only.
+export async function gitStatusForDir(rootDir: string): Promise<{ isRepo: boolean; branch?: string; dirtyCount?: number }> {
+  if (!existsSync(resolve(rootDir, ".git"))) return { isRepo: false };
+  try {
+    const git = simpleGit(rootDir);
+    const status = await git.status();
+    return { isRepo: true, branch: status.current ?? undefined, dirtyCount: status.files.length };
+  } catch {
+    return { isRepo: false };
+  }
+}
+
+export async function vaultFileLineage(rel: string): Promise<{ commitHash: string; commitDate: string; commitMessage: string } | null> {
+  assertVaultExists();
+  const full = resolve(VAULT, rel);
+  ensureInsideVault(full);
+  if (!existsSync(full)) return null;
+  try {
+    const git = simpleGit(VAULT);
+    const out = await git.raw(["log", "-1", "--format=%H%x1f%aI%x1f%s", "--", rel]);
+    const line = out.trim();
+    if (!line) return null;
+    const [commitHash, commitDate, commitMessage] = line.split("\x1f");
+    if (!commitHash) return null;
+    return { commitHash, commitDate, commitMessage: commitMessage ?? "" };
+  } catch {
+    return null;
+  }
+}
+
 export function readVaultFile(rel: string): string {
   assertVaultExists();
   const full = resolve(VAULT, rel);

@@ -39,6 +39,7 @@ const Skills = lazy(() => import("./pages/Skills").then(m => ({ default: m.Skill
 
 // Connect
 const Extensions = lazy(() => import("./pages/Extensions").then(m => ({ default: m.Extensions })));
+const GithubAccounts = lazy(() => import("./pages/GithubAccounts").then(m => ({ default: m.GithubAccounts })));
 
 // Govern
 const Policies = lazy(() => import("./pages/Policies").then(m => ({ default: m.Policies })));
@@ -109,7 +110,7 @@ function AppShell() {
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/schedules" element={<Schedules />} />
 
-        {/* Build — no nav-rail slot; reached via a link from Runs/Naxie */}
+        {/* Build — Home Base's "Naxion IDE" nav entry links here */}
         <Route path="/ide" element={<IDE />} />
 
         {/* Memory & Knowledge */}
@@ -123,6 +124,7 @@ function AppShell() {
         <Route path="/extensions" element={<Extensions />} />
         <Route path="/integrations" element={<Navigate to="/extensions?tab=integrations" replace />} />
         <Route path="/connectors" element={<Navigate to="/extensions?tab=connectors" replace />} />
+        <Route path="/github-accounts" element={<GithubAccounts />} />
 
         {/* Govern */}
         <Route path="/policies" element={<Policies />} />

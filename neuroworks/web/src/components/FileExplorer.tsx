@@ -6,6 +6,7 @@ import {
 import { api, type FileBackendId, type FileBackendInfo, type FileEntry } from "../lib/api";
 import { FileIcon } from "./FileIcon";
 import { showToast } from "./Card";
+import { Tooltip } from "./Tooltip";
 
 const DRAG_MIME = "application/x-naxie-file";
 type DragPayload = { backend: FileBackendId; paths: string[] };
@@ -252,9 +253,9 @@ export function FileExplorer({ onSelectionChange, renderOverlay, initialPath }: 
   const segments = path ? path.split("/") : [];
 
   return (
-    <div className="flex h-[70vh] min-h-[520px] border border-ink-800 rounded-xl overflow-hidden bg-ink-950">
+    <div className="flex h-[70vh] min-h-[520px] border border-violet-500/20 rounded-xl overflow-hidden bg-ink-950/90 backdrop-blur-md shadow-[0_0_32px_-12px_rgba(139,92,246,0.2)]">
       {/* Sidebar: backends + folder tree */}
-      <div className="w-64 shrink-0 border-r border-ink-800 bg-ink-900/60 overflow-y-auto scrollbar-thin p-2">
+      <div className="w-64 shrink-0 border-r border-violet-500/10 bg-ink-900/40 backdrop-blur-sm overflow-y-auto scrollbar-thin p-2">
         {backends.map(b => (
           <BackendRow
             key={b.id}
@@ -283,7 +284,7 @@ export function FileExplorer({ onSelectionChange, renderOverlay, initialPath }: 
       {/* Main pane */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Toolbar */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-ink-800 bg-ink-900/40">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-violet-500/10 bg-ink-900/30 backdrop-blur-sm">
           <button onClick={() => void refreshEntries()} className="p-1.5 rounded hover:bg-ink-800 text-cream-300/70" title="Refresh"><RefreshCw size={14} /></button>
           <div className="flex-1 flex items-center gap-1 text-xs min-w-0 overflow-x-auto scrollbar-thin">
             <button onClick={() => setPath("")} className="px-1.5 py-0.5 rounded hover:bg-ink-800 text-cream-300/80 shrink-0 font-mono">{active?.label ?? backend}</button>
@@ -359,9 +360,15 @@ export function FileExplorer({ onSelectionChange, renderOverlay, initialPath }: 
                 </div>
               )}
               {entries.map((e, idx) => (
-                <div
+                <FileTile
                   key={e.path}
-                  draggable
+                  entry={e}
+                  backend={backend}
+                  selected={selected.has(e.path)}
+                  dragOver={dragOver === e.path}
+                  renaming={renaming === e.path}
+                  renameValue={renameValue}
+                  setRenameValue={setRenameValue}
                   onDragStart={ev => onDragStart(e, ev)}
                   onDragOver={ev => { if (e.type === "dir") { ev.preventDefault(); ev.stopPropagation(); setDragOver(e.path); } }}
                   onDragLeave={() => setDragOver(null)}
@@ -369,27 +376,9 @@ export function FileExplorer({ onSelectionChange, renderOverlay, initialPath }: 
                   onClick={ev => onRowClick(e, idx, ev)}
                   onDoubleClick={() => openEntry(e)}
                   onContextMenu={ev => { ev.preventDefault(); ev.stopPropagation(); setSelected(new Set([e.path])); setMenu({ x: ev.clientX, y: ev.clientY, entry: e }); }}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-lg cursor-pointer select-none group ${
-                    selected.has(e.path) ? "bg-violet-500/20 ring-1 ring-violet-500/50" : dragOver === e.path ? "bg-violet-500/10 ring-1 ring-violet-500/40" : "hover:bg-ink-800/70"
-                  }`}
-                  title={e.name}
-                >
-                  <FileIcon path={e.name} isDirectory={e.type === "dir"} size={36} />
-                  {renaming === e.path ? (
-                    <input
-                      autoFocus
-                      value={renameValue}
-                      onChange={ev => setRenameValue(ev.target.value)}
-                      onClick={ev => ev.stopPropagation()}
-                      onKeyDown={ev => { if (ev.key === "Enter") void submitRename(e); if (ev.key === "Escape") setRenaming(null); }}
-                      onBlur={() => void submitRename(e)}
-                      className="w-full bg-ink-900 border border-violet-500/50 rounded px-1 py-0.5 text-[11px] text-cream-100 text-center focus:outline-none"
-                    />
-                  ) : (
-                    <span className="text-[11px] text-cream-200 text-center break-all line-clamp-2 leading-tight">{e.name}</span>
-                  )}
-                  {e.type === "file" && <span className="text-[9px] text-cream-300/40">{fmtSize(e.size)}</span>}
-                </div>
+                  onSubmitRename={() => submitRename(e)}
+                  onEscapeRename={() => setRenaming(null)}
+                />
               ))}
             </div>
           )}
@@ -413,6 +402,102 @@ export function FileExplorer({ onSelectionChange, renderOverlay, initialPath }: 
         </div>
       )}
     </div>
+  );
+}
+
+// Session-scoped cache — a folder full of files shouldn't fire a git-log
+// call per row on every render; only the hovered file fetches, and every
+// backend keeps its own cache entry keyed by full path.
+const lineageCache = new Map<string, { commitHash: string; commitDate: string; commitMessage: string } | null>();
+
+function useVaultLineage(path: string, enabled: boolean) {
+  const [lineage, setLineage] = useState<{ commitHash: string; commitDate: string; commitMessage: string } | null | undefined>(() => lineageCache.get(path));
+  useEffect(() => {
+    if (!enabled || lineageCache.has(path)) return;
+    let alive = true;
+    api.filesLineage("vault", path).then(r => {
+      lineageCache.set(path, r.lineage);
+      if (alive) setLineage(r.lineage);
+    }).catch(() => { lineageCache.set(path, null); if (alive) setLineage(null); });
+    return () => { alive = false; };
+  }, [path, enabled]);
+  return lineage;
+}
+
+function fmtRelativeTime(ms: number): string {
+  const s = Math.round((Date.now() - ms) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  return `${d}d ago`;
+}
+
+function FileTile({
+  entry: e, backend, selected, dragOver, renaming, renameValue, setRenameValue,
+  onDragStart, onDragOver, onDragLeave, onDrop, onClick, onDoubleClick, onContextMenu,
+  onSubmitRename, onEscapeRename,
+}: {
+  entry: FileEntry; backend: FileBackendId; selected: boolean; dragOver: boolean; renaming: boolean;
+  renameValue: string; setRenameValue: (v: string) => void;
+  onDragStart: (ev: React.DragEvent) => void; onDragOver: (ev: React.DragEvent) => void;
+  onDragLeave: () => void; onDrop: (ev: React.DragEvent) => void;
+  onClick: (ev: React.MouseEvent) => void; onDoubleClick: () => void; onContextMenu: (ev: React.MouseEvent) => void;
+  onSubmitRename: () => void; onEscapeRename: () => void;
+}) {
+  const [hovering, setHovering] = useState(false);
+  const showLineage = backend === "vault" && e.type === "file";
+  const lineage = useVaultLineage(e.path, showLineage && hovering);
+
+  const tileContent = (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
+      className={`flex flex-col items-center gap-1 p-2 rounded-lg cursor-pointer select-none group ${
+        selected ? "bg-violet-500/20 ring-1 ring-violet-500/50" : dragOver ? "bg-violet-500/10 ring-1 ring-violet-500/40" : "hover:bg-ink-800/70"
+      }`}
+      title={showLineage ? undefined : e.name}
+    >
+      <FileIcon path={e.name} isDirectory={e.type === "dir"} size={36} />
+      {renaming ? (
+        <input
+          autoFocus
+          value={renameValue}
+          onChange={ev => setRenameValue(ev.target.value)}
+          onClick={ev => ev.stopPropagation()}
+          onKeyDown={ev => { if (ev.key === "Enter") onSubmitRename(); if (ev.key === "Escape") onEscapeRename(); }}
+          onBlur={onSubmitRename}
+          className="w-full bg-ink-900 border border-violet-500/50 rounded px-1 py-0.5 text-[11px] text-cream-100 text-center focus:outline-none"
+        />
+      ) : (
+        <span className="text-[11px] text-cream-200 text-center break-all line-clamp-2 leading-tight">{e.name}</span>
+      )}
+      {e.type === "file" && <span className="text-[9px] text-cream-300/40">{fmtSize(e.size)}</span>}
+    </div>
+  );
+
+  if (!showLineage) return tileContent;
+
+  const lineageLines: string[] = [e.name];
+  if (e.mtimeMs) lineageLines.push(`modified ${fmtRelativeTime(e.mtimeMs)}`);
+  if (lineage === undefined) lineageLines.push("loading lineage…");
+  else if (lineage === null) lineageLines.push("no commit history");
+  else lineageLines.push(`${lineage.commitHash.slice(0, 7)} · ${lineage.commitMessage || "(no message)"}`);
+
+  return (
+    <Tooltip content={<span className="flex flex-col gap-0.5">{lineageLines.map((l, i) => <span key={i}>{l}</span>)}</span>}>
+      {tileContent}
+    </Tooltip>
   );
 }
 

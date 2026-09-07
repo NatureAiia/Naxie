@@ -349,6 +349,13 @@ export const api = {
   // local-disk folder, and (once connected) Google Drive / Supabase.
   filesBackends: () => req<{ backends: FileBackendInfo[] }>("/api/files/backends"),
   filesList: (backend: FileBackendId, path = "") => req<{ backend: string; path: string; entries: FileEntry[] }>(`/api/files/list?backend=${backend}&path=${encodeURIComponent(path)}`),
+  // Data lineage for Library's hover tooltip — last commit that touched one
+  // file. Vault-only; lazy/on-demand, never bulk-fetched for a whole folder.
+  filesLineage: (backend: FileBackendId, path: string) =>
+    req<{ lineage: { commitHash: string; commitDate: string; commitMessage: string } | null }>(`/api/files/lineage?backend=${backend}&path=${encodeURIComponent(path)}`),
+  // Branch + dirty-file count for the IDE page's toolbar strip.
+  filesGitStatus: (backend: FileBackendId) =>
+    req<{ isRepo: boolean; branch?: string; dirtyCount?: number }>(`/api/files/git-status?backend=${backend}`),
   filesMkdir: (backend: FileBackendId, path: string) => req<{ ok: true }>("/api/files/mkdir", { method: "POST", body: JSON.stringify({ backend, path }) }),
   filesMove: (backend: FileBackendId, from: string, to: string) => req<{ ok: true }>("/api/files/move", { method: "POST", body: JSON.stringify({ backend, from, to }) }),
   filesTransfer: (srcBackend: FileBackendId, srcPath: string, dstBackend: FileBackendId, dstPath: string) =>
@@ -520,6 +527,20 @@ export const api = {
   pollConnectorOAuth: (id: string, flowId: string) =>
     req<{ status: "pending" | "complete" | "error" | "expired"; error?: string }>(
       `/api/connectors/${encodeURIComponent(id)}/oauth/poll`, { method: "POST", body: JSON.stringify({ flowId }) }),
+
+  // Multi-account GitHub credentials + projects (repos grouped per account,
+  // watched for new commits by the github-commit-watcher engine).
+  listGithubAccounts: () => req<{ accounts: GithubAccount[] }>("/api/github-accounts"),
+  addGithubAccount: (label: string, token: string) => req<{ account: GithubAccount }>("/api/github-accounts", { method: "POST", body: JSON.stringify({ label, token }) }),
+  updateGithubAccount: (id: string, patch: { label?: string }) => req<{ account: GithubAccount }>(`/api/github-accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  rotateGithubAccount: (id: string, token: string) => req<{ account: GithubAccount }>(`/api/github-accounts/${encodeURIComponent(id)}/rotate`, { method: "POST", body: JSON.stringify({ token }) }),
+  removeGithubAccount: (id: string) => req<{ ok: true }>(`/api/github-accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  listProjects: () => req<{ projects: Project[] }>("/api/projects"),
+  addProject: (body: { name: string; accountId: string; repos: string[] }) => req<{ project: Project }>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
+  updateProject: (id: string, patch: { name?: string; accountId?: string; repos?: string[] }) => req<{ project: Project }>(`/api/projects/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  removeProject: (id: string) => req<{ ok: true }>(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  githubEvents: () => req<{ events: GithubEvent[] }>("/api/projects/events"),
+  schedulerStatus: () => req<{ engines: SchedulerEngine[] }>("/api/scheduler/status"),
 
   // MCP-client servers (local child-process tool servers, e.g. from the community catalog).
   listMcpServers: () => req<{ servers: McpServer[] }>("/api/mcp-servers"),
@@ -693,6 +714,11 @@ export type SecurityEvent = {
 };
 export type SecurityStatus = { events: SecurityEvent[]; blocked: { ip: string; until: string; score: number }[]; watching: number };
 export type LoginEvent = { at: string; userId?: string; email: string; name?: string; ok: boolean; reason?: string; ip?: string; userAgent?: string };
+
+export type GithubAccount = { id: string; label: string; tokenSet: boolean; createdAt: string; lastRotatedAt?: string };
+export type Project = { id: string; name: string; accountId: string; repos: string[]; lastSeenShas: Record<string, string>; createdAt: string; updatedAt: string };
+export type GithubEvent = { at: string; projectId: string; projectName: string; repo: string; sha: string; message: string; author: string; url: string };
+export type SchedulerEngine = { name: string; intervalSeconds: number; lastRunAt?: string; lastError?: string };
 
 export type ConnectorAuthType = "none" | "apiKey" | "bearer" | "basic" | "header" | "oauth2";
 export type ConnectorAuthCatalog = { type: ConnectorAuthType; label: string; fields: { name: string; label: string; secret: boolean }[] };

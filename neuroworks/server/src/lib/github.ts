@@ -17,11 +17,16 @@ function rethrowIfAuthError(e: any): void {
   }
 }
 
-export async function listOwnedRepos() {
+// Every function below defaults to the single global `octokit` (today's
+// behavior, unchanged for existing callers like routes/repos.ts) but takes an
+// optional trailing client so multi-account code (github-accounts.ts's
+// octokitFor(accountId)) can pass in the right account's client instead.
+
+export async function listOwnedRepos(client: Octokit = octokit) {
   const out: any[] = [];
   let page = 1;
   while (true) {
-    const { data } = await octokit.repos.listForAuthenticatedUser({
+    const { data } = await client.repos.listForAuthenticatedUser({
       per_page: 100, page, sort: "pushed",
       affiliation: "owner,collaborator,organization_member",
     });
@@ -43,9 +48,9 @@ export async function listOwnedRepos() {
   }));
 }
 
-export async function recentCommits(owner: string, repo: string, sinceIso: string) {
+export async function recentCommits(owner: string, repo: string, sinceIso: string, client: Octokit = octokit) {
   try {
-    const { data } = await octokit.repos.listCommits({ owner, repo, since: sinceIso, per_page: 30 });
+    const { data } = await client.repos.listCommits({ owner, repo, since: sinceIso, per_page: 30 });
     return data.map(c => ({
       sha: c.sha.slice(0, 7),
       message: c.commit.message.split("\n")[0],
@@ -56,33 +61,33 @@ export async function recentCommits(owner: string, repo: string, sinceIso: strin
   } catch (e) { rethrowIfAuthError(e); return []; }
 }
 
-export async function openPRs(owner: string, repo: string) {
+export async function openPRs(owner: string, repo: string, client: Octokit = octokit) {
   try {
-    const { data } = await octokit.pulls.list({ owner, repo, state: "open", per_page: 30 });
+    const { data } = await client.pulls.list({ owner, repo, state: "open", per_page: 30 });
     return data.map(p => ({ number: p.number, title: p.title, author: p.user?.login ?? "?", url: p.html_url, draft: p.draft }));
   } catch (e) { rethrowIfAuthError(e); return []; }
 }
 
-export async function openIssues(owner: string, repo: string) {
+export async function openIssues(owner: string, repo: string, client: Octokit = octokit) {
   try {
-    const { data } = await octokit.issues.listForRepo({ owner, repo, state: "open", per_page: 30 });
+    const { data } = await client.issues.listForRepo({ owner, repo, state: "open", per_page: 30 });
     return data.filter(i => !i.pull_request).map(i => ({ number: i.number, title: i.title, author: i.user?.login ?? "?", url: i.html_url }));
   } catch (e) { rethrowIfAuthError(e); return []; }
 }
 
-export async function readme(owner: string, repo: string): Promise<string | null> {
+export async function readme(owner: string, repo: string, client: Octokit = octokit): Promise<string | null> {
   try {
-    const { data } = await octokit.repos.getReadme({ owner, repo, mediaType: { format: "raw" } as any });
+    const { data } = await client.repos.getReadme({ owner, repo, mediaType: { format: "raw" } as any });
     return typeof data === "string" ? data : null;
   } catch (e) { rethrowIfAuthError(e); return null; }
 }
 
-export async function dispatchWorkflow(owner: string, repo: string, workflowFile: string, ref = "main", inputs: Record<string, string> = {}) {
-  await octokit.actions.createWorkflowDispatch({ owner, repo, workflow_id: workflowFile, ref, inputs });
+export async function dispatchWorkflow(owner: string, repo: string, workflowFile: string, ref = "main", inputs: Record<string, string> = {}, client: Octokit = octokit) {
+  await client.actions.createWorkflowDispatch({ owner, repo, workflow_id: workflowFile, ref, inputs });
 }
 
-export async function latestRun(owner: string, repo: string, workflowFile: string) {
-  const { data } = await octokit.actions.listWorkflowRuns({ owner, repo, workflow_id: workflowFile, per_page: 1 });
+export async function latestRun(owner: string, repo: string, workflowFile: string, client: Octokit = octokit) {
+  const { data } = await client.actions.listWorkflowRuns({ owner, repo, workflow_id: workflowFile, per_page: 1 });
   return data.workflow_runs[0] ?? null;
 }
 
