@@ -155,6 +155,7 @@ export const api = {
   setAssignmentStatus: (id: string, status: AssignmentStatus) =>
     req<{ assignment: Assignment }>(`/api/assignments/${encodeURIComponent(id)}/status`, { method: "POST", body: JSON.stringify({ status }) }),
   costTrend: (days = 14) => req<CostTrend>(`/api/cost/trend?days=${days}`),
+  cacheStats: () => req<any>("/api/cost/cache-stats"),
   securityEvents: () => req<SecurityStatus>("/api/security/events"),
   unblockIp: (ip: string) => req<{ ok: boolean; unblocked: boolean }>("/api/security/unblock", { method: "POST", body: JSON.stringify({ ip }) }),
   updatePersona: (id: string, patch: { workMode?: WorkMode; tone?: string; description?: string; role?: string }) =>
@@ -454,6 +455,17 @@ export const api = {
   voiceStatus: () => req<{ realtime: boolean; openaiTts: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean }>("/api/voice/status"),
   voiceAsk: (jobId: string, question: string, personaId?: string, history?: { q: string; a: string }[]) =>
     req<{ text: string; personaName: string }>("/api/voice/ask", { method: "POST", body: JSON.stringify({ jobId, question, personaId, history }) }),
+  // Lightweight daemon nudge probe — pending approvals, latest briefing,
+  // memory (CAG) freshness, voice/connectivity, ambient-daemon cycle time.
+  naxieStatus: () => req<{
+    pendingApprovals: number;
+    waiting: any[];
+    voice: { realtime: boolean; openaiTts: boolean; localTts: boolean };
+    connectivity: { cached: boolean | null; online: boolean | null };
+    cag: { built: boolean; hash?: string; ageMs: number };
+    briefing: any;
+    daemonStatus: { cycleSeconds: number };
+  }>("/api/naxie/status"),
   // Naxie's general conversation — PA master, auto-routes model
   // (free-tier online for speed, Ollama by size offline). Returns routing
   // metadata so the UI can show quick-free vs deep vs local visibly.

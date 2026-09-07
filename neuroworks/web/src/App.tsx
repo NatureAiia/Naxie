@@ -11,6 +11,7 @@ import { Skeleton } from "./components/Card";
 const Naxie = lazy(() => import("./pages/Naxie").then(m => ({ default: m.Naxie })));
 const NaxieMemory = lazy(() => import("./pages/NaxieMemory").then(m => ({ default: m.NaxieMemory })));
 const BoardMeeting = lazy(() => import("./pages/BoardMeeting").then(m => ({ default: m.BoardMeeting })));
+const CommandCenter = lazy(() => import("./pages/CommandCenter").then(m => ({ default: m.CommandCenter })));
 
 // Agents & Subagents
 const AgentRoster = lazy(() => import("./pages/AgentRoster").then(m => ({ default: m.AgentRoster })));
@@ -92,6 +93,7 @@ function AppShell() {
         <Route path="/naxie" element={<Naxie />} />
         <Route path="/naxie/memory" element={<NaxieMemory />} />
         <Route path="/chat" element={<BoardMeeting />} />
+        <Route path="/command" element={<CommandCenter />} />
 
         {/* Agents & Subagents */}
         <Route path="/agents" element={<AgentRoster />} />

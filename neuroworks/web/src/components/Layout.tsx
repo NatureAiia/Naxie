@@ -16,6 +16,7 @@ import {
   PanelLeftOpen,
   Terminal,
   Radar,
+  LayoutDashboard,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -62,6 +63,7 @@ type NavItem = {
 // longer hides a link from the one person using it.
 const primaryNav: NavItem[] = [
   { to: "/naxie", label: "Naxie", icon: Sparkles },
+  { to: "/command", label: "Command Center", icon: LayoutDashboard },
   { to: "/chat", label: "Board Meeting", icon: Users2 },
   { to: "http://127.0.0.1:7472", label: "Naxion IDE", icon: Terminal, external: true },
 ];
