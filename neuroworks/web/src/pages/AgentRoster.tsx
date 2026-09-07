@@ -40,11 +40,15 @@ export function AgentRoster() {
   async function load() {
     try {
       const r = await api.listPersonas();
-      setPersonas(r.personas);
+      // Clawbot ("Neuro") is an internal tool Naxie calls for structured
+      // drafting/vault authorship now, not a persona the operator picks —
+      // keep it out of the roster the user sees/activates.
+      const visible = r.personas.filter(p => p.id !== "clawbot");
+      setPersonas(visible);
       setActiveId(r.activeId);
       // Fetch template counts for every persona in parallel.
       const counts: Record<string, number> = {};
-      await Promise.all(r.personas.map(async (p: Persona) => {
+      await Promise.all(visible.map(async (p: Persona) => {
         try { const t = await api.listPersonaTemplates(p.id); counts[p.id] = t.templates.length; }
         catch { counts[p.id] = 0; }
       }));

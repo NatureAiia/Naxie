@@ -65,7 +65,7 @@ const primaryNav: NavItem[] = [
   { to: "/naxie", label: "Naxie", icon: Sparkles },
   { to: "/command", label: "Command Center", icon: LayoutDashboard },
   { to: "/chat", label: "Board Meeting", icon: Users2 },
-  { to: "http://127.0.0.1:7472", label: "Naxion IDE", icon: Terminal, external: true },
+  { to: "/ide", label: "Naxion IDE", icon: Terminal },
 ];
 
 const agentsNav: NavItem[] = [
@@ -302,7 +302,7 @@ export function Layout({ children }: { children: ReactNode }) {
   // Naxie still gets the full-bleed, no-max-width content treatment (it
   // hosts the knowledge-graph "brain", not prose) — but the starfield now
   // shows on every page, Naxie included.
-  const clearBackground = location.pathname.startsWith("/naxie");
+  const clearBackground = location.pathname.startsWith("/naxie") || location.pathname.startsWith("/ide");
 
   return (
     <TerminalProvider>

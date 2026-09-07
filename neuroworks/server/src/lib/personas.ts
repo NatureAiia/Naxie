@@ -77,7 +77,13 @@ How you operate:
 - Use clock.now to know the time, memory.note to remember durable facts ("Nature prefers...", "project X deadline...") and memory.recall at thread start. Capture outcomes to the vault.
 - Always close with a clear next step. Cite sources as [N] or [vault:path].
 
-You are NOT Neuro (clawbot) — you are the PA who owns the relationship and owns the clock.`,
+Output discipline:
+- Lead with the bottom line. State the answer or decision first, then the reasoning — never bury it under setup.
+- Be compressed. No "Sure!", "Great question", throat-clearing, or trailing summaries that just restate what you said.
+- Use Markdown headings/bullets only when the content is genuinely structured (a list of discrete items, a real comparison); a one-line answer stays one line.
+- Stay calm and steady under a busy queue — acknowledge directly, then act. No filler apologies, no over-explaining a simple action.
+
+You are NOT Neuro (clawbot) — Neuro is a tool in your kit for structured-document drafting and vault authorship, not a separate voice the operator talks to. You are the PA who owns the relationship and owns the clock.`,
   createdAt: "2026-08-23T00:00:00.000Z",
 };
 
@@ -1164,8 +1170,10 @@ function ensureBuiltinSeeded(s: PersonaStore): PersonaStore {
       personasSyncDirty = true;
     }
   }
-  // First-ever seed → activate Clawbot by default.
-  if (s.activeId === null && s.personas.length > 0) s.activeId = BUILTIN_NEUROWORKS_PERSONA.id;
+  // First-ever seed → activate Naxie by default. Clawbot ("Neuro") is an
+  // internal tool Naxie calls for structured-document drafting/vault
+  // authorship now, not a persona the operator talks to directly.
+  if (s.activeId === null && s.personas.length > 0) s.activeId = BUILTIN_NAXIE_PERSONA.id;
   // Generate starter templates for newly-seeded built-ins. Lazy import to
   // avoid a circular dep — persona-templates imports custom-templates which
   // imports journal which imports vault. Loading it at module-top would
@@ -1241,19 +1249,34 @@ export function deletePersona(id: string): boolean {
   const idx = s.personas.findIndex(x => x.id === id);
   if (idx === -1) return false;
   s.personas.splice(idx, 1);
-  if (s.activeId === id) s.activeId = BUILTIN_NEUROWORKS_PERSONA.id;
+  if (s.activeId === id) s.activeId = BUILTIN_NAXIE_PERSONA.id;
   savePersonaStore(s);
   return true;
 }
 
+// Clawbot is an internal tool Naxie calls (see runAsClawbot below), not a
+// persona the operator activates directly — reject it here so the public
+// /api/personas/:id/activate route can't put it back in the driver's seat.
 export function setActivePersona(id: string | null): Persona | null {
   const s = loadPersonas();
   if (id === null) { s.activeId = null; savePersonaStore(s); return null; }
+  if (id === BUILTIN_NEUROWORKS_PERSONA.id) throw new Error("clawbot is an internal tool, not an activatable persona");
   const p = s.personas.find(x => x.id === id);
   if (!p) throw new Error(`persona not found: ${id}`);
   s.activeId = id;
   savePersonaStore(s);
   return p;
+}
+
+// Run a one-off completion as Clawbot ("Neuro") without touching the
+// operator's active persona — mirrors routes/team.ts's resolvePersona +
+// personaSystemSuffix pattern (a sub-task borrows a persona's voice for one
+// call, the global active persona is untouched). Naxie's own tool-dispatch
+// path calls this for formatting-heavy drafting or vault-authorship
+// sub-tasks where Clawbot's structured-document style is the better fit.
+export async function runAsClawbot(prompt: string): Promise<string> {
+  const suffix = personaSystemSuffix(BUILTIN_NEUROWORKS_PERSONA);
+  return ollamaGenerate(prompt, suffix);
 }
 
 export function getActivePersona(): Persona | null {

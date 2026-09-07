@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type ComponentType } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import {
@@ -7,7 +7,6 @@ import {
   FileText,
   Folder,
   FolderOpen,
-  Save,
   X,
   RefreshCw,
   Search,
@@ -17,15 +16,16 @@ import {
   FolderPlus,
   FilePlus,
   Files,
-  BrainCircuit,
   Puzzle,
-  MoreHorizontal,
-  Send,
+  GitBranch,
+  TerminalSquare,
+  PlayCircle,
   CheckCircle2,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react";
 import { api, type FileBackendId, type FileEntry } from "../lib/api";
+import { useTerminal } from "../lib/terminalContext";
+import { Tile } from "./CommandCenter";
 
 interface OpenFile {
   path: string;
@@ -34,19 +34,7 @@ interface OpenFile {
   dirty: boolean;
   language: string;
 }
-type SidePanel = "explorer" | "search" | "extensions" | "ai";
-type AgentId = "claude" | "codex" | "opencode" | "hermes";
-type AgentStatus = "ready" | "thinking" | "approval";
-
-interface AgentDefinition {
-  id: AgentId;
-  name: string;
-  runtime: string;
-  status: AgentStatus;
-  icon: ComponentType<{ size?: string | number }>;
-  color: string;
-  statusLabel: string;
-}
+type SidePanel = "explorer" | "search" | "extensions";
 
 function langFromExt(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -101,76 +89,6 @@ function langLabel(l: string): string {
   };
   return m[l] ?? l;
 }
-
-// Claude Code logo — coral starburst with rounded rays
-function ClaudeCodeIcon({ size = 15 }: { size?: string | number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="#D4775C">
-      <circle cx="12" cy="12" r="3" />
-      <rect x="10.8" y="1" width="2.4" height="5" rx="1.2" />
-      <rect x="10.8" y="18" width="2.4" height="5" rx="1.2" />
-      <rect x="1" y="10.8" width="5" height="2.4" rx="1.2" />
-      <rect x="18" y="10.8" width="5" height="2.4" rx="1.2" />
-      <rect x="4.5" y="3.5" width="2.4" height="5.5" rx="1.2" transform="rotate(-45 5.7 6.25)" />
-      <rect x="17.1" y="15" width="2.4" height="5.5" rx="1.2" transform="rotate(-45 18.3 17.75)" />
-      <rect x="4.5" y="15" width="2.4" height="5.5" rx="1.2" transform="rotate(45 5.7 17.75)" />
-      <rect x="17.1" y="3.5" width="2.4" height="5.5" rx="1.2" transform="rotate(45 18.3 6.25)" />
-    </svg>
-  );
-}
-
-// Hermes agent — winged figure silhouette
-function HermesIcon({ size = 15 }: { size?: string | number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <circle cx="12" cy="4.5" r="2.5" />
-      <path d="M12 8c-3 0-5.5 2-6 5l-1 4.5c-.1.5.3 1 .8 1h12.4c.5 0 .9-.5.8-1l-1-4.5c-.5-3-3-5-6-5z" />
-      <path d="M6 9c-2-1.5-4-.5-5 1l3 2.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M18 9c2-1.5 4-.5 5 1l-3 2.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-const agents: AgentDefinition[] = [
-  {
-    id: "claude",
-    name: "Claude Code",
-    runtime: "Claude runner",
-    status: "ready",
-    icon: ClaudeCodeIcon,
-    color: "text-[#D4775C]",
-    statusLabel: "Ready",
-  },
-  {
-    id: "codex",
-    name: "Codex",
-    runtime: "OpenAI runner",
-    status: "thinking",
-    icon: BrainCircuit,
-    color: "text-emerald-400",
-    statusLabel: "Indexing workspace",
-  },
-  {
-    id: "opencode",
-    name: "OpenCode",
-    runtime: "Local runner",
-    status: "ready",
-    icon: Puzzle,
-    color: "text-violet-400",
-    statusLabel: "Ready",
-  },
-  {
-    id: "hermes",
-    name: "Hermes",
-    runtime: "Private runner",
-    status: "approval",
-    icon: HermesIcon,
-    color: "text-amber-300",
-    statusLabel: "Needs approval",
-  },
-];
-
-const starterPrompts = ["Explain this file", "Find bugs", "Plan a change"];
 
 function FileTreeNode({
   entry,
@@ -356,16 +274,10 @@ export function IDE() {
   const [searching, setSearching] = useState(false);
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [activeAgentId, setActiveAgentId] = useState<AgentId>("codex");
-  const [agentPrompt, setAgentPrompt] = useState("");
-  const [agentMessages, setAgentMessages] = useState<Record<AgentId, string[]>>({
-    claude: ["I can inspect your workspace and propose a focused change."],
-    codex: ["Workspace context is ready. What would you like to build?"],
-    opencode: ["Local agent standing by. I will present every edit for review."],
-    hermes: ["Private runner is available. Terminal and file-write permissions require approval."],
-  });
+  const [gitStatus, setGitStatus] = useState<{ isRepo: boolean; branch?: string; dirtyCount?: number } | null>(null);
   const editorRef = useRef<any>(null);
   const navigate = useNavigate();
+  const terminal = useTerminal();
 
   useEffect(() => {
     api
@@ -376,6 +288,32 @@ export function IDE() {
         if (cfg.length && !cfg.find((b) => b.id === backend)) setBackend(cfg[0].id);
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api.filesGitStatus(backend).then(setGitStatus).catch(() => setGitStatus(null));
+  }, [backend]);
+
+  // Slim ops strip for the right column — same live-ish glance Command
+  // Center gives, at a fraction of the calls, so the editor still gets most
+  // of the width.
+  const [runningCount, setRunningCount] = useState<number | null>(null);
+  const [pendingApprovals, setPendingApprovals] = useState<number | null>(null);
+  const [ready, setReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    async function tick() {
+      try {
+        const [h, { jobs }, n] = await Promise.all([api.health(), api.listJobs(), api.naxieStatus()]);
+        if (!alive) return;
+        setReady(!!h.ready);
+        setRunningCount(jobs.filter((j: any) => j.status === "running" || j.status === "pending").length);
+        setPendingApprovals(n.pendingApprovals);
+      } catch { /* ambient — tolerate a missed poll */ }
+    }
+    void tick();
+    const id = setInterval(tick, 5000);
+    return () => { alive = false; clearInterval(id); };
   }, []);
 
   const refreshTree = useCallback(() => {
@@ -539,47 +477,16 @@ export function IDE() {
 
   const activeFile = openFiles[activeIdx] ?? null;
   const breadcrumbs = activeFile ? activeFile.path.split(/[\\/]/) : [];
-  const activeAgent = agents.find((agent) => agent.id === activeAgentId) ?? agents[0];
-  const ActiveAgentIcon = activeAgent.icon;
 
-  const openAgent = useCallback((id: AgentId) => {
-    setActiveAgentId(id);
-    setSidePanel("ai");
-    setSidebarOpen(true);
-  }, []);
-
-  const sendAgentPrompt = useCallback(
-    (prompt = agentPrompt) => {
-      const trimmed = prompt.trim();
-      if (!trimmed) return;
-      setAgentMessages((previous) => ({
-        ...previous,
-        [activeAgentId]: [
-          ...previous[activeAgentId],
-          `You: ${trimmed}`,
-          `${activeAgent.name}: I’ll analyse ${activeFile?.name ?? "the workspace"} and prepare any edits as a reviewable diff.`,
-        ],
-      }));
-      setAgentPrompt("");
-    },
-    [activeAgent, activeAgentId, activeFile, agentPrompt],
-  );
-
-  const activityItems: { id: SidePanel; icon: any; label: string; color?: string; agentId?: AgentId }[] = [
+  const activityItems: { id: SidePanel; icon: any; label: string }[] = [
     { id: "explorer", icon: Files, label: "Explorer" },
     { id: "search", icon: Search, label: "Search" },
-    ...agents.map((agent) => ({
-      id: "ai" as SidePanel,
-      icon: agent.icon,
-      label: agent.name,
-      color: agent.color,
-      agentId: agent.id,
-    })),
     { id: "extensions", icon: Puzzle, label: "Extensions" },
   ];
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] -m-6 select-none">
+    <div className="flex h-full gap-4 select-none">
+    <div className="flex flex-col flex-1 min-w-0 h-full rounded-xl border border-white/10 overflow-hidden">
       {/* ── toolbar ── */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-white/10 bg-ink-900/60 backdrop-blur-xl text-xs shrink-0">
         <select
@@ -601,33 +508,21 @@ export function IDE() {
         >
           <RefreshCw size={13} />
         </button>
+        {gitStatus?.isRepo && (
+          <span className="flex items-center gap-1 px-2 py-1 rounded-md border border-ink-700 text-cream-300/70" title={`${gitStatus.dirtyCount ?? 0} uncommitted change${gitStatus.dirtyCount === 1 ? "" : "s"}`}>
+            <GitBranch size={12} className="text-violet-400" /> {gitStatus.branch ?? "?"}
+            {(gitStatus.dirtyCount ?? 0) > 0 && <span className="text-amber-400">·{gitStatus.dirtyCount}</span>}
+          </span>
+        )}
         <div className="flex-1" />
-        <a
-          href="http://127.0.0.1:7472"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:text-violet-100 transition-colors text-[11px] font-medium"
-          title="Open full Naxion IDE (Theia)"
+        <button
+          type="button"
+          onClick={terminal.toggle}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-md border transition-colors text-[11px] font-medium ${terminal.open ? "border-violet-500/40 bg-violet-500/15 text-violet-200" : "border-ink-700 text-cream-300/70 hover:text-cream-100 hover:bg-white/5"}`}
+          title="Toggle terminal"
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
-          Open in Naxion IDE
-        </a>
-        <div className="flex items-center gap-1">
-          {[...agents, { icon: MoreHorizontal, name: "More", color: "text-cream-300/50" }].map((ext) => {
-            const Icon = ext.icon;
-            return (
-              <button
-                key={ext.name}
-                type="button"
-                onClick={"id" in ext ? () => openAgent(ext.id) : undefined}
-                className={`p-1.5 rounded-md hover:bg-white/10 transition-colors ${ext.color}`}
-                title={ext.name}
-              >
-                <Icon size={15} />
-              </button>
-            );
-          })}
-        </div>
+          <TerminalSquare size={13} /> Terminal
+        </button>
       </div>
 
       <div className="flex flex-1 min-h-0">
@@ -635,24 +530,20 @@ export function IDE() {
         <div className="w-11 shrink-0 border-r border-white/10 bg-ink-950/70 backdrop-blur-xl flex flex-col items-center py-2 gap-1">
           {activityItems.map((item) => {
             const Icon = item.icon;
-            const active = sidePanel === item.id && sidebarOpen && (!item.agentId || item.agentId === activeAgentId);
+            const active = sidePanel === item.id && sidebarOpen;
             return (
               <button
                 key={item.id}
                 type="button"
                 title={item.label}
                 onClick={() => {
-                  if (item.agentId) {
-                    openAgent(item.agentId);
-                    return;
-                  }
                   if (sidePanel === item.id && sidebarOpen) setSidebarOpen(false);
                   else {
                     setSidePanel(item.id);
                     setSidebarOpen(true);
                   }
                 }}
-                className={`w-9 h-9 grid place-items-center rounded-lg transition-colors ${active ? "bg-white/10 text-cream-50" : `${item.color ?? "text-cream-300/50"} hover:text-cream-100 hover:bg-white/5`}`}
+                className={`w-9 h-9 grid place-items-center rounded-lg transition-colors ${active ? "bg-white/10 text-cream-50" : "text-cream-300/50 hover:text-cream-100 hover:bg-white/5"}`}
               >
                 <Icon size={18} />
               </button>
@@ -742,95 +633,6 @@ export function IDE() {
                       <div className="text-xs text-cream-200/80 truncate font-mono">{r.preview}</div>
                     </button>
                   ))}
-                </div>
-              </div>
-            )}
-            {sidePanel === "ai" && (
-              <div className="flex flex-col h-full">
-                <div className="px-3 pt-2 pb-2 border-b border-white/5">
-                  <div className="flex items-center gap-2">
-                    <span className={`grid h-7 w-7 place-items-center rounded-md bg-white/5 ${activeAgent.color}`}>
-                      <ActiveAgentIcon size={16} />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-cream-100">{activeAgent.name}</div>
-                      <div className="text-[10px] text-cream-300/45">{activeAgent.runtime}</div>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex items-center gap-1.5 text-[10px] text-cream-300/60">
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${activeAgent.status === "ready" ? "bg-leaf-500" : activeAgent.status === "thinking" ? "bg-cyan-400 animate-pulse" : "bg-amber-400"}`}
-                    />
-                    {activeAgent.statusLabel}
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-                  {agentMessages[activeAgentId].map((message, index) => {
-                    const fromUser = message.startsWith("You:");
-                    return (
-                      <div
-                        key={`${message}-${index}`}
-                        className={`rounded-lg px-2.5 py-2 text-[11px] leading-relaxed ${fromUser ? "bg-violet-500/15 text-violet-100" : "bg-white/5 text-cream-200/80"}`}
-                      >
-                        {message}
-                      </div>
-                    );
-                  })}
-                  {activeAgent.status === "approval" && (
-                    <div className="rounded-lg border border-amber-400/20 bg-amber-400/5 p-2.5 text-[11px] text-amber-100/80">
-                      <div className="flex items-center gap-1.5 font-medium text-amber-200">
-                        <ShieldCheck size={13} /> Approval required
-                      </div>
-                      <p className="mt-1 text-amber-100/60">
-                        Hermes can inspect files, but edits and terminal commands stay blocked until you approve them.
-                      </p>
-                    </div>
-                  )}
-                  <div className="rounded-lg border border-dashed border-white/10 p-2.5 text-[11px] text-cream-300/55">
-                    <div className="flex items-center gap-1.5 text-cream-200/80">
-                      <Sparkles size={13} className={activeAgent.color} /> Proposed changes
-                    </div>
-                    <p className="mt-1">Agent edits will appear here as a Monaco diff before anything is written.</p>
-                    <button
-                      type="button"
-                      className="mt-2 inline-flex items-center gap-1 text-[10px] text-leaf-400 hover:text-leaf-300"
-                    >
-                      <CheckCircle2 size={12} /> Review is always required
-                    </button>
-                  </div>
-                </div>
-                <div className="border-t border-white/10 p-2">
-                  <div className="flex flex-wrap gap-1 pb-2">
-                    {starterPrompts.map((prompt) => (
-                      <button
-                        key={prompt}
-                        type="button"
-                        onClick={() => sendAgentPrompt(prompt)}
-                        className="rounded border border-white/10 px-1.5 py-1 text-[10px] text-cream-300/65 hover:bg-white/5 hover:text-cream-100"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-1 rounded-md border border-ink-700 bg-ink-900 px-2 py-1">
-                    <input
-                      value={agentPrompt}
-                      onChange={(event) => setAgentPrompt(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") sendAgentPrompt();
-                      }}
-                      placeholder={`Ask ${activeAgent.name}...`}
-                      className="min-w-0 flex-1 bg-transparent text-xs text-cream-100 outline-none placeholder:text-cream-300/30"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => sendAgentPrompt()}
-                      title="Send prompt"
-                      className={`${activeAgent.color} hover:text-cream-50`}
-                    >
-                      <Send size={14} />
-                    </button>
-                  </div>
                 </div>
               </div>
             )}
@@ -948,15 +750,6 @@ export function IDE() {
             <span className="w-1.5 h-1.5 rounded-full bg-leaf-500" />
             Ready
           </span>
-          <button
-            type="button"
-            onClick={() => openAgent(activeAgentId)}
-            className={`flex items-center gap-1 hover:text-cream-100 ${activeAgent.color}`}
-            title={`Open ${activeAgent.name}`}
-          >
-            <ActiveAgentIcon size={12} />
-            {activeAgent.name} · {activeAgent.statusLabel}
-          </button>
           {activeFile && <span>{activeFile.path}</span>}
         </div>
         <div className="flex items-center gap-3">
@@ -971,6 +764,14 @@ export function IDE() {
           <span>Spaces: 2</span>
         </div>
       </div>
+    </div>
+
+    {/* ── dashboard strip ── */}
+    <div className="w-64 shrink-0 h-full overflow-y-auto scrollbar-thin space-y-3 py-1">
+      <Tile icon={<PlayCircle size={14} />} label="Running now" value={runningCount ?? "…"} />
+      <Tile icon={<CheckCircle2 size={14} />} label="Waiting on your approval" value={pendingApprovals ?? "…"} />
+      <Tile icon={<ShieldCheck size={14} />} label="Connectivity" value={ready === null ? "…" : ready ? "Ready" : "Degraded"} tone={ready === null ? undefined : ready ? "ok" : "warn"} />
+    </div>
 
       {/* ── rename modal ── */}
       {renameTarget && (

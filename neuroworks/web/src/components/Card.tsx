@@ -2,11 +2,18 @@ import { ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Wrench, BookOpen, Repeat, Sparkles, Circle, type LucideIcon } from "lucide-react";
 
-export function Card({ title, action, children, className = "", hoverable = false }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; hoverable?: boolean }) {
+// "glass" is additive — translucent + backdrop-blur + a soft violet glow on
+// hover, for pages that want the ambient-HUD look (dashboards, Naxie's
+// panels). Default variant is unchanged: every existing <Card> keeps its
+// flat bg-ink-900 look unless it opts in.
+export function Card({ title, action, children, className = "", hoverable = false, variant = "solid" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; hoverable?: boolean; variant?: "solid" | "glass" }) {
+  const skin = variant === "glass"
+    ? "bg-ink-900/60 backdrop-blur-md border border-violet-500/20 shadow-[0_0_24px_-8px_rgba(139,92,246,0.25)] hover:border-violet-500/35 transition-colors"
+    : "bg-ink-900 border border-ink-800";
   return (
-    <div className={`bg-ink-900 border border-ink-800 rounded-xl ${hoverable ? "nw-card-hover" : ""} ${className}`}>
+    <div className={`${skin} rounded-xl ${hoverable ? "nw-card-hover" : ""} ${className}`}>
       {(title || action) && (
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-ink-800">
+        <div className={`flex items-center justify-between px-5 py-3.5 border-b ${variant === "glass" ? "border-violet-500/10" : "border-ink-800"}`}>
           {title && <h3 className="text-sm font-semibold text-cream-100 tracking-tight">{title}</h3>}
           {action}
         </div>

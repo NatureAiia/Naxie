@@ -154,18 +154,25 @@ export function CommandCenter() {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+// Glass look — translucent + blur + a soft violet glow (see Card.tsx's
+// "glass" variant, which this mirrors). Command Center is the dashboard the
+// blueprint's "ambient HUD" framing was written for, so it's the first place
+// this ships — same treatment as Card's glass variant, kept local here since
+// Section/Tile aren't built on <Card>.
+export const GLASS = "bg-ink-900/60 backdrop-blur-md border border-violet-500/20 shadow-[0_0_24px_-8px_rgba(139,92,246,0.25)]";
+
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="bg-ink-900 rounded-lg border border-ink-800 p-4">
+    <div className={`${GLASS} rounded-lg p-4`}>
       <h2 className="font-semibold mb-3 text-cream-100">{title}</h2>
       {children}
     </div>
   );
 }
 
-function Tile({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string | number; tone?: "ok" | "warn" }) {
+export function Tile({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string | number; tone?: "ok" | "warn" }) {
   return (
-    <div className="bg-ink-950 rounded-lg border border-ink-800 p-4">
+    <div className={`${GLASS} rounded-lg p-4`}>
       <div className="flex items-center gap-2 text-sm text-cream-300/60">{icon} {label}</div>
       <div className={`text-2xl font-bold mt-1 ${tone === "warn" ? "text-coral-400" : tone === "ok" ? "text-leaf-400" : "text-cream-50"}`}>{value}</div>
     </div>

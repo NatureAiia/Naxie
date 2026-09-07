@@ -349,6 +349,13 @@ export const api = {
   // local-disk folder, and (once connected) Google Drive / Supabase.
   filesBackends: () => req<{ backends: FileBackendInfo[] }>("/api/files/backends"),
   filesList: (backend: FileBackendId, path = "") => req<{ backend: string; path: string; entries: FileEntry[] }>(`/api/files/list?backend=${backend}&path=${encodeURIComponent(path)}`),
+  // Data lineage for Library's hover tooltip — last commit that touched one
+  // file. Vault-only; lazy/on-demand, never bulk-fetched for a whole folder.
+  filesLineage: (backend: FileBackendId, path: string) =>
+    req<{ lineage: { commitHash: string; commitDate: string; commitMessage: string } | null }>(`/api/files/lineage?backend=${backend}&path=${encodeURIComponent(path)}`),
+  // Branch + dirty-file count for the IDE page's toolbar strip.
+  filesGitStatus: (backend: FileBackendId) =>
+    req<{ isRepo: boolean; branch?: string; dirtyCount?: number }>(`/api/files/git-status?backend=${backend}`),
   filesMkdir: (backend: FileBackendId, path: string) => req<{ ok: true }>("/api/files/mkdir", { method: "POST", body: JSON.stringify({ backend, path }) }),
   filesMove: (backend: FileBackendId, from: string, to: string) => req<{ ok: true }>("/api/files/move", { method: "POST", body: JSON.stringify({ backend, from, to }) }),
   filesTransfer: (srcBackend: FileBackendId, srcPath: string, dstBackend: FileBackendId, dstPath: string) =>

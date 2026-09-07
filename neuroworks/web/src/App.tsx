@@ -109,7 +109,7 @@ function AppShell() {
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/schedules" element={<Schedules />} />
 
-        {/* Build — no nav-rail slot; reached via a link from Runs/Naxie */}
+        {/* Build — Home Base's "Naxion IDE" nav entry links here */}
         <Route path="/ide" element={<IDE />} />
 
         {/* Memory & Knowledge */}

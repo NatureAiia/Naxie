@@ -111,14 +111,14 @@ export function Naxie() {
         </div>
 
         <div className="flex items-center gap-1.5 pb-3 text-[11px] text-cream-300/70">
-          <Link to="/agents" className="flex items-center gap-1 px-2 py-1 rounded-md bg-ink-800/60 hover:bg-ink-800 border border-ink-800">
+          <Link to="/agents" className="flex items-center gap-1 px-2 py-1 rounded-md bg-ink-800/50 backdrop-blur-sm hover:bg-ink-800/80 border border-violet-500/20">
             <Bot size={11} className="text-violet-400" /> {personaCount ?? "…"} agent{personaCount === 1 ? "" : "s"}
           </Link>
-          <Link to="/runs" className="flex items-center gap-1 px-2 py-1 rounded-md bg-ink-800/60 hover:bg-ink-800 border border-ink-800">
+          <Link to="/runs" className="flex items-center gap-1 px-2 py-1 rounded-md bg-ink-800/50 backdrop-blur-sm hover:bg-ink-800/80 border border-violet-500/20">
             <ActivityIcon size={11} className={runningCount > 0 ? "text-leaf-400" : "text-cream-300/50"} /> {runningCount} running
           </Link>
           {todaySpend !== null && (
-            <Link to="/cost" className="flex items-center gap-1 px-2 py-1 rounded-md bg-ink-800/60 hover:bg-ink-800 border border-ink-800">
+            <Link to="/cost" className="flex items-center gap-1 px-2 py-1 rounded-md bg-ink-800/50 backdrop-blur-sm hover:bg-ink-800/80 border border-violet-500/20">
               <DollarSign size={11} className="text-coral-400" /> ${todaySpend.toFixed(2)} today
             </Link>
           )}
