@@ -54,6 +54,7 @@ type NavItem = {
   icon: ComponentType<{ size?: number | string; className?: string }>;
   badgeKey?: "approvals" | "activity";
   external?: boolean;
+  iconColor?: string;
 };
 
 // Top-level: Home Base. Everything else folds into a collapsible group so
@@ -63,7 +64,7 @@ type NavItem = {
 // boundary exists (e.g. Library's Connections tab), this file just no
 // longer hides a link from the one person using it.
 const primaryNav: NavItem[] = [
-  { to: "/naxie", label: "Naxie", icon: Sparkles },
+  { to: "/naxie", label: "Naxie", icon: Sparkles, iconColor: "text-violet-400" },
   { to: "/command", label: "Command Center", icon: LayoutDashboard },
   { to: "/chat", label: "Board Meeting", icon: Users2 },
   { to: "/ide", label: "Naxion IDE", icon: Terminal },
@@ -239,7 +240,7 @@ export function Layout({ children }: { children: ReactNode }) {
           title={collapsed ? n.label : undefined}
           className={`flex items-center gap-3 py-2 rounded-md text-sm transition-colors ${collapsed ? "justify-center px-2" : "px-3"} text-cream-300 hover:text-cream-50 hover:bg-ink-800/60`}
         >
-          <Icon size={16} className="text-cream-300/70 shrink-0" />
+          <Icon size={16} className={`${n.iconColor ?? "text-cream-300/70"} shrink-0`} />
           {!collapsed && <span className="flex-1 truncate">{n.label}</span>}
           {!collapsed && <span className="text-[9px] text-cream-300/40">↗</span>}
         </a>
@@ -256,7 +257,7 @@ export function Layout({ children }: { children: ReactNode }) {
           `flex items-center gap-3 py-2 rounded-md text-sm transition-colors ${collapsed ? "justify-center px-2" : "px-3"} ${isActive ? "bg-ink-800 text-cream-50" : "text-cream-300 hover:text-cream-50 hover:bg-ink-800/60"}`
         }
       >
-        <Icon size={16} className="text-cream-300/70 shrink-0" />
+        <Icon size={16} className={`${n.iconColor ?? "text-cream-300/70"} shrink-0`} />
         {!collapsed && <span className="flex-1 truncate">{n.label}</span>}
         {!collapsed && n.badgeKey && counts[n.badgeKey] > 0 && (
           <span className="bg-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
@@ -356,18 +357,6 @@ export function Layout({ children }: { children: ReactNode }) {
               </div>
             </div>
           )}
-
-          <div className={collapsed ? "px-2 pb-3" : "px-2 pb-3 tablet:px-3"}>
-            <Link
-              to="/naxie"
-              onMouseEnter={() => preloadRoute("/naxie")}
-              onFocus={() => preloadRoute("/naxie")}
-              title={collapsed ? "NaxionAI" : undefined}
-              className="w-full flex items-center justify-center gap-1.5 bg-ink-800 hover:bg-ink-700 border border-ink-700 hover:border-violet-500/40 rounded-md py-2 text-sm text-cream-100 transition-colors"
-            >
-              <Sparkles size={14} className="text-violet-400" /> {!collapsed && "NaxionAI"}
-            </Link>
-          </div>
 
           <nav className={`flex-1 space-y-0.5 overflow-y-auto scrollbar-thin ${collapsed ? "px-2" : "px-3"}`}>
             {primaryNav.map(renderNavItem)}
