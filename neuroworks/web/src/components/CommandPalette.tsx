@@ -72,7 +72,9 @@ export function CommandPalette() {
     { id: "l-policies", group: "Library", label: "Policies", icon: CertificateIcon, onSelect: go("/policies"), keywords: "policy guardrail compliance governance instructions" },
     { id: "l-audit", group: "Library", label: "Audit Log", icon: LogIcon, onSelect: go("/audit"), keywords: "security intrusion blocked ip log" },
     { id: "l-integrations", group: "Library", label: "Extensions — Integrations", icon: Plug, onSelect: go("/extensions?tab=integrations"), keywords: "connect slack telegram github notion social oauth api integrations" },
-    { id: "l-connectors", group: "Library", label: "Extensions — Connectors", icon: Plug, onSelect: go("/extensions?tab=connectors"), keywords: "connect company api base url auth connectors" },
+    { id: "l-connectors", group: "Library", label: "Connectors", icon: Plug, onSelect: go("/connectors"), keywords: "connect company api base url auth connectors google microsoft personal accounts email calendar" },
+    { id: "l-mcp", group: "Library", label: "MCP Servers", icon: Plug, onSelect: go("/mcp-servers"), keywords: "model context protocol tool server filesystem browser" },
+    { id: "l-n8n", group: "Library", label: "n8n", icon: Plug, onSelect: go("/n8n"), keywords: "workflow automation webhook trigger execution" },
   ];
 
   if (!open) return null;

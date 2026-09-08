@@ -192,14 +192,11 @@ export const PROVIDERS: Provider[] = [
     fields: [{ name: "accessToken", label: "OAuth Access Token", type: "password", secret: true, required: true }],
     note: "OAuth redirect flow coming soon — paste an access token to use now.",
     docsUrl: "https://learn.microsoft.com/en-us/graph/auth/" },
-  { id: "n8n", name: "n8n", category: "dev", auth: "token", testable: true,
-    fields: [
-      { name: "baseUrl", label: "n8n Base URL", type: "url", required: true, placeholder: "http://127.0.0.1:5678" },
-      { name: "apiKey", label: "API Key", type: "password", secret: true, required: true, placeholder: "eyJ..." },
-      { name: "webhookBaseUrl", label: "Webhook Base URL (if behind proxy)", type: "url", required: false, placeholder: "https://n8n.example.com" },
-    ],
-    note: "Self-hosted n8n. Create an API key in n8n → Settings → API. Also powers the env-gated n8n.* primitives (N8N_BASE_URL + N8N_API_KEY).",
-    docsUrl: "https://docs.n8n.io/api/authentication/" },
+  // n8n moved OUT of this generic catalog — it has its own dedicated page
+  // (pages/N8n.tsx, under Connect) backed by N8N_BASE_URL + N8N_API_KEY in
+  // .env, not a saved connection here. A stub entry in both places is how
+  // you end up "connected" here while the actual n8n.* primitives still
+  // don't work — see server/src/lib/n8n.ts.
 ];
 
 export function getProvider(id: string): Provider | undefined {
@@ -607,16 +604,6 @@ async function runConnectionTest(id: string): Promise<{ ok: boolean; detail: str
         const r = await fetch("https://graph.microsoft.com/v1.0/me", { headers: { authorization: `Bearer ${secrets.accessToken}` } });
         const j: any = await r.json();
         return r.ok ? { ok: true, detail: j?.userPrincipalName ?? "token valid" } : { ok: false, detail: j?.error?.message ?? `HTTP ${r.status}` };
-      }
-      case "n8n": {
-        const base = (config.baseUrl ?? "").trim().replace(/\/+$/, "");
-        const key = (secrets.apiKey ?? "").trim();
-        if (!base || !key) return { ok: false, detail: "baseUrl or apiKey missing" };
-        try {
-          const r = await fetch(`${base}/api/v1/workflows?limit=1`, { headers: { "X-N8N-API-KEY": key, accept: "application/json" } });
-          const j: any = await r.json().catch(() => ({}));
-          return r.ok ? { ok: true, detail: `n8n reachable — ${j?.data?.length ?? 0} workflow(s)` } : { ok: false, detail: j?.message ?? `HTTP ${r.status}` };
-        } catch (e: any) { return { ok: false, detail: String(e?.message ?? e) }; }
       }
       default:
         return { ok: false, detail: "no test available for this provider" };

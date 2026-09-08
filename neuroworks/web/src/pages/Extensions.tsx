@@ -1,27 +1,26 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Share2, Webhook, Download, LayoutGrid, Cable } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Share2, Webhook, Download, LayoutGrid } from "lucide-react";
 import { api, type ConnectorAuthType, type RagStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { Integrations } from "./Integrations";
-import { Connectors } from "./Connectors";
-import { McpServers } from "./McpServers";
 
-// Extensions — unified Plugins, Connectors & Integrations Hub
+// Extensions — Plugins & Integrations Hub
 // Monitors platform APIs (OpenRouter, Supabase… env-gated) plus
-// token-based integrations / connectors / model providers in one place.
-// Integrations and Connectors used to be separate pages/routes; they now
-// live as tabs here (old /integrations and /connectors URLs redirect in).
+// token-based integrations / model providers in one place.
+// Integrations used to be its own page/route; it now lives as a tab here
+// (the old /integrations URL redirects in). Connectors (company systems +
+// personal Google/Microsoft accounts) and MCP Servers each moved OUT to
+// their own top-level pages under Connect — see pages/Connectors.tsx,
+// pages/McpServers.tsx, pages/N8n.tsx, and Layout.tsx's connectNav.
 // Env secrets are never returned — only prefix + enabled/health.
 
-type ExtTab = "overview" | "platform" | "integrations" | "connectors" | "mcp" | "webhooks" | "marketplace" | "audit";
+type ExtTab = "overview" | "platform" | "integrations" | "webhooks" | "marketplace" | "audit";
 
 const TABS: { id: ExtTab; label: string; icon: any }[] = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
   { id: "platform", label: "Platform APIs", icon: Cpu },
   { id: "integrations", label: "Integrations", icon: Plug },
-  { id: "connectors", label: "Connectors", icon: Boxes },
-  { id: "mcp", label: "MCP Servers", icon: Cable },
   { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "marketplace", label: "Marketplace", icon: Share2 },
   { id: "audit", label: "Audit", icon: History },
@@ -85,6 +84,7 @@ function ExpiryBadge({ state, days, expiresAt }: { state?: string; days?: number
 }
 
 export function Extensions() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get("tab") as ExtTab | null;
   const tab: ExtTab = tabParam && TABS.some(t => t.id === tabParam) ? tabParam : "overview";
@@ -230,7 +230,7 @@ export function Extensions() {
         <div>
           <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Puzzle size={24} /> Plugins & Extensions</h1>
           <p className="text-sm text-cream-300/70 mt-1 max-w-3xl">
-            Monitor platform APIs (env-gated) and connected services (integrations, connectors, model providers) in one place.
+            Monitor platform APIs (env-gated) and connected services (integrations, model providers) in one place. Company systems and personal Google/Microsoft accounts live on <span className="text-cream-200">Connectors</span> now.
             <span className="text-cream-200"> Connect</span> adds a new API account, <span className="text-cream-200">Test</span> verifies it’s working — secrets are encrypted at rest and never shown.
           </p>
         </div>
@@ -252,13 +252,13 @@ export function Extensions() {
       <>
       <div className="grid grid-cols-4 gap-3">
         {[
-          { id: "platform" as ExtTab, label: "Platform APIs enabled", value: `${data.counts.coreEnabled}/${data.counts.coreTotal}`, sub: `${data.counts.coreHealthy} healthy`, icon: Cpu },
-          { id: "integrations" as ExtTab, label: "Integrations", value: String(data.counts.integrations), sub: "Slack, Telegram, GitHub…", icon: Plug },
-          { id: "connectors" as ExtTab, label: "Connectors", value: String(data.counts.connectors), sub: "Company systems", icon: Boxes },
-          { id: null, label: "Model Providers", value: String(data.counts.modelProviders), sub: `${(data.costSummary?.totalCostUsd ?? 0).toFixed(2)} USD 30d`, icon: Cloud },
+          { id: "platform" as ExtTab, href: null, label: "Platform APIs enabled", value: `${data.counts.coreEnabled}/${data.counts.coreTotal}`, sub: `${data.counts.coreHealthy} healthy`, icon: Cpu },
+          { id: "integrations" as ExtTab, href: null, label: "Integrations", value: String(data.counts.integrations), sub: "Slack, Telegram, GitHub…", icon: Plug },
+          { id: null, href: "/connectors", label: "Connectors", value: String(data.counts.connectors), sub: "Company systems + personal accounts", icon: Boxes },
+          { id: null, href: null, label: "Model Providers", value: String(data.counts.modelProviders), sub: `${(data.costSummary?.totalCostUsd ?? 0).toFixed(2)} USD 30d`, icon: Cloud },
         ].map(k => (
-          <div key={k.label} onClick={k.id ? () => setTab(k.id!) : undefined}>
-            <Card className={`!p-4 ${k.id ? "cursor-pointer hover:border-violet-500/40" : ""}`}>
+          <div key={k.label} onClick={k.id ? () => setTab(k.id!) : k.href ? () => navigate(k.href!) : undefined}>
+            <Card className={`!p-4 ${k.id || k.href ? "cursor-pointer hover:border-violet-500/40" : ""}`}>
               <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-cream-300/50"><k.icon size={13} /> {k.label}</div>
               <div className="text-2xl font-semibold text-cream-50 mt-1">{k.value}</div>
               <div className="text-[11px] text-cream-300/50">{k.sub}</div>
@@ -466,11 +466,6 @@ export function Extensions() {
 
       {/* Integrations — full management UI, formerly the /integrations page */}
       {tab === "integrations" && <Integrations />}
-
-      {/* Connectors — full management UI, formerly the /connectors page */}
-      {tab === "connectors" && <Connectors />}
-
-      {tab === "mcp" && <McpServers />}
 
       {/* Webhooks — Zapier/Make → PA ingress */}
       {tab === "webhooks" && (

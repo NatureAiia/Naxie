@@ -18,6 +18,9 @@ import {
   Radar,
   LayoutDashboard,
   GitBranch,
+  Boxes,
+  Cable,
+  Workflow,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -100,7 +103,13 @@ const memoryNav: NavItem[] = [
 
 const connectNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
-  // Connectors/Integrations/MCP Servers stay as Extensions' internal tabs.
+  // Integrations stays as an Extensions internal tab. Connectors, MCP
+  // Servers, and n8n each got their own top-level page — company systems +
+  // personal Google/Microsoft accounts, local MCP tool servers, and
+  // self-hosted n8n workflows respectively.
+  { to: "/connectors", label: "Connectors", icon: Boxes },
+  { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
+  { to: "/n8n", label: "n8n", icon: Workflow },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
 ];
 
