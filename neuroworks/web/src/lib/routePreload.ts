@@ -38,6 +38,7 @@ const preloaders: Record<string, Thunk> = {
   "/integrations": () => import("../pages/Integrations"),
   "/policies": () => import("../pages/Policies"),
   "/audit": () => import("../pages/AuditLog"),
+  "/org-dashboard": () => import("../pages/OrgDashboard"),
   "/cost": () => import("../pages/Cost"),
   "/ambient": () => import("../pages/AmbientWatch"),
   "/edit": () => import("../pages/DocEditor"),

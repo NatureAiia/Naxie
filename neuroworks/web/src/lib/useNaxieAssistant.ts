@@ -12,7 +12,7 @@ export type Turn = {
   role: "user" | "assistant";
   text: string;
   routing?: { tier: string; complexity: string; reason?: string; online?: boolean; backend?: string };
-  kind?: "chat" | "delegation" | "briefing";
+  kind?: "chat" | "delegation" | "briefing" | "onboarding" | "approval";
   meta?: Record<string, unknown>;
   // Vault path of the note that most likely answered this turn — set on
   // assistant chat turns only, so KnowledgeGraph can highlight the source.
@@ -23,12 +23,26 @@ const STORAGE_KEY = "neuroworks.naxie.turns";
 const ALWAYS_LISTENING_KEY = "neuroworks.naxie.alwaysListening";
 const REQUIRE_WAKE_WORD_KEY = "neuroworks.naxie.requireWakeWord";
 const BRIEFING_DISMISSED_KEY = "neuroworks.naxie.briefingDismissedAt";
+// Session-scoped, matching BRIEFING_DISMISSED_KEY exactly — quiet for the
+// rest of this tab session once dismissed, but resurfaces next session
+// until onboarding is actually completed (no "generatedAt" to compare
+// against here, so the flag is just a plain boolean rather than a value).
+const ONBOARDING_DISMISSED_KEY = "neuroworks.naxie.onboardingDismissedAt";
 // Low-frequency: pendingApprovals/briefing don't need the same cadence a
 // live conversation would — this replaces the widget's old private 10s poll.
 const STATUS_POLL_MS = 30_000;
 
 export type NaxieBriefing = { text: string; generatedAt: string };
-export type WaitingTask = { id: string; role: string; title: string };
+// pendingApproval carries enough of the OrgTask shape (docs/naxie-
+// architecture.md §8.3) to decide inline-approve vs. "go read the diff":
+// present + no diff → inline Approve/Reject renders right in the chat flow;
+// a diff (or kind === "architect-change") → Naxie only links to the full
+// Approvals page, since a spoken/tapped "yes" can't meaningfully approve a
+// code change you haven't read.
+export type WaitingTask = {
+  id: string; role: string; title: string;
+  pendingApproval?: { actionDescription: string; kind: string; diff?: string; requestedAt: string };
+};
 
 // How long to wait after the last finalized phrase before treating the
 // accumulated speech as one complete ask (continuous mode never cleanly
@@ -94,6 +108,10 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
   const [briefingDismissedAt, setBriefingDismissedAt] = useState<string | null>(() => {
     try { return sessionStorage.getItem(BRIEFING_DISMISSED_KEY); } catch { return null; }
   });
+  const [onboardingNeeded, setOnboardingNeeded] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState<boolean>(() => {
+    try { return sessionStorage.getItem(ONBOARDING_DISMISSED_KEY) === "1"; } catch { return false; }
+  });
   const mic = useSpeechRecognition();
   const micTextRef = useRef("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -151,8 +169,9 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
         const j = await r.json();
         if (!alive) return;
         setPendingApprovals(j.pendingApprovals ?? 0);
-        setWaitingTasks(Array.isArray(j.waiting) ? j.waiting.map((t: any) => ({ id: t.id, role: t.role, title: t.title })) : []);
+        setWaitingTasks(Array.isArray(j.waiting) ? j.waiting.map((t: any) => ({ id: t.id, role: t.role, title: t.title, pendingApproval: t.pendingApproval })) : []);
         setBriefing(j.briefing ?? null);
+        setOnboardingNeeded(j.onboardingNeeded === true);
       } catch { /* ignore — next poll retries */ }
     };
     poll();
@@ -166,6 +185,12 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     try { sessionStorage.setItem(BRIEFING_DISMISSED_KEY, at); } catch { /* ignore */ }
   }
   const briefingVisible = briefing != null && briefing.generatedAt !== briefingDismissedAt ? briefing : null;
+
+  function dismissOnboardingNudge() {
+    setOnboardingDismissed(true);
+    try { sessionStorage.setItem(ONBOARDING_DISMISSED_KEY, "1"); } catch { /* ignore */ }
+  }
+  const onboardingNudgeVisible = onboardingNeeded && !onboardingDismissed;
 
   function setAlwaysListening(next: boolean) {
     setAlwaysListeningState(next);
@@ -324,6 +349,21 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     }
   }
 
+  // §8.3 inline approve/reject — for a waiting OrgTask with no diff, this is
+  // the whole approval flow (no trip to the full Approvals page needed).
+  // Optimistically drops it from the list so the chat card disappears the
+  // moment you act, rather than waiting a full poll cycle.
+  async function resolveWaitingTask(id: string, approved: boolean) {
+    try {
+      await api.resolveOrgTaskApproval(id, approved);
+      setWaitingTasks(prev => prev.filter(t => t.id !== id));
+      setPendingApprovals(prev => Math.max(0, prev - 1));
+      showToast(approved ? "Approved" : "Rejected", "success");
+    } catch (e: any) {
+      showToast(e?.message ?? String(e), "error");
+    }
+  }
+
   // File a raw ask to Naxie's org backlog — she classifies + queues it —
   // and record it as a delegation turn (not a chat bubble) so callers can
   // render it as a result card.
@@ -411,7 +451,8 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     mic, orbState,
     alwaysListening, setAlwaysListening,
     requireWakeWord, setRequireWakeWord,
-    pendingApprovals, waitingTasks, briefing: briefingVisible, dismissBriefing,
+    pendingApprovals, waitingTasks, resolveWaitingTask, briefing: briefingVisible, dismissBriefing,
+    onboardingNudge: onboardingNudgeVisible, dismissOnboardingNudge,
     ask, speak, stopSpeaking, micToggle, delegate,
   };
 }

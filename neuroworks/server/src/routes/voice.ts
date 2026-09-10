@@ -40,6 +40,64 @@ voiceRouter.get("/status", async (_req, res) => {
   catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
 });
 
+// GET /api/voice/wake-status — offline wake-word availability probe (no mic needed)
+voiceRouter.get("/wake-status", async (_req, res) => {
+  try {
+    const { wakeWordStatus } = await import("../lib/wake-word.js");
+    res.json(wakeWordStatus());
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// POST /api/voice/wake — check one transcript chunk for the wake phrase (regex gate)
+// Body: { text: string, phrase?: string } — no audio, just the already-transcribed text.
+// Returns { wake: boolean, phrase: string } — the WS/PCM path below is the offline Vosk variant.
+voiceRouter.post("/wake", async (req, res) => {
+  const text = String(req.body?.text ?? "");
+  const phrase = req.body?.phrase ? String(req.body.phrase) : undefined;
+  try {
+    const { isWakePhrase, buildGrammar } = await import("../lib/wake-word.js");
+    // When a custom phrase is supplied, build its grammar and test membership;
+    // otherwise use the regex gate (covers the "hey, naxie" tolerance + phonetics via grammar).
+    let wake = isWakePhrase(text);
+    if (phrase) {
+      const variants = new Set(buildGrammar(phrase).map(s => s.toLowerCase()));
+      wake = variants.has(text.trim().toLowerCase()) || isWakePhrase(text);
+    }
+    res.json({ wake, phrase: phrase ?? "hey naxie", text: text.slice(0, 200) });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// POST /api/voice/wake-pcm — offline Vosk check for one raw PCM chunk (16kHz mono 16-bit LE)
+// Body: raw Buffer (Content-Type: application/octet-stream), query ?phrase=hey%20naxie
+// Returns { wake: boolean } — true the moment the chunk completes a grammar hit.
+// Degrades to 503 when the Vosk model isn't installed (see wake-word.ts's model dir).
+voiceRouter.post("/wake-pcm", async (req, res) => {
+  const chunks: Buffer[] = [];
+  req.on("data", c => chunks.push(c as Buffer));
+  req.on("end", async () => {
+    const pcm = Buffer.concat(chunks);
+    if (!pcm.length) return res.status(400).json({ error: "empty PCM body" });
+    const phrase = String(req.query.phrase ?? "hey naxie").slice(0, 80);
+    try {
+      const { createWakeWordSession, voskAvailable } = await import("../lib/wake-word.js");
+      if (!voskAvailable()) {
+        return res.status(503).json({ error: "Vosk model not installed — see docs/naxie-wakeword-proactive-spike.md §1.3", wake: false });
+      }
+      const sess = createWakeWordSession(phrase);
+      if (!sess) return res.status(503).json({ error: "Wake-word session unavailable (vosk binding or model missing)", wake: false });
+      const wake = sess.accept(pcm);
+      sess.close();
+      res.json({ wake, phrase });
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message ?? e) });
+    }
+  });
+});
+
 // Report + persona context shared by ask + realtime-session.
 async function reportContext(jobId: string, personaId?: string): Promise<{ report: string; title: string; personaName: string; personaSuffix: string; personaKey: string }> {
   let title = "the report";
@@ -72,6 +130,8 @@ async function reportContext(jobId: string, personaId?: string): Promise<{ repor
 }
 
 // POST /api/voice/converse — Naxie (PA master) general conversation.
+// Side effect: touches .neuroworks/naxie-interactions.json so the proactive
+// daemon can compute "hours since last chat" without guessing.
 // Unlike /api/chat (task/template/planner for specific neuros/agents/workers),
 // this is Naxie's own conversational channel. The caller does NOT pick a
 // model — Naxie decides via naxie-router.ts:
@@ -94,6 +154,8 @@ voiceRouter.post("/converse", async (req, res) => {
   }));
   const last = trimmed.pop();
   if (!last || !last.content.trim()) return res.status(400).json({ error: "messages required" });
+  // Record interaction before generation — counts even if delegation short-circuits or LLM fails.
+  try { const { touchInteraction } = await import("../lib/naxie-interactions.js"); touchInteraction(); } catch { /* best-effort */ }
   try {
     const { llmGenerateWithMeta } = await import("../lib/llm.js");
     const { injectLanguagePrompt } = await import("../lib/language-prompts.js");

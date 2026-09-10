@@ -10,6 +10,7 @@ import { injectLanguagePrompt } from "./language-prompts.js";
 import { classifyDeliverable, taskWantsResearch } from "./deliverable.js";
 import { newOffloadRun, offloadLargeFields, recoverFullText } from "./context-offload.js";
 import { listSources as listDataSources, getSourceByLabel } from "./data-sources.js";
+import { appendMissionNote, dailyScopeId } from "./mission-log.js";
 
 // Shared local-filesystem detector — "does this task point at a file on the
 // operator's PC?" Used at three points (the planner's system-prompt hint,
@@ -832,13 +833,20 @@ const FATAL_ERROR_RE = /\b(?:401|403|model not found|model not pulled|API key|in
 // more, longer-spaced attempt would likely have recovered them.
 const STEP_RETRY_BACKOFF_MS = [1500, 4000, 8000];
 
-export async function executePlan(p: Plan, push: (msg: string) => void, onProgress?: (runs: StepRun[]) => void, signal?: AbortSignal): Promise<{ runs: StepRun[]; hadWrites: boolean; budgets?: { llm: number; io: number; idlePeers: number }; subagentTimings?: { wave: number; elapsedMs: number; ioCount: number; llmCount: number }[]; cancelled?: boolean; delegatedApproval?: { tools: string[]; plan?: Plan } }> {
+export async function executePlan(p: Plan, push: (msg: string) => void, onProgress?: (runs: StepRun[]) => void, signal?: AbortSignal, scopeId?: string): Promise<{ runs: StepRun[]; hadWrites: boolean; budgets?: { llm: number; io: number; idlePeers: number }; subagentTimings?: { wave: number; elapsedMs: number; ioCount: number; llmCount: number }[]; cancelled?: boolean; delegatedApproval?: { tools: string[]; plan?: Plan } }> {
   // Per-run offload archive id — see context-offload.ts. Large step-result
   // fields get archived under .neuroworks/offload/<offloadRunId>/ and
   // replaced in the running history with a short preview, so steps 2..N of
   // a long plan don't each carry a full copy of step 1's raw scrape/read
   // through their own LLM calls.
   const offloadRunId = newOffloadRun();
+  // Mission-log scope — the caller's Job id when known (threaded in via
+  // planAndExecute's opts.scopeId), else today's daily bucket. See
+  // mission-log.ts: this is a self-authored working narrative read back by
+  // naxie-context.ts so a long session doesn't lose continuity to the chat
+  // route's minimal sliding window.
+  const missionScope = scopeId ?? dailyScopeId();
+  appendMissionNote(missionScope, { kind: "progress", text: `Starting plan: ${p.steps.length} step${p.steps.length === 1 ? "" : "s"} — ${p.steps.map(s => s.label ?? s.tool).slice(0, 5).join(", ")}${p.steps.length > 5 ? ", …" : ""}` });
   const runs: StepRun[] = p.steps.map(step => ({ step, ok: false, durationMs: 0 }));
   let hadWrites = false;
   for (const step of p.steps) {
@@ -925,6 +933,7 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
         runs[i] = { step, ok: false, error: msg, durationMs: Date.now() - t0, startedAt: t0 };
         push(`  ⛔ ${step.label ?? step.tool}: ${msg}`);
         onProgress?.([...runs]);
+        appendMissionNote(missionScope, { kind: "blocker", text: `Step "${step.label ?? step.tool}" blocked by governance: ${reason.slice(0, 200)}`, stepId: String(i) });
         try {
           const { logAudit } = await import("./audit-log.js");
           logAudit({ level: "warn", actor: "governance", action: "governance.block_step", target: step.tool, detail: reason.slice(0, 200), result: "failure" });
@@ -942,6 +951,7 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
         const offloadedResult = offloadLargeFields(offloadRunId, i, step.tool, result);
         runs[i] = { step, ok: true, result: offloadedResult, durationMs: Date.now() - t0, startedAt: t0, modelUsed };
         onProgress?.([...runs]);
+        appendMissionNote(missionScope, { kind: "progress", text: `Step "${step.label ?? step.tool}" succeeded (${Date.now() - t0}ms)`, stepId: String(i) });
         // A delegated sub-task came back parked for approval (its plan hit the
         // sensitive-action checkpoint on the worker). We can't approve a
         // worker's job from here, so stop and hand the sub-plan up — the caller
@@ -988,6 +998,7 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
         // check below decides whether enough succeeded to keep going.
         push(`  ✗ ${step.label ?? step.tool}: ${msg.slice(0, 200)}`);
         onProgress?.([...runs]);
+        appendMissionNote(missionScope, { kind: "blocker", text: `Step "${step.label ?? step.tool}" failed: ${msg.slice(0, 200)}`, stepId: String(i) });
         return;
       }
     }
@@ -1279,7 +1290,7 @@ export async function planAndExecute(
   task: string,
   push: (msg: string) => void,
   onProgress?: (patch: Partial<AgentResult> & { phase?: string }) => void,
-  opts: { personaSystemSuffix?: string; autoReview?: boolean; preplan?: Plan; workMode?: "agent" | "hybrid" | "human"; testMode?: boolean; signal?: AbortSignal; skipApprovalGate?: boolean; taskKind?: string; persona?: string } = {},
+  opts: { personaSystemSuffix?: string; autoReview?: boolean; preplan?: Plan; workMode?: "agent" | "hybrid" | "human"; testMode?: boolean; signal?: AbortSignal; skipApprovalGate?: boolean; taskKind?: string; persona?: string; scopeId?: string } = {},
 ): Promise<AgentResult> {
   // Human-worker gate: a hire whose workMode is "human" doesn't get an agent
   // loop at all — the task is logged, parked in waiting_on_human, and the
@@ -1360,7 +1371,7 @@ export async function planAndExecute(
     const { runs, hadWrites } = await executePlan(p, push, (rs) => {
       runsBuffer.splice(0, runsBuffer.length, ...rs);
       onProgress?.({ runs: [...rs] });
-    });
+    }, undefined, opts.scopeId);
     const preplanHumanReq = extractHumanRequest(runs);
     if (preplanHumanReq) {
       return { task, plan: p, runs, answer: humanWaitAnswer(preplanHumanReq), hadWrites, humanRequest: preplanHumanReq };
@@ -2022,7 +2033,7 @@ export async function planAndExecute(
 
   onProgress?.({ phase: "executing", plan: p, runs: [] });
 
-  const { runs, hadWrites, budgets, subagentTimings, cancelled, delegatedApproval } = await executePlan(p, push, (runs) => onProgress?.({ runs: [...runs] }), opts.signal);
+  const { runs, hadWrites, budgets, subagentTimings, cancelled, delegatedApproval } = await executePlan(p, push, (runs) => onProgress?.({ runs: [...runs] }), opts.signal, opts.scopeId);
   if (budgets) onProgress?.({ budgets, subagentTimings });
 
   // A delegated sub-task parked for approval — re-park THIS (parent) job. Carry

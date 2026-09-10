@@ -3,7 +3,7 @@ import {
   isN8nEnabled, n8nHealth,
   listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, activateWorkflow,
   listExecutions, getExecution,
-  triggerWebhook, triggerWorkflowByName,
+  triggerWebhook, triggerWorkflowByName, generateWorkflowDraft,
 } from "../lib/n8n.js";
 
 export const n8nRouter = Router();
@@ -43,6 +43,18 @@ n8nRouter.get("/workflows/:id", async (req, res) => {
     const msg = String(e?.message ?? e);
     const code = msg.toLowerCase().includes("not found") ? 404 : 500;
     res.status(code).json({ error: msg });
+  }
+});
+
+// POST /api/n8n/generate — draft a { name, nodes, connections } shape from a
+// plain-English goal. Preview only — does not create the workflow.
+n8nRouter.post("/generate", async (req, res) => {
+  try {
+    const goal = String((req.body ?? {}).goal ?? "");
+    const draft = await generateWorkflowDraft(goal);
+    res.json({ draft });
+  } catch (e: any) {
+    res.status(400).json({ error: String(e?.message ?? e) });
   }
 });
 

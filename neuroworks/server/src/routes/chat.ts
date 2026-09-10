@@ -182,6 +182,8 @@ async function handleChat(req: any, res: any) {
   const last = messages[messages.length - 1];
   if (last.role !== "user" || !last.content?.trim()) return res.status(400).json({ error: "last message must be a non-empty user turn" });
   const text = last.content.trim();
+  // Naxie interaction clock — any user turn counts for the idle nudge.
+  try { const { touchInteraction } = await import("../lib/naxie-interactions.js"); touchInteraction(); } catch { /* best-effort */ }
 
   // Local-machine gate (HARD default, not an opt-in restriction). The fs.* /
   // system.notepad / terminal primitives read and act on the SERVER OPERATOR's
@@ -827,7 +829,10 @@ async function handleChat(req: any, res: any) {
   // into the task so the planner sees them; MAG core is durable memory.
   try {
     const { buildNaxieContext } = await import("../lib/naxie-context.js");
-    const ctx = await buildNaxieContext(text, { ragLimit: 5 });
+    // When this turn continues a prior job, key the mission-log lookup on
+    // that job's id so the model sees its own working notes from earlier in
+    // the same task instead of whatever scope was most recently touched.
+    const ctx = await buildNaxieContext(text, { ragLimit: 5, scopeId: isContinuation ? continuation!.originalJobId : undefined });
     if (ctx.rag) enrichedTask += "\n\n" + ctx.rag;
     // Keep MAG hints lightweight here — full CAG prefix is system-side, but a
     // one-line operator reminder ensures even a 3b local model doesn't forget.
@@ -835,7 +840,8 @@ async function handleChat(req: any, res: any) {
       const magSnippet = ctx.mag.split("\n").slice(0, 6).join("\n");
       enrichedTask += "\n\n[Memory — do not forget]\n" + magSnippet;
     }
-  } catch { /* RAG/MAG is best-effort — never break chat on retrieval hiccup */ }
+    if (ctx.missionLog) enrichedTask += "\n\n" + ctx.missionLog;
+  } catch { /* RAG/MAG/mission-log is best-effort — never break chat on retrieval hiccup */ }
   const job = newJob(`insights:general-task`);
   job.template = tpl.id;
   job.title = isContinuation
@@ -2040,7 +2046,7 @@ chatRouter.post("/team", async (req, res) => {
           : content + attachmentBlock;
         const personaSuffix = personaSystemSuffix(persona);
         if (persona) push(`Working as ${persona.name} — ${persona.role}.`);
-        const r = await planAndExecute(enriched, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, testMode, taskKind: job.kind, persona: persona?.name });
+        const r = await planAndExecute(enriched, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, testMode, taskKind: job.kind, persona: persona?.name, scopeId: job.id });
         if (r.hadWrites) {
           push("Wrote to second brain — committing.");
           try {

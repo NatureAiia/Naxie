@@ -222,3 +222,61 @@ export async function triggerWorkflowByName(name: string, body?: unknown): Promi
   const path = webhookNode.parameters?.path ?? webhookNode.webhookId ?? wf.id;
   return triggerWebhook({ path: String(path), body: body ?? {}, method: "POST" });
 }
+
+// ─── Natural-language workflow drafting ───
+// Drafts a { name, nodes, connections } shape from a plain-English goal —
+// does NOT create it in n8n. The n8n.create_workflow agent tool (primitives.ts)
+// already lets an agent do this end-to-end in chat, and it's already gated
+// in governance.ts's CONSEQUENTIAL_TOOLS; this is a dedicated, UI-discoverable
+// path that always stops at a preview so the operator confirms before create.
+const WORKFLOW_GEN_SYSTEM = `You draft n8n workflow JSON from a plain-English goal. Output ONLY a JSON object
+shaped exactly like { "name": string, "nodes": [...], "connections": {...} } — no prose, no markdown fences.
+
+Node shape (n8n v1 format): each node is { "id": string, "name": string, "type": string, "typeVersion": number,
+"position": [x, y], "parameters": {...} }. Common types: "n8n-nodes-base.webhook", "n8n-nodes-base.scheduleTrigger",
+"n8n-nodes-base.httpRequest", "n8n-nodes-base.set", "n8n-nodes-base.emailSend", "n8n-nodes-base.slack",
+"n8n-nodes-base.if", "n8n-nodes-base.noOp".
+
+Connections map a source node's NAME to its outputs: { "<Source Node Name>": { "main": [[ { "node": "<Target Node Name>", "type": "main", "index": 0 } ]] } }.
+
+Worked examples:
+
+1) "Webhook that forwards the payload to an HTTP endpoint":
+{"name":"Webhook to HTTP","nodes":[
+ {"id":"1","name":"Webhook","type":"n8n-nodes-base.webhook","typeVersion":1,"position":[0,0],"parameters":{"path":"incoming","httpMethod":"POST"}},
+ {"id":"2","name":"HTTP Request","type":"n8n-nodes-base.httpRequest","typeVersion":3,"position":[300,0],"parameters":{"url":"https://example.com/api","method":"POST","sendBody":true,"bodyParameters":{"parameters":[]}}}
+],"connections":{"Webhook":{"main":[[{"node":"HTTP Request","type":"main","index":0}]]}}}
+
+2) "Every weekday morning, send me an email digest":
+{"name":"Weekday Morning Digest","nodes":[
+ {"id":"1","name":"Schedule Trigger","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1,"position":[0,0],"parameters":{"rule":{"interval":[{"field":"cronExpression","expression":"0 8 * * 1-5"}]}}},
+ {"id":"2","name":"Send Email","type":"n8n-nodes-base.emailSend","typeVersion":2,"position":[300,0],"parameters":{"subject":"Morning Digest","text":"Your digest is ready."}}
+],"connections":{"Schedule Trigger":{"main":[[{"node":"Send Email","type":"main","index":0}]]}}}
+
+3) "Webhook that posts a Slack message":
+{"name":"Webhook to Slack","nodes":[
+ {"id":"1","name":"Webhook","type":"n8n-nodes-base.webhook","typeVersion":1,"position":[0,0],"parameters":{"path":"notify","httpMethod":"POST"}},
+ {"id":"2","name":"Slack","type":"n8n-nodes-base.slack","typeVersion":2,"position":[300,0],"parameters":{"channel":"#general","text":"={{$json.message}}"}}
+],"connections":{"Webhook":{"main":[[{"node":"Slack","type":"main","index":0}]]}}}
+
+Pick a short, descriptive "name" for the goal given. Keep the workflow minimal — the smallest node graph that
+achieves the goal. Every node needs a unique "id" and "name"; connections reference nodes by "name".`;
+
+export type WorkflowDraft = { name: string; nodes: any[]; connections: any };
+
+export async function generateWorkflowDraft(goal: string): Promise<WorkflowDraft> {
+  const trimmed = goal.trim();
+  if (!trimmed) throw new Error("goal is required");
+  const { llmGenerate } = await import("./llm.js");
+  const raw = await llmGenerate(`Goal: ${trimmed}`, WORKFLOW_GEN_SYSTEM, { maxTokens: 2000, temperature: 0.2 });
+  // The model is instructed to return bare JSON, but strip markdown fences
+  // defensively in case it wraps the answer anyway.
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  let parsed: any;
+  try { parsed = JSON.parse(cleaned); }
+  catch { throw new Error(`workflow draft wasn't valid JSON: ${cleaned.slice(0, 300)}`); }
+  if (!parsed?.name || !Array.isArray(parsed.nodes) || typeof parsed.connections !== "object") {
+    throw new Error("workflow draft is missing name/nodes/connections");
+  }
+  return { name: String(parsed.name), nodes: parsed.nodes, connections: parsed.connections };
+}

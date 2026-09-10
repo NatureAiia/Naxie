@@ -9,6 +9,7 @@ import { CapabilityToggles } from "./CapabilityToggles";
 import { MicLevelMeter } from "./MicLevelMeter";
 import { useNaxieAssistant, type Turn } from "../lib/useNaxieAssistant";
 import { useMicLevel } from "../lib/useMicLevel";
+import { t } from "../lib/i18n";
 
 const WIDGET_OPEN_KEY = "neuroworks.naxieWidget.open";
 
@@ -33,7 +34,8 @@ export function NaxieWidget() {
   const hidden = location.pathname.startsWith("/naxie");
   const {
     turns, chatTurns, lastExchange, busy, speaking, mic, orbState, alwaysListening, setAlwaysListening,
-    pendingApprovals, waitingTasks, briefing, dismissBriefing,
+    pendingApprovals, waitingTasks, resolveWaitingTask, briefing, dismissBriefing,
+    onboardingNudge, dismissOnboardingNudge,
     ask, speak, micToggle, delegate,
   } = useNaxieAssistant({ autoListen: !hidden });
 
@@ -45,8 +47,8 @@ export function NaxieWidget() {
   useEffect(() => {
     if (open) { setPendingNudge(false); return; }
     const hasUnreadReply = turns.length > 0 && turns[turns.length - 1]?.role === "assistant";
-    setPendingNudge(hasUnreadReply || pendingApprovals > 0 || briefing != null);
-  }, [turns, open, pendingApprovals, briefing]);
+    setPendingNudge(hasUnreadReply || pendingApprovals > 0 || briefing != null || onboardingNudge);
+  }, [turns, open, pendingApprovals, briefing, onboardingNudge]);
 
   if (hidden) return null;
 
@@ -60,7 +62,12 @@ export function NaxieWidget() {
     }
   }
 
-  const waitingCards: Turn[] = waitingTasks.map(t => ({ role: "assistant", text: `Waiting on your approval: ${t.title}`, kind: "delegation" }));
+  const waitingCards: Turn[] = waitingTasks.map(t => ({
+    role: "assistant",
+    text: t.pendingApproval?.actionDescription ?? `Waiting on your approval: ${t.title}`,
+    kind: "approval",
+    meta: { taskId: t.id, diff: t.pendingApproval?.diff, actionKind: t.pendingApproval?.kind },
+  }));
   const resultTurns = [...waitingCards, ...turns.filter(t => t.kind === "delegation")].slice(-2);
   const recentChat = chatTurns.slice(-8);
   const micLevel = useMicLevel(mic.active);
@@ -107,13 +114,17 @@ export function NaxieWidget() {
               </div>
             </div>
 
+            {onboardingNudge && (
+              <NaxieResultCard turn={{ role: "assistant", text: t("onboarding.nudge.text"), kind: "onboarding" }} onDismiss={dismissOnboardingNudge} compact />
+            )}
+
             {briefing && (
               <NaxieResultCard turn={{ role: "assistant", text: briefing.text, kind: "briefing" }} onReplay={speak} onDismiss={dismissBriefing} compact />
             )}
 
             {resultTurns.length > 0 && (
               <div className="space-y-1.5">
-                {resultTurns.map((t, i) => <NaxieResultCard key={i} turn={t} compact />)}
+                {resultTurns.map((t, i) => <NaxieResultCard key={i} turn={t} onApprove={id => resolveWaitingTask(id, true)} onReject={id => resolveWaitingTask(id, false)} compact />)}
               </div>
             )}
 
@@ -142,6 +153,7 @@ export function NaxieWidget() {
             <div className="pt-1.5 mt-1 border-t border-ink-800/60 flex flex-col gap-1.5">
               <ToggleRow label="Always listening" checked={alwaysListening} onChange={setAlwaysListening} compact />
               <CapabilityToggles compact />
+              <Link to="/onboarding" className="text-[11px] text-cream-300/60 hover:text-cream-100">Edit your profile</Link>
             </div>
           </div>
 

@@ -2,6 +2,8 @@
 // starter templates, recommended integrations, and workflows for a department.
 // Applying a department template creates the personas and templates in one step.
 
+import { addPersona, slugifyId, type Persona } from "./personas.js";
+
 export type DepartmentTemplateStep = {
   persona: string;         // persona role name
   task: string;            // what this agent does in the workflow
@@ -328,9 +330,37 @@ export function getDepartmentTemplate(id: string): DepartmentTemplate | undefine
   return DEPARTMENT_TEMPLATES.find(d => d.id === id);
 }
 
-export function applyDepartmentTemplate(id: string): { template: DepartmentTemplate; personas: { name: string; role: string }[] } {
-  const tpl = getDepartmentTemplate(id);
-  if (!tpl) throw new Error(`unknown department template "${id}"`);
-  const personas = tpl.agents.map(a => ({ name: a.name, role: a.role }));
-  return { template: tpl, personas };
+// Creates the persona(s) a resolved department template (built-in or custom —
+// see routes/departments.ts's resolveDepartment) describes. Shared by the
+// /:id/apply route and the sector-bundle installer (sector-packs.ts) so
+// there's exactly one code path that turns a template into real personas.
+export function applyResolvedTemplate(tpl: DepartmentTemplate): {
+  department: string; departmentName: string; personas: { name: string; role: string; id: string }[];
+  recommendedIntegrations: string[]; recommendedTemplates: string[]; workflow: DepartmentTemplateStep[]; schedule: DepartmentTemplate["schedule"] | null;
+} {
+  const created: { name: string; role: string; id: string }[] = [];
+  for (const agent of tpl.agents) {
+    const persona: Persona = {
+      id: slugifyId(agent.name),
+      name: agent.name,
+      role: agent.role,
+      description: `Part of the ${tpl.name} department`,
+      jobDescription: agent.jobDescription,
+      tone: agent.tone ?? "professional",
+      responsibilities: tpl.workflow.filter(w => w.persona === agent.name).map(w => w.task),
+      language: agent.language ?? tpl.defaultLanguage,
+      createdAt: new Date().toISOString(),
+    };
+    addPersona(persona);
+    created.push({ name: persona.name, role: persona.role, id: persona.id });
+  }
+  return {
+    department: tpl.id,
+    departmentName: tpl.name,
+    personas: created,
+    recommendedIntegrations: tpl.recommendedIntegrations,
+    recommendedTemplates: tpl.recommendedTemplates,
+    workflow: tpl.workflow,
+    schedule: tpl.schedule ?? null,
+  };
 }

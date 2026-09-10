@@ -9,6 +9,7 @@ import { Skeleton } from "./components/Card";
 
 // Home Base
 const Naxie = lazy(() => import("./pages/Naxie").then(m => ({ default: m.Naxie })));
+const Onboarding = lazy(() => import("./pages/Onboarding").then(m => ({ default: m.Onboarding })));
 const NaxieMemory = lazy(() => import("./pages/NaxieMemory").then(m => ({ default: m.NaxieMemory })));
 const BoardMeeting = lazy(() => import("./pages/BoardMeeting").then(m => ({ default: m.BoardMeeting })));
 const CommandCenter = lazy(() => import("./pages/CommandCenter").then(m => ({ default: m.CommandCenter })));
@@ -24,6 +25,7 @@ const Runs = lazy(() => import("./pages/Runs").then(m => ({ default: m.Runs })))
 const RunDetail = lazy(() => import("./pages/Runs").then(m => ({ default: m.RunDetail })));
 const AgentApprovals = lazy(() => import("./pages/AgentApprovals").then(m => ({ default: m.AgentApprovals })));
 const MyTasks = lazy(() => import("./pages/MyTasks").then(m => ({ default: m.MyTasks })));
+const Crm = lazy(() => import("./pages/Crm").then(m => ({ default: m.Crm })));
 const CalendarPage = lazy(() => import("./pages/CalendarPage").then(m => ({ default: m.CalendarPage })));
 const Schedules = lazy(() => import("./pages/Schedules").then(m => ({ default: m.Schedules })));
 
@@ -47,6 +49,7 @@ const GithubAccounts = lazy(() => import("./pages/GithubAccounts").then(m => ({ 
 // Govern
 const Policies = lazy(() => import("./pages/Policies").then(m => ({ default: m.Policies })));
 const AuditLog = lazy(() => import("./pages/AuditLog").then(m => ({ default: m.AuditLog })));
+const OrgDashboard = lazy(() => import("./pages/OrgDashboard").then(m => ({ default: m.OrgDashboard })));
 const Cost = lazy(() => import("./pages/Cost").then(m => ({ default: m.Cost })));
 
 // Ambient Watch — stub only, no logic yet
@@ -96,6 +99,7 @@ function AppShell() {
         {/* Home Base */}
         <Route path="/naxie" element={<Naxie />} />
         <Route path="/naxie/memory" element={<NaxieMemory />} />
+        <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/chat" element={<BoardMeeting />} />
         <Route path="/command" element={<CommandCenter />} />
 
@@ -110,6 +114,7 @@ function AppShell() {
         <Route path="/runs/:jobId" element={<RunDetail />} />
         <Route path="/approvals" element={<AgentApprovals />} />
         <Route path="/my-tasks" element={<MyTasks />} />
+        <Route path="/crm" element={<Crm />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/schedules" element={<Schedules />} />
 
@@ -134,6 +139,7 @@ function AppShell() {
         {/* Govern */}
         <Route path="/policies" element={<Policies />} />
         <Route path="/audit" element={<AuditLog />} />
+        <Route path="/org-dashboard" element={<OrgDashboard />} />
         <Route path="/cost" element={<Cost />} />
 
         {/* Ambient Watch — stub */}
@@ -162,7 +168,6 @@ function AppShell() {
         <Route path="/knowledge/*" element={<Navigate to="/library" replace />} />
         <Route path="/data-sources" element={<Navigate to="/library/data" replace />} />
         <Route path="/terminal" element={<Navigate to="/ide" replace />} />
-        <Route path="/onboarding" element={<Navigate to="/naxie" replace />} />
 
         <Route path="*" element={<Navigate to="/naxie" />} />
       </Routes>

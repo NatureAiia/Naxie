@@ -46,6 +46,7 @@ naxieRouter.get("/status", async (_req, res) => {
   try {
     const { listOrgTasks } = await import("../lib/org-tasks.js");
     const { getLatestBriefing, DAEMON_CYCLE_SECONDS } = await import("../lib/org-daemon.js");
+    const { getOnboardingState } = await import("../lib/sector-packs.js");
     const waiting = listOrgTasks({ status: "waiting-on-approval" } as any).slice(0, 5);
     const vs = await voiceStatus();
     const cached = isCloudReachableCached();
@@ -56,6 +57,7 @@ naxieRouter.get("/status", async (_req, res) => {
       connectivity: { cached, online: cached ?? (await isCloudReachableCached()) },
       cag: cagStats(),
       briefing: getLatestBriefing(),
+      onboardingNeeded: getOnboardingState().completed !== true,
       daemonStatus: { cycleSeconds: DAEMON_CYCLE_SECONDS },
     });
   } catch (e: any) {
@@ -82,6 +84,7 @@ naxieRouter.post("/remember", async (req, res) => {
 });
 
 // POST /api/naxie/ask — second-in-command delegation endpoint.
+// Side effect: touches naxie-interactions.json (same idle clock as /voice/converse).
 // Nature (or an external system) gives Naxie a task; she classifies it,
 // routes to the right org role queue (scheduler/researcher/executor/admin),
 // and returns the OrgTask. Complex work lands on a role backlog instead of
@@ -90,6 +93,7 @@ naxieRouter.post("/ask", async (req, res) => {
   const text = String(req.body?.text ?? "").trim().slice(0, 4000);
   if (!text) return res.status(400).json({ error: "text required" });
   const priority = ["low", "normal", "high", "urgent"].includes(String(req.body?.priority)) ? String(req.body.priority) as any : "normal";
+  try { const { touchInteraction } = await import("../lib/naxie-interactions.js"); touchInteraction(); } catch { /* ignore */ }
   try {
     const { classifyOrgRole, createOrgTask } = await import("../lib/org-tasks.js");
     // classifyOrgRole is a Job-shape classifier — wrap the raw ask into that shape.
@@ -125,6 +129,31 @@ naxieRouter.post("/architect/review", async (req, res) => {
   } catch (e: any) {
     res.status(500).json({ error: String(e?.message ?? e) });
   }
+});
+
+// Interests — GET/PUT /api/naxie/interests (research topics for proactive research)
+naxieRouter.get("/interests", async (_req, res) => {
+  try {
+    const { readInterests, resolveResearchTopics } = await import("../lib/research-interests.js");
+    const interests = readInterests();
+    const resolved = resolveResearchTopics({ explicitInterests: interests });
+    res.json({ interests, resolved });
+  } catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
+});
+naxieRouter.put("/interests", async (req, res) => {
+  const raw = req.body?.interests;
+  const topics: string[] = Array.isArray(raw) ? raw.map((s: any) => String(s).trim()).filter(Boolean) : [];
+  if (typeof req.body?.text === "string") {
+    // Also accept { text: "line1\nline2" } for simple textarea POSTs.
+    const extra = String(req.body.text).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    for (const t of extra) if (!topics.includes(t)) topics.push(t);
+  }
+  try {
+    const { writeInterests, resolveResearchTopics } = await import("../lib/research-interests.js");
+    writeInterests(topics);
+    const resolved = resolveResearchTopics({ explicitInterests: topics });
+    res.json({ ok: true, interests: topics, resolved });
+  } catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
 });
 
 // GET /api/naxie/tasks?role=&status= — read the role backlogs (diagnostics)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Workflow, Play, Power, Trash2, Loader2, ExternalLink, AlertTriangle, RefreshCw, Send, X } from "lucide-react";
-import { api, type N8nStatus, type N8nWorkflow, type N8nExecution } from "../lib/api";
+import { Workflow, Play, Power, Trash2, Loader2, ExternalLink, AlertTriangle, RefreshCw, Send, X, Wand2, Plus } from "lucide-react";
+import { api, type N8nStatus, type N8nWorkflow, type N8nExecution, type WorkflowDraft } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 
 // n8n — self-hosted workflow automation. Everything here reads/writes n8n's
@@ -98,6 +98,8 @@ export function N8n() {
 
       {status?.configured && (
         <>
+          <GenerateWorkflowCard onCreated={refreshData} />
+
           <Card title={`Workflows${workflows ? ` (${workflows.length})` : ""}`}>
             {workflows === null ? (
               <div className="text-sm text-cream-300/60 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Loading workflows…</div>
@@ -165,6 +167,67 @@ export function N8n() {
 }
 
 const FIELD = "w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/60 placeholder:text-cream-300/30";
+
+// Describe a workflow in plain English, get a draft back, review it, then
+// create it in n8n — the same n8n.create_workflow call an agent can already
+// make from chat, just with a dedicated, always-previewed entry point.
+function GenerateWorkflowCard({ onCreated }: { onCreated: () => Promise<void> }) {
+  const [goal, setGoal] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState<WorkflowDraft | null>(null);
+
+  async function generate() {
+    setGenerating(true); setDraft(null);
+    try { setDraft((await api.generateN8nWorkflow(goal)).draft); }
+    catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setGenerating(false); }
+  }
+
+  async function create() {
+    if (!draft) return;
+    setCreating(true);
+    try {
+      await api.createN8nWorkflow(draft);
+      showToast(`Workflow "${draft.name}" created (inactive) — activate it below`, "success");
+      setDraft(null);
+      setGoal("");
+      await onCreated();
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setCreating(false); }
+  }
+
+  return (
+    <Card title="Describe a workflow to build">
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <input
+            value={goal}
+            onChange={e => setGoal(e.target.value)}
+            placeholder="e.g. Every weekday morning, post a Slack summary"
+            className={FIELD}
+            onKeyDown={e => { if (e.key === "Enter" && goal.trim() && !generating) void generate(); }}
+          />
+          <Button onClick={generate} disabled={generating || !goal.trim()}>
+            {generating ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />} Generate
+          </Button>
+        </div>
+        {draft && (
+          <div className="rounded-lg border border-ink-800 bg-ink-950/60 p-3 space-y-2">
+            <div className="text-sm text-cream-100">{draft.name}</div>
+            <ul className="text-[12px] text-cream-300/70 list-disc list-inside">
+              {draft.nodes.map((n: any, i: number) => <li key={i}>{n.name} <span className="text-cream-300/40">({n.type})</span></li>)}
+            </ul>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDraft(null)}>Discard</Button>
+              <Button onClick={create} disabled={creating}>{creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Create in n8n</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 function TriggerModal({ onClose }: { onClose: () => void }) {
   const [path, setPath] = useState("");

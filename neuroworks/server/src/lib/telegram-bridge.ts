@@ -97,6 +97,39 @@ async function getBotToken(): Promise<string> {
   } catch { return ""; }
 }
 
+// Shared outbound send — the ONE place that calls Telegram's sendMessage API.
+// Used by the telegram.send agent tool (primitives.ts) AND by background
+// schedulers (reflection.ts, innovation-scan.ts) that push a finished
+// report to the operator's default chat without going through the agent
+// loop. Defaults to the integration's saved chat id; pass chatId to override.
+export async function sendTelegramMessage(text: string, chatId?: string): Promise<{ ok: boolean; error?: string; messageId?: number }> {
+  const { getConnectionByProvider } = await import("./integrations.js");
+  const conn = getConnectionByProvider("telegram");
+  if (!conn?.secrets?.botToken) return { ok: false, error: "no Telegram connection — add one on the Integrations page" };
+  const botToken = stripToken(conn.secrets.botToken);
+  const chat = String(chatId ?? conn.config?.chatId ?? "").trim();
+  if (!chat) return { ok: false, error: "no chatId (set a default on the Integrations page or pass chatId)" };
+  // A bot's own @username is not a valid send target — the single most
+  // common Telegram misconfig. Catch it with a clear message instead of
+  // Telegram's opaque "chat not found".
+  if (/bot$/i.test(chat) && !/^-?\d+$/.test(chat) && !chat.startsWith("@")) {
+    return { ok: false, error: `chatId "${chat}" looks like a bot username, not a chat — a bot can't message itself. Use a numeric chat id (DM the bot, then read it from getUpdates) or @channelusername.` };
+  }
+  const trimmed = text.trim();
+  if (!trimmed) return { ok: false, error: "text is required" };
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      // Telegram's hard cap is 4096 UTF-16 code units per message.
+      body: JSON.stringify({ chat_id: chat, text: trimmed.slice(0, 4096) }),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    return j?.ok ? { ok: true, messageId: j.result?.message_id } : { ok: false, error: `telegram: ${j?.description ?? `HTTP ${r.status}`}` };
+  } catch (e: any) {
+    return { ok: false, error: `telegram send failed: ${e?.message ?? e}` };
+  }
+}
+
 // Effective allow-list: env chat ids UNION the integration's default chat id, so
 // setting a default chat on the Integrations page is enough to use the bridge
 // with no extra env. All compared as strings.

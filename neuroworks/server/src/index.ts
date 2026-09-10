@@ -46,6 +46,7 @@ import { startScheduleScheduler, stopScheduleScheduler } from "./lib/schedules.j
 import { hostToolsRouter } from "./routes/host-tools.js";
 import { orgTasksRouter } from "./routes/org-tasks.js";
 import { naxieConnectorsRouter } from "./routes/naxie-connectors.js";
+import { oauthConnectorsRouter } from "./routes/oauth-connectors.js";
 import { startOrgDaemon, stopOrgDaemon } from "./lib/org-daemon.js";
 import { hydrateMemoryFromSupabaseIfLocalEmpty } from "./lib/memory.js";
 import { governanceRouter } from "./routes/governance.js";
@@ -65,7 +66,9 @@ import { schedulerRouter } from "./routes/scheduler.js";
 import { mcpServersRouter } from "./routes/mcp-servers.js";
 import { extensionsRouter } from "./routes/extensions.js";
 import { n8nRouter } from "./routes/n8n.js";
+import { crmRouter } from "./routes/crm.js";
 import { naxieRouter } from "./routes/naxie.js";
+import { onboardingRouter } from "./routes/onboarding.js";
 import { seedAiiAWebsiteConnector, seedPublicApiConnectors } from "./lib/connectors.js";
 import { executorRouter } from "./routes/executor.js";
 import { primitivesRouter } from "./routes/primitives.js";
@@ -245,6 +248,10 @@ app.use("/api/data-sources", dataSourcesRouter); // external DB credentials + de
 app.use("/api/terminal", terminalRouter); // shell access
 app.use("/api/integrations", integrationsRouter); // service secrets
 app.use("/api/presets", presetsRouter);
+// Google/Microsoft OAuth connectors — mounted BEFORE the generic
+// connectorsRouter below so its literal /google/* and /microsoft/* paths are
+// claimed first; everything else falls through to connectorsRouter unchanged.
+app.use("/api/connectors", oauthConnectorsRouter);
 app.use("/api/connectors", connectorsRouter); // connector credentials
 app.use("/api/github-accounts", githubAccountsRouter); // GitHub PATs, one per account
 app.use("/api/projects", projectsRouter); // repos grouped per account, watched for new commits
@@ -252,12 +259,14 @@ app.use("/api/scheduler", schedulerRouter); // orchestration-core engine introsp
 app.use("/api/mcp-servers", mcpServersRouter); // spawns local processes
 app.use("/api/extensions", extensionsRouter); // unified plugins/extensions monitor + connect (webhook is public via secret)
 app.use("/api/n8n", n8nRouter); // n8n workflow automation (env-gated: N8N_BASE_URL + N8N_API_KEY)
+app.use("/api/crm", crmRouter); // contacts/deals/activities — local JSON store, no external CRM required
 app.use("/api/executor", executorRouter); // flips who/what executes tasks (spend implications)
 app.use("/api/primitives", primitivesRouter);
 app.use("/api/users", usersRouter); // directory admin (salary redaction inside)
 app.use("/api/assignments", assignmentsRouter); // human-in-the-loop work (My Work page; per-route access checks inside)
 app.use("/api/voice", voiceRouter); // employee voices: report Q&A, local TTS proxy, realtime session mint
 app.use("/api/naxie", naxieRouter); // RAG/MAG/CAG inspector + remember (second-in-command memory)
+app.use("/api/onboarding", onboardingRouter); // wizard: operator identity + sector/org profile; bypasses users.json entirely
 app.use("/api/auth", authRouter);
 app.use("/api/departments", departmentsRouter);
 app.use("/api/knowledge-packs", knowledgePacksRouter);
@@ -495,16 +504,17 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // primary's job list anyway. Disable with NEUROWORKS_REFLECTION=0.
   if (process.env.NEUROWORKS_REFLECTION !== "0" && config.role === "primary") {
     startReflectionScheduler();
-    console.log(`  ⓘ nightly reflection scheduler armed (hour=${process.env.NEUROWORKS_REFLECTION_HOUR ?? "2"})`);
+    console.log(`  ⓘ nightly reflection scheduler armed (hour=${process.env.NEUROWORKS_REFLECTION_HOUR ?? "8"}, delivers to Telegram if connected)`);
   }
 
-  // Innovation Scan — same primary-only guard as reflection above. Offset
-  // default hour (5, vs reflection's 2) so the two nightly LLM-heavy jobs
-  // don't compete for the LLM backend simultaneously. Disable with
+  // Innovation Scan — same primary-only guard as reflection above. Both
+  // default to 8am (the operator wants them "everyday at 8am, sent to
+  // Telegram") — they may land in the same 10-minute catch-up tick, which is
+  // fine, each fires and delivers independently. Disable with
   // NEUROWORKS_INNOVATION_SCAN=0.
   if (process.env.NEUROWORKS_INNOVATION_SCAN !== "0" && config.role === "primary") {
     startInnovationScanScheduler();
-    console.log(`  ⓘ nightly innovation scan scheduler armed (hour=${process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "5"})`);
+    console.log(`  ⓘ nightly innovation scan scheduler armed (hour=${process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8"}, delivers to Telegram if connected)`);
   }
 
   // Second-brain wiki compile — distills raw captures (_archive/) into

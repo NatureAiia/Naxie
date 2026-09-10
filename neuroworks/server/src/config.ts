@@ -35,10 +35,28 @@ const localFilesPathRaw = pick("LOCAL_FILES_PATH", "C:\\NaxieFiles");
 const localFilesPath = resolve(localFilesPathRaw);
 const ollamaHost = pick("OLLAMA_HOST", "http://127.0.0.1:11434");
 const ollamaModel = pick("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0");
-// The separate naxionai/backend (FastAPI, Python) service — hosts Naxie's
-// personal Google/Microsoft connectors (see routes/naxie-connectors.ts). Not
-// started or supervised by this server; must be running separately.
+// Legacy: the separate naxionai/backend (FastAPI, Python) service used to host
+// Naxie's personal Google/Microsoft connectors via a proxy at /naxie-api. That
+// connector logic now lives natively here (see lib/oauth-connectors.ts,
+// routes/oauth-connectors.ts) — this var is kept only for any remaining
+// reference during the naxionai/backend retirement pass.
 const naxionBaseUrl = pick("NAXION_BASE_URL", "http://127.0.0.1:8000");
+// Google/Microsoft OAuth (authorization-code flow) for the personal connectors
+// — ported from naxionai/backend/api/{google,microsoft}_connector.py. Optional:
+// each platform is simply unavailable (authorize returns 400) until its client
+// id/secret are set. Redirect URIs default to this server's own port so an
+// existing registered OAuth app just needs repointing, not reconfiguring.
+const googleClientId = pick("GOOGLE_CLIENT_ID", "");
+const googleClientSecret = pick("GOOGLE_CLIENT_SECRET", "");
+const googleRedirectUri = pick("GOOGLE_REDIRECT_URI", `http://localhost:${pick("NEUROWORKS_PORT", "7471")}/api/connectors/google/callback`);
+const microsoftClientId = pick("MICROSOFT_CLIENT_ID", "");
+const microsoftClientSecret = pick("MICROSOFT_CLIENT_SECRET", "");
+const microsoftTenantId = pick("MICROSOFT_TENANT_ID", "common");
+const microsoftRedirectUri = pick("MICROSOFT_REDIRECT_URI", `http://localhost:${pick("NEUROWORKS_PORT", "7471")}/api/connectors/microsoft/callback`);
+// Where the OAuth callback redirects the browser back to after connecting —
+// the web app's own origin (Vite dev server in local dev, or this server's
+// own origin when SERVE_WEB=1 serves the built SPA).
+const naxieWebUrl = pick("NAXIE_WEB_URL", "http://localhost:7470");
 // Effort dial the customer can flip from Settings → Models. "auto" (default)
 // keeps the existing per-task capability scoring + size-based OR escalation.
 // "high" biases local picks toward reasoning/longForm models and always
@@ -219,6 +237,16 @@ export const config = {
   ollamaHost,
   ollamaModel,
   naxionBaseUrl,
+  googleClientId,
+  googleClientSecret,
+  googleOauthEnabled: googleClientId.length > 0 && googleClientSecret.length > 0,
+  googleRedirectUri,
+  microsoftClientId,
+  microsoftClientSecret,
+  microsoftOauthEnabled: microsoftClientId.length > 0 && microsoftClientSecret.length > 0,
+  microsoftTenantId,
+  microsoftRedirectUri,
+  naxieWebUrl,
   effortMode: effortMode as "auto" | "low" | "high",
   openrouterApiKey,
   openrouterBaseUrl,

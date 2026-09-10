@@ -38,6 +38,11 @@ export type OperatorIdentity = {
   orgName?: string;
   language: string;
   summary: string;
+  // The onboarding wizard's tone choice (routes/onboarding.ts) — previously
+  // collected and stored in onboarding.json but never actually reached
+  // Naxie's own context/tone instructions, so picking "caveman" at onboarding
+  // had zero effect on how she actually talked. Surfaced here so it does.
+  responseStyle?: "standard" | "caveman";
 };
 
 export function getOperatorIdentity(): OperatorIdentity {
@@ -47,12 +52,14 @@ export function getOperatorIdentity(): OperatorIdentity {
   let sector: string | undefined;
   let orgName: string | undefined;
   let language = "en";
+  let responseStyle: "standard" | "caveman" | undefined;
 
   try {
     const onboarding = getOnboardingState();
     sector = onboarding.sector;
     orgName = onboarding.orgName;
     language = onboarding.language || "en";
+    responseStyle = onboarding.responseStyle;
   } catch { /* ignore */ }
 
   // users.json is the canonical operator record (oldest superadmin)
@@ -85,28 +92,33 @@ export function getOperatorIdentity(): OperatorIdentity {
     }
   } catch { /* ignore */ }
 
-  // vault override file — if operator wrote their own identity note, prefer it
+  // vault override file — if operator wrote their own identity note, prefer it.
+  // "unknown" is the template's own placeholder for an unset field (see
+  // writeOperatorIdentityFile/ensureOperatorIdentityFile below) — treat it as
+  // absent rather than a real override, so a freshly-onboarded value isn't
+  // masked by a stale placeholder that happened to survive a partial write.
   const vaultOp = vaultRead(`${IDENTITY_DIR}/operator.md`);
   if (vaultOp) {
     const mName = vaultOp.match(/^name:\s*(.+)$/m);
     const mEmail = vaultOp.match(/^email:\s*(.+)$/m);
-    if (mName) name = mName[1].trim();
-    if (mEmail) email = mEmail[1].trim();
+    const mTitle = vaultOp.match(/^title:\s*(.+)$/m);
+    const isSet = (v: string | undefined) => !!v && v.trim().toLowerCase() !== "unknown";
+    if (isSet(mName?.[1])) name = mName![1].trim();
+    if (isSet(mEmail?.[1])) email = mEmail![1].trim();
+    if (isSet(mTitle?.[1])) title = mTitle![1].trim();
   }
 
   const summary = `${name}${email ? ` <${email}>` : ""}${title ? ` — ${title}` : ""}${orgName ? ` @ ${orgName}` : ""}${sector ? ` [${sector}]` : ""}`.trim();
-  return { name, email, title, sector, orgName, language, summary };
+  return { name, email, title, sector, orgName, language, summary, responseStyle };
 }
 
-export function ensureOperatorIdentityFile(): string {
-  const rel = `${IDENTITY_DIR}/operator.md`;
-  if (vaultRead(rel)) return rel;
-  const op = getOperatorIdentity();
-  const content = `---
+function operatorIdentityMarkdown(op: OperatorIdentity): string {
+  return `---
 type: identity
 role: operator
 name: ${op.name}
 email: ${op.email || "unknown"}
+title: ${op.title || "unknown"}
 sector: ${op.sector || "unknown"}
 org: ${op.orgName || "unknown"}
 language: ${op.language}
@@ -118,7 +130,7 @@ updated: ${new Date().toISOString()}
 This is the human Naxie serves. Naxie must never forget this person.
 
 - **Name:** ${op.name}
-- **Email:** ${op.email || "(not set — set via Admin > Users)"}
+- **Email:** ${op.email || "(not set)"}
 - **Title:** ${op.title || "(not set)"}
 - **Org:** ${op.orgName || "(not set)"}
 - **Sector:** ${op.sector || "(not set)"}
@@ -128,8 +140,42 @@ This is the human Naxie serves. Naxie must never forget this person.
 - Always address by name (${op.name}) when greeting or confirming.
 - Remember preferences stored as \`memory.note subject="operator"\`.
 - Never ask "who are you?" again — this file is the source of truth.
+${op.responseStyle === "caveman" ? `- **Response style: caveman.** ${op.name} chose this at onboarding — short, blunt sentences, simple words, no jargon, no hedging. Not baby talk, just stripped-down and direct.` : ""}
 `;
-  vaultWrite(rel, content);
+}
+
+export function ensureOperatorIdentityFile(): string {
+  const rel = `${IDENTITY_DIR}/operator.md`;
+  if (vaultRead(rel)) return rel;
+  vaultWrite(rel, operatorIdentityMarkdown(getOperatorIdentity()));
+  return rel;
+}
+
+// Unconditional refresh — called when the operator actually tells Naxie who
+// they are (the onboarding wizard, routes/onboarding.ts) rather than only on
+// first boot. Unlike ensureOperatorIdentityFile, this always overwrites, the
+// same "always rewrite" posture ensureSubagentRosterFile already uses below.
+// Merges the given fields over whatever getOperatorIdentity() currently
+// resolves so a partial edit (e.g. just a new `notes` fact, no name change)
+// never blanks a field the caller didn't touch. `email` accepts an explicit
+// empty string as "clear it"; the others treat empty/missing as "keep it".
+export function writeOperatorIdentityFile(fields: {
+  name?: string; email?: string; title?: string; sector?: string; orgName?: string; language?: string;
+}): string {
+  const rel = `${IDENTITY_DIR}/operator.md`;
+  const current = getOperatorIdentity();
+  const op: OperatorIdentity = {
+    name: fields.name?.trim() || current.name,
+    email: fields.email !== undefined ? fields.email.trim() : current.email,
+    title: fields.title?.trim() || current.title,
+    sector: fields.sector ?? current.sector,
+    orgName: fields.orgName?.trim() || current.orgName,
+    language: fields.language || current.language,
+    responseStyle: current.responseStyle,
+    summary: "",
+  };
+  op.summary = `${op.name}${op.email ? ` <${op.email}>` : ""}${op.title ? ` — ${op.title}` : ""}${op.orgName ? ` @ ${op.orgName}` : ""}${op.sector ? ` [${op.sector}]` : ""}`.trim();
+  vaultWrite(rel, operatorIdentityMarkdown(op));
   return rel;
 }
 

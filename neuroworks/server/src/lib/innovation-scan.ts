@@ -410,11 +410,25 @@ export function lastInnovationScan(): InnovationScanResult | null {
 let scheduler: NodeJS.Timeout | null = null;
 let lastRunDate: string | null = null;
 
+// Best-effort push of the finished digest to Telegram — never throws, never
+// blocks the scheduler. Silently no-ops if Telegram isn't connected (same
+// "optional delivery" posture as schedules.ts's email delivery).
+async function deliverToTelegram(result: InnovationScanResult): Promise<void> {
+  try {
+    const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    const text = `🔎 Innovation Scan — ${result.date}\n\n${result.targeted.length} weak spot(s) addressed, ${result.broad.repos.length} trending repo(s), ${result.broad.news.length} news item(s)\n\n${result.digest.slice(0, 3500)}`;
+    const r = await sendTelegramMessage(text);
+    if (!r.ok) console.warn(`[innovation-scan] Telegram delivery skipped: ${r.error}`);
+  } catch (e: any) { console.warn(`[innovation-scan] Telegram delivery failed: ${e?.message ?? e}`); }
+}
+
 export function startInnovationScanScheduler(): void {
   if (scheduler) return;
-  // Reflection defaults to hour 2; innovation scan defaults to hour 5 so the
-  // two nightly LLM-heavy jobs don't overlap on a typical server.
-  const SCAN_HOUR = Number(process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "5");
+  // Default 8 AM local, matching the reflection scheduler (reflection.ts) —
+  // both are "everyday at 8am" per the operator's own request. They may land
+  // in the same 10-minute catch-up tick; that's fine, each fires and delivers
+  // independently.
+  const SCAN_HOUR = Number(process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8");
   const tick = async () => {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -435,7 +449,10 @@ export function startInnovationScanScheduler(): void {
     } catch { /* vault unreachable — fall through; runInnovationScan will surface it */ }
     lastRunDate = today;
     console.log(`[innovation-scan] firing daily scan (hour>=${SCAN_HOUR}, catch-up)`);
-    try { await runInnovationScan(); }
+    try {
+      const result = await runInnovationScan();
+      void deliverToTelegram(result);
+    }
     catch (e: any) { console.warn(`[innovation-scan] scheduler run failed: ${e?.message ?? e}`); }
   };
   scheduler = setInterval(tick, 10 * 60_000);

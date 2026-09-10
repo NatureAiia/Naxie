@@ -21,6 +21,8 @@ import {
   Boxes,
   Cable,
   Workflow,
+  Network,
+  Contact,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -85,6 +87,7 @@ const workNav: NavItem[] = [
   // so a person's handoffs, the deliverables, and editing all live in one
   // place.
   { to: "/my-work", label: "My Work", icon: Inbox },
+  { to: "/crm", label: "CRM", icon: Contact },
   { to: "/runs", label: "Runs", icon: TodoIcon, badgeKey: "activity" },
   { to: "/approvals", label: "Agent Approvals", icon: ReviewFolderIcon, badgeKey: "approvals" },
   { to: "/my-tasks", label: "My Tasks", icon: TodoIcon },
@@ -116,6 +119,7 @@ const connectNav: NavItem[] = [
 const governNav: NavItem[] = [
   { to: "/policies", label: "Policies", icon: CertificateIcon },
   { to: "/audit", label: "Audit Log", icon: LogIcon },
+  { to: "/org-dashboard", label: "Org Dashboard", icon: Network },
   { to: "/cost", label: "Cost", icon: DollarSign },
 ];
 

@@ -1,6 +1,5 @@
 import { Router } from "express";
-import { listDepartmentTemplates, getDepartmentTemplate, applyDepartmentTemplate } from "../lib/department-templates.js";
-import { addPersona, slugifyId } from "../lib/personas.js";
+import { listDepartmentTemplates, getDepartmentTemplate, applyResolvedTemplate } from "../lib/department-templates.js";
 import { listCustomDepartments, createCustomDepartment, deleteCustomDepartment, customToListRow, customToTemplate } from "../lib/custom-departments.js";
 import { requireLayer, callerOf } from "../lib/access.js";
 
@@ -77,32 +76,10 @@ departmentsRouter.post("/:id/apply", async (req, res) => {
     const tpl = resolveDepartment(req.params.id);
     if (!tpl) return res.status(404).json({ error: "department template not found" });
 
-    const created: { name: string; role: string; id: string }[] = [];
-    for (const agent of tpl.agents) {
-      const persona: import("../lib/personas.js").Persona = {
-        id: slugifyId(agent.name),
-        name: agent.name,
-        role: agent.role,
-        description: `Part of the ${tpl.name} department`,
-        jobDescription: agent.jobDescription,
-        tone: agent.tone ?? "professional",
-        responsibilities: tpl.workflow.filter(w => w.persona === agent.name).map(w => w.task),
-        language: agent.language ?? tpl.defaultLanguage,
-        createdAt: new Date().toISOString(),
-      };
-      addPersona(persona);
-      created.push({ name: persona.name, role: persona.role, id: persona.id });
-    }
-
+    const result = applyResolvedTemplate(tpl);
     res.json({
-      department: tpl.id,
-      departmentName: tpl.name,
-      personas: created,
-      recommendedIntegrations: tpl.recommendedIntegrations,
-      recommendedTemplates: tpl.recommendedTemplates,
-      workflow: tpl.workflow,
-      schedule: tpl.schedule ?? null,
-      message: `Deployed "${tpl.name}" — ${created.length} agent${created.length === 1 ? "" : "s"} created. Head to the Team page to activate and assign them.`,
+      ...result,
+      message: `Deployed "${result.departmentName}" — ${result.personas.length} agent${result.personas.length === 1 ? "" : "s"} created. Head to the Team page to activate and assign them.`,
     });
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? String(e) });

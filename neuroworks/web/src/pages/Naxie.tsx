@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, MicOff, Loader2, Send, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign, Phone, PhoneOff } from "lucide-react";
+import { Mic, MicOff, Loader2, Send, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign, Phone, PhoneOff, Share2, MessageSquare } from "lucide-react";
 import { Button } from "../components/Card";
 import { KnowledgeGraph } from "../components/KnowledgeGraph";
 import { NaxieOrb } from "../components/NaxieOrb";
@@ -12,6 +12,7 @@ import { useNaxieAssistant, type Turn } from "../lib/useNaxieAssistant";
 import { useRealtimeCall } from "../lib/useRealtimeCall";
 import { useMicLevel } from "../lib/useMicLevel";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 
 // Ambient status — ports Dashboard's headline stats (agent count, running
 // jobs, spend) and Activity's timeline into Naxie now that both of those
@@ -68,10 +69,16 @@ export function Naxie() {
   const {
     turns, chatTurns, lastExchange, sourceNoteId, busy, speaking, liveCaption, mic, orbState, alwaysListening, setAlwaysListening,
     requireWakeWord, setRequireWakeWord, voice,
-    waitingTasks, briefing, dismissBriefing,
+    waitingTasks, resolveWaitingTask, briefing, dismissBriefing,
+    onboardingNudge, dismissOnboardingNudge,
     ask, speak, stopSpeaking, micToggle,
   } = useNaxieAssistant();
   const [input, setInput] = useState("");
+  // §8.2 layout — chat is the visual center by default; the knowledge graph
+  // ("the brain") moves into an on-demand panel instead of always filling
+  // half the screen. Toggled, not routed, so switching back doesn't lose the
+  // live conversation state.
+  const [showGraph, setShowGraph] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [liveCallCaption, setLiveCallCaption] = useState("");
@@ -100,18 +107,25 @@ export function Naxie() {
     speaking: "Peaking the response with a live voice output.",
   }[orbState];
 
-  const waitingCards: Turn[] = waitingTasks.map(t => ({ role: "assistant", text: `Waiting on your approval: ${t.title}`, kind: "delegation" }));
+  const waitingCards: Turn[] = waitingTasks.map(t => ({
+    role: "assistant",
+    text: t.pendingApproval?.actionDescription ?? `Waiting on your approval: ${t.title}`,
+    kind: "approval",
+    meta: { taskId: t.id, diff: t.pendingApproval?.diff, actionKind: t.pendingApproval?.kind },
+  }));
   const resultTurns = [...waitingCards, ...turns.filter(t => t.kind === "delegation")].slice(-3);
   const recentChat = chatTurns.slice(-10);
   const micLevel = useMicLevel(mic.active);
 
   return (
     <div className="flex h-full gap-6">
-      <div className="flex-1 min-w-0 h-full py-2">
-        <KnowledgeGraph focusId={sourceNoteId} />
-      </div>
+      {showGraph && (
+        <div className="flex-1 min-w-0 h-full py-2">
+          <KnowledgeGraph focusId={sourceNoteId} />
+        </div>
+      )}
 
-      <div className="flex flex-col h-full w-[380px] shrink-0">
+      <div className={`flex flex-col h-full ${showGraph ? "w-[380px] shrink-0" : "flex-1 min-w-0 max-w-2xl mx-auto w-full"}`}>
         <div className="flex items-center justify-between gap-2 pt-2 pb-4">
           <div className="flex items-center gap-2">
             <Sparkles size={18} className="text-violet-400" />
@@ -120,7 +134,17 @@ export function Naxie() {
               <div className="text-xs text-cream-300/60">Personal assistant — talk or type</div>
             </div>
           </div>
-          <Link to="/naxie/memory" className="text-[11px] px-2 py-1 rounded-md bg-ink-800 hover:bg-ink-700 border border-ink-700 text-cream-300">Memory</Link>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setShowGraph(g => !g)}
+              title={showGraph ? "Back to chat" : "Open the knowledge graph"}
+              className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md border ${showGraph ? "bg-violet-500/15 border-violet-500/40 text-violet-300" : "bg-ink-800 hover:bg-ink-700 border-ink-700 text-cream-300"}`}
+            >
+              {showGraph ? <><MessageSquare size={12} /> Chat</> : <><Share2 size={12} /> Knowledge graph</>}
+            </button>
+            <Link to="/naxie/memory" className="text-[11px] px-2 py-1 rounded-md bg-ink-800 hover:bg-ink-700 border border-ink-700 text-cream-300">Memory</Link>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 pb-3 text-[11px] text-cream-300/70">
@@ -213,17 +237,21 @@ export function Naxie() {
               <ToggleRow label={'Require "Hey Naxie"'} checked={requireWakeWord} onChange={setRequireWakeWord} />
             )}
             <CapabilityToggles />
+            <Link to="/onboarding" className="text-xs text-cream-300/60 hover:text-cream-100">Edit your profile</Link>
           </div>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin space-y-2.5 px-1 pb-3">
+          {onboardingNudge && (
+            <NaxieResultCard turn={{ role: "assistant", text: t("onboarding.nudge.text"), kind: "onboarding" }} onDismiss={dismissOnboardingNudge} />
+          )}
           {briefing && (
             <NaxieResultCard turn={{ role: "assistant", text: briefing.text, kind: "briefing" }} onReplay={speak} onDismiss={dismissBriefing} />
           )}
 
           {resultTurns.length > 0 && (
             <div className="space-y-2 nw-fade-up">
-              {resultTurns.map((t, i) => <NaxieResultCard key={i} turn={t} onReplay={speak} />)}
+              {resultTurns.map((t, i) => <NaxieResultCard key={i} turn={t} onReplay={speak} onApprove={id => resolveWaitingTask(id, true)} onReject={id => resolveWaitingTask(id, false)} />)}
             </div>
           )}
 

@@ -594,6 +594,14 @@ export async function processInboundEmail(msg: InboundMessage): Promise<{ status
   const subject = msg.subject ?? "";
   const { route, cleanSubject } = routeFromSubject(subject);
   const prompt = [cleanSubject, msg.body].filter(Boolean).join("\n\n").trim();
+
+  // CRM linkage — every inbound email becomes a contact + activity for free.
+  // Best-effort: a CRM failure must never block the actual email reply.
+  try {
+    const { upsertContact, logActivity } = await import("./crm.js");
+    const contact = upsertContact({ email: sender, source: "email" });
+    if (prompt) logActivity({ contactId: contact.id, kind: "email", body: `${cleanSubject || subject}: ${prompt}`.slice(0, 500) });
+  } catch (e: any) { console.warn(`[email] CRM linkage failed: ${e?.message ?? e}`); }
   // Thread key — groups this message with prior turns in the same mail thread so
   // an email back-and-forth keeps context (computed even when the body is empty
   // so the reply below still threads).

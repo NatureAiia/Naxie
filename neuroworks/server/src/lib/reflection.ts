@@ -585,9 +585,26 @@ export function lastReflection(): ReflectionResult | null {
 let scheduler: NodeJS.Timeout | null = null;
 let lastRunDate: string | null = null;
 
+// Best-effort push of the finished reflection to Telegram — never throws,
+// never blocks the scheduler. Silently no-ops if Telegram isn't connected
+// (same "optional delivery" posture as schedules.ts's email delivery).
+async function deliverToTelegram(result: ReflectionResult): Promise<void> {
+  try {
+    const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    const s = result.stats;
+    const text = `📋 Daily Reflection — ${s.date}\n\n${s.totalTasks} task(s): ${s.succeeded} ok, ${s.failed} failed, ${s.rejected} rejected (${Math.round(s.successRate * 100)}% success)\n\n${result.reflection.slice(0, 3500)}`;
+    const r = await sendTelegramMessage(text);
+    if (!r.ok) console.warn(`[reflection] Telegram delivery skipped: ${r.error}`);
+  } catch (e: any) { console.warn(`[reflection] Telegram delivery failed: ${e?.message ?? e}`); }
+}
+
 export function startReflectionScheduler(): void {
   if (scheduler) return;
-  const REFLECTION_HOUR = Number(process.env.NEUROWORKS_REFLECTION_HOUR ?? "2");
+  // Default 8 AM local, matching the innovation scan (innovation-scan.ts) —
+  // both are "everyday at 8am" per the operator's own request. They may land
+  // in the same 10-minute catch-up tick; that's fine, each fires and delivers
+  // independently.
+  const REFLECTION_HOUR = Number(process.env.NEUROWORKS_REFLECTION_HOUR ?? "8");
   const tick = async () => {
     const now = new Date();
     // LOCAL date — toISOString() is UTC and put late-evening runs on the wrong
@@ -622,7 +639,10 @@ export function startReflectionScheduler(): void {
     } catch { /* vault unreachable — fall through; runReflection will surface it */ }
     lastRunDate = today;
     console.log(`[reflection] firing daily reflection (hour>=${REFLECTION_HOUR}, catch-up)`);
-    try { await runReflection(); }
+    try {
+      const result = await runReflection();
+      void deliverToTelegram(result);
+    }
     catch (e: any) { console.warn(`[reflection] scheduler run failed: ${e?.message ?? e}`); }
   };
   // Check every 10 minutes; with catch-up the precise boot time no longer matters.

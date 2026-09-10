@@ -97,13 +97,21 @@ export async function localTtsAvailable(): Promise<boolean> {
   return ok;
 }
 
-export async function voiceStatus(): Promise<{ realtime: boolean; openaiTts: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean }> {
+export async function voiceStatus(): Promise<{ realtime: boolean; openaiTts: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean; wakeWord: { available: boolean; modelDir: string | null; phrase: string; variants: string[] } }> {
+  let wakeWord: { available: boolean; modelDir: string | null; phrase: string; variants: string[] };
+  try {
+    const { wakeWordStatus } = await import("./wake-word.js");
+    wakeWord = wakeWordStatus();
+  } catch {
+    wakeWord = { available: false, modelDir: null, phrase: "hey naxie", variants: ["hey naxie"] };
+  }
   return {
     realtime: openaiCreds() !== null,
     openaiTts: openaiTtsAvailable(),
     localTts: await localTtsAvailable(),
     realtimeModel: REALTIME_MODEL,
     ttsUrlConfigured: TTS_URL.length > 0,
+    wakeWord,
   };
 }
 

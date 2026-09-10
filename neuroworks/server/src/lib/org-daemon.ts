@@ -10,28 +10,17 @@
 // than waiting a full cycle.
 //
 // SCOPE NOTE: §2.3's notification channel now exists (lib/notify.ts —
-// desktop toast + email, tiered by severity) and this module uses it for the
-// two behaviors that produce user-facing events today:
+// desktop toast + email, tiered by severity) and this module uses it for:
 //   - sweepStaleOrgApprovals: expire an OrgTask parked in waiting-on-approval
-//     too long, mirroring jobs.ts's own sweepStaleApprovals for Job — now
-//     also emails the operator (notify.ts's "urgent" tier) on expiry.
-//   - maybeNudgePendingApprovals: desktop-toasts (notify.ts's "attention"
-//     tier) when an approval has sat long enough to be worth interrupting
-//     for, throttled.
-//   - reconcileOrphanedActiveTasks: an OrgTask can be left "active" forever
-//     if the server restarts mid-job (the in-memory Job map is fresh on
-//     boot, so getJob() returns undefined for anything that was running
-//     before) — this catches that and resolves it to "blocked" instead of a
-//     permanently stuck task. In-app only (§2.3 "routine" tier) — no toast/
-//     email, the OrgTask table and audit log are the surface.
-//   - maybeGenerateBriefing: once/day, reuses routes/templates.ts's
-//     "daily-briefing" runner and caches the result for GET /api/naxie/status
-//     to push onto the HUD, toasting via notify.ts's "attention" tier.
-// Still not implemented (the channel is no longer the blocker — these are
-// their own separate cadence-tracking features, not yet scoped):
-//   - idle-activity report, chat-inactivity check-in, proactive research
-//     cadence (all from agency_daemon.py, §2.4)
-//   - Executor check-in nudge for a long-running active task (§6)
+//   - maybeNudgePendingApprovals: desktop-toasts when an approval has sat long enough
+//   - reconcileOrphanedActiveTasks: orphaned "active" → "blocked" after restart
+//   - maybeGenerateBriefing: once/day daily-briefing runner
+//   - maybeNudgeStaleExecutorTasks (§6): "still on it" toast for long Executor runs
+//   - maybeReportIdleActivity (§2.4/§6): idle backlog summary
+//   - maybeNudgeChatInactivity (§2.4): chat-inactivity check-in — uses
+//     naxie-interactions.json's lastInteractionAt (touched by voice/naxie/chat routes)
+//   - maybeRunProactiveResearch (§2.4): proactive research — topic resolver over
+//     interests.md + sector context + MAG subjects (see research-interests.ts)
 
 import { listOrgTasks, updateOrgTaskStatus, snapshotOrgTasksToVault, type OrgTask } from "./org-tasks.js";
 import { getJob } from "./jobs.js";
@@ -39,6 +28,10 @@ import { logAudit } from "./audit-log.js";
 import { notifyAttention, notifyUrgent } from "./notify.js";
 import { enqueueVaultCommit } from "./commit-queue.js";
 import { runArchitectReview } from "./architect.js";
+import { getInteractions, setLastNudgeAt, setLastResearchAt } from "./naxie-interactions.js";
+import { resolveResearchTopics } from "./research-interests.js";
+import { getOperatorIdentity } from "./mag.js";
+import { buildMagContext } from "./mag.js";
 
 // Desktop toast nudge — fires when an OrgTask sits in waiting-on-approval
 // past this threshold (docs/naxie-architecture.md §2.3 "needs your attention
@@ -146,6 +139,153 @@ export async function maybeGenerateBriefing(now = Date.now()): Promise<boolean> 
   return true;
 }
 
+// Executor check-in nudge (docs/naxie-architecture.md §6) — a multi-step
+// Executor task can genuinely be mid-flight for a long time (research,
+// multi-file coding); the point isn't to complain, it's to tell you it's
+// still alive rather than silently sitting there. "No update" is read off
+// the Job's own log tail (every line is `[ISO] message` — see jobs.ts's
+// push()), not a new Job field, since a running Job already timestamps
+// every step it takes.
+const EXECUTOR_CHECKIN_AFTER_MS = Number(process.env.NEUROWORKS_ORG_EXECUTOR_CHECKIN_MS) || 15 * 60 * 1000;
+const EXECUTOR_CHECKIN_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_EXECUTOR_CHECKIN_THROTTLE_MS) || 30 * 60 * 1000;
+const executorLastNudgedAt = new Map<string, number>(); // OrgTask id -> last nudge ts
+
+function lastJobActivity(job: { log: string[]; startedAt: string }): number {
+  const lastLine = job.log[job.log.length - 1];
+  const m = lastLine ? /^\[([^\]]+)\]/.exec(lastLine) : null;
+  const parsed = m ? new Date(m[1]).getTime() : NaN;
+  return Number.isFinite(parsed) ? parsed : new Date(job.startedAt).getTime();
+}
+
+export function maybeNudgeStaleExecutorTasks(now = Date.now()): number {
+  let nudged = 0;
+  for (const t of listOrgTasks({ role: "executor", status: "active" })) {
+    if (!t.jobId) continue;
+    const job = getJob(t.jobId);
+    if (!job) continue; // no longer tracked — reconcileOrphanedActiveTasks owns that case
+    const lastActivity = lastJobActivity(job);
+    if (now - lastActivity < EXECUTOR_CHECKIN_AFTER_MS) continue;
+    if (now - (executorLastNudgedAt.get(t.id) ?? 0) < EXECUTOR_CHECKIN_THROTTLE_MS) continue;
+    executorLastNudgedAt.set(t.id, now);
+    const mins = Math.round((now - lastActivity) / 60_000);
+    void notifyAttention(
+      "Naxie — still on it",
+      `"${(t.title ?? "").slice(0, 80)}" hasn't logged a new step in ${mins}m — still in progress, just a longer stretch than usual.`,
+      { actor: "executor", target: t.title },
+    );
+    try { logAudit({ level: "info", actor: "executor", action: "org_task.checkin", target: t.title, detail: `no job update in ${mins}m`, jobId: t.jobId, result: "success" }); } catch { /* best-effort */ }
+    nudged += 1;
+  }
+  return nudged;
+}
+
+// Idle-activity report (docs/naxie-architecture.md §2.4/§6) — if NOTHING has
+// moved across the whole OrgTask backlog in a long stretch, proactively
+// summarize what's still outstanding rather than staying silent forever.
+// Deliberately conservative: fires at most once a day, and only when there's
+// actually something outstanding to report (an idle backlog that's also
+// EMPTY isn't worth an interruption).
+const IDLE_REPORT_AFTER_MS = Number(process.env.NEUROWORKS_ORG_IDLE_REPORT_MS) || 24 * 3600 * 1000;
+const IDLE_REPORT_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_IDLE_REPORT_THROTTLE_MS) || 24 * 3600 * 1000;
+let lastIdleReportAt = 0;
+
+export function maybeReportIdleActivity(now = Date.now()): boolean {
+  const all = listOrgTasks();
+  if (all.length === 0) return false; // nothing has ever run
+  const lastActivity = new Date(all[0].updatedAt).getTime(); // listOrgTasks sorts desc by updatedAt
+  if (now - lastActivity < IDLE_REPORT_AFTER_MS) return false;
+  if (now - lastIdleReportAt < IDLE_REPORT_THROTTLE_MS) return false;
+  lastIdleReportAt = now;
+  const outstanding = all.filter(t => t.status !== "done");
+  if (outstanding.length === 0) return false; // idle AND nothing outstanding — nothing to say
+  const byStatus = new Map<string, number>();
+  for (const t of outstanding) byStatus.set(t.status, (byStatus.get(t.status) ?? 0) + 1);
+  const summary = [...byStatus.entries()].map(([s, n]) => `${n} ${s}`).join(", ");
+  const hrs = Math.round((now - lastActivity) / 3_600_000);
+  void notifyAttention(
+    "Naxie — here's what's still outstanding",
+    `Nothing's moved in ${hrs}h. Outstanding: ${summary}.`,
+    { actor: "naxie" },
+  );
+  try { logAudit({ level: "info", actor: "naxie", action: "org_task.idle_report", target: "daemon", detail: summary, result: "success" }); } catch { /* best-effort */ }
+  return true;
+}
+
+// Chat-inactivity check-in — ports agency_daemon.py:_check_idle_chat_nudge.
+// Fires purely because *you* went quiet (not task state). Requires a persisted
+// lastInteractionAt (naxie-interactions.json); never fires if you've never chatted.
+const CHAT_IDLE_MS = Number(process.env.NEUROWORKS_CHAT_IDLE_MS) || 2 * 3600 * 1000;
+const CHAT_NUDGE_THROTTLE_MS = Number(process.env.NEUROWORKS_CHAT_NUDGE_THROTTLE_MS) || 2 * 3600 * 1000;
+
+export async function maybeNudgeChatInactivity(now = Date.now()): Promise<boolean> {
+  if (process.env.NEUROWORKS_CHAT_NUDGE_ENABLED === "0") return false;
+  const interactions = getInteractions();
+  if (!interactions?.lastInteractionAt) return false;
+  const lastAt = new Date(interactions.lastInteractionAt).getTime();
+  if (!Number.isFinite(lastAt)) return false;
+  if (now - lastAt < CHAT_IDLE_MS) return false;
+  const lastNudge = interactions.lastNudgeAt ? new Date(interactions.lastNudgeAt).getTime() : 0;
+  if (now - lastNudge < CHAT_NUDGE_THROTTLE_MS) return false;
+  setLastNudgeAt(new Date(now).toISOString());
+  const hrs = Math.round((now - lastAt) / 3_600_000);
+  try {
+    const op = getOperatorIdentity();
+    const magSnippet = buildMagContext({ maxFacts: 4 }).slice(0, 600);
+    const { llmGenerate } = await import("./llm.js");
+    const prompt = `You are Naxie, ${op.name}'s personal AI assistant. It's been about ${hrs} hours since they last talked to you. Nothing urgent is pending — you're just proactively checking in, the way a good assistant would.\n\nWhat you know about them:\n${magSnippet || "(nothing specific yet)"}\n\nWrite ONE short, warm, non-intrusive message (1-3 sentences) that doesn't apologize for interrupting, optionally references something you know if genuinely relevant, and ends with a light way to respond. No preamble, no markdown headers — just the message.`;
+    const msg = (await llmGenerate(prompt, "You are Naxie, a warm and perceptive personal assistant checking in.", { profile: "balanced", maxTokens: 180 })).trim();
+    void notifyAttention(`Naxie — checking in`, msg.slice(0, 400), { actor: "naxie" });
+    try { logAudit({ level: "info", actor: "naxie", action: "naxie.chat_checkin", target: "daemon", detail: `${hrs}h idle`, result: "success" }); } catch { /* ignore */ }
+  } catch (e) {
+    console.warn(`[org-daemon] maybeNudgeChatInactivity LLM failed: ${(e as Error).message}`);
+    void notifyAttention(`Naxie — checking in`, `Hey ${getOperatorIdentity().name} — it's been ${hrs}h since we last talked. Anything I can help with?`, { actor: "naxie" });
+  }
+  return true;
+}
+
+// Proactive research — ports agency_daemon.py:_run_proactive_research but with
+// TS-native topic sources (research-interests.ts resolver) instead of Goal/ChatMessage tables.
+const PROACTIVE_RESEARCH_MS = Number(process.env.NEUROWORKS_PROACTIVE_RESEARCH_MS) || 4 * 3600 * 1000;
+const PROACTIVE_RESEARCH_THROTTLE_MS = Number(process.env.NEUROWORKS_PROACTIVE_RESEARCH_THROTTLE_MS) || 4 * 3600 * 1000;
+let lastResearchAt = 0;
+
+export async function maybeRunProactiveResearch(now = Date.now()): Promise<boolean> {
+  if (process.env.NEUROWORKS_PROACTIVE_RESEARCH_ENABLED === "0") return false;
+  const topics = resolveResearchTopics();
+  // Require at least one real topic; sector+MAG fallback still counts, but empty vault on fresh install yields nothing.
+  if (topics.length === 0) return false;
+  // Also default OFF unless operator opted in via env or has interests/sector.
+  const optedIn = process.env.NEUROWORKS_PROACTIVE_RESEARCH_ENABLED === "1" || topics.some(t => t.length > 20);
+  if (!optedIn && process.env.NEUROWORKS_PROACTIVE_RESEARCH_ENABLED !== "1") {
+    // Allow sector-derived single-topic fallback to run (fresh install with sector picked) — treat that as opt-in.
+    const singleSectorOnly = topics.length === 1 && topics[0].startsWith("Zimbabwe");
+    if (!singleSectorOnly && topics.length === 1) return false;
+  }
+  if (now - lastResearchAt < PROACTIVE_RESEARCH_THROTTLE_MS) return false;
+  const persisted = getInteractions()?.lastResearchAt ? new Date(getInteractions()!.lastResearchAt!).getTime() : 0;
+  if (persisted && now - persisted < PROACTIVE_RESEARCH_MS) return false;
+  lastResearchAt = now;
+  setLastResearchAt(new Date(now).toISOString());
+  try {
+    const op = getOperatorIdentity();
+    const topicsBlock = topics.map(t => `- ${t.slice(0, 280)}`).join("\n");
+    const magSnippet = buildMagContext({ maxFacts: 6 }).slice(0, 800);
+    const today = new Date(now).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    const prompt = `You are Naxie's proactive researcher.\nOperator: ${op.summary}\nToday: ${today}\nResearch topics / interests:\n${topicsBlock}\nRecent memory:\n${magSnippet || "(none)"}\n\nTask: Surface 2-3 actionable opportunities + 1 angle to watch, grounded in the topics above, ≤220 words, no fluff. Be specific to the sector/interests — avoid generic advice.`;
+    const { llmGenerate } = await import("./llm.js");
+    const report = (await llmGenerate(prompt, "You are a world-class research analyst for Naxie, a personal AI assistant.", { profile: "balanced", maxTokens: 500 })).trim();
+    if (report) {
+      void notifyAttention(`Naxie — proactive research`, report.slice(0, 600), { actor: "researcher" });
+      try { logAudit({ level: "info", actor: "researcher", action: "research.proactive", target: "daemon", detail: topics.slice(0, 2).join("; ").slice(0, 200), result: "success" }); } catch { /* ignore */ }
+      try { const { noteFact } = await import("./memory.js"); noteFact({ subject: "research", fact: report.slice(0, 1200), source: "proactive-research" }); } catch { /* ignore */ }
+    }
+  } catch (e) {
+    console.warn(`[org-daemon] maybeRunProactiveResearch failed: ${(e as Error).message}`);
+    return false;
+  }
+  return true;
+}
+
 export const DAEMON_CYCLE_SECONDS = Number(process.env.NEUROWORKS_ORG_DAEMON_CYCLE_SECONDS ?? "300") || 300;
 
 // How long an OrgTask may sit at waiting-on-approval before it's stale.
@@ -213,8 +353,10 @@ function tick(): void {
   try { maybeBackupVault(); } catch (e) { console.warn(`[org-daemon] maybeBackupVault failed: ${(e as Error).message}`); }
   try { void maybeRunArchitectReview(); } catch (e) { console.warn(`[org-daemon] maybeRunArchitectReview failed: ${(e as Error).message}`); }
   try { void maybeGenerateBriefing(); } catch (e) { console.warn(`[org-daemon] maybeGenerateBriefing failed: ${(e as Error).message}`); }
-  // See the SCOPE NOTE at the top of this file — idle report, chat check-in,
-  // proactive research, and the Executor check-in nudge still belong here.
+  try { maybeNudgeStaleExecutorTasks(); } catch (e) { console.warn(`[org-daemon] maybeNudgeStaleExecutorTasks failed: ${(e as Error).message}`); }
+  try { maybeReportIdleActivity(); } catch (e) { console.warn(`[org-daemon] maybeReportIdleActivity failed: ${(e as Error).message}`); }
+  try { void maybeNudgeChatInactivity(); } catch (e) { console.warn(`[org-daemon] maybeNudgeChatInactivity failed: ${(e as Error).message}`); }
+  try { void maybeRunProactiveResearch(); } catch (e) { console.warn(`[org-daemon] maybeRunProactiveResearch failed: ${(e as Error).message}`); }
 }
 
 let timer: NodeJS.Timeout | null = null;

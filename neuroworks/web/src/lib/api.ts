@@ -100,7 +100,33 @@ export type QualitySummary = {
 };
 export type HostToolsSettings = { allowSystemControl: boolean; allowClipboardAccess: boolean; allowNotifications: boolean; gitRepoPath: string };
 
-export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect";
+export type OnboardingSector = {
+  id: string; name: string; nameShona?: string; nameNdebele?: string; description: string; icon: string; contextNote: string;
+  suggestedDepartments: string[]; suggestedIntegrations: string[]; suggestedTemplates: string[];
+};
+export type SectorBundleResult = {
+  sectorId: string;
+  knowledgePack: { installed: boolean; files: string[] };
+  departments: { id: string; departmentName: string; personaCount: number }[];
+  suggestedConnectors: { label: string; hasTemplate: boolean }[];
+};
+export type OnboardingState = {
+  completed: boolean;
+  sector?: string;
+  customSectorName?: string;
+  language: "en";
+  orgName?: string;
+  responseStyle?: "standard" | "caveman";
+  completedAt?: string;
+  priorities?: string;
+  communicationStyle?: string;
+  notes?: string;
+};
+export type OperatorIdentity = {
+  name: string; email: string; title?: string; sector?: string; orgName?: string; language: string; summary: string;
+};
+
+export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect" | "hermes-reviewer";
 export type OrgTaskStatus = "backlog" | "active" | "blocked" | "waiting-on-approval" | "done";
 export type OrgTask = {
   id: string;
@@ -200,6 +226,16 @@ export const api = {
   updateHostToolsSettings: (patch: Partial<HostToolsSettings>) =>
     req<{ settings: HostToolsSettings }>("/api/host-tools/settings", { method: "PATCH", body: JSON.stringify(patch) }),
   launchHermesAgent: () => req<{ result: string }>("/api/host-tools/hermes/launch", { method: "POST" }),
+  // Operator onboarding wizard — Naxie's identity/profile of the operator.
+  onboardingSectors: () => req<{ sectors: OnboardingSector[] }>("/api/onboarding/sectors"),
+  onboardingState: () => req<{ state: OnboardingState; operator: OperatorIdentity }>("/api/onboarding/state"),
+  completeOnboarding: (body: {
+    name: string; email?: string; title?: string; orgName?: string;
+    sector?: string; customSectorName?: string; responseStyle?: "standard" | "caveman";
+    priorities?: string; communicationStyle?: string; notes?: string;
+  }) => req<{ ok: true; state: OnboardingState; operator: OperatorIdentity }>("/api/onboarding/complete", { method: "POST", body: JSON.stringify(body) }),
+  applyOnboardingBundle: (sectorId: string) =>
+    req<{ ok: true; result: SectorBundleResult }>("/api/onboarding/apply-bundle", { method: "POST", body: JSON.stringify({ sectorId }) }),
   orgTasks: (filter?: { role?: OrgRole; status?: OrgTaskStatus }) => {
     const q = new URLSearchParams();
     if (filter?.role) q.set("role", filter.role);
@@ -471,6 +507,7 @@ export const api = {
     connectivity: { cached: boolean | null; online: boolean | null };
     cag: { built: boolean; hash?: string; ageMs: number };
     briefing: any;
+    onboardingNeeded: boolean;
     daemonStatus: { cycleSeconds: number };
   }>("/api/naxie/status"),
   // Naxie's general conversation — PA master, auto-routes model
@@ -580,6 +617,24 @@ export const api = {
     req<{ data: N8nExecution[] }>(`/api/n8n/executions${params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))}` : ""}`),
   triggerN8nWebhook: (body: { url?: string; path?: string; method?: string; body?: any }) =>
     req<{ ok: boolean; status: number; url: string; method: string; body: unknown; error?: string }>("/api/n8n/trigger", { method: "POST", body: JSON.stringify(body) }),
+  createN8nWorkflow: (body: { name: string; nodes: any[]; connections: any; settings?: any }) =>
+    req<{ workflow: N8nWorkflow }>("/api/n8n/workflows", { method: "POST", body: JSON.stringify(body) }),
+  generateN8nWorkflow: (goal: string) => req<{ draft: WorkflowDraft }>("/api/n8n/generate", { method: "POST", body: JSON.stringify({ goal }) }),
+
+  // CRM — contacts, deals/pipeline, and per-contact activity (local store, no external CRM required).
+  listContacts: () => req<{ contacts: Contact[] }>("/api/crm/contacts"),
+  upsertContact: (body: { email?: string; name?: string; phone?: string; company?: string; notes?: string }) =>
+    req<{ contact: Contact }>("/api/crm/contacts", { method: "POST", body: JSON.stringify(body) }),
+  listContactActivities: (contactId: string) => req<{ activities: CrmActivity[] }>(`/api/crm/contacts/${encodeURIComponent(contactId)}/activities`),
+  addContactActivity: (contactId: string, body: { kind: CrmActivity["kind"]; body: string }) =>
+    req<{ activity: CrmActivity }>(`/api/crm/contacts/${encodeURIComponent(contactId)}/activities`, { method: "POST", body: JSON.stringify(body) }),
+  listPipelines: () => req<{ pipelines: Pipeline[] }>("/api/crm/pipelines"),
+  listDeals: (params?: { contactId?: string; stage?: string }) =>
+    req<{ deals: Deal[] }>(`/api/crm/deals${params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))}` : ""}`),
+  createDeal: (body: { contactId: string; title: string; pipelineId?: string; stage?: string; value?: number }) =>
+    req<{ deal: Deal }>("/api/crm/deals", { method: "POST", body: JSON.stringify(body) }),
+  moveDealStage: (dealId: string, stage: string) =>
+    req<{ deal: Deal }>(`/api/crm/deals/${encodeURIComponent(dealId)}/stage`, { method: "PATCH", body: JSON.stringify({ stage }) }),
 
   // Personal to-do list.
   myTaskLists: () => req<{ lists: MyTaskList[] }>("/api/my-tasks/lists"),
@@ -863,6 +918,20 @@ export type N8nWorkflow = {
 export type N8nExecution = {
   id: string; workflowId?: string; finished?: boolean; mode?: string; status?: string;
   startedAt?: string; stoppedAt?: string;
+};
+export type WorkflowDraft = { name: string; nodes: any[]; connections: any };
+
+export type Contact = {
+  id: string; name?: string; email?: string; phone?: string; company?: string;
+  source?: string; tags: string[]; notes?: string; createdAt: string; updatedAt: string;
+};
+export type Deal = {
+  id: string; contactId: string; title: string; pipelineId: string; stage: string;
+  value?: number; createdAt: string; updatedAt: string; closedAt?: string;
+};
+export type Pipeline = { id: string; name: string; stages: string[] };
+export type CrmActivity = {
+  id: string; contactId: string; kind: "note" | "email" | "call" | "stage-change"; body: string; at: string;
 };
 
 export type IntegrationProvider = {

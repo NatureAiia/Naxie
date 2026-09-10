@@ -3677,26 +3677,9 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "chatId", type: "string", required: false, description: "Override the default chat id" },
     ],
     handler: async (args) => {
-      const { getConnectionByProvider } = await import("./integrations.js");
-      const conn = getConnectionByProvider("telegram");
-      if (!conn?.secrets?.botToken) return { error: "no Telegram connection — add one on the Integrations page" };
-      const botToken = conn.secrets.botToken.replace(/\s+/g, "");
-      const chatId = String(args.chatId ?? conn.config?.chatId ?? "").trim();
-      if (!chatId) return { error: "no chatId (set a default on the Integrations page or pass chatId)" };
-      // A bot's own @username is not a valid send target — the single most
-      // common Telegram misconfig. Catch it with a clear message instead of
-      // Telegram's opaque "chat not found".
-      if (/bot$/i.test(chatId) && !/^-?\d+$/.test(chatId) && !chatId.startsWith("@")) {
-        return { error: `chatId "${chatId}" looks like a bot username, not a chat — a bot can't message itself. Use a numeric chat id (DM the bot, then read it from getUpdates) or @channelusername.` };
-      }
-      const text = String(args.text ?? "").trim();
-      if (!text) return { error: "text is required" };
-      const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text }),
-      });
-      const j: any = await r.json().catch(() => ({}));
-      return j?.ok ? { ok: true, sent: true, messageId: j.result?.message_id } : { error: `telegram: ${j?.description ?? `HTTP ${r.status}`}` };
+      const { sendTelegramMessage } = await import("./telegram-bridge.js");
+      const r = await sendTelegramMessage(String(args.text ?? ""), args.chatId ? String(args.chatId) : undefined);
+      return r.ok ? { ok: true, sent: true, messageId: r.messageId } : { error: r.error };
     },
   },
   {
@@ -4249,6 +4232,24 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     },
   },
   {
+    name: "n8n.trigger_workflow_by_name",
+    description: "Fire an n8n workflow by its name instead of a raw webhook URL/path. Looks the workflow up via n8n.list_workflows, finds its Webhook trigger node, and calls it. Use this over n8n.trigger_webhook when you only know the workflow's name.",
+    readonly: false,
+    args: [
+      { name: "name", type: "string", required: true, description: "Exact (case-insensitive) workflow name, as shown by n8n.list_workflows" },
+      { name: "body", type: "string", required: false, description: "JSON payload to send (object or JSON string). Default {}" },
+    ],
+    handler: async (args) => {
+      const { triggerWorkflowByName } = await import("./n8n.js");
+      const coerce = (v: any) => {
+        if (v === undefined || v === null || v === "") return undefined;
+        if (typeof v === "string") { try { return JSON.parse(v); } catch { return v; } }
+        return v;
+      };
+      return await triggerWorkflowByName(String(args.name), coerce(args.body) ?? {});
+    },
+  },
+  {
     name: "n8n.list_executions",
     description: "List recent n8n workflow executions (run history). Filter by workflowId or status (success/error/waiting). Requires n8n to be configured.",
     readonly: true,
@@ -4287,6 +4288,202 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         connections: coerce(args.connections) ?? {},
       });
       return { workflow: wf };
+    },
+  },
+
+  // ─── CRM (contacts, deals, activities) ──────────────────────────
+  {
+    name: "crm.list_contacts",
+    description: "List CRM contacts, most recently updated first.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listContacts } = await import("./crm.js");
+      return { contacts: listContacts() };
+    },
+  },
+  {
+    name: "crm.upsert_contact",
+    description: "Create a contact, or update it if a contact with this email already exists.",
+    readonly: false,
+    args: [
+      { name: "email", type: "string", required: false, description: "Contact email — the match key for an existing contact" },
+      { name: "name", type: "string", required: false, description: "Contact name" },
+      { name: "phone", type: "string", required: false, description: "Contact phone" },
+      { name: "company", type: "string", required: false, description: "Contact company" },
+      { name: "notes", type: "string", required: false, description: "Freeform notes" },
+    ],
+    handler: async (args) => {
+      const { upsertContact } = await import("./crm.js");
+      return { contact: upsertContact({
+        email: args.email ? String(args.email) : undefined,
+        name: args.name ? String(args.name) : undefined,
+        phone: args.phone ? String(args.phone) : undefined,
+        company: args.company ? String(args.company) : undefined,
+        notes: args.notes ? String(args.notes) : undefined,
+      }) };
+    },
+  },
+  {
+    name: "crm.list_deals",
+    description: "List deals, optionally filtered by contactId, pipelineId, or stage.",
+    readonly: true,
+    args: [
+      { name: "contactId", type: "string", required: false, description: "Filter to one contact" },
+      { name: "stage", type: "string", required: false, description: "Filter by pipeline stage" },
+    ],
+    handler: async (args) => {
+      const { listDeals } = await import("./crm.js");
+      return { deals: listDeals({ contactId: args.contactId ? String(args.contactId) : undefined, stage: args.stage ? String(args.stage) : undefined }) };
+    },
+  },
+  {
+    name: "crm.create_deal",
+    description: "Create a deal for a contact in the (default) pipeline.",
+    readonly: false,
+    args: [
+      { name: "contactId", type: "string", required: true, description: "Contact id (from crm.list_contacts or crm.upsert_contact)" },
+      { name: "title", type: "string", required: true, description: "Deal title" },
+      { name: "value", type: "number", required: false, description: "Deal value" },
+    ],
+    handler: async (args) => {
+      const { createDeal } = await import("./crm.js");
+      return { deal: createDeal({ contactId: String(args.contactId), title: String(args.title), value: args.value !== undefined ? Number(args.value) : undefined }) };
+    },
+  },
+  {
+    name: "crm.move_deal_stage",
+    description: "Move a deal to a new pipeline stage (e.g. New, Qualified, Proposal, Won, Lost).",
+    readonly: false,
+    args: [
+      { name: "dealId", type: "string", required: true, description: "Deal id" },
+      { name: "stage", type: "string", required: true, description: "Target stage — must be one of the deal's pipeline stages" },
+    ],
+    handler: async (args) => {
+      const { moveDealStage } = await import("./crm.js");
+      return { deal: moveDealStage(String(args.dealId), String(args.stage)) };
+    },
+  },
+  {
+    name: "crm.log_activity",
+    description: "Log a note/call/email activity against a contact's timeline.",
+    readonly: false,
+    args: [
+      { name: "contactId", type: "string", required: true, description: "Contact id" },
+      { name: "kind", type: "string", required: true, description: "note | call | email" },
+      { name: "body", type: "string", required: true, description: "Activity text" },
+    ],
+    handler: async (args) => {
+      const { logActivity } = await import("./crm.js");
+      const kind = String(args.kind);
+      if (!["note", "call", "email", "stage-change"].includes(kind)) throw new Error(`invalid activity kind "${kind}"`);
+      return { activity: logActivity({ contactId: String(args.contactId), kind: kind as any, body: String(args.body) }) };
+    },
+  },
+
+  // ─── Google / Microsoft personal connectors ──────────────────────────
+  // Read-only wrappers over lib/oauth-connectors.ts's authorization-code
+  // flow — ported by behavior from naxionai/backend/agent/tools/
+  // {google,microsoft}_tools.py, which every call swallows exceptions and
+  // returns [] rather than raising, since these feed daemon digests where a
+  // missing/expired connection shouldn't blow up an unrelated task.
+  {
+    name: "google.list_upcoming_events",
+    description: "List the connected Google account's upcoming Calendar events. Returns [] if Google isn't connected (see Settings > Connectors).",
+    readonly: true,
+    args: [{ name: "maxResults", type: "number", required: false, description: "Max events to return (default 10)" }],
+    handler: async (args) => {
+      try {
+        const { getValidAccessToken } = await import("./oauth-connectors.js");
+        const token = await getValidAccessToken("google");
+        const max = Math.min(Number(args.maxResults) || 10, 50);
+        const params = new URLSearchParams({ maxResults: String(max), singleEvents: "true", orderBy: "startTime", timeMin: new Date().toISOString() });
+        const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, { headers: { authorization: `Bearer ${token}` } });
+        if (!r.ok) return [];
+        const data: any = await r.json();
+        return (data.items ?? []).map((e: any) => ({ summary: e.summary, start: e.start?.dateTime ?? e.start?.date, end: e.end?.dateTime ?? e.end?.date }));
+      } catch { return []; }
+    },
+  },
+  {
+    name: "google.list_recent_emails",
+    description: "List recent Gmail messages' subject/sender/snippet for the connected Google account. Returns [] if Google isn't connected.",
+    readonly: true,
+    args: [{ name: "maxResults", type: "number", required: false, description: "Max messages to return (default 10)" }],
+    handler: async (args) => {
+      try {
+        const { getValidAccessToken } = await import("./oauth-connectors.js");
+        const token = await getValidAccessToken("google");
+        const max = Math.min(Number(args.maxResults) || 10, 50);
+        const listResp = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${max}`, { headers: { authorization: `Bearer ${token}` } });
+        if (!listResp.ok) return [];
+        const listData: any = await listResp.json();
+        const ids: string[] = (listData.messages ?? []).map((m: any) => m.id);
+        const out: any[] = [];
+        for (const id of ids) {
+          const mResp = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`, { headers: { authorization: `Bearer ${token}` } });
+          if (!mResp.ok) continue;
+          const m: any = await mResp.json();
+          const headers = m.payload?.headers ?? [];
+          out.push({
+            subject: headers.find((h: any) => h.name === "Subject")?.value,
+            from: headers.find((h: any) => h.name === "From")?.value,
+            snippet: m.snippet,
+          });
+        }
+        return out;
+      } catch { return []; }
+    },
+  },
+  {
+    name: "microsoft.list_recent_emails",
+    description: "List recent Outlook messages' subject/sender/preview for the connected Microsoft account. Returns [] if Microsoft isn't connected.",
+    readonly: true,
+    args: [{ name: "maxResults", type: "number", required: false, description: "Max messages to return (default 10)" }],
+    handler: async (args) => {
+      try {
+        const { getValidAccessToken } = await import("./oauth-connectors.js");
+        const token = await getValidAccessToken("microsoft");
+        const max = Math.min(Number(args.maxResults) || 10, 50);
+        const r = await fetch(`https://graph.microsoft.com/v1.0/me/messages?$top=${max}&$select=subject,from,bodyPreview`, { headers: { authorization: `Bearer ${token}` } });
+        if (!r.ok) return [];
+        const data: any = await r.json();
+        return (data.value ?? []).map((m: any) => ({ subject: m.subject, from: m.from?.emailAddress?.address, preview: m.bodyPreview }));
+      } catch { return []; }
+    },
+  },
+  {
+    name: "microsoft.list_recent_events",
+    description: "List the connected Microsoft account's upcoming Calendar events. Returns [] if Microsoft isn't connected.",
+    readonly: true,
+    args: [{ name: "maxResults", type: "number", required: false, description: "Max events to return (default 10)" }],
+    handler: async (args) => {
+      try {
+        const { getValidAccessToken } = await import("./oauth-connectors.js");
+        const token = await getValidAccessToken("microsoft");
+        const max = Math.min(Number(args.maxResults) || 10, 50);
+        const r = await fetch(`https://graph.microsoft.com/v1.0/me/events?$top=${max}&$select=subject,start,end&$orderby=start/dateTime`, { headers: { authorization: `Bearer ${token}` } });
+        if (!r.ok) return [];
+        const data: any = await r.json();
+        return (data.value ?? []).map((e: any) => ({ subject: e.subject, start: e.start?.dateTime, end: e.end?.dateTime }));
+      } catch { return []; }
+    },
+  },
+  {
+    name: "microsoft.list_recent_files",
+    description: "List recently accessed OneDrive files for the connected Microsoft account. Returns [] if Microsoft isn't connected.",
+    readonly: true,
+    args: [{ name: "maxResults", type: "number", required: false, description: "Max files to return (default 10)" }],
+    handler: async (args) => {
+      try {
+        const { getValidAccessToken } = await import("./oauth-connectors.js");
+        const token = await getValidAccessToken("microsoft");
+        const max = Math.min(Number(args.maxResults) || 10, 50);
+        const r = await fetch(`https://graph.microsoft.com/v1.0/me/drive/root/children?$top=${max}&$select=name,webUrl,lastModifiedDateTime`, { headers: { authorization: `Bearer ${token}` } });
+        if (!r.ok) return [];
+        const data: any = await r.json();
+        return (data.value ?? []).map((f: any) => ({ name: f.name, url: f.webUrl, lastModified: f.lastModifiedDateTime }));
+      } catch { return []; }
     },
   },
 
@@ -4460,8 +4657,20 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "n8n.list_workflows": return "Listing n8n workflows";
     case "n8n.get_workflow":   return s("id") ? `Reading n8n workflow ${s("id")}` : "Reading an n8n workflow";
     case "n8n.trigger_webhook":return s("path") ? `Triggering n8n webhook "${s("path")}"` : s("url") ? `Triggering n8n webhook` : "Triggering an n8n workflow";
+    case "n8n.trigger_workflow_by_name":return s("name") ? `Triggering n8n workflow "${s("name")}"` : "Triggering an n8n workflow";
     case "n8n.list_executions":return "Reading n8n execution history";
     case "n8n.create_workflow":return s("name") ? `Creating n8n workflow "${s("name")}"` : "Creating an n8n workflow";
+    case "crm.list_contacts": return "Listing CRM contacts";
+    case "crm.upsert_contact":return s("email") ? `Saving contact "${s("email")}"` : "Saving a contact";
+    case "crm.list_deals":    return "Listing CRM deals";
+    case "crm.create_deal":  return s("title") ? `Creating deal "${s("title")}"` : "Creating a deal";
+    case "crm.move_deal_stage":return s("stage") ? `Moving deal to "${s("stage")}"` : "Moving a deal's stage";
+    case "crm.log_activity": return "Logging a CRM activity";
+    case "google.list_upcoming_events":  return "Reading Google Calendar";
+    case "google.list_recent_emails":    return "Reading Gmail";
+    case "microsoft.list_recent_emails": return "Reading Outlook mail";
+    case "microsoft.list_recent_events": return "Reading Outlook Calendar";
+    case "microsoft.list_recent_files":  return "Reading OneDrive files";
     case "clock.now":          return "Checking the clock";
     case "web.search":         return s("query") ? `Searching the web for "${s("query")}"` : "Searching the web";
     case "research.deep":      return s("query") ? `Researching "${s("query").slice(0, 80)}${s("query").length > 80 ? "…" : ""}" — vault + web` : "Researching";

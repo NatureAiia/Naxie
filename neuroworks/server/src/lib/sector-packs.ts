@@ -42,6 +42,16 @@ export type OnboardingState = {
   // direct-answer prompts only — never the planner (it emits JSON).
   responseStyle?: "standard" | "caveman";
   completedAt?: string;
+  // Onboarding wizard's free-text answers (routes/onboarding.ts). Kept here
+  // (not only as memory.ts facts under subject "operator") so the wizard can
+  // pre-fill itself on a later edit visit without parsing freeform MAG facts
+  // back out. Identity fields (name/email/title) deliberately stay OUT of
+  // this type — those are single-sourced from the vault identity file
+  // (mag.ts's getOperatorIdentity/writeOperatorIdentityFile) so there isn't
+  // a third place identity can drift out of sync.
+  priorities?: string;
+  communicationStyle?: string;
+  notes?: string;
 };
 
 export const SECTORS: Sector[] = [
