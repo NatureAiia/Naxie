@@ -146,7 +146,7 @@ export function AgentRoster() {
           </div>
           <div>
             <label className="block text-xs text-cream-300 mb-1.5 uppercase tracking-wider">Work mode — who does this role's work?</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {([
                 { v: "agent", t: "Full agent", d: "Runs autonomously end to end" },
                 { v: "hybrid", t: "Agent + human", d: "Agent works, pauses to ask you for the human parts" },
@@ -193,7 +193,7 @@ export function AgentRoster() {
       {personas.length === 0 ? (
         <Card><div className="text-sm text-cream-300/60 text-center py-6">No agents yet. Create one above.</div></Card>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {personas.map(p => (
             <Card key={p.id} className={p.id === activeId ? "border-violet-500/60" : ""}>
               <div className="flex items-start justify-between gap-3">

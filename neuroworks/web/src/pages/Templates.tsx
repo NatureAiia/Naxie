@@ -42,7 +42,7 @@ export function Templates() {
         />
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {filtered.map(t => (
           <button key={t.id} onClick={() => setActive(t)} className="text-left bg-ink-900 hover:bg-ink-850 border border-ink-800 hover:border-violet-500/40 rounded-xl p-4 transition-colors">
             <div className="flex items-start gap-3">

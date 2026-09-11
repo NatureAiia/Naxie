@@ -93,7 +93,7 @@ export function NaxieWidget() {
 
       {/* Inline popup — compact HUD panel, not a navigation */}
       {open && (
-        <div className="fixed bottom-20 right-5 z-40 w-80 max-h-[70vh] bg-ink-950 border border-ink-800 rounded-xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="fixed bottom-20 right-5 left-5 tablet:left-auto z-40 w-auto tablet:w-80 max-h-[70vh] bg-ink-950 border border-ink-800 rounded-xl shadow-2xl flex flex-col overflow-hidden">
           <div className="flex items-center justify-between px-3 py-2 border-b border-ink-800 bg-ink-900/50">
             <div className="flex items-center gap-2">
               <Sparkles size={14} className="text-violet-400" />

@@ -2,11 +2,15 @@
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
-    screens: {
-      // tablet breakpoint used by the app for a compact/tablet layout
-      tablet: "820px",
-    },
     extend: {
+      // Under theme.extend so Tailwind's default sm/md/lg/xl/2xl breakpoints
+      // stay available — `tablet` used to live under bare `theme.screens`,
+      // which replaces the defaults outright and silently broke every
+      // sm:/md:/lg:/xl: class in the app (they were valid classNames but
+      // matched no generated variant, so they never applied).
+      screens: {
+        tablet: "820px",
+      },
       // Each token is a CSS var so light mode can override at the :root[data-theme="light"]
       // level without rewriting every className across 17 components in one go. Existing
       // bg-ink-900 / text-cream-100 etc. keep working — they just resolve to different

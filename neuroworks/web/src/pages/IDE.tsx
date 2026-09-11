@@ -485,8 +485,8 @@ export function IDE() {
   ];
 
   return (
-    <div className="flex h-full gap-4 select-none">
-    <div className="flex flex-col flex-1 min-w-0 h-full rounded-xl border border-white/10 overflow-hidden">
+    <div className="flex flex-col tablet:flex-row tablet:h-full gap-4 select-none">
+    <div className="flex flex-col flex-1 min-w-0 w-full h-[70vh] tablet:h-full rounded-xl border border-white/10 overflow-hidden">
       {/* ── toolbar ── */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-white/10 bg-ink-900/60 backdrop-blur-xl text-xs shrink-0">
         <select
@@ -767,7 +767,7 @@ export function IDE() {
     </div>
 
     {/* ── dashboard strip ── */}
-    <div className="w-64 shrink-0 h-full overflow-y-auto scrollbar-thin space-y-3 py-1">
+    <div className="w-full tablet:w-64 tablet:shrink-0 h-auto tablet:h-full overflow-y-auto scrollbar-thin space-y-3 py-1">
       <Tile icon={<PlayCircle size={14} />} label="Running now" value={runningCount ?? "…"} />
       <Tile icon={<CheckCircle2 size={14} />} label="Waiting on your approval" value={pendingApprovals ?? "…"} />
       <Tile icon={<ShieldCheck size={14} />} label="Connectivity" value={ready === null ? "…" : ready ? "Ready" : "Degraded"} tone={ready === null ? undefined : ready ? "ok" : "warn"} />
@@ -780,7 +780,7 @@ export function IDE() {
           onClick={() => setRenameTarget(null)}
         >
           <div
-            className="bg-ink-900 border border-ink-700 rounded-xl shadow-2xl p-4 w-80"
+            className="bg-ink-900 border border-ink-700 rounded-xl shadow-2xl p-4 w-80 max-w-[90vw]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-sm text-cream-100 font-medium mb-3">Rename</div>

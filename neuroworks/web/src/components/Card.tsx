@@ -68,12 +68,12 @@ export function ToastRack() {
   }, []);
   if (typeof document === "undefined" || items.length === 0) return null;
   return createPortal(
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 items-end pointer-events-none">
+    <div className="fixed bottom-5 right-5 left-4 tablet:left-auto z-50 flex flex-col gap-2 items-stretch tablet:items-end pointer-events-none">
       {items.map(t => (
         <div
           key={t.id}
           role="status"
-          className={`nw-toast pointer-events-auto px-4 py-2.5 rounded-lg border text-sm shadow-lg max-w-sm ${
+          className={`nw-toast pointer-events-auto px-4 py-2.5 rounded-lg border text-sm shadow-lg tablet:max-w-sm ${
             t.tone === "success" ? "bg-leaf-500/15 border-leaf-500/40 text-leaf-300"
             : t.tone === "error"  ? "bg-coral-500/15 border-coral-500/40 text-coral-300"
             :                       "bg-ink-800 border-ink-700 text-cream-100"
