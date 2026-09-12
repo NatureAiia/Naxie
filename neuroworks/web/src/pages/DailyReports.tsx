@@ -4,30 +4,30 @@ import { api } from "../lib/api";
 import { Card } from "../components/Card";
 import { useLoadMore, LoadMoreButton } from "../components/LoadMore";
 
-// Daily Reports — the human-readable face of the nightly reflection, plus
-// the Innovation Scan digest. Two tabs on one page: "Reflections" (what ran,
-// how it went) and "Innovation Scan" (fixing our own weak spots + what's new
-// in AI/tech), same tab-toggle pattern used elsewhere (see MyWork.tsx).
+// Daily Reports — three tabs: Reflections (what ran), Innovation Scan
+// (what's new in tech), and MD System Audit (Naxie's managing-director scan
+// of every file / feature / page — what needs improving, what's dormant,
+// what's useless). Same tab-toggle pattern used elsewhere (see MyWork.tsx).
 
 type ReflectionMeta = { date: string; path: string; preview: string; stats?: any };
 
 export function DailyReports() {
-  const [tab, setTab] = useState<"reflections" | "innovation-scan">("reflections");
+  const [tab, setTab] = useState<"reflections" | "innovation-scan" | "system-audit">("reflections");
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-cream-100">Daily Reports</h1>
         <p className="text-sm text-cream-300/70 mt-1">
-          What your organization did each day, and what it's learning about the wider world.
+          What your organization did each day, what Naxie is improving as MD, and what she is learning about the wider world.
         </p>
       </div>
-      <div className="flex items-center gap-1 border-b border-ink-800">
-        {([["reflections", "Reflections"], ["innovation-scan", "Innovation Scan"]] as const).map(([id, label]) => (
+      <div className="flex items-center gap-1 border-b border-ink-800 overflow-x-auto">
+        {([["reflections", "Reflections"], ["innovation-scan", "Innovation Scan"], ["system-audit", "🏢 MD System Audit"]] as const).map(([id, label]) => (
           <button
             key={id}
             type="button"
-            onClick={() => setTab(id)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            onClick={() => setTab(id as any)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
               tab === id ? "border-violet-500 text-cream-50" : "border-transparent text-cream-300/60 hover:text-cream-100"
             }`}
           >
@@ -35,7 +35,7 @@ export function DailyReports() {
           </button>
         ))}
       </div>
-      {tab === "reflections" ? <ReflectionsTab /> : <InnovationScanTab />}
+      {tab === "reflections" ? <ReflectionsTab /> : tab === "innovation-scan" ? <InnovationScanTab /> : <SystemAuditTab />}
     </div>
   );
 }
@@ -253,6 +253,120 @@ function InnovationScanTab() {
             </Card>
           ) : (
             !loading && list.length > 0 && <div className="text-sm text-cream-300/60">Pick a scan on the left.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SystemAuditTab() {
+  const [list, setList] = useState<ReflectionMeta[]>([]);
+  const auditList = useLoadMore(list);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [body, setBody] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => {
+    setLoading(true);
+    api.listSystemAudits()
+      .then(r => {
+        setList(r.audits);
+        if (!selected && r.audits.length > 0) setSelected(r.audits[0].date);
+      })
+      .catch(e => setError(String(e?.message ?? e)))
+      .finally(() => setLoading(false));
+  };
+  useEffect(load, []);
+
+  useEffect(() => {
+    if (!selected) return;
+    setBody("");
+    api.getSystemAudit(selected)
+      .then(r => setBody(r.body.replace(/^---[\s\S]*?---\n+/, "")))
+      .catch(e => setBody(`_Couldn't load this audit: ${String(e?.message ?? e)}_`));
+  }, [selected]);
+
+  const auditNow = async () => {
+    setRunning(true);
+    setError(null);
+    try {
+      const r = await api.runSystemAudit();
+      setSelected(r.date);
+      load();
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-sm text-cream-300/70">
+          Naxie as Managing Director — every file, feature & page, scanned daily. What needs improving, what's dormant, what's useless.
+        </p>
+        <button
+          onClick={auditNow}
+          disabled={running}
+          className="shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-2 text-sm font-medium text-white"
+        >
+          {running ? "Auditing — this can take a minute…" : "Run MD Audit now"}
+        </button>
+      </div>
+
+      {error && <div className="text-sm text-red-400">{error}</div>}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
+        <div className="space-y-2">
+          {loading && <div className="text-sm text-cream-300/60">Loading audits…</div>}
+          {!loading && list.length === 0 && (
+            <Card title="No MD audits yet">
+              <p className="text-sm text-cream-300/70">
+                The MD system audit runs daily at ~7 AM and writes its first report after the next cycle.
+                Or press <span className="text-cream-100">Run MD Audit now</span> to generate one immediately.
+              </p>
+            </Card>
+          )}
+          {auditList.visible.map(r => (
+            <button
+              key={r.date}
+              onClick={() => setSelected(r.date)}
+              className={`w-full text-left rounded-xl border px-4 py-3 transition ${
+                selected === r.date
+                  ? "border-emerald-500/60 bg-emerald-500/10"
+                  : "border-cream-100/10 bg-white/[0.02] hover:bg-white/[0.05]"
+              }`}
+            >
+              <div className="text-sm font-medium text-cream-100">{r.date}</div>
+              {r.stats?.healthScore !== undefined && (
+                <div className="text-xs mt-0.5">
+                  <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${
+                    Number(r.stats.healthScore) >= 80 ? "bg-emerald-500/20 text-emerald-300" :
+                    Number(r.stats.healthScore) >= 60 ? "bg-amber-500/20 text-amber-300" :
+                    "bg-red-500/20 text-red-300"
+                  }`}>{r.stats.healthScore}/100</span>
+                  <span className="text-cream-300/60 ml-2">{r.stats.dormantCount ?? 0} dormant · {r.stats.uselessCount ?? 0} useless</span>
+                </div>
+              )}
+              <div className="text-xs text-cream-300/50 mt-1 line-clamp-2">{r.preview}</div>
+            </button>
+          ))}
+          <LoadMoreButton state={auditList} noun="audits" />
+        </div>
+
+        <div>
+          {selected ? (
+            <Card title={`MD Audit — ${selected}`}>
+              {body
+                ? <div className="prose-vault" dangerouslySetInnerHTML={{ __html: marked.parse(body) as string }} />
+                : <div className="text-sm text-cream-300/60">Loading…</div>}
+            </Card>
+          ) : (
+            !loading && list.length > 0 && <div className="text-sm text-cream-300/60">Pick an audit on the left.</div>
           )}
         </div>
       </div>

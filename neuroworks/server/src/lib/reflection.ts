@@ -592,7 +592,9 @@ async function deliverToTelegram(result: ReflectionResult): Promise<void> {
   try {
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
     const s = result.stats;
-    const text = `📋 Daily Reflection — ${s.date}\n\n${s.totalTasks} task(s): ${s.succeeded} ok, ${s.failed} failed, ${s.rejected} rejected (${Math.round(s.successRate * 100)}% success)\n\n${result.reflection.slice(0, 3500)}`;
+    const niceDate = new Date(s.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    const header = `🌙 *Daily Reflection — ${niceDate}*\n📊 ${s.totalTasks} task(s): ✅ ${s.succeeded} ok · ❌ ${s.failed} failed · 🚫 ${s.rejected} rejected (${Math.round(s.successRate * 100)}% success)`;
+    const text = `${header}\n\n${result.reflection.slice(0, 3300)}\n\n— _Full report in vault: ${result.path}_`;
     const r = await sendTelegramMessage(text);
     if (!r.ok) console.warn(`[reflection] Telegram delivery skipped: ${r.error}`);
   } catch (e: any) { console.warn(`[reflection] Telegram delivery failed: ${e?.message ?? e}`); }
@@ -600,11 +602,10 @@ async function deliverToTelegram(result: ReflectionResult): Promise<void> {
 
 export function startReflectionScheduler(): void {
   if (scheduler) return;
-  // Default 8 AM local, matching the innovation scan (innovation-scan.ts) —
-  // both are "everyday at 8am" per the operator's own request. They may land
-  // in the same 10-minute catch-up tick; that's fine, each fires and delivers
-  // independently.
-  const REFLECTION_HOUR = Number(process.env.NEUROWORKS_REFLECTION_HOUR ?? "8");
+  // Default 8 PM local — end-of-day reflection for *that day's* report (user
+  // request 2026-09-12). Innovation scan stays at 8am; todo brief at 6am.
+  // They are offset so they don't compete for the LLM backend at once.
+  const REFLECTION_HOUR = Number(process.env.NEUROWORKS_REFLECTION_HOUR ?? "20");
   const tick = async () => {
     const now = new Date();
     // LOCAL date — toISOString() is UTC and put late-evening runs on the wrong

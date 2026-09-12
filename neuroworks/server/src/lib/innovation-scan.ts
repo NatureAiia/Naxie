@@ -240,19 +240,23 @@ export async function synthesizeDigest(targeted: TargetedFinding[], broad: Broad
     };
   }
 
-  const sys = `You are NeuroWorks's Innovation Scan writer. The operator is NOT deeply technical — plain language, no jargon dump, no wall of acronyms. Your job is to make two things clear: (1) how we're fixing our own weak spots, and (2) what's new and interesting in AI/tech this week.
+  const sys = `You are NeuroWorks's Innovation Scan writer — and Naxie, the operator's PA, is delivering this. The operator is NOT deeply technical — plain language, no jargon dump, no wall of acronyms. Your job is to make two things clear: (1) how we're fixing our own weak spots, and (2) what's new and interesting in AI/tech this week.
 
-Output sections — use these EXACT headings, nothing else:
-## Fixing our weak spots
+Output sections — use these EXACT headings (including the emoji prefix):
+## 🔧 Fixing our weak spots
 For EACH targeted finding, tie it back to the specific weakness that prompted it — say what's weak, then what the research suggests doing about it. Plain language. If there are no targeted findings, say plainly that nothing weak enough to chase was found.
 
-## What's new and interesting
+## ✨ What's new and interesting
 Digestible highlights from the trending repos and news findings — what it is and why it might matter to us, in plain terms. If there's nothing, say so.
 
+## 🌍 Why it matters for us
+1-2 sentences tying the scan back to "AI for a better Africa" — practical next step the operator could take this week.
+
 Rules:
-- No filler ("In today's fast-moving AI landscape..."). No emoji.
-- Keep it skimmable — short paragraphs or bullets.
-- Numbers/names always beat vague claims.`;
+- Warm, concise, skimmable — short paragraphs or bullets. Use emoji sparingly but do use them: section headings already have one, and 1-2 tasteful emoji per bullet/list item are welcome (e.g. 🚀 💡 🔭 🛠️ 📦). No emoji spam.
+- No filler ("In today's fast-moving AI landscape...").
+- Keep headings exactly as specified — downstream rendering depends on them.
+- Numbers/names/sources always beat vague claims. Cite a source inline where the finding came from.`;
 
   const targetedBlock = targeted.length > 0
     ? targeted.map(t => `### Weakness: ${t.reason}\nResearch query: "${t.weaknessQuery}"\nFindings: ${t.summary}`).join("\n\n")
@@ -321,6 +325,7 @@ export function renderMarkdown(result: {
   generatedAt: string;
   modelUsed?: string;
 }): string {
+  const niceDate = new Date(result.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const header = `---
 type: innovation-scan
 date: ${result.date}
@@ -330,9 +335,15 @@ newsCount: ${result.broad.news.length}
 generated: ${result.generatedAt}
 ${result.modelUsed ? `model: ${result.modelUsed}\n` : ""}---
 
-# Innovation Scan — ${result.date}
+# 🔭 Innovation Scan — ${niceDate}
 
-_${result.targeted.length} weak spot${result.targeted.length === 1 ? "" : "s"} investigated · ${result.broad.repos.length} trending repo${result.broad.repos.length === 1 ? "" : "s"} · ${result.broad.news.length} news finding${result.broad.news.length === 1 ? "" : "s"}_
+> ✨ *Naxie's morning scan — fresh signals, fixes for our weak spots, and what's new in AI.*
+
+| 🔧 Weak spots | 📦 Trending repos | 📰 News |
+|---|---|---|
+| **${result.targeted.length}** investigated | **${result.broad.repos.length}** | **${result.broad.news.length}** |
+
+---
 
 `;
   const footer = `
@@ -416,7 +427,12 @@ let lastRunDate: string | null = null;
 async function deliverToTelegram(result: InnovationScanResult): Promise<void> {
   try {
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
-    const text = `🔎 Innovation Scan — ${result.date}\n\n${result.targeted.length} weak spot(s) addressed, ${result.broad.repos.length} trending repo(s), ${result.broad.news.length} news item(s)\n\n${result.digest.slice(0, 3500)}`;
+    const niceDate = new Date(result.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    const header = `🔭 *Innovation Scan — ${niceDate}*\n✨ Naxie's morning scan\n`;
+    const stats = `🔧 ${result.targeted.length} weak spot(s) · 📦 ${result.broad.repos.length} repo(s) · 📰 ${result.broad.news.length} news`;
+    const body = result.digest.slice(0, 3300);
+    const footer = `\n\n— _Full report in vault: ${result.path}_`;
+    const text = `${header}\n${stats}\n\n${body}${footer}`;
     const r = await sendTelegramMessage(text);
     if (!r.ok) console.warn(`[innovation-scan] Telegram delivery skipped: ${r.error}`);
   } catch (e: any) { console.warn(`[innovation-scan] Telegram delivery failed: ${e?.message ?? e}`); }
@@ -424,10 +440,10 @@ async function deliverToTelegram(result: InnovationScanResult): Promise<void> {
 
 export function startInnovationScanScheduler(): void {
   if (scheduler) return;
-  // Default 8 AM local, matching the reflection scheduler (reflection.ts) —
-  // both are "everyday at 8am" per the operator's own request. They may land
-  // in the same 10-minute catch-up tick; that's fine, each fires and delivers
-  // independently.
+  // Default 8 AM local — innovation scan fires at 8am. The todo brief (6am) and
+  // daily reflection (8pm) are offset so they don't compete for the LLM backend
+  // at once. They may still land in the same catch-up tick; that's fine, each
+  // fires and delivers independently.
   const SCAN_HOUR = Number(process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8");
   const tick = async () => {
     const now = new Date();

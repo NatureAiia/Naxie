@@ -263,6 +263,10 @@ export const api = {
   listInnovationScans: () => req<{ scans: { date: string; path: string; preview: string; stats?: any }[]; last?: any }>("/api/innovation-scan"),
   runInnovationScan: (force = false) => req<{ date: string; path: string; targeted: any; broad: any; digest: string; generatedAt: string; modelUsed?: string }>("/api/innovation-scan/run", { method: "POST", body: JSON.stringify({ force }) }),
   getInnovationScan: (date: string) => req<{ date: string; path: string; body: string }>(`/api/innovation-scan/${encodeURIComponent(date)}`),
+  listSystemAudits: () => req<{ audits: { date: string; path: string; preview: string; stats?: any }[]; last?: any; inventory: any }>("/api/system-audit"),
+  runSystemAudit: () => req<{ date: string; path: string; stats: any; report: string; generatedAt: string; modelUsed?: string }>("/api/system-audit/run", { method: "POST", body: JSON.stringify({}) }),
+  getSystemAudit: (date: string) => req<{ date: string; path: string; body: string }>(`/api/system-audit/${encodeURIComponent(date)}`),
+  systemAuditInventory: () => req<{ inventory: { pages: number; routes: number; lib: number; templates: number; personas: number } }>("/api/system-audit/inventory"),
   triggerDigest: (lookbackDays = 7) => req<{ jobId: string }>("/api/tasks/digest", { method: "POST", body: JSON.stringify({ lookbackDays: String(lookbackDays) }) }),
   chat: (messages: { role: "user" | "assistant" | "system"; content: string }[], opts?: {
     attachments?: { contextId: string }[];

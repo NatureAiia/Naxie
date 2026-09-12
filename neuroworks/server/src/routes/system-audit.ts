@@ -1,0 +1,73 @@
+import { Router } from "express";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { config } from "../config.js";
+import { runSystemAudit, lastSystemAudit, quickInventoryCounts } from "../lib/system-audit.js";
+import { requireLayer } from "../lib/access.js";
+
+export const systemAuditRouter = Router();
+
+const AUDIT_DIR_REL = "_neuroworks/system-audits";
+
+// GET /api/system-audit — list past MD audits
+systemAuditRouter.get("/", (_req, res) => {
+  try {
+    const root = resolve(config.vaultPath, AUDIT_DIR_REL);
+    if (!existsSync(root)) return res.json({ audits: [], inventory: quickInventoryCounts() });
+    const files = readdirSync(root).filter(f => f.endsWith(".md")).sort().reverse();
+    const audits = files.slice(0, 30).map(f => {
+      const date = f.replace(/\.md$/, "");
+      let preview = "";
+      let stats: any = undefined;
+      try {
+        const body = readFileSync(resolve(root, f), "utf8");
+        const stripped = body.replace(/^---[\s\S]*?---\n+/, "");
+        const m = stripped.match(/##\s+🏢 Executive Summary[\s\S]+?(?=\n##\s|\n---|$)/i)
+          ?? stripped.match(/##\s+Executive Summary[\s\S]+?(?=\n##\s|\n---|$)/i);
+        preview = (m ? m[0] : stripped).replace(/^#+\s+.*$/gm, "").replace(/\s+/g, " ").trim().slice(0, 280);
+        const fmMatch = body.match(/^---\n([\s\S]*?)\n---/);
+        if (fmMatch) {
+          const fm: any = {};
+          for (const line of fmMatch[1].split("\n")) {
+            const colon = line.indexOf(":");
+            if (colon > 0) fm[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
+          }
+          stats = fm;
+        }
+      } catch { /* tolerate */ }
+      return { date, path: `${AUDIT_DIR_REL}/${f}`, preview, stats };
+    });
+    res.json({ audits, last: lastSystemAudit(), inventory: quickInventoryCounts() });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? String(e) });
+  }
+});
+
+// GET /api/system-audit/inventory — lightweight live inventory (no vault read)
+systemAuditRouter.get("/inventory", (_req, res) => {
+  try { res.json({ inventory: quickInventoryCounts() }); }
+  catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+});
+
+// POST /api/system-audit/run — trigger a full MD scan now (admin)
+systemAuditRouter.post("/run", requireLayer("admin"), async (_req, res) => {
+  try {
+    const r = await runSystemAudit();
+    res.json(r);
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? String(e) });
+  }
+});
+
+// GET /api/system-audit/:date — full markdown body
+systemAuditRouter.get("/:date", (req, res) => {
+  try {
+    const date = String(req.params.date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+    const path = resolve(config.vaultPath, AUDIT_DIR_REL, `${date}.md`);
+    if (!existsSync(path)) return res.status(404).json({ error: "not found" });
+    res.json({ date, path: `${AUDIT_DIR_REL}/${date}.md`, body: readFileSync(path, "utf8") });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? String(e) });
+  }
+});

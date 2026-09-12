@@ -99,9 +99,13 @@ async function getBotToken(): Promise<string> {
 
 // Shared outbound send — the ONE place that calls Telegram's sendMessage API.
 // Used by the telegram.send agent tool (primitives.ts) AND by background
-// schedulers (reflection.ts, innovation-scan.ts) that push a finished
+// schedulers (reflection.ts, innovation-scan.ts, todo-brief.ts) that push a finished
 // report to the operator's default chat without going through the agent
 // loop. Defaults to the integration's saved chat id; pass chatId to override.
+//
+// All Naxie texts must look nice: markdown is auto-converted to rich Telegram HTML
+// (bold, italic, code, links, headings → bold) with chunking + plain-text fallback
+// so no report lands as raw `**` / `##` noise.
 export async function sendTelegramMessage(text: string, chatId?: string): Promise<{ ok: boolean; error?: string; messageId?: number }> {
   const { getConnectionByProvider } = await import("./integrations.js");
   const conn = getConnectionByProvider("telegram");
@@ -109,25 +113,42 @@ export async function sendTelegramMessage(text: string, chatId?: string): Promis
   const botToken = stripToken(conn.secrets.botToken);
   const chat = String(chatId ?? conn.config?.chatId ?? "").trim();
   if (!chat) return { ok: false, error: "no chatId (set a default on the Integrations page or pass chatId)" };
-  // A bot's own @username is not a valid send target — the single most
-  // common Telegram misconfig. Catch it with a clear message instead of
-  // Telegram's opaque "chat not found".
   if (/bot$/i.test(chat) && !/^-?\d+$/.test(chat) && !chat.startsWith("@")) {
     return { ok: false, error: `chatId "${chat}" looks like a bot username, not a chat — a bot can't message itself. Use a numeric chat id (DM the bot, then read it from getUpdates) or @channelusername.` };
   }
   const trimmed = text.trim();
   if (!trimmed) return { ok: false, error: "text is required" };
-  try {
-    const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      // Telegram's hard cap is 4096 UTF-16 code units per message.
-      body: JSON.stringify({ chat_id: chat, text: trimmed.slice(0, 4096) }),
-    });
-    const j: any = await r.json().catch(() => ({}));
-    return j?.ok ? { ok: true, messageId: j.result?.message_id } : { ok: false, error: `telegram: ${j?.description ?? `HTTP ${r.status}`}` };
-  } catch (e: any) {
-    return { ok: false, error: `telegram send failed: ${e?.message ?? e}` };
+  // Try rich HTML first (nice headings/bold/links), chunked at ~3800 to leave room for HTML tags
+  const html = markdownToTelegramHtml(trimmed);
+  const plainChunks: string[] = [];
+  const htmlChunks: string[] = [];
+  for (let i = 0; i < trimmed.length; i += 3800) plainChunks.push(trimmed.slice(i, i + 3800));
+  for (let i = 0; i < html.length; i += 3800) htmlChunks.push(html.slice(i, i + 3800));
+  // Send each chunk; on HTML parse failure fall back to plain for that chunk
+  let lastId: number | undefined;
+  for (let i = 0; i < htmlChunks.length; i++) {
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chat, text: htmlChunks[i].slice(0, 4096), parse_mode: "HTML" }),
+      });
+      const j: any = await r.json().catch(() => ({}));
+      if (j?.ok) { lastId = j.result?.message_id; continue; }
+      if (j?.description && /parse|can't parse|wrong string/i.test(String(j.description))) {
+        const rf = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ chat_id: chat, text: plainChunks[i].slice(0, 4096) }),
+        });
+        const jf: any = await rf.json().catch(() => ({}));
+        if (jf?.ok) { lastId = jf.result?.message_id; continue; }
+        return { ok: false, error: `telegram: ${jf?.description ?? `HTTP ${rf.status}`}` };
+      }
+      return { ok: false, error: `telegram: ${j?.description ?? `HTTP ${r.status}`}` };
+    } catch (e: any) {
+      return { ok: false, error: `telegram send failed: ${e?.message ?? e}` };
+    }
   }
+  return { ok: true, messageId: lastId };
 }
 
 // Effective allow-list: env chat ids UNION the integration's default chat id, so
@@ -165,13 +186,12 @@ async function tg(token: string, method: string, params: Record<string, unknown>
   }
 }
 
-// Telegram caps a message at 4096 chars. Render agent markdown as rich
-// Telegram HTML (like ChatGPT/Claude: bold headings, italic, code, links) —
-// with a plain-text fallback so a parse error never drops the reply.
-function escapeHtml(s: string): string {
+// Exported for scheduled senders (reflection, innovation-scan, todo-brief) and
+// sendTelegramMessage above.
+export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-function markdownToTelegramHtml(md: string): string {
+export function markdownToTelegramHtml(md: string): string {
   let html = md;
   // Fenced code blocks ```lang\ncode``` -> <pre>code</pre> (escape inside)
   html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (_m, _lang, code) => `<pre>${escapeHtml(code.trim())}</pre>`);

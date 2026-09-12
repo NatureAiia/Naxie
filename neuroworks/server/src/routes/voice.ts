@@ -183,8 +183,14 @@ voiceRouter.post("/converse", async (req, res) => {
     // doc comment — this is chat's counterpart to naxie.ts's /ask endpoint,
     // reachable from ordinary conversation instead of only the widget's
     // `/task ` prefix.)
-    const intent = classifyChatIntent(last.content, convoTokens);
-    if (intent.action === "delegate" && intent.role) {
+    // MD audit queries must never be delegated — Naxie IS the managing
+    // director, she answers system-health / dormant / useless directly from
+    // the injected [MD System Audit] context in buildNaxieContext.
+    const isMdQuery = /\b(md audit|system audit|managing director|system health|system update|what.*dormant|what.*useless|what.*needs.*improv|audit.*system|health.*system)\b/i.test(last.content)
+      || /\b(dormant|useless|needs improv)\b/i.test(last.content) && /\b(system|feature|page|file)\b/i.test(last.content);
+    const rawIntent = isMdQuery ? { action: "answer" as const, role: undefined as any, reason: "MD audit query — answer directly from system-audit context" } : classifyChatIntent(last.content, convoTokens) as any;
+    const intent: any = rawIntent;
+    if (!isMdQuery && intent.action === "delegate" && intent.role) {
       const { createOrgTask } = await import("../lib/org-tasks.js");
       const task = createOrgTask({
         role: intent.role,
