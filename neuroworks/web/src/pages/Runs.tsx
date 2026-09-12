@@ -243,8 +243,8 @@ export function Runs() {
           onOpen={openInBoard}
         />
       ) : (
-        <div className="grid grid-cols-5 gap-5">
-          <div className="col-span-2 space-y-2">
+        <div className="grid grid-cols-1 tablet:grid-cols-5 gap-5">
+          <div className="tablet:col-span-2 space-y-2">
             {!loaded && <Card><SkeletonList rows={6} /></Card>}
             {loaded && filtered.length === 0 && <Card><div className="text-sm text-cream-300/60 text-center py-8">No runs match this filter.</div></Card>}
             {taskList.visible.map((j, i) => (
@@ -577,7 +577,7 @@ function LiveActivityStrip({ jobs, eta, now, onOpenActivity, onOpenJob, onCancel
         <span className="text-[10px] uppercase tracking-wider text-violet-300/80">Working now</span>
         <span className="text-[11px] text-cream-300/60">{jobs.length} active task{jobs.length === 1 ? "" : "s"}</span>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {jobs.map(j => {
           const r = j.result ?? {};
           const totalSteps = r.plan?.steps?.length ?? 0;

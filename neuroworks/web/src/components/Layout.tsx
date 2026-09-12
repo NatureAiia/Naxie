@@ -402,11 +402,11 @@ export function Layout({ children }: { children: ReactNode }) {
         </aside>
 
         <main className="flex-1 flex flex-col overflow-hidden">
-          <header className="flex items-center justify-between px-8 py-3 tablet:px-6 tablet:py-2 border-b border-ink-800">
-            <div className="flex items-center gap-2.5">
+          <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 tablet:px-6 tablet:py-2 border-b border-ink-800">
+            <div className="flex items-center gap-2.5 min-w-0">
               {user ? (
                 <>
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-coral-500 grid place-items-center text-[11px] font-semibold text-white">
+                  <div className="w-7 h-7 shrink-0 rounded-full bg-gradient-to-br from-violet-500 to-coral-500 grid place-items-center text-[11px] font-semibold text-white">
                     {user.name
                       .split(" ")
                       .map((p) => p[0])
@@ -414,41 +414,42 @@ export function Layout({ children }: { children: ReactNode }) {
                       .join("")
                       .toUpperCase()}
                   </div>
-                  <div className="text-sm text-cream-200">
-                    {user.name} <span className="text-cream-300/50">· {user.email}</span>
+                  <div className="text-sm text-cream-200 truncate">
+                    {user.name} <span className="text-cream-300/50 hidden tablet:inline">· {user.email}</span>
                   </div>
-                  <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/70">
+                  <span className="hidden tablet:inline text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/70">
                     {user.role}
                   </span>
                   <button
                     type="button"
                     onClick={signOut}
                     title="Sign out"
-                    className="ml-1 text-cream-300/50 hover:text-coral-400 p-1"
+                    className="ml-1 shrink-0 text-cream-300/50 hover:text-coral-400 p-1"
                   >
                     <LogOut size={14} />
                   </button>
                 </>
               ) : null}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {persona && (
                 <Link
                   to="/agents"
                   className="nw-shiny-pill flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border bg-violet-500/10 border-violet-500/30 text-violet-300"
                   title="Active persona"
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
-                  {persona.name} <span className="opacity-60">· {persona.role}</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" />
+                  <span className="truncate max-w-[8rem] tablet:max-w-none">{persona.name}</span>
+                  <span className="opacity-60 hidden tablet:inline">· {persona.role}</span>
                 </Link>
               )}
               <div
                 className={`nw-shiny-pill flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border ${statusOk ? "bg-leaf-500/10 border-leaf-500/30 text-leaf-400" : "bg-flame-500/10 border-flame-500/30 text-flame-400"}`}
               >
                 <span
-                  className={`inline-block w-1.5 h-1.5 rounded-full ${statusOk ? "bg-leaf-500" : "bg-flame-500 animate-pulse"}`}
+                  className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${statusOk ? "bg-leaf-500" : "bg-flame-500 animate-pulse"}`}
                 />
-                {statusLabel}
+                <span className="hidden tablet:inline">{statusLabel}</span>
               </div>
               <button
                 type="button"
@@ -460,15 +461,15 @@ export function Layout({ children }: { children: ReactNode }) {
                 title="Open command palette"
               >
                 <SearchIcon size={12} />
-                <span>Search</span>
-                <span className="flex items-center gap-0.5">
+                <span className="hidden tablet:inline">Search</span>
+                <span className="hidden tablet:flex items-center gap-0.5">
                   <MetaKey />
                   <Kbd>K</Kbd>
                 </span>
               </button>
             </div>
           </header>
-          <div className={`flex-1 scrollbar-thin ${clearBackground ? "overflow-hidden" : "overflow-auto"}`}>
+          <div className={`flex-1 scrollbar-thin ${clearBackground ? "overflow-y-auto tablet:overflow-hidden" : "overflow-auto"}`}>
             {/* key re-keys the wrapper on route change, restarting the
               nw-page-enter animation. Reduced-motion users get an instant
               swap (the keyframe collapses to no-op in CSS). Naxie gets a
@@ -478,7 +479,7 @@ export function Layout({ children }: { children: ReactNode }) {
               key={location.pathname.split("/")[1] || "/"}
               className={
                 clearBackground
-                  ? "h-full px-4 py-5 tablet:px-6 tablet:py-5 nw-page-enter"
+                  ? "px-4 py-5 tablet:h-full tablet:px-6 tablet:py-5 nw-page-enter"
                   : "max-w-6xl mx-auto px-6 py-6 tablet:px-8 tablet:py-7 nw-page-enter"
               }
             >

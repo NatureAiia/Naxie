@@ -118,14 +118,18 @@ export function Naxie() {
   const micLevel = useMicLevel(mic.active);
 
   return (
-    <div className="flex h-full gap-6">
+    <div className={`flex flex-col tablet:h-full gap-4 tablet:gap-6 ${showGraph ? "tablet:flex-row" : ""}`}>
+      {/* Below `tablet` this stacks — Naxie's panel first (the primary
+          surface), the knowledge graph second as a fixed-height pane you
+          scroll to, rather than squeezed to nothing beside a 380px column
+          that alone exceeds a phone's width. */}
       {showGraph && (
-        <div className="flex-1 min-w-0 h-full py-2">
+        <div className="order-2 tablet:order-1 tablet:flex-1 tablet:min-w-0 h-80 tablet:h-full py-2">
           <KnowledgeGraph focusId={sourceNoteId} />
         </div>
       )}
 
-      <div className={`flex flex-col h-full ${showGraph ? "w-[380px] shrink-0" : "flex-1 min-w-0 max-w-2xl mx-auto w-full"}`}>
+      <div className={`order-1 tablet:order-2 flex flex-col tablet:h-full w-full ${showGraph ? "tablet:w-[380px] tablet:shrink-0" : "flex-1 min-w-0 max-w-2xl mx-auto"}`}>
         <div className="flex items-center justify-between gap-2 pt-2 pb-4">
           <div className="flex items-center gap-2">
             <Sparkles size={18} className="text-violet-400" />
@@ -147,7 +151,7 @@ export function Naxie() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 pb-3 text-[11px] text-cream-300/70">
+        <div className="flex flex-wrap items-center gap-1.5 pb-3 text-[11px] text-cream-300/70">
           <Link to="/agents" className="flex items-center gap-1 px-2 py-1 rounded-md bg-ink-800/50 backdrop-blur-sm hover:bg-ink-800/80 border border-violet-500/20">
             <Bot size={11} className="text-violet-400" /> {personaCount ?? "…"} agent{personaCount === 1 ? "" : "s"}
           </Link>
