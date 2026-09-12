@@ -588,13 +588,40 @@ let lastRunDate: string | null = null;
 // Best-effort push of the finished reflection to Telegram — never throws,
 // never blocks the scheduler. Silently no-ops if Telegram isn't connected
 // (same "optional delivery" posture as schedules.ts's email delivery).
+// 8pm push also includes tomorrow's preview (item 3).
+async function getTomorrowPreview(): Promise<string> {
+  try {
+    const { existsSync, readFileSync } = await import("node:fs");
+    const { resolve, dirname } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const storePath = resolve(__dirname, "../../../.neuroworks/my-tasks.json");
+    if (!existsSync(storePath)) return "";
+    const parsed = JSON.parse(readFileSync(storePath, "utf8"));
+    const items: any[] = Array.isArray(parsed?.items) ? parsed.items : [];
+    const lists: any[] = Array.isArray(parsed?.lists) ? parsed.lists : [];
+    const open = items.filter((x: any) => !x.completed);
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+    const ymd = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,"0")}-${String(tomorrow.getDate()).padStart(2,"0")}`;
+    const nice = tomorrow.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+    const dueTomorrow = open.filter((x: any) => x.dueDate === ymd);
+    if (!dueTomorrow.length) return `\n\n---\n\n## 🔮 Tomorrow — ${nice}\n_No tasks due tomorrow — clear runway!_`;
+    const lines = dueTomorrow.slice(0, 8).map((t: any) => {
+      const l = lists.find((x: any) => x.id === t.listId)?.name ?? "Tasks";
+      return `- ☐ **${String(t.title).slice(0,90)}**${t.important ? " ⭐" : ""} \`${l}\``;
+    }).join("\n");
+    const more = dueTomorrow.length > 8 ? `\n_…+${dueTomorrow.length-8} more_` : "";
+    return `\n\n---\n\n## 🔮 Tomorrow — ${nice} · ${dueTomorrow.length} task${dueTomorrow.length===1?"":"s"}\n\n${lines}${more}`;
+  } catch { return ""; }
+}
 async function deliverToTelegram(result: ReflectionResult): Promise<void> {
   try {
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
     const s = result.stats;
     const niceDate = new Date(s.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     const header = `🌙 *Daily Reflection — ${niceDate}*\n📊 ${s.totalTasks} task(s): ✅ ${s.succeeded} ok · ❌ ${s.failed} failed · 🚫 ${s.rejected} rejected (${Math.round(s.successRate * 100)}% success)`;
-    const text = `${header}\n\n${result.reflection.slice(0, 3300)}\n\n— _Full report in vault: ${result.path}_`;
+    const preview = await getTomorrowPreview();
+    const text = `${header}\n\n${result.reflection.slice(0, 2800)}${preview.slice(0, 900)}\n\n— _Full report in vault: ${result.path}_`;
     const r = await sendTelegramMessage(text);
     if (!r.ok) console.warn(`[reflection] Telegram delivery skipped: ${r.error}`);
   } catch (e: any) { console.warn(`[reflection] Telegram delivery failed: ${e?.message ?? e}`); }

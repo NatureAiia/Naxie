@@ -21,6 +21,7 @@ export type TodoBriefResult = {
   weekCount: number;
   openCount: number;
   backlogCount: number;
+  top3: { task: any; score: number; reason: string }[];
 };
 
 let lastResult: TodoBriefResult | null = null;
@@ -48,12 +49,55 @@ export function lastTodoBrief(): TodoBriefResult | null {
   return lastResult;
 }
 
+// ─── AI Priority Scoring ───
+// Rank = proximity + importance + overdue triage. Higher = do first.
+// Overdue > Today/MyDay > This-week > Backlog > Distant future. Important = +15, overdue extra +5 if >3 days late.
+function daysBetween(aYmd: string, bYmd: string): number {
+  const a = new Date(aYmd + "T12:00:00").getTime();
+  const b = new Date(bYmd + "T12:00:00").getTime();
+  return Math.round((b - a) / 86400000);
+}
+function scoreTask(it: any, today: string): number {
+  let s = 0;
+  if (it.dueDate && it.dueDate < today) {
+    const late = Math.abs(daysBetween(it.dueDate, today));
+    s = 100 + Math.min(10, late * 2); // more late = slightly higher
+  } else if (it.dueDate === today || it.myDay === today) {
+    s = 90;
+  } else if (it.dueDate) {
+    const d = daysBetween(today, it.dueDate);
+    if (d >= 1 && d <= 6) s = 75 - d * 2; // 73..63 this week
+    else if (d > 6) s = 35 - Math.min(10, Math.floor(d / 7)); // future
+    else s = 40;
+  } else {
+    s = 30; // undated backlog
+  }
+  if (it.important) s += 15;
+  if (Array.isArray(it.steps) && it.steps.length) {
+    const done = it.steps.filter((x: any) => x.done).length;
+    const progress = done / it.steps.length;
+    s += progress * 3; // slight boost for already-started
+  }
+  return s;
+}
+export function topPriorityTasks(allOpen: any[], today: string, n = 3): { task: any; score: number; reason: string }[] {
+  const scored = allOpen.map((t) => {
+    const sc = scoreTask(t, today);
+    let reason = t.dueDate && t.dueDate < today ? `Overdue ${daysBetween(t.dueDate, today)}d`
+      : t.dueDate === today || t.myDay === today ? "Due today"
+      : t.dueDate ? `Due ${t.dueDate}` : "No date";
+    if (t.important) reason += " · ⭐ Important";
+    return { task: t, score: sc, reason };
+  }).sort((a, b) => b.score - a.score);
+  return scored.slice(0, n);
+}
+
 // Build the markdown for today's + week's todos. Uses my-tasks store directly
 // (all owners aggregated — single-operator "local" plus any real emails) so
 // the brief is never empty due to ownerEmail mismatch. Falls back to []
 // when the store is unreadable.
 // IMPORTANT: every incomplete task must appear SOMEWHERE — undated items go to `backlog`.
-function gatherTodos(): { today: any[]; overdue: any[]; week: Map<string, any[]>; backlog: any[]; openCount: number; allLists: any[] } {
+function gatherTodos(): { today: any[]; overdue: any[]; week: Map<string, any[]>; backlog: any[]; openCount: number; top3: { task: any; score: number; reason: string }[]; allLists: any[] } {
   const now = new Date();
   const today = localYmd(now);
   // Rest of week: tomorrow -> Sunday (local week ends Sunday). If today is Sunday, "rest" is empty.
@@ -106,7 +150,9 @@ function gatherTodos(): { today: any[]; overdue: any[]; week: Map<string, any[]>
   for (const arr of weekMap.values()) arr.sort(sortFn);
   allBacklog.sort(sortFn);
 
-  return { today: todayItems, overdue, week: weekMap, backlog: allBacklog, openCount: open.length, allLists: lists };
+  const top3 = topPriorityTasks(open, today, 3);
+
+  return { today: todayItems, overdue, week: weekMap, backlog: allBacklog, openCount: open.length, top3, allLists: lists };
 }
 
 function listNameFor(item: any, lists: any[]): string {
@@ -124,7 +170,7 @@ function renderTaskLine(it: any, lists: any[]): string {
   return `- ${it.completed ? "✅" : "☐"} **${title}**${imp}${due}${steps}${list}`;
 }
 
-export function renderTodoMarkdown(opts: { date: string; today: any[]; overdue: any[]; week: Map<string, any[]>; backlog: any[]; openCount: number; lists: any[] }): string {
+export function renderTodoMarkdown(opts: { date: string; today: any[]; overdue: any[]; week: Map<string, any[]>; backlog: any[]; openCount: number; top3: { task: any; score: number; reason: string }[]; lists: any[] }): string {
   const niceDate = fmtNice(opts.date);
   const dow = new Date(opts.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" });
   const header = `---
@@ -143,6 +189,7 @@ generated: ${new Date().toISOString()}
 
 `;
 
+  const top3Block = opts.top3.length === 0 ? "" : `## 🔥 Top 3 Today — AI Priority\n\n${opts.top3.map((p, i) => `${i + 1}. **${String(p.task.title ?? "Untitled").replace(/\n/g, " ").slice(0, 110)}** — _${p.reason}_ · \`${listNameFor(p.task, opts.lists)}\`${p.task.important ? " ⭐" : ""}`).join("\n")}\n`;
   const todayBlock = opts.today.length === 0
     ? `## ☀️ Today — 0 tasks\n\n_You're all clear for today — enjoy the open runway!_ 🎉\n`
     : `## ☀️ Today — ${opts.today.length} task${opts.today.length === 1 ? "" : "s"}\n\n${opts.today.map((it) => renderTaskLine(it, opts.lists)).join("\n")}\n`;
@@ -173,16 +220,26 @@ generated: ${new Date().toISOString()}
 
   const footer = `\n<details><summary>Raw counts</summary>\n\n\`\`\`json\n${JSON.stringify({ today: opts.today.length, overdue: opts.overdue.length, backlog: opts.backlog.length, open: opts.openCount, week: Object.fromEntries([...opts.week].map(([k, v]) => [k, v.length])) }, null, 2)}\n\`\`\`\n\n</details>\n`;
 
-  return header + todayBlock + overdueBlock + weekBlock + backlogBlock + summary + footer;
+  return header + top3Block + "\n" + todayBlock + overdueBlock + weekBlock + backlogBlock + summary + footer;
 }
 
-export async function runTodoBrief(): Promise<TodoBriefResult> {
+export async function runTodoBrief(opts: { includeWeather?: boolean } = {}): Promise<TodoBriefResult> {
   if (inFlight) return inFlight;
   inFlight = (async () => {
     const runStartedAtIso = new Date().toISOString();
     const today = localYmd(new Date());
-    const { today: todayItems, overdue, week, backlog, openCount, allLists } = gatherTodos();
-    const markdown = renderTodoMarkdown({ date: today, today: todayItems, overdue, week, backlog, openCount, lists: allLists });
+    const { today: todayItems, overdue, week, backlog, openCount, top3, allLists } = gatherTodos();
+    // Weather block for 6am brief (item 5)
+    let weatherBlock = "";
+    if (opts.includeWeather !== false) {
+      try {
+        const { getWeather } = await import("./host-tools.js");
+        const w = await getWeather("auto");
+        if (w) weatherBlock = `\n${w}\n`;
+      } catch { /* best-effort */ }
+    }
+    const baseMarkdown = renderTodoMarkdown({ date: today, today: todayItems, overdue, week, backlog, openCount, top3, lists: allLists });
+    const markdown = weatherBlock ? baseMarkdown.replace("---\n\n# ☀️ Good morning", `---\n\n${weatherBlock}\n# ☀️ Good morning`) : baseMarkdown;
     const generatedAt = new Date().toISOString();
     const path = `${TODO_DIR}/${today}.md`;
     try {
@@ -194,7 +251,7 @@ export async function runTodoBrief(): Promise<TodoBriefResult> {
     }
 
     const weekCount = [...week.values()].reduce((n, arr) => n + arr.length, 0);
-    const result: TodoBriefResult = { date: today, path, markdown, generatedAt, todayCount: todayItems.length, overdueCount: overdue.length, weekCount, openCount, backlogCount: backlog.length };
+    const result: TodoBriefResult = { date: today, path, markdown, generatedAt, todayCount: todayItems.length, overdueCount: overdue.length, weekCount, openCount, backlogCount: backlog.length, top3 };
     lastResult = result;
 
     // Surface on Calendar like reflection/innovation-scan.
@@ -227,7 +284,14 @@ async function deliverToTelegram(result: TodoBriefResult): Promise<void> {
     const niceDate = fmtNice(result.date);
     const body = result.markdown.slice(0, 3500);
     const text = `☀️ *Todo Brief — ${niceDate}*\n📋 ${result.todayCount} today · ⚠️ ${result.overdueCount} overdue · 📅 ${result.weekCount} rest-of-week · 📦 ${result.openCount} open\n\n${body.slice(0, 3300)}\n\n— _Full brief in vault: ${result.path}_`;
-    const r = await sendTelegramMessage(text);
+    const kb = (result.top3 ?? []).slice(0, 3).map((p: any) => {
+      const t = String(p.task.title ?? "").slice(0, 22).replace(/"/g, "");
+      return [
+        { text: `✅ ${t}`, callback_data: `todo:done:${p.task.id}` },
+        { text: `⏰ Snooze`, callback_data: `todo:snooze:${p.task.id}` },
+      ];
+    });
+    const r = await sendTelegramMessage(text, undefined, kb.length ? kb : undefined);
     if (!r.ok) console.warn(`[todo-brief] Telegram delivery skipped: ${r.error}`);
   } catch (e: any) { console.warn(`[todo-brief] Telegram delivery failed: ${e?.message ?? e}`); }
 }

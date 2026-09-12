@@ -30,6 +30,7 @@ import { startReflectionScheduler, stopReflectionScheduler } from "./lib/reflect
 import { startInnovationScanScheduler, stopInnovationScanScheduler } from "./lib/innovation-scan.js";
 import { startSystemAuditScheduler, stopSystemAuditScheduler } from "./lib/system-audit.js";
 import { startTodoBriefScheduler, stopTodoBriefScheduler } from "./lib/todo-brief.js";
+import { startWeeklyRollupScheduler, stopWeeklyRollupScheduler } from "./lib/weekly-rollup.js";
 import { startWikiCompileScheduler, stopWikiCompileScheduler, startWikiDigestScheduler, stopWikiDigestScheduler } from "./lib/wiki-compile.js";
 import { ensureAgentsMdExists } from "./lib/agents-routing.js";
 import { abortInflightJobs } from "./lib/jobs.js";
@@ -534,13 +535,19 @@ const server = app.listen(config.port, config.bindHost, async () => {
     console.log(`  ⓘ MD system-audit scheduler armed (hour=${process.env.NEUROWORKS_SYSTEM_AUDIT_HOUR ?? "7"}, delivers to Telegram if connected)`);
   }
 
-  // Todo brief at 6am — today's tasks + remaining for the week. Fires before
+  // Todo brief at 6am — today's tasks + remaining for the week (with weather + 🔥 Top 3 + inline buttons). Fires before
   // the 7am MD audit so the operator starts the day with todos, then the MD
   // report, then the 8am innovation scan.
   // Primary-only. Disable with NEUROWORKS_TODO_BRIEF=0.
   if (process.env.NEUROWORKS_TODO_BRIEF !== "0" && config.role === "primary") {
     startTodoBriefScheduler();
     console.log(`  ⓘ todo brief scheduler armed (hour=${process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"}, delivers to Telegram if connected)`);
+  }
+
+  // Weekly rollup Sundays 9am — combines todos + reflections + scans.
+  if (process.env.NEUROWORKS_WEEKLY_ROLLUP !== "0" && config.role === "primary") {
+    startWeeklyRollupScheduler();
+    console.log(`  ⓘ weekly rollup scheduler armed (dow=${process.env.NEUROWORKS_WEEKLY_ROLLUP_DOW ?? "0"} hour=${process.env.NEUROWORKS_WEEKLY_ROLLUP_HOUR ?? "9"})`);
   }
 
   // Second-brain wiki compile — distills raw captures (_archive/) into
@@ -653,6 +660,8 @@ async function gracefulExit(signal: string) {
   try { stopSystemAuditScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopTodoBriefScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopWeeklyRollupScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopWikiCompileScheduler(); stopWikiDigestScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }

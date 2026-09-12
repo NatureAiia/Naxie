@@ -54,6 +54,12 @@ logs/
 neuroworks-ts/.neuroworks/
 neuroworks-ts/vault/*
 !neuroworks-ts/vault/README.md
+.neuroworks/
+neuroworks/.neuroworks/
+neuroworks/vault/*
+!neuroworks/vault/README.md
+neuroworks/server/vault/*
+!neuroworks/server/vault/README.md
 
 # ==========================
 # IDE / OS

@@ -106,7 +106,8 @@ async function getBotToken(): Promise<string> {
 // All Naxie texts must look nice: markdown is auto-converted to rich Telegram HTML
 // (bold, italic, code, links, headings → bold) with chunking + plain-text fallback
 // so no report lands as raw `**` / `##` noise.
-export async function sendTelegramMessage(text: string, chatId?: string): Promise<{ ok: boolean; error?: string; messageId?: number }> {
+// Inline keyboards: pass `keyboard` as Telegram inline_keyboard array for one-tap actions.
+export async function sendTelegramMessage(text: string, chatId?: string, keyboard?: any[][]): Promise<{ ok: boolean; error?: string; messageId?: number }> {
   const { getConnectionByProvider } = await import("./integrations.js");
   const conn = getConnectionByProvider("telegram");
   if (!conn?.secrets?.botToken) return { ok: false, error: "no Telegram connection — add one on the Integrations page" };
@@ -125,19 +126,22 @@ export async function sendTelegramMessage(text: string, chatId?: string): Promis
   for (let i = 0; i < trimmed.length; i += 3800) plainChunks.push(trimmed.slice(i, i + 3800));
   for (let i = 0; i < html.length; i += 3800) htmlChunks.push(html.slice(i, i + 3800));
   // Send each chunk; on HTML parse failure fall back to plain for that chunk
+  // Only attach inline keyboard to the last chunk (where it makes sense)
   let lastId: number | undefined;
   for (let i = 0; i < htmlChunks.length; i++) {
+    const isLast = i === htmlChunks.length - 1;
+    const extra: any = isLast && keyboard?.length ? { reply_markup: { inline_keyboard: keyboard } } : {};
     try {
       const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: chat, text: htmlChunks[i].slice(0, 4096), parse_mode: "HTML" }),
+        body: JSON.stringify({ chat_id: chat, text: htmlChunks[i].slice(0, 4096), parse_mode: "HTML", ...extra }),
       });
       const j: any = await r.json().catch(() => ({}));
       if (j?.ok) { lastId = j.result?.message_id; continue; }
       if (j?.description && /parse|can't parse|wrong string/i.test(String(j.description))) {
         const rf = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ chat_id: chat, text: plainChunks[i].slice(0, 4096) }),
+          body: JSON.stringify({ chat_id: chat, text: plainChunks[i].slice(0, 4096), ...(isLast && keyboard?.length ? { reply_markup: { inline_keyboard: keyboard } } : {}) }),
         });
         const jf: any = await rf.json().catch(() => ({}));
         if (jf?.ok) { lastId = jf.result?.message_id; continue; }
@@ -279,7 +283,59 @@ function appendHistory(chatId: string, role: "user" | "assistant", content: stri
   chatHistory.set(chatId, h);
 }
 
+async function handleTodoCallback(token: string, allow: Set<string>, cb: any): Promise<void> {
+  try {
+    const data: string = String(cb.data ?? "");
+    const chatId = String(cb.message?.chat?.id ?? cb.from?.id ?? "");
+    if (!allow.has(chatId)) return;
+    const cbId = String(cb.id ?? "");
+    // Ack immediately to clear spinner
+    void tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Working…" }).catch(() => {});
+    const m = data.match(/^todo:(done|snooze):(.+)$/);
+    if (!m) {
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Unknown action" });
+      return;
+    }
+    const [, action, taskId] = m;
+    // Direct my-tasks store edit (cross-owner search)
+    try {
+      const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
+      const { resolve, dirname } = await import("node:path");
+      const { fileURLToPath } = await import("node:url");
+      const storePath = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.neuroworks/my-tasks.json");
+      if (!existsSync(storePath)) throw new Error("no store");
+      const parsed = JSON.parse(readFileSync(storePath, "utf8"));
+      const items: any[] = parsed.items ?? [];
+      const idx = items.findIndex((x: any) => x.id === taskId);
+      if (idx === -1) {
+        await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Task not found" });
+        return;
+      }
+      const it = items[idx];
+      if (action === "done") {
+        it.completed = !it.completed;
+        it.completedAt = it.completed ? new Date().toISOString() : undefined;
+        writeFileSync(storePath, JSON.stringify(parsed, null, 2));
+        await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: it.completed ? "✅ Marked done" : "↩️ Marked open" });
+        void tg(token, "sendMessage", { chat_id: chatId, text: `${it.completed ? "✅ Done" : "↩️ Reopened"}: ${String(it.title).slice(0,120)}`, parse_mode: "HTML" }).catch(() => {});
+      } else if (action === "snooze") {
+        const tmr = new Date(); tmr.setDate(tmr.getDate()+1);
+        const ymd = `${tmr.getFullYear()}-${String(tmr.getMonth()+1).padStart(2,"0")}-${String(tmr.getDate()).padStart(2,"0")}`;
+        it.dueDate = ymd;
+        writeFileSync(storePath, JSON.stringify(parsed, null, 2));
+        await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: `⏰ Snoozed to ${ymd}` });
+        void tg(token, "sendMessage", { chat_id: chatId, text: `⏰ Snoozed to <b>${ymd}</b>: ${escapeHtml(String(it.title).slice(0,120))}`, parse_mode: "HTML" }).catch(() => {});
+      }
+    } catch (e: any) {
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: `Failed: ${String(e?.message ?? e).slice(0,60)}` });
+    }
+  } catch (e: any) { console.warn(`[telegram] callback failed: ${e?.message ?? e}`); }
+}
+
 async function processUpdate(token: string, allow: Set<string>, update: any): Promise<void> {
+  if (update.callback_query) {
+    return handleTodoCallback(token, allow, update.callback_query);
+  }
   const msg = update.message ?? update.channel_post;
   if (!msg || typeof msg.text !== "string") return; // ignore non-text (stickers, joins, edits…)
   const chat = msg.chat ?? {};
@@ -400,7 +456,7 @@ export async function startTelegramBridge(): Promise<void> {
     while (!abort) {
       refreshLock(); // keep the single-poller lease alive
       try {
-        const res = await tg(token, "getUpdates", { offset, timeout: pollTimeout, allowed_updates: ["message", "channel_post"] }, (pollTimeout + 10) * 1000);
+        const res = await tg(token, "getUpdates", { offset, timeout: pollTimeout, allowed_updates: ["message", "channel_post", "callback_query"] }, (pollTimeout + 10) * 1000);
         if (res?.ok && Array.isArray(res.result)) {
           for (const update of res.result) {
             offset = update.update_id + 1;
