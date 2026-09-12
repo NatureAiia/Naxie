@@ -20,6 +20,8 @@ import {
   getWeather, setReminder, systemControl, manageClipboard, gitCommand, browserOpen,
   type SystemControlAction,
 } from "./host-tools.js";
+import { publishDataset, listDatasets } from "./adrs.js";
+import { acquire as omniAcquire, acquireAndPublish as omniAcquirePublish, type OmniSpec } from "./omnisignal.js";
 
 export type ArgSpec = { name: string; type: "string" | "number" | "boolean"; required: boolean; description: string };
 
@@ -4557,6 +4559,96 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "url_or_search", type: "string", required: true, description: "A URL (e.g. 'https://example.com') or a plain search phrase" },
     ],
     handler: async (args) => ({ text: await browserOpen(String(args.url_or_search ?? "")) }),
+  },
+  {
+    name: "omnisignal.acquire",
+    description: "BASE RESEARCH TOOL. Acquire raw signal from many sources at once via Omnisignal (the Intellinexus pipeline's acquisition front-end) and get a merged, provenance-tagged record stream. Each source is a spec object: {kind:'web_search',query} | {kind:'web_page',urls:[...]} | {kind:'db',sourceLabel,query} | {kind:'local_file',path} | {kind:'vault',query}. Read-only — use to gather multi-source research before answering, or before publishing a dataset with omnisignal.publish.",
+    readonly: true,
+    args: [
+      { name: "sources", type: "string", required: true, description: "JSON array of source specs, e.g. '[{\"kind\":\"web_search\",\"query\":\"Zimbabwe mobile tariffs\"},{\"kind\":\"vault\",\"query\":\"pricing\"}]'." },
+    ],
+    handler: async (args) => {
+      let specs: OmniSpec[];
+      try {
+        const parsed = JSON.parse(String(args.sources ?? "[]"));
+        if (!Array.isArray(parsed)) return { error: "sources must be a JSON array of specs" };
+        specs = parsed;
+      } catch { return { error: "sources is not valid JSON" }; }
+      if (specs.length === 0) return { error: "provide at least one source spec" };
+      const result = await omniAcquire(specs);
+      return { total: result.total, report: result.report, records: result.records.slice(0, 200) };
+    },
+  },
+  {
+    name: "omnisignal.publish",
+    description: "BASE RESEARCH SYSTEM. Acquire from multiple sources via Omnisignal, then run the full Intellinexus pipeline and PUBLISH a dataset agents learn from (normalize → hash → score → HITL → golden record → CSV/JSONL/RAG). One call turns live multi-source research into a readied, hashed, deduplicated knowledge pack. Sources use the same spec shape as omnisignal.acquire.",
+    readonly: false,
+    args: [
+      { name: "name", type: "string", required: true, description: "Dataset name (becomes the knowledge-pack title)." },
+      { name: "sources", type: "string", required: true, description: "JSON array of source specs (see omnisignal.acquire)." },
+      { name: "sector", type: "string", required: false, description: "Optional sector tag." },
+      { name: "keyField", type: "string", required: false, description: "Field to merge duplicates on (entity resolution). Omit for hash-only dedup." },
+    ],
+    handler: async (args) => {
+      const name = String(args.name ?? "").trim();
+      if (!name) return { error: "name is required" };
+      let specs: OmniSpec[];
+      try {
+        const parsed = JSON.parse(String(args.sources ?? "[]"));
+        if (!Array.isArray(parsed)) return { error: "sources must be a JSON array of specs" };
+        specs = parsed;
+      } catch { return { error: "sources is not valid JSON" }; }
+      if (specs.length === 0) return { error: "provide at least one source spec" };
+      const out = await omniAcquirePublish(name, specs, {
+        sector: args.sector ? String(args.sector) : undefined,
+        keyField: args.keyField ? String(args.keyField) : undefined,
+      });
+      if (!out.published) return { published: false, note: out.note, report: out.acquisition.report };
+      const m = out.published.manifest;
+      return { published: true, id: m.id, name: m.name, recordCount: m.recordCount, rawCount: m.rawCount, avgConfidence: m.avgConfidence, reviewQueue: m.reviewQueue, rootHash: (m as any).rootHash, report: out.acquisition.report, outputs: m.outputs };
+    },
+  },
+  {
+    name: "data.publish",
+    description: "Run the Intellinexus data pipeline (normalize → cryptographic hash → confidence score → HITL gate → entity-resolution golden record → publish) and PUBLISH a dataset into the vault as ML CSV + knowledge-graph JSONL + RAG chunks + a knowledge-pack card. Provide rows either inline (rows = JSON array string) OR from a connected company data source (source = its label, query = SQL/JSON for that source).",
+    readonly: false,
+    args: [
+      { name: "name", type: "string", required: true, description: "Human name for the dataset (becomes the pack title)." },
+      { name: "rows", type: "string", required: false, description: "Inline records as a JSON array string, e.g. '[{\"name\":\"A\",\"value\":1}]'. Omit if using source+query." },
+      { name: "source", type: "string", required: false, description: "Label of a connected company data source to pull rows from (see db.list)." },
+      { name: "query", type: "string", required: false, description: "SQL (or the source's query syntax) to run against `source`. Read-only." },
+      { name: "sector", type: "string", required: false, description: "Optional sector tag." },
+      { name: "keyField", type: "string", required: false, description: "Field name used to merge duplicate rows into one golden record. Omit for hash-only dedup." },
+    ],
+    handler: async (args) => {
+      const name = String(args.name ?? "").trim();
+      if (!name) return { error: "name is required" };
+      let rows: Record<string, unknown>[] = [];
+      if (args.source && args.query) {
+        const src = getSourceByLabel(String(args.source));
+        if (!src) return { error: `no connected data source labelled "${args.source}" (see db.list)` };
+        const r = await runQuery(src, String(args.query), 5000);
+        rows = r.rows;
+      } else if (args.rows) {
+        try {
+          const parsed = JSON.parse(String(args.rows));
+          if (!Array.isArray(parsed)) return { error: "rows must be a JSON array" };
+          rows = parsed;
+        } catch { return { error: "rows is not valid JSON" }; }
+      } else {
+        return { error: "provide either rows (inline JSON array) or source+query" };
+      }
+      if (rows.length === 0) return { error: "no rows to publish" };
+      const { manifest } = publishDataset({ name, records: rows, sector: args.sector ? String(args.sector) : undefined, source: args.source ? `data-source:${args.source}` : "agent-inline", keyField: args.keyField ? String(args.keyField) : undefined });
+      return { published: true, id: manifest.id, name: manifest.name, recordCount: manifest.recordCount, rawCount: manifest.rawCount, avgConfidence: manifest.avgConfidence, reviewQueue: manifest.reviewQueue, rootHash: (manifest as any).rootHash, outputs: manifest.outputs };
+    },
+  },
+  {
+    name: "data.list_datasets",
+    description: "List published Intellinexus datasets (name, id, counts, confidence, outputs). Agents learn from these via retrieval.",
+    readonly: true,
+    args: [],
+    handler: async () => ({ datasets: listDatasets() }),
   },
 ];
 

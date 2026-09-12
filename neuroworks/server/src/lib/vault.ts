@@ -323,6 +323,14 @@ function isMachineStatePath(rel: string): boolean {
   return norm === "_neuroworks" || norm.startsWith("_neuroworks/");
 }
 
+const AGENT_CAPTURE_RE = /^0-Inbox\/\d{12}-(?:research|curated|multiperspective)-/i;
+const AGENT_JOURNAL_RE = /^_neuroworks\/(?:jobs|session|sessions|reflections|templates)\//i;
+const DERIVED_DATASET_RE = /^_datasets\/[^/]+\/rag\.md$/i;
+
+export function isAgentCapture(path: string): boolean {
+  return AGENT_CAPTURE_RE.test(path) || AGENT_JOURNAL_RE.test(path) || DERIVED_DATASET_RE.test(path);
+}
+
 // Copy a binary file INTO the vault. PDFs, DOCXs, images — anything the
 // text-based writeVaultFile can't safely scan or write. Skips the secret
 // scan (binaries aren't strings; we'd produce garbage hits) but still
