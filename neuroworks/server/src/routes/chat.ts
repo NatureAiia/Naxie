@@ -152,6 +152,10 @@ chatRouter.post("/", async (req, res) => {
               persona: typeof body.activePersona?.name === "string" ? body.activePersona.name : undefined,
               sessionId: typeof req.body?.sessionId === "string" ? req.body.sessionId : undefined,
             });
+            // Maybe summarize every 10 turns (Kuwana conversationSummary.ts)
+            void (async () => {
+              try { const { maybeUpdateConversationSummary } = await import("../lib/chat-history.js"); await maybeUpdateConversationSummary(human.id); } catch {}
+            })();
           }
         }
       } catch { /* history must never break the chat response */ }
@@ -841,6 +845,15 @@ async function handleChat(req: any, res: any) {
       enrichedTask += "\n\n[Memory — do not forget]\n" + magSnippet;
     }
     if (ctx.missionLog) enrichedTask += "\n\n" + ctx.missionLog;
+    // Conversation summary (>10 turns): keep older context beyond 20-msg window
+    try {
+      const humanForSummary = callerOf(req);
+      if (humanForSummary) {
+        const { getConversationSummary } = await import("../lib/chat-history.js");
+        const summary = getConversationSummary(humanForSummary.id);
+        if (summary) enrichedTask += `\n\n[Conversation summary — older context beyond last 20 turns]\n${summary}`;
+      }
+    } catch { /* best-effort */ }
   } catch { /* RAG/MAG/mission-log is best-effort — never break chat on retrieval hiccup */ }
   const job = newJob(`insights:general-task`);
   job.template = tpl.id;

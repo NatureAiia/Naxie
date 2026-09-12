@@ -8,6 +8,8 @@ import { NaxieResultCard } from "../components/NaxieResultCard";
 import { ToggleRow } from "../components/ToggleRow";
 import { CapabilityToggles } from "../components/CapabilityToggles";
 import { MicLevelMeter } from "../components/MicLevelMeter";
+import { ChatClarificationCard, ChatDayPill } from "../components/ChatClarificationCard";
+import { KuwanaBottomComposer } from "../components/KuwanaBottomComposer";
 import { useNaxieAssistant, type Turn } from "../lib/useNaxieAssistant";
 import { useRealtimeCall } from "../lib/useRealtimeCall";
 import { useMicLevel } from "../lib/useMicLevel";
@@ -246,6 +248,7 @@ export function Naxie() {
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin space-y-2.5 px-1 pb-3">
+          <ChatDayPill />
           {onboardingNudge && (
             <NaxieResultCard turn={{ role: "assistant", text: t("onboarding.nudge.text"), kind: "onboarding" }} onDismiss={dismissOnboardingNudge} />
           )}
@@ -294,21 +297,32 @@ export function Naxie() {
           )}
         </div>
 
-        <div className="flex items-center gap-2 py-3 border-t border-ink-800">
-          {speaking && (
-            <Button variant="subtle" onClick={stopSpeaking}><VolumeX size={13} /> Stop</Button>
-          )}
-          <input
+        {/* Clarification flow (Kuwana narrowingSlots) — shows when last assistant turn is a clarify prompt */}
+        {(() => {
+          const last = turns[turns.length - 1];
+          const isClarify = last?.role === "assistant" && /Any particular|Which one|Looking for\?/i.test(last.text) && last.kind !== "approval" && last.kind !== "delegation";
+          return isClarify ? (
+            <div className="pb-3">
+              <ChatClarificationCard question={last.text} onAnswer={a => { void ask(a); }} placeholder="Type your answer…" />
+            </div>
+          ) : null;
+        })()}
+
+        <div className="-mx-1">
+          <KuwanaBottomComposer
             value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") { void ask(input); setInput(""); } }}
-            placeholder="Ask Naxie anything…"
-            disabled={busy}
-            className="flex-1 bg-ink-950 border border-ink-800 rounded-lg px-3 py-2.5 text-sm text-cream-100 focus:outline-none focus:border-violet-500/60 disabled:opacity-50"
+            onChange={setInput}
+            onSend={() => { if (input.trim()) { void ask(input); setInput(""); } }}
+            onMic={micToggle}
+            busy={busy}
+            placeholder="Ask the Naxie Assistant…"
+            disclaimer="Naxie is AI. Check the vault citation before you act."
           />
-          <Button onClick={() => { void ask(input); setInput(""); }} disabled={busy || !input.trim()}>
-            <span title="Ask Naxie">{busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}</span>
-          </Button>
+          {speaking && (
+            <div className="flex justify-center pt-2">
+              <Button variant="subtle" onClick={stopSpeaking}><VolumeX size={13} /> Stop</Button>
+            </div>
+          )}
         </div>
       </div>
     </div>

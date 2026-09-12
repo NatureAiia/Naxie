@@ -2,7 +2,7 @@ import { Router } from "express";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../config.js";
-import { runSystemAudit, lastSystemAudit, quickInventoryCounts } from "../lib/system-audit.js";
+import { runSystemAudit, lastSystemAudit, quickInventoryCounts, scanInventory, getHealthTrend, logPageView, getVaultHygiene, getDeadCode, getPersonaMergeCandidates, getIntegrationHealth } from "../lib/system-audit.js";
 import { requireLayer } from "../lib/access.js";
 
 export const systemAuditRouter = Router();
@@ -47,6 +47,73 @@ systemAuditRouter.get("/", (_req, res) => {
 systemAuditRouter.get("/inventory", (_req, res) => {
   try { res.json({ inventory: quickInventoryCounts() }); }
   catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+});
+
+// GET /api/system-audit/health-trend — 30d sparkline data
+systemAuditRouter.get("/health-trend", (_req, res) => {
+  try { res.json({ trend: getHealthTrend() }); }
+  catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+});
+
+// GET /api/system-audit/vault-hygiene
+systemAuditRouter.get("/vault-hygiene", (_req, res) => {
+  try { res.json(getVaultHygiene()); }
+  catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+});
+
+// GET /api/system-audit/dead-code
+systemAuditRouter.get("/dead-code", (_req, res) => {
+  try {
+    const inv = scanInventory();
+    res.json({ deadCode: getDeadCode(inv) });
+  } catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+});
+
+// GET /api/system-audit/persona-merges
+systemAuditRouter.get("/persona-merges", (_req, res) => {
+  try { res.json({ merges: getPersonaMergeCandidates() }); }
+  catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+});
+
+// GET /api/system-audit/integration-health
+systemAuditRouter.get("/integration-health", async (_req, res) => {
+  try { res.json({ health: await getIntegrationHealth() }); }
+  catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+});
+
+// POST /api/system-audit/page-view — beacon from frontend (no auth needed, best-effort)
+systemAuditRouter.post("/page-view", async (req, res) => {
+  try {
+    const page = String(req.body?.page ?? req.query.page ?? "").slice(0, 200);
+    if (!page) return res.status(400).json({ error: "page required" });
+    let userId: string | undefined;
+    try {
+      const { callerOf } = await import("../lib/access.js");
+      userId = (callerOf as any)(req)?.email ?? (callerOf as any)(req)?.id;
+    } catch { /* ignore */ }
+    logPageView(page, userId);
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+});
+
+// POST /api/system-audit/voice-briefing — trigger MD voice briefing now (admin)
+systemAuditRouter.post("/voice-briefing", requireLayer("admin"), async (_req, res) => {
+  try {
+    const { triggerVoiceBriefing } = await import("../lib/system-audit.js");
+    const r = await (triggerVoiceBriefing as any)();
+    res.json(r);
+  } catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+});
+
+// POST /api/system-audit/architect-pr — one-click Architect PR for a finding (admin)
+systemAuditRouter.post("/architect-pr", requireLayer("admin"), async (req, res) => {
+  try {
+    const finding = String(req.body?.finding ?? "").slice(0, 500);
+    if (!finding) return res.status(400).json({ error: "finding required" });
+    const { runArchitectReview } = await import("../lib/architect.js");
+    const r = await runArchitectReview();
+    res.json({ ...r, finding });
+  } catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
 });
 
 // POST /api/system-audit/run — trigger a full MD scan now (admin)

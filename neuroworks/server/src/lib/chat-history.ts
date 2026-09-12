@@ -93,3 +93,31 @@ export function updateChatExchangeByJob(userId: string, jobId: string, response:
 export function listChatHistory(userId: string, limit = 50): ChatExchange[] {
   return load(userId).slice(-Math.max(1, Math.min(limit, MAX_ENTRIES_PER_USER))).reverse();
 }
+
+const SUMMARY_EVERY = 10;
+const SUMMARY_FILE = "summary.json";
+function summaryPath(userId: string): string {
+  const safe = userId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+  return resolve(HISTORY_DIR, `${safe}.${SUMMARY_FILE}`);
+}
+export function getConversationSummary(userId: string): string | null {
+  try {
+    const p = summaryPath(userId);
+    if (!existsSync(p)) return null;
+    const j = JSON.parse(readFileSync(p, "utf8"));
+    return typeof j.summary === "string" ? j.summary.slice(0, 600) : null;
+  } catch { return null; }
+}
+export async function maybeUpdateConversationSummary(userId: string): Promise<void> {
+  const entries = load(userId);
+  if (entries.length === 0 || entries.length % SUMMARY_EVERY !== 0) return;
+  try {
+    const { summarizeConversation } = await import("./ai/conversationSummary.js");
+    const u = entries.slice(-20).map(e => ({ role: "user" as const, content: e.prompt }));
+    const a = entries.slice(-20).map(e => ({ role: "assistant" as const, content: e.response }));
+    const s = await summarizeConversation([...u, ...a]);
+    if (!s) return;
+    if (!existsSync(HISTORY_DIR)) mkdirSync(HISTORY_DIR, { recursive: true });
+    writeFileSync(summaryPath(userId), JSON.stringify({ summary: s, at: new Date().toISOString() }, null, 2), "utf8");
+  } catch { /* best-effort */ }
+}

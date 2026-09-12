@@ -117,10 +117,16 @@ const connectNav: NavItem[] = [
 ];
 
 const governNav: NavItem[] = [
+  { to: "/admin/economic-drivers", label: "Economic drivers", icon: DollarSign },
+  { to: "/admin/market-baskets", label: "Market baskets", icon: Boxes },
+  { to: "/admin/transactions", label: "Transactions", icon: DollarSign },
+  { to: "/admin/plans", label: "Plans", icon: CertificateIcon },
+  { to: "/audit", label: "Audit log", icon: LogIcon },
+  { to: "/cost", label: "AI models & cost", icon: DollarSign },
+  { to: "/admin/api-keys", label: "API keys", icon: Cable },
+  { to: "/admin/external-apis", label: "External APIs", icon: Boxes },
   { to: "/policies", label: "Policies", icon: CertificateIcon },
-  { to: "/audit", label: "Audit Log", icon: LogIcon },
   { to: "/org-dashboard", label: "Org Dashboard", icon: Network },
-  { to: "/cost", label: "Cost", icon: DollarSign },
 ];
 
 // Ambient Watch — a single stub slot, not a real group yet (no logic behind
@@ -233,6 +239,13 @@ export function Layout({ children }: { children: ReactNode }) {
     const i = setInterval(tick, 5000);
     return () => clearInterval(i);
   }, []);
+  // Page-view beacon for MD audit dormancy (S) — best-effort, no await
+  useEffect(() => {
+    try {
+      const page = location.pathname;
+      fetch("/api/system-audit/page-view", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ page }) }).catch(() => {});
+    } catch { /* ignore */ }
+  }, [location.pathname]);
   // Warm the chunks a user almost always opens next, once the app is idle.
   useEffect(() => {
     preloadLikelyRoutes();

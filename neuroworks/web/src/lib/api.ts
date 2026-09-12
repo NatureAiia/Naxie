@@ -267,6 +267,13 @@ export const api = {
   runSystemAudit: () => req<{ date: string; path: string; stats: any; report: string; generatedAt: string; modelUsed?: string }>("/api/system-audit/run", { method: "POST", body: JSON.stringify({}) }),
   getSystemAudit: (date: string) => req<{ date: string; path: string; body: string }>(`/api/system-audit/${encodeURIComponent(date)}`),
   systemAuditInventory: () => req<{ inventory: { pages: number; routes: number; lib: number; templates: number; personas: number } }>("/api/system-audit/inventory"),
+  systemAuditHealthTrend: () => req<{ trend: { date: string; healthScore: number }[] }>("/api/system-audit/health-trend"),
+  systemAuditVaultHygiene: () => req<{ duplicates: { hash: string; files: string[] }[]; staleNotes: { path: string; daysOld: number }[]; totalNotes: number }>("/api/system-audit/vault-hygiene"),
+  systemAuditDeadCode: () => req<{ deadCode: { file: string; reason: string }[] }>("/api/system-audit/dead-code"),
+  systemAuditPersonaMerges: () => req<{ merges: { a: string; b: string; similarity: number; reason: string }[] }>("/api/system-audit/persona-merges"),
+  systemAuditIntegrationHealth: () => req<{ health: { id: string; label: string; ok: boolean; detail: string }[] }>("/api/system-audit/integration-health"),
+  systemAuditVoiceBriefing: () => req<{ ok: boolean; text?: string; error?: string }>("/api/system-audit/voice-briefing", { method: "POST", body: JSON.stringify({}) }),
+  systemAuditArchitectPr: (finding: string) => req<{ created: boolean; taskId?: string; reason?: string; finding: string }>("/api/system-audit/architect-pr", { method: "POST", body: JSON.stringify({ finding }) }),
   triggerDigest: (lookbackDays = 7) => req<{ jobId: string }>("/api/tasks/digest", { method: "POST", body: JSON.stringify({ lookbackDays: String(lookbackDays) }) }),
   chat: (messages: { role: "user" | "assistant" | "system"; content: string }[], opts?: {
     attachments?: { contextId: string }[];

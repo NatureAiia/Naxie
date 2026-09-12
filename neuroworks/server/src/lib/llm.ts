@@ -304,6 +304,15 @@ export async function llmGenerateWithMeta(prompt: string, system?: string, opts:
 }
 
 async function generateWithMetaInner(prompt: string, system?: string, opts: LLMCallOptions = {}): Promise<{ text: string; model: string; usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } }> {
+  // Kuwana-inspired budget gate — before any paid dispatch, check monthly cap
+  try {
+    const { checkBudget } = await import("./ai/budget.js");
+    const b = checkBudget();
+    if (!b.allowed) {
+      const fb = (await import("./ai/budget.js")).AiBudgetExceededError;
+      throw new fb(b.spentUsd, b.budgetUsd);
+    }
+  } catch (e: any) { if (e?.name === "AiBudgetExceededError") throw e; /* budget file missing = open */ }
   const { backend, model, reason } = await chooseBackendAndModel(opts, prompt, system);
   const tokenEstimate = estimateTokens(prompt) + estimateTokens(system);
   // Customer-facing notification: caller decides whether to push the

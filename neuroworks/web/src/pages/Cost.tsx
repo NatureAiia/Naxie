@@ -1,16 +1,20 @@
 import { useState, useEffect } from "react";
 import { api, type TimeAnalysis, type CostTrend } from "../lib/api";
 import { Loader2, DollarSign, Cpu, BarChart3, TrendingUp, Calendar, Hourglass } from "lucide-react";
+import { SignalBloom } from "../components/SignalBloom";
+import { GlassCard } from "../components/GlassCard";
 
 export function Cost() {
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [timeA, setTimeA] = useState<TimeAnalysis | null>(null);
   const [trend, setTrend] = useState<CostTrend | null>(null);
+  const [cache, setCache] = useState<any>(null);
 
   const loadSide = () => {
     api.timeAnalysis(30).then(setTimeA).catch(() => {});
     api.costTrend(14).then(setTrend).catch(() => {});
+    api.cacheStats().then(setCache).catch(() => {});
   };
   useEffect(() => {
     api.getCostSummary().then(setSummary).catch(() => {}).finally(() => setLoading(false));
@@ -27,10 +31,10 @@ export function Cost() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-ink-900 rounded-lg border p-4">
-          <div className="text-sm text-cream-300/60">Total Cost</div>
-          <div className="text-2xl font-bold">${(summary?.totalCostUsd ?? 0).toFixed(4)}</div>
-        </div>
+        <GlassCard className="p-4 flex items-center gap-3">
+          <SignalBloom value={Math.min(100, (summary?.totalCostUsd ?? 0)*200)} size={48} color="flame" sublabel="spend" />
+          <div><div className="text-sm text-cream-300/60">Total Cost</div><div className="text-xl font-bold">${(summary?.totalCostUsd ?? 0).toFixed(4)}</div></div>
+        </GlassCard>
         <div className="bg-ink-900 rounded-lg border p-4">
           <div className="text-sm text-cream-300/60">LLM Calls</div>
           <div className="text-2xl font-bold">{summary?.callCount ?? 0}</div>
@@ -149,6 +153,16 @@ export function Cost() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {cache && (
+        <div className="bg-ink-900 rounded-lg border p-4">
+          <h2 className="font-semibold mb-2">Prompt cache hit-rate</h2>
+          <div className="text-sm text-cream-300/60">Overall <span className="font-mono text-cream-100">{((cache.overall?.cacheHitRatio ?? 0)*100).toFixed(1)}%</span> cached · {cache.overall?.callsWithCache ?? 0}/{cache.overall?.calls ?? 0} calls had cache</div>
+          <div className="mt-2 space-y-1 text-xs">
+            {Object.entries(cache.profiles ?? {}).slice(0,6).map(([k,v]:any)=>(<div key={k} className="flex justify-between"><span className="font-mono">{k}</span><span>{(v.cacheHitRatio*100).toFixed(1)}% · {v.cachedInputTokens.toLocaleString()}/{v.inputTokens.toLocaleString()} tok</span></div>))}
           </div>
         </div>
       )}

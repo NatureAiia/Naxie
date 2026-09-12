@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Kbd, MetaKey } from "./Kbd";
 import { matIcon } from "./FileIcon";
+import { api } from "../lib/api";
 
 // Same Atom Material icon matches used in Layout.tsx's nav rail, applied
 // here so the command palette reads as the same reskinned system.
@@ -29,7 +30,14 @@ type Item = {
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
+  const [vaultHits, setVaultHits] = useState<{ path: string; preview: string }[]>([]);
   const nav = useNavigate();
+
+  // Kuwana quick-search: vault semantic hits alongside commands
+  async function searchVault(q: string) {
+    if (!q.trim() || q.length < 2) { setVaultHits([]); return; }
+    try { const r = await api.brainSearch(q); setVaultHits((r.results ?? []).slice(0, 5)); } catch { /* ignore */ }
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -91,8 +99,9 @@ export function CommandPalette() {
           <SearchIcon size={16} className="text-cream-300/60" />
           <Command.Input
             autoFocus
-            placeholder="Search commands, pages, actions..."
+            placeholder="Search commands, pages, actions… (vault hits appear below)"
             className="flex-1 bg-transparent py-3 text-sm text-cream-50 placeholder:text-cream-300/40 focus:outline-none"
+            onValueChange={searchVault}
           />
           <Kbd>Esc</Kbd>
         </div>
@@ -100,6 +109,17 @@ export function CommandPalette() {
           <Command.Empty className="text-sm text-cream-300/60 text-center py-8">
             No results.
           </Command.Empty>
+          {vaultHits.length > 0 && (
+            <Command.Group heading="Vault" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-cream-300/50">
+              {vaultHits.map(h => (
+                <Command.Item key={`vault-${h.path}`} value={h.path} onSelect={() => { nav(`/library?path=${encodeURIComponent(h.path)}`); setOpen(false); }} className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-cream-200 cursor-pointer aria-selected:bg-ink-800 aria-selected:text-cream-50">
+                  <BookOpen size={16} className="text-violet-400" />
+                  <span className="flex-1 truncate">{h.path}</span>
+                  <span className="text-[11px] text-cream-300/40 truncate max-w-[16rem]">{h.preview.slice(0,60)}</span>
+                </Command.Item>
+              ))}
+            </Command.Group>
+          )}
           {(["Navigate", "Actions", "Library"] as const).map(group => (
             <Command.Group
               key={group}

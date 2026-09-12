@@ -51,6 +51,12 @@ const Policies = lazy(() => import("./pages/Policies").then(m => ({ default: m.P
 const AuditLog = lazy(() => import("./pages/AuditLog").then(m => ({ default: m.AuditLog })));
 const OrgDashboard = lazy(() => import("./pages/OrgDashboard").then(m => ({ default: m.OrgDashboard })));
 const Cost = lazy(() => import("./pages/Cost").then(m => ({ default: m.Cost })));
+const ApiKeys = lazy(() => import("./pages/AdminApiKeys").then(m => ({ default: m.AdminApiKeys })));
+const ExternalApis = lazy(() => import("./pages/AdminExternalApis").then(m => ({ default: m.AdminExternalApis })));
+const EconomicDrivers = lazy(() => import("./pages/AdminEconomicDrivers").then(m => ({ default: m.AdminEconomicDrivers })));
+const MarketBaskets = lazy(() => import("./pages/AdminMarketBaskets").then(m => ({ default: m.AdminMarketBaskets })));
+const Transactions = lazy(() => import("./pages/AdminTransactions").then(m => ({ default: m.AdminTransactions })));
+const Plans = lazy(() => import("./pages/AdminPlans").then(m => ({ default: m.AdminPlans })));
 
 // Ambient Watch — stub only, no logic yet
 const AmbientWatch = lazy(() => import("./pages/AmbientWatch").then(m => ({ default: m.AmbientWatch })));
@@ -141,6 +147,14 @@ function AppShell() {
         <Route path="/audit" element={<AuditLog />} />
         <Route path="/org-dashboard" element={<OrgDashboard />} />
         <Route path="/cost" element={<Cost />} />
+        <Route path="/admin/api-keys" element={<ApiKeys />} />
+        <Route path="/admin/external-apis" element={<ExternalApis />} />
+        <Route path="/admin/economic-drivers" element={<EconomicDrivers />} />
+        <Route path="/admin/market-baskets" element={<MarketBaskets />} />
+        <Route path="/admin/transactions" element={<Transactions />} />
+        <Route path="/admin/plans" element={<Plans />} />
+        <Route path="/admin/notifications" element={<Navigate to="/audit" replace />} />
+        <Route path="/admin/email-telegram" element={<Navigate to="/connectors" replace />} />
 
         {/* Ambient Watch — stub */}
         <Route path="/ambient" element={<AmbientWatch />} />

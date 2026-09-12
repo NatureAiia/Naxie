@@ -10,12 +10,14 @@
 //   → scheduler + on-demand route + Telegram delivery.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeVaultFile } from "./vault.js";
 import { enqueueVaultCommit } from "./commit-queue.js";
 import { llmGenerateWithMeta } from "./llm.js";
 import { config } from "../config.js";
+import { logAudit } from "./audit-log.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../../../..");
@@ -79,6 +81,12 @@ export type UselessItem = {
   recommendation: "remove" | "merge" | "deprecate" | "review";
 };
 
+export type CostCorrelation = { template?: string; persona?: string; costUsd: number; calls: number; dormant: boolean };
+export type VaultHygiene = { duplicates: { hash: string; files: string[] }[]; staleNotes: { path: string; daysOld: number }[]; totalNotes: number };
+export type DeadCodeItem = { file: string; reason: string };
+export type PersonaMergeCandidate = { a: string; b: string; similarity: number; reason: string };
+export type IntegrationHealth = { id: string; label: string; ok: boolean; detail: string };
+
 export type SystemAuditStats = {
   date: string;
   generatedAt: string;
@@ -92,6 +100,13 @@ export type SystemAuditStats = {
     summary: string;
     risks: string[];
   };
+  // Extended MD signals (all 12 innovations)
+  healthTrend?: { date: string; healthScore: number }[];
+  costCorrelation?: CostCorrelation[];
+  vaultHygiene?: VaultHygiene;
+  deadCode?: DeadCodeItem[];
+  personaMerges?: PersonaMergeCandidate[];
+  integrationHealth?: IntegrationHealth[];
 };
 
 export type SystemAuditResult = {
@@ -120,7 +135,7 @@ function listFilesRecursive(dir: string, exts: string[], out: string[] = [], bas
   return out;
 }
 
-function scanInventory(): FileInventory {
+export function scanInventory(): FileInventory {
   const pages = listFilesRecursive(join(WEB_SRC, "pages"), [".tsx", ".ts"]).map(f => ({
     file: `pages/${f}`,
     route: f.replace(/\.tsx?$/, "").toLowerCase(),
@@ -134,9 +149,12 @@ function scanInventory(): FileInventory {
   let templates: { id: string; role: string; title: string }[] = [];
   try {
     const raw = readFileSync(join(SERVER_ROOT, "lib/templates.ts"), "utf8");
-    const ids = [...raw.matchAll(/id:\s*"([^"]+)"/g)].map(m => m[1]);
-    const roles = [...raw.matchAll(/role:\s*"([^"]+)"/g)].map(m => m[1]);
-    const titles = [...raw.matchAll(/title:\s*"([^"]+)"/g)].map(m => m[1]);
+    // Only parse the `export const templates: Template[] = [ ... ]` block, not the roles block
+    const blockMatch = raw.match(/export const templates[^=]*=\s*\[([\s\S]*?)\n\];/);
+    const block = blockMatch ? blockMatch[1] : raw;
+    const ids = [...block.matchAll(/id:\s*"([^"]+)"/g)].map(m => m[1]);
+    const roles = [...block.matchAll(/role:\s*"([^"]+)"/g)].map(m => m[1]);
+    const titles = [...block.matchAll(/title:\s*"([^"]+)"/g)].map(m => m[1]);
     templates = ids.map((id, i) => ({ id, role: roles[i] ?? "Unknown", title: titles[i] ?? id }));
   } catch { /* ignore */ }
 
@@ -290,14 +308,22 @@ function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dorman
   }
 
   // — Dormant personas —
-  const activePersonaNames = new Set(Object.keys(usage.byPersona));
-  for (const p of inventory.personas) {
-    if (!activePersonaNames.has(p)) {
-      dormant.push({ kind: "persona", name: p, reason: "No tasks attributed in last 30 days", severity: "dormant" });
+  // Only flag individual personas when there were actual user-facing jobs that could have used them.
+  // System jobs (reflection:daily, innovation-scan, system-audit) don't attribute personas, so flagging
+  // all 50 personas as dormant when only system jobs ran is noise — not signal.
+  const hasUserFacingJobs = (usage.byTemplate["general-task"]?.total ?? 0) > 0 || Object.keys(usage.byPersona).length > 0;
+  if (hasUserFacingJobs) {
+    const activePersonaNames = new Set(Object.keys(usage.byPersona));
+    for (const p of inventory.personas) {
+      if (!activePersonaNames.has(p)) {
+        dormant.push({ kind: "persona", name: p, reason: "No tasks attributed in last 30 days", severity: "dormant" });
+      }
     }
-  }
-  if (inventory.personas.length > 20 && dormant.filter(d => d.kind === "persona").length > inventory.personas.length * 0.5) {
-    improvements.push({ area: "Personas", issue: `${dormant.filter(d => d.kind === "persona").length}/${inventory.personas.length} personas dormant — roster may be bloated`, evidence: `personas=${inventory.personas.length}, dormant=${dormant.filter(d=>d.kind==="persona").length}`, recommendation: "Review personas catalog and retire unused personas; keep roster lean so Naxie's routing stays precise.", effort: "S", priority: "medium" });
+    if (inventory.personas.length > 20 && dormant.filter(d => d.kind === "persona").length > inventory.personas.length * 0.5) {
+      improvements.push({ area: "Personas", issue: `${dormant.filter(d => d.kind === "persona").length}/${inventory.personas.length} personas dormant — roster may be bloated`, evidence: `personas=${inventory.personas.length}, dormant=${dormant.filter(d=>d.kind==="persona").length}`, recommendation: "Review personas catalog and retire unused personas; keep roster lean so Naxie's routing stays precise.", effort: "S", priority: "medium" });
+    }
+  } else if (inventory.personas.length > 0) {
+    dormant.push({ kind: "feature", name: "Personas (user-facing)", reason: "No user-facing tasks in last 30 days — personas not exercised (only system jobs ran)", severity: "dormant" });
   }
 
   // — Pages vs routes coverage —
@@ -410,6 +436,210 @@ function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dorman
   return { dormant, useless, improvements, health: { score, summary, risks } };
 }
 
+// ── 3b. Extended helpers — all remaining innovations ───────────────────────
+
+// Health trend: last 30 audits' healthScore for sparkline
+export function getHealthTrend(): { date: string; healthScore: number }[] {
+  try {
+    const dir = join(config.vaultPath, AUDIT_DIR);
+    if (!existsSync(dir)) return [];
+    const files = readdirSync(dir).filter(f => f.endsWith(".md")).sort();
+    const out: { date: string; healthScore: number }[] = [];
+    for (const f of files.slice(-30)) {
+      try {
+        const body = readFileSync(join(dir, f), "utf8");
+        const fm = body.match(/^---\n([\s\S]*?)\n---/);
+        if (!fm) continue;
+        let score = 0, date = f.replace(/\.md$/, "");
+        for (const line of fm[1].split("\n")) {
+          if (line.startsWith("healthScore:")) score = Number(line.split(":")[1].trim()) || 0;
+          if (line.startsWith("date:")) date = line.split(":").slice(1).join(":").trim();
+        }
+        if (score) out.push({ date, healthScore: score });
+      } catch { /* ignore one file */ }
+    }
+    return out;
+  } catch { return []; }
+}
+
+// Cost correlation: which dormant templates/personas actually cost money
+export function getCostCorrelation(usage: UsageSignals): CostCorrelation[] {
+  try {
+    let records: any[] = [];
+    try {
+      const p = join(config.vaultPath, "_neuroworks/cost.jsonl");
+      if (existsSync(p)) records = readFileSync(p, "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+    } catch { /* ignore */ }
+    const byTemplate = new Map<string, { costUsd: number; calls: number }>();
+    for (const r of records) {
+      const key = r.profile ?? r.model ?? "unknown";
+      // Try to map profile to template: profile often is template id or job kind
+      const tpl = r.profile === "none" ? r.model : r.profile;
+      const cur = byTemplate.get(tpl) ?? { costUsd: 0, calls: 0 };
+      cur.costUsd += r.costUsd ?? 0; cur.calls += 1; byTemplate.set(tpl, cur);
+    }
+    const out: CostCorrelation[] = [];
+    const dormantIds = new Set(usage ? Object.keys(usage.byTemplate).filter(k => (usage.byTemplate[k]?.total ?? 0) === 0) : []);
+    for (const [tpl, v] of byTemplate) {
+      if (v.costUsd > 0.01) {
+        out.push({ template: tpl, costUsd: Math.round(v.costUsd * 100) / 100, calls: v.calls, dormant: dormantIds.has(tpl) });
+      }
+    }
+    return out.sort((a, b) => b.costUsd - a.costUsd).slice(0, 10);
+  } catch { return []; }
+}
+
+// Vault hygiene: duplicates (hash) + stale notes (>180d no mtime)
+export function getVaultHygiene(): VaultHygiene {
+  const duplicates: { hash: string; files: string[] }[] = [];
+  const staleNotes: { path: string; daysOld: number }[] = [];
+  let totalNotes = 0;
+  try {
+    const vaultPath = config.vaultPath;
+    const hashMap = new Map<string, string[]>();
+    const walk = (dir: string) => {
+      let entries: import("node:fs").Dirent[] = [];
+      try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        if (e.name.startsWith(".git") || e.name.startsWith(".obsidian")) continue;
+        const abs = join(dir, e.name);
+        if (e.isDirectory()) { walk(abs); continue; }
+        if (!e.name.endsWith(".md")) continue;
+        totalNotes++;
+        try {
+          const st = statSync(abs);
+          const daysOld = Math.floor((Date.now() - st.mtimeMs) / 86400000);
+          if (daysOld > 180) staleNotes.push({ path: relative(vaultPath, abs).split("\\").join("/"), daysOld });
+          const content = readFileSync(abs, "utf8");
+          const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
+          const list = hashMap.get(hash) ?? [];
+          list.push(relative(vaultPath, abs).split("\\").join("/"));
+          hashMap.set(hash, list);
+        } catch { /* ignore */ }
+      }
+    };
+    if (existsSync(vaultPath)) walk(vaultPath);
+    for (const [hash, files] of hashMap) if (files.length > 1) duplicates.push({ hash, files });
+    staleNotes.sort((a, b) => b.daysOld - a.daysOld);
+    return { duplicates: duplicates.slice(0, 10), staleNotes: staleNotes.slice(0, 20), totalNotes };
+  } catch { return { duplicates, staleNotes, totalNotes }; }
+}
+
+// Dead-code via graphify (if present) else heuristic: lib files never referenced in routes/pages
+export function getDeadCode(inventory: FileInventory): DeadCodeItem[] {
+  // Try graphify
+  try {
+    const gPath = join(REPO_ROOT, "graphify-out/graph.json");
+    if (existsSync(gPath)) {
+      const raw = readFileSync(gPath, "utf8");
+      const g = JSON.parse(raw);
+      const nodes: any[] = g.nodes ?? g.vertices ?? [];
+      const links: any[] = g.links ?? g.edges ?? [];
+      const degree = new Map<string, number>();
+      for (const n of nodes) degree.set(n.id ?? n.label ?? "", 0);
+      for (const l of links) {
+        const s = typeof l.source === "object" ? l.source.id : l.source;
+        const t = typeof l.target === "object" ? l.target.id : l.target;
+        degree.set(s, (degree.get(s) ?? 0) + 1);
+        degree.set(t, (degree.get(t) ?? 0) + 1);
+      }
+      const orphans: DeadCodeItem[] = [];
+      for (const [id, deg] of degree) if (deg <= 1 && id.includes("lib/")) orphans.push({ file: id, reason: `graphify degree ${deg} — likely orphan` });
+      if (orphans.length) return orphans.slice(0, 20);
+    }
+  } catch { /* fall through to heuristic */ }
+  // Heuristic: lib files not imported anywhere (cheap grep via file content)
+  try {
+    const libSet = new Set(inventory.libFiles);
+    const referenced = new Set<string>();
+    const allServerFiles = [...inventory.routes.map(r => join(SERVER_ROOT, "routes", r + ".ts")), ...inventory.libFiles.map(f => join(SERVER_ROOT, f))];
+    // Quick: check if lib file name appears in any route/lib file content
+    for (const abs of allServerFiles) {
+      try {
+        const txt = readFileSync(abs, "utf8");
+        for (const lib of libSet) {
+          const base = lib.replace("lib/", "").replace(".ts", "");
+          if (txt.includes(base)) referenced.add(lib);
+        }
+      } catch { /* ignore */ }
+    }
+    const dead: DeadCodeItem[] = [];
+    for (const lib of libSet) if (!referenced.has(lib)) dead.push({ file: lib, reason: "no inbound reference found in routes/lib (heuristic)" });
+    return dead.slice(0, 20);
+  } catch { return []; }
+}
+
+// Persona merge candidates: Jaccard on description+role tokens
+export function getPersonaMergeCandidates(): PersonaMergeCandidate[] {
+  try {
+    let personas: any[] = [];
+    try {
+      const raw = readFileSync(join(REPO_ROOT, ".neuroworks/personas.json"), "utf8");
+      personas = (JSON.parse(raw).personas ?? JSON.parse(raw) ?? []) as any[];
+      if (!Array.isArray(personas)) personas = [];
+    } catch {
+      try {
+        const alt = join(REPO_ROOT, "neuroworks/.neuroworks/personas.json");
+        if (existsSync(alt)) personas = (JSON.parse(readFileSync(alt, "utf8")).personas ?? []) as any[];
+      } catch { /* ignore */ }
+    }
+    if (personas.length === 0) {
+      try {
+        // Try vault personas mirror
+        const vRaw = readFileSync(join(config.vaultPath, "_neuroworks/personas.json"), "utf8");
+        personas = (JSON.parse(vRaw).personas ?? []) as any[];
+      } catch { /* ignore */ }
+    }
+    const tokenSet = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2));
+    const out: PersonaMergeCandidate[] = [];
+    for (let i = 0; i < personas.length; i++) {
+      for (let j = i + 1; j < personas.length; j++) {
+        const a = personas[i], b = personas[j];
+        const aTokens = tokenSet(`${a.role ?? ""} ${a.description ?? ""} ${a.tone ?? ""}`);
+        const bTokens = tokenSet(`${b.role ?? ""} ${b.description ?? ""} ${b.tone ?? ""}`);
+        if (aTokens.size === 0 || bTokens.size === 0) continue;
+        let inter = 0;
+        for (const t of aTokens) if (bTokens.has(t)) inter++;
+        const uni = aTokens.size + bTokens.size - inter;
+        const sim = uni ? inter / uni : 0;
+        if (sim > 0.35) out.push({ a: a.name ?? a.id, b: b.name ?? b.id, similarity: Math.round(sim * 100) / 100, reason: `role/description overlap ${(sim * 100).toFixed(0)}%` });
+      }
+    }
+    return out.sort((x, y) => y.similarity - x.similarity).slice(0, 10);
+  } catch { return []; }
+}
+
+// Integration health: probe each connector via test (best-effort, no secret leak)
+export async function getIntegrationHealth(): Promise<IntegrationHealth[]> {
+  const out: IntegrationHealth[] = [];
+  try {
+    const { listConnectors } = await import("./connectors.js");
+    const connectors = listConnectors?.() ?? [];
+    for (const c of connectors.slice(0, 20)) {
+      try {
+        const { testConnector } = await import("./connectors.js");
+        const r = await testConnector(c.id);
+        out.push({ id: c.id, label: c.label ?? c.id, ok: !!r.ok, detail: String(r.detail ?? "").slice(0, 120) });
+      } catch (e: any) {
+        out.push({ id: c.id, label: c.label ?? c.id, ok: false, detail: String(e?.message ?? e).slice(0, 120) });
+      }
+    }
+  } catch { /* no connectors */ }
+  try {
+    const { listIntegrations } = await import("./integrations.js");
+    const integrations = listIntegrations?.() ?? [];
+    for (const c of (integrations as any).slice?.(0, 10) ?? []) {
+      out.push({ id: c.id ?? c.providerId ?? "integration", label: c.label ?? c.providerId ?? c.id, ok: true, detail: "integration — no probe" });
+    }
+  } catch { /* ignore */ }
+  return out;
+}
+
+// Page-view beacon: frontend calls this; we log as audit event for dormancy tracking
+export function logPageView(page: string, userId?: string): void {
+  try { logAudit({ level: "info", actor: userId ?? "web", action: "page.view", target: page, detail: page, result: "success" }); } catch { /* best-effort */ }
+}
+
 // ── 4. LLM synthesis — Managing Director voice ────────────────────────────
 async function synthesizeReport(stats: SystemAuditStats): Promise<{ text: string; modelUsed?: string }> {
   if (stats.inventory.totalServerFiles === 0 && stats.inventory.totalWebFiles === 0) {
@@ -447,6 +677,7 @@ Rules:
   const prompt = `Date: ${stats.date}
 Health: ${stats.health.score}/100 — ${stats.health.summary}
 Risks: ${stats.health.risks.join("; ") || "(none)"}
+Health trend (last 30 audits): ${stats.healthTrend?.map(h => `${h.date}:${h.healthScore}`).join(", ") || "(no history)"}
 
 ## Inventory
 Pages: ${stats.inventory.pages.length}  (sample: ${stats.inventory.pages.slice(0, 8).map(p => p.file).join(", ") || "(none)"})
@@ -466,6 +697,11 @@ By persona: ${Object.entries(stats.usage.byPersona).map(([k, v]) => `${k}: ${v}`
 Audit events 30d: ${stats.usage.auditEvents30d} — by actor: ${Object.entries(stats.usage.auditByActor).map(([k, v]) => `${k}:${v}`).join(", ") || "(none)"}
 OrgTasks: total ${stats.usage.orgTasks.total} — byStatus ${JSON.stringify(stats.usage.orgTasks.byStatus)} — byRole ${JSON.stringify(stats.usage.orgTasks.byRole)}
 Schedules: enabled ${stats.usage.schedulesEnabled}, disabled ${stats.usage.schedulesDisabled}
+Cost correlation (top spend): ${stats.costCorrelation?.map(c => `${c.template ?? c.persona}: $${c.costUsd} ${c.dormant ? "(dormant!)" : ""}`).join(", ") || "(none)"}
+Vault hygiene: duplicates ${stats.vaultHygiene?.duplicates.length ?? 0}, stale ${stats.vaultHygiene?.staleNotes.length ?? 0}/${stats.vaultHygiene?.totalNotes ?? 0}
+Dead-code candidates: ${stats.deadCode?.slice(0, 5).map(d => d.file).join(", ") || "(none)"}
+Persona merge candidates: ${stats.personaMerges?.slice(0, 3).map(p => `${p.a}↔${p.b} ${Math.round(p.similarity * 100)}%`).join(", ") || "(none)"}
+Integration health: ${stats.integrationHealth?.map(h => `${h.label}:${h.ok ? "ok" : "FAIL"}`).join(", ") || "(no integrations)"}
 
 ## Pre-computed dormancy (heuristic)
 ${stats.dormant.length > 0 ? stats.dormant.map(d => `- [${d.severity}] ${d.kind}: ${d.name} — ${d.reason}`).join("\n") : "_(none dormant by heuristic)_"}
@@ -608,6 +844,30 @@ export async function runSystemAudit(): Promise<SystemAuditResult> {
     const inventory = scanInventory();
     const usage = await collectUsage();
     const findings = deriveFindings(inventory, usage);
+    // Extended signals — all 12 innovations
+    const healthTrend = getHealthTrend();
+    const costCorrelation = getCostCorrelation(usage);
+    const vaultHygiene = getVaultHygiene();
+    const deadCode = getDeadCode(inventory);
+    const personaMerges = getPersonaMergeCandidates();
+    const integrationHealth = await getIntegrationHealth();
+    // Surface dead-code + vault hygiene + persona merges as additional useless/improvement signals
+    for (const dc of deadCode.slice(0, 5)) {
+      findings.useless.push({ name: dc.file, kind: "dead-code", reason: dc.reason, recommendation: "review" });
+    }
+    for (const dup of vaultHygiene.duplicates) {
+      findings.improvements.push({ area: "Vault hygiene", issue: `Duplicate content: ${dup.files.length} files share hash ${dup.hash}`, evidence: dup.files.join(", "), recommendation: `Deduplicate — keep one canonical copy, archive the rest`, effort: "S", priority: "low" });
+    }
+    for (const stale of vaultHygiene.staleNotes.slice(0, 3)) {
+      findings.improvements.push({ area: "Vault hygiene", issue: `Stale note ${stale.path} untouched ${stale.daysOld}d`, evidence: `mtime ${stale.daysOld}d`, recommendation: `Review — archive or refresh if still relevant`, effort: "S", priority: "low" });
+    }
+    for (const pm of personaMerges.slice(0, 3)) {
+      findings.improvements.push({ area: "Personas", issue: `Overlap: ${pm.a} ↔ ${pm.b} (${pm.similarity * 100 | 0}% similar)`, evidence: pm.reason, recommendation: `Consider merging into one persona to reduce roster bloat`, effort: "S", priority: "low" });
+    }
+    for (const ih of integrationHealth.filter(h => !h.ok).slice(0, 3)) {
+      findings.improvements.push({ area: "Integrations", issue: `Unhealthy: ${ih.label} — ${ih.detail}`, evidence: `health ok=${ih.ok}`, recommendation: `Test credentials / endpoint for ${ih.label}, rotate if needed`, effort: "M", priority: "high" });
+      findings.health.risks.push(`Integration ${ih.label} unhealthy`);
+    }
     const date = new Date().toISOString().slice(0, 10);
     const generatedAt = new Date().toISOString();
     const stats: SystemAuditStats = {
@@ -619,6 +879,12 @@ export async function runSystemAudit(): Promise<SystemAuditResult> {
       useless: findings.useless,
       improvements: findings.improvements,
       health: findings.health,
+      healthTrend,
+      costCorrelation,
+      vaultHygiene,
+      deadCode,
+      personaMerges,
+      integrationHealth,
     };
     const { text, modelUsed } = await synthesizeReport(stats);
     const finalGeneratedAt = new Date().toISOString();
@@ -723,6 +989,75 @@ export function startSystemAuditScheduler(): void {
 
 export function stopSystemAuditScheduler(): void {
   if (scheduler) { clearInterval(scheduler); scheduler = null; }
+}
+
+// ── MD Voice Briefing (07:05) — 60s spoken summary of the audit ───────────
+export async function triggerVoiceBriefing(): Promise<{ ok: boolean; text?: string; error?: string }> {
+  try {
+    const last = lastResult ?? (await runSystemAudit().catch(() => null));
+    if (!last) return { ok: false, error: "no audit available" };
+    const s = last.stats;
+    const script = `Good morning. Naxie here, your Managing Director. Health is ${s.health.score} out of 100 — ${s.health.summary}. We have ${s.dormant.length} dormant items and ${s.useless.length} candidates to review. Top priority: ${s.improvements[0]?.issue ?? "stay the course"}. Check Daily Reports for the full MD audit.`;
+    // Try TTS — best-effort, falls back to Telegram text only
+    try {
+      const { synthesizeWithVoice } = await import("./voice.js");
+      const out = await synthesizeWithVoice(script, "naxie");
+      // Save to vault media for the UI to play — not critical if it fails
+      try {
+        const { writeFileSync, mkdirSync } = await import("node:fs");
+        const mediaDir = join(config.vaultPath, "_neuroworks/md-briefings");
+        mkdirSync(mediaDir, { recursive: true });
+        writeFileSync(join(mediaDir, `${s.date}.txt`), script, "utf8");
+      } catch { /* ignore */ }
+      void import("./telegram-bridge.js").then(m => m.sendTelegramMessage(`🎙️ *MD Voice Briefing — ${s.date}*\n${script}`).catch(() => {}));
+      return { ok: true, text: script };
+    } catch (e: any) {
+      void import("./telegram-bridge.js").then(m => m.sendTelegramMessage(`🎙️ *MD Voice Briefing — ${s.date}*\n${script}\n\n_TTS unavailable: ${String(e?.message ?? e).slice(0, 80)}_`).catch(() => {}));
+      return { ok: true, text: script };
+    }
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+// ── Weekly Board auto-meeting (Monday 08:00) — board convenes on audit ─────
+let boardScheduler: NodeJS.Timeout | null = null;
+let lastBoardDate: string | null = null;
+
+export function startWeeklyBoardScheduler(): void {
+  if (boardScheduler) return;
+  const tick = async () => {
+    const now = new Date();
+    if (now.getDay() !== 1) return; // Monday only
+    if (now.getHours() < 8) return;
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    if (lastBoardDate === today) return;
+    lastBoardDate = today;
+    try {
+      const last = lastResult;
+      if (!last) return;
+      const s = last.stats;
+      const topic = `Weekly MD Board — Health ${s.health.score}/100. Top improvements: ${s.improvements.slice(0, 3).map(i => i.issue).join("; ") || "none"}. Dormant: ${s.dormant.length}, Useless: ${s.useless.length}. What should we prioritize this week?`;
+      const { createBoardRun, executeBoardRun } = await import("./board.js");
+      const { newJob, runJob } = await import("./jobs.js");
+      const { persistJobRecord } = await import("./job-store.js");
+      const run = createBoardRun({ topic });
+      const job = newJob("board:md-weekly");
+      job.title = `MD Weekly Board — ${today}`;
+      job.status = "running";
+      void runJob(job, async (push) => {
+        push(`Convening weekly MD board: ${topic.slice(0, 120)}`);
+        const result = await executeBoardRun(run, push);
+        return { answer: result.chairmanSynthesis, boardRunId: result.id };
+      });
+      console.log(`[system-audit] weekly MD board convened ${today} — ${topic.slice(0, 80)}`);
+    } catch (e: any) { console.warn(`[system-audit] weekly board failed: ${e?.message ?? e}`); }
+  };
+  boardScheduler = setInterval(tick, 60 * 60 * 1000);
+  (boardScheduler as any).unref?.();
+  void tick();
+}
+
+export function stopWeeklyBoardScheduler(): void {
+  if (boardScheduler) { clearInterval(boardScheduler); boardScheduler = null; }
 }
 
 void llmGenerateWithMeta;

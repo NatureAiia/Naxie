@@ -28,7 +28,7 @@ import { loadPersonas } from "./lib/personas.js";
 import { ensureAllPersonasHaveTemplates } from "./lib/persona-templates.js";
 import { startReflectionScheduler, stopReflectionScheduler } from "./lib/reflection.js";
 import { startInnovationScanScheduler, stopInnovationScanScheduler } from "./lib/innovation-scan.js";
-import { startSystemAuditScheduler, stopSystemAuditScheduler } from "./lib/system-audit.js";
+import { startSystemAuditScheduler, stopSystemAuditScheduler, startWeeklyBoardScheduler, stopWeeklyBoardScheduler } from "./lib/system-audit.js";
 import { startTodoBriefScheduler, stopTodoBriefScheduler } from "./lib/todo-brief.js";
 import { startWeeklyRollupScheduler, stopWeeklyRollupScheduler } from "./lib/weekly-rollup.js";
 import { startWikiCompileScheduler, stopWikiCompileScheduler, startWikiDigestScheduler, stopWikiDigestScheduler } from "./lib/wiki-compile.js";
@@ -544,6 +544,12 @@ const server = app.listen(config.port, config.bindHost, async () => {
     console.log(`  ⓘ todo brief scheduler armed (hour=${process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"}, delivers to Telegram if connected)`);
   }
 
+  // MD Weekly Board — Monday 08:00, convenes on latest audit's top improvements
+  if (process.env.NEUROWORKS_WEEKLY_BOARD !== "0" && config.role === "primary") {
+    startWeeklyBoardScheduler();
+    console.log(`  ⓘ MD weekly board scheduler armed (Monday 08:00)`);
+  }
+
   // Weekly rollup Sundays 9am — combines todos + reflections + scans.
   if (process.env.NEUROWORKS_WEEKLY_ROLLUP !== "0" && config.role === "primary") {
     startWeeklyRollupScheduler();
@@ -658,6 +664,8 @@ async function gracefulExit(signal: string) {
   try { stopInnovationScanScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopSystemAuditScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopWeeklyBoardScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopTodoBriefScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
