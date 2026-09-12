@@ -80,6 +80,8 @@ import { departmentsRouter } from "./routes/departments.js";
 import { knowledgePacksRouter } from "./routes/knowledge-packs.js";
 import { dispatchRouter, dispatchKeysRouter } from "./routes/dispatch.js";
 import { publicFinanceRouter } from "./routes/public-finance.js";
+import { datasetsRouter } from "./routes/datasets.js";
+import { omnisignalRouter } from "./routes/omnisignal.js";
 import { qualityRouter } from "./routes/quality.js";
 import { costRouter } from "./routes/cost.js";
 import { auditRouter } from "./routes/audit.js";
@@ -276,6 +278,8 @@ app.use("/api/v1/dispatch", dispatchRouter);
 app.use("/api/dispatch-keys", dispatchKeysRouter); // mints external machine-dispatch API keys (origin-guard-exempt) — operator-only
 // Public Finance System ingest/read surface (server-to-server; origin-guard
 // exempts /api/public/, writes optionally gated by FINANCE_SYNC_TOKEN).
+app.use("/api/datasets", datasetsRouter);
+app.use("/api/omnisignal", omnisignalRouter);
 app.use("/api/public", publicFinanceRouter);
 app.use("/api/quality", qualityRouter);
 app.use("/api/cost", costRouter); // money

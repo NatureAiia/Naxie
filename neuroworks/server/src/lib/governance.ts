@@ -400,6 +400,7 @@ export const CONSEQUENTIAL_TOOLS = new Set([
   "n8n.trigger_webhook", "n8n.trigger_workflow_by_name", "n8n.create_workflow",
   "crm.upsert_contact", "crm.move_deal_stage",
   "db.write",
+  "data.publish", "omnisignal.publish",
   "code.exec",
   // Naxie org additions (docs/naxie-architecture.md §5) — a calendar change
   // affecting people other than you, and the host-tool actions (§2.2) that
