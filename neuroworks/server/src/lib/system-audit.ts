@@ -55,6 +55,11 @@ export type UsageSignals = {
   schedulesDisabled: number;
   vaultNotes: number;
   vaultSizeMb: number;
+  // Distinct concrete page paths (e.g. "/runs/abc123", not the route pattern
+  // "/runs/:id") seen in page.view audit events over the last 30 days — see
+  // Layout.tsx's beacon + logPageView(). Used by deriveFindings to flag
+  // actually-unvisited pages instead of the old no-op coverage check.
+  pageViewPaths: Set<string>;
 };
 
 export type DormantItem = {
@@ -237,6 +242,19 @@ async function collectUsage(): Promise<UsageSignals> {
     for (const e of events) auditByActor[e.actor] = (auditByActor[e.actor] ?? 0) + 1;
   } catch { /* tolerate */ }
 
+  // Page-view beacon (Layout.tsx -> POST /api/system-audit/page-view ->
+  // logPageView) — was collected but never actually consumed by
+  // deriveFindings until now. Queried separately from the general
+  // auditEvents30d above (action-filtered, high limit) so page.view events
+  // aren't crowded out of a shared 500-row cap by other event types.
+  const pageViewPaths = new Set<string>();
+  try {
+    const { queryAudit } = await import("./audit-log.js");
+    const since = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
+    const { events } = queryAudit({ action: "page.view", since, limit: 20_000 });
+    for (const e of events) pageViewPaths.add(e.target);
+  } catch { /* tolerate */ }
+
   let orgTasks: UsageSignals["orgTasks"] = { total: 0, byStatus: {}, byRole: {}, staleApprovals: 0, blocked: 0 };
   try {
     const { listOrgTasks } = await import("./org-tasks.js");
@@ -285,6 +303,7 @@ async function collectUsage(): Promise<UsageSignals> {
     totalJobs30d, succeeded30d, failed30d, successRate30d,
     byTemplate, byPersona, auditEvents30d, auditByActor,
     orgTasks, schedulesEnabled, schedulesDisabled, vaultNotes, vaultSizeMb,
+    pageViewPaths,
   };
 }
 
@@ -326,13 +345,27 @@ function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dorman
     dormant.push({ kind: "feature", name: "Personas (user-facing)", reason: "No user-facing tasks in last 30 days — personas not exercised (only system jobs ran)", severity: "dormant" });
   }
 
-  // — Pages vs routes coverage —
-  // Pages without matching route often means dead UI
+  // — Dormant pages (no page.view in 30d) —
+  // Route patterns (e.g. "/runs/:id") never literally appear in the beacon
+  // data — the browser reports the CONCRETE path it's actually on
+  // ("/runs/abc123"). Match by regex (":param" -> "[^/]+"), not exact
+  // string equality, or every dynamic route would be falsely flagged
+  // dormant regardless of real traffic.
+  for (const pg of inventory.pages) {
+    const pattern = new RegExp("^" + pg.route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:[^/]+/g, "[^/]+") + "/?$");
+    const seen = [...usage.pageViewPaths].some(p => pattern.test(p));
+    if (!seen) {
+      dormant.push({ kind: "page", name: pg.route, reason: "No page views in last 30 days", severity: "dormant" });
+    }
+  }
+  // — Pages vs routes coverage (secondary signal — a page whose route
+  // pattern doesn't even match any registered route is likely leftover UI
+  // from a renamed/removed route) —
   const routeSet = new Set(inventory.routes.map(r => r.toLowerCase().replace(/[^a-z]/g, "")));
   for (const pg of inventory.pages) {
     const norm = pg.route.replace(/[^a-z]/g, "");
     if (norm.length > 2 && !routeSet.has(norm) && !["dailyreports", "naxie", "board", "orgdashboard"].some(k => norm.includes(k))) {
-      // Don't flag if it's a known page — just track coverage
+      dormant.push({ kind: "route", name: pg.route, reason: "Page's route pattern doesn't match any registered route — possibly leftover from a rename", severity: "stale" });
     }
   }
 
