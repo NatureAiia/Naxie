@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Share2, Webhook, Download, LayoutGrid } from "lucide-react";
+import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Share2, Webhook, Download, LayoutGrid, DollarSign } from "lucide-react";
 import { api, type ConnectorAuthType, type RagStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { Integrations } from "./Integrations";
+import { AdminApiKeys } from "./AdminApiKeys";
+import { AuditLog } from "./AuditLog";
+import { Cost } from "./Cost";
 
 // Extensions — Plugins & Integrations Hub
 // Monitors platform APIs (OpenRouter, Supabase… env-gated) plus
@@ -15,7 +18,7 @@ import { Integrations } from "./Integrations";
 // pages/McpServers.tsx, and Layout.tsx's connectNav.
 // Env secrets are never returned — only prefix + enabled/health.
 
-type ExtTab = "overview" | "platform" | "integrations" | "webhooks" | "marketplace" | "audit";
+type ExtTab = "overview" | "platform" | "integrations" | "webhooks" | "marketplace" | "audit" | "apikeys" | "cost";
 
 const TABS: { id: ExtTab; label: string; icon: any }[] = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
@@ -24,6 +27,8 @@ const TABS: { id: ExtTab; label: string; icon: any }[] = [
   { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "marketplace", label: "Marketplace", icon: Share2 },
   { id: "audit", label: "Audit", icon: History },
+  { id: "apikeys", label: "API Keys", icon: KeyRound },
+  { id: "cost", label: "AI Models & Cost", icon: DollarSign },
 ];
 
 type ExtensionCore = {
@@ -99,7 +104,6 @@ export function Extensions() {
   const [showAdd, setShowAdd] = useState(false);
   const [addTab, setAddTab] = useState<"integration" | "connector" | "model">("integration");
   const [rotateTarget, setRotateTarget] = useState<{ kind: "integration" | "connector"; id: string; label: string } | null>(null);
-  const [audit, setAudit] = useState<any[]>([]);
   const [webhooks, setWebhooks] = useState<any[]>([]);
   const [scheduler, setScheduler] = useState<any>(null);
   const [analytics, setAnalytics] = useState<any>(null);
@@ -157,9 +161,6 @@ export function Extensions() {
   }
   useEffect(() => { void refresh(); }, []);
   useEffect(() => {
-    api.queryAudit({ limit: 20, action: "integration" }).then(r => setAudit(r.events)).catch(() => {});
-    // also fetch connector/extension audits
-    api.queryAudit({ limit: 20, action: "connector" }).then(r => setAudit(prev => [...prev, ...r.events].sort((a,b)=> b.ts.localeCompare(a.ts)).slice(0,20))).catch(()=>{});
     // webhooks + scheduler + analytics + marketplace
     fetch("/api/extensions/webhooks", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(j=> setWebhooks(j.webhooks ?? [])).catch(()=>{});
     fetch("/api/extensions/scheduler/status", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(setScheduler).catch(()=>{});
@@ -354,9 +355,9 @@ export function Extensions() {
             role="switch"
             aria-checked={!!modelPolicy?.allowPaidModels}
             onClick={() => togglePaidModels(!modelPolicy?.allowPaidModels)}
-            className={`shrink-0 w-11 h-6 rounded-full border transition-colors relative ${modelPolicy?.allowPaidModels ? "bg-violet-600 border-violet-500" : "bg-ink-800 border-ink-700"}`}
+            className={`shrink-0 w-11 h-6 rounded-full border transition-colors duration-150 relative ${modelPolicy?.allowPaidModels ? "bg-violet-600 border-violet-500" : "bg-ink-800 border-ink-700"}`}
           >
-            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${modelPolicy?.allowPaidModels ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform duration-150 ${modelPolicy?.allowPaidModels ? "translate-x-[22px]" : "translate-x-0.5"}`} />
           </button>
         </div>
       </Card>
@@ -552,26 +553,14 @@ export function Extensions() {
       </Card>
       )}
 
-      {/* Audit — last 20 extension events */}
-      {tab === "audit" && (
-      <Card title="Recent Audit" action={<Button variant="subtle" onClick={() => window.location.assign("/audit")}><History size={13} /> Full log</Button>}>
-        {audit.length === 0 ? (
-          <div className="text-sm text-cream-300/50 py-2">No recent extension events.</div>
-        ) : (
-          <div className="space-y-1">
-            {audit.slice(0, 12).map((e: any) => (
-              <div key={e.id} className="flex items-center gap-2 text-xs py-1.5 px-2 rounded bg-ink-950/40 border border-ink-800">
-                <span className={`w-1.5 h-1.5 rounded-full ${e.result === "success" ? "bg-leaf-500" : e.result === "failure" ? "bg-coral-500" : "bg-amber-400"}`} />
-                <span className="font-mono text-cream-300/50">{new Date(e.ts).toLocaleString()}</span>
-                <span className="text-cream-200">{e.action}</span>
-                <span className="text-cream-300/50 truncate">{e.target} · {e.detail}</span>
-                <span className="ml-auto text-cream-300/40">{e.actor}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-      )}
+      {/* Audit — full log, formerly the /audit page */}
+      {tab === "audit" && <AuditLog />}
+
+      {/* API Keys — formerly the /admin/api-keys page */}
+      {tab === "apikeys" && <AdminApiKeys />}
+
+      {/* AI Models & Cost — formerly the /cost page */}
+      {tab === "cost" && <Cost />}
 
       {hintFor && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setHintFor(null)}>

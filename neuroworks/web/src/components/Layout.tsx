@@ -10,7 +10,6 @@ import {
   Puzzle,
   LogOut,
   Zap,
-  DollarSign,
   Inbox,
   PanelLeftClose,
   PanelLeftOpen,
@@ -42,7 +41,6 @@ import { NaxieWidget } from "./NaxieWidget";
 const TodoIcon = matIcon("todo");
 const ChangelogIcon = matIcon("changelog");
 const ReviewFolderIcon = matIcon("folder-review");
-const LogIcon = matIcon("log");
 const TemplateIcon = matIcon("template");
 const RobotIcon = matIcon("robot");
 const RobotFolderIcon = matIcon("folder-robot");
@@ -50,7 +48,6 @@ const DocsFolderIcon = matIcon("folder-docs");
 const CertificateIcon = matIcon("certificate");
 const EventFolderIcon = matIcon("folder-event");
 const WorkspaceFolderIcon = matIcon("folder"); // generic nav-group container glyph
-const ConfigFolderIcon = matIcon("folder-config");
 
 type NavItem = {
   to: string;
@@ -79,6 +76,8 @@ const agentsNav: NavItem[] = [
   { to: "/squads", label: "Squads", icon: Zap },
   { to: "/orchestrate", label: "Orchestrate", icon: RobotFolderIcon },
   { to: "/spin-up", label: "Spin up an agent", icon: Sparkles },
+  { to: "/org-dashboard", label: "Org Dashboard", icon: Network },
+  { to: "/policies", label: "Policies", icon: CertificateIcon },
 ];
 
 const workNav: NavItem[] = [
@@ -111,19 +110,6 @@ const connectNav: NavItem[] = [
   { to: "/connectors", label: "Connectors", icon: Boxes },
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
-];
-
-const governNav: NavItem[] = [
-  { to: "/admin/economic-drivers", label: "Economic drivers", icon: DollarSign },
-  { to: "/admin/market-baskets", label: "Market baskets", icon: Boxes },
-  { to: "/admin/transactions", label: "Transactions", icon: DollarSign },
-  { to: "/admin/plans", label: "Plans", icon: CertificateIcon },
-  { to: "/audit", label: "Audit log", icon: LogIcon },
-  { to: "/cost", label: "AI models & cost", icon: DollarSign },
-  { to: "/admin/api-keys", label: "API keys", icon: Cable },
-  { to: "/admin/external-apis", label: "External APIs", icon: Boxes },
-  { to: "/policies", label: "Policies", icon: CertificateIcon },
-  { to: "/org-dashboard", label: "Org Dashboard", icon: Network },
 ];
 
 // Ambient Watch — a single stub slot, not a real group yet (no logic behind
@@ -391,7 +377,6 @@ export function Layout({ children }: { children: ReactNode }) {
                 {workNav.map(renderNavItem)}
                 {memoryNav.map(renderNavItem)}
                 {connectNav.map(renderNavItem)}
-                {governNav.map(renderNavItem)}
                 {renderNavItem(ambientNav)}
               </>
             ) : (
@@ -400,7 +385,6 @@ export function Layout({ children }: { children: ReactNode }) {
                 {renderGroup("work", "Work Queue", WorkspaceFolderIcon, workNav, counts.approvals + counts.activity)}
                 {renderGroup("memory", "Memory & Knowledge", DocsFolderIcon, memoryNav)}
                 {renderGroup("connect", "Connect", Puzzle, connectNav)}
-                {renderGroup("govern", "Govern", ConfigFolderIcon, governNav)}
                 {renderNavItem(ambientNav)}
               </>
             )}
