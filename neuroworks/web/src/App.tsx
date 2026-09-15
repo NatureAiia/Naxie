@@ -137,7 +137,6 @@ function AppShell() {
         <Route path="/audit" element={<Navigate to="/extensions?tab=audit" replace />} />
         <Route path="/org-dashboard" element={<OrgDashboard />} />
         <Route path="/cost" element={<Navigate to="/extensions?tab=cost" replace />} />
-        <Route path="/admin/api-keys" element={<Navigate to="/extensions?tab=apikeys" replace />} />
         <Route path="/admin/notifications" element={<Navigate to="/audit" replace />} />
         <Route path="/admin/email-telegram" element={<Navigate to="/connectors" replace />} />
 

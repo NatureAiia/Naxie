@@ -4,7 +4,6 @@ import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle,
 import { api, type ConnectorAuthType, type RagStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { Integrations } from "./Integrations";
-import { AdminApiKeys } from "./AdminApiKeys";
 import { AuditLog } from "./AuditLog";
 import { Cost } from "./Cost";
 
@@ -18,7 +17,7 @@ import { Cost } from "./Cost";
 // pages/McpServers.tsx, and Layout.tsx's connectNav.
 // Env secrets are never returned — only prefix + enabled/health.
 
-type ExtTab = "overview" | "platform" | "integrations" | "webhooks" | "marketplace" | "audit" | "apikeys" | "cost";
+type ExtTab = "overview" | "platform" | "integrations" | "webhooks" | "marketplace" | "audit" | "cost";
 
 const TABS: { id: ExtTab; label: string; icon: any }[] = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
@@ -27,7 +26,6 @@ const TABS: { id: ExtTab; label: string; icon: any }[] = [
   { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "marketplace", label: "Marketplace", icon: Share2 },
   { id: "audit", label: "Audit", icon: History },
-  { id: "apikeys", label: "API Keys", icon: KeyRound },
   { id: "cost", label: "AI Models & Cost", icon: DollarSign },
 ];
 
@@ -555,9 +553,6 @@ export function Extensions() {
 
       {/* Audit — full log, formerly the /audit page */}
       {tab === "audit" && <AuditLog />}
-
-      {/* API Keys — formerly the /admin/api-keys page */}
-      {tab === "apikeys" && <AdminApiKeys />}
 
       {/* AI Models & Cost — formerly the /cost page */}
       {tab === "cost" && <Cost />}
