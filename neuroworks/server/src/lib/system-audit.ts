@@ -626,8 +626,8 @@ export async function getIntegrationHealth(): Promise<IntegrationHealth[]> {
     }
   } catch { /* no connectors */ }
   try {
-    const { listIntegrations } = await import("./integrations.js");
-    const integrations = listIntegrations?.() ?? [];
+    const { listConnections } = await import("./integrations.js");
+    const integrations = listConnections?.() ?? [];
     for (const c of (integrations as any).slice?.(0, 10) ?? []) {
       out.push({ id: c.id ?? c.providerId ?? "integration", label: c.label ?? c.providerId ?? c.id, ok: true, detail: "integration — no probe" });
     }

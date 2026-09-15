@@ -115,27 +115,58 @@ export function NaxieResultCard({ turn, onReplay, onDismiss, onApprove, onReject
     );
   }
 
-  // "chat" — Q + A card with replay + routing pill.
+  // "chat" — polished bubbles with avatar, copy, routing pill
+  if (compact) {
+    return (
+      <div className={`flex w-full ${turn.role === "user" ? "justify-end" : "justify-start"}`}>
+        <div className={`${turn.role === "user" ? "bg-violet-600 text-white rounded-2xl rounded-br-md" : "bg-ink-800 border border-ink-700 text-cream-100 rounded-2xl rounded-tl-md"} max-w-[85%] px-3 py-2 text-[12px] leading-relaxed whitespace-pre-wrap break-words shadow-sm`}>
+          {turn.text}
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="flex flex-col gap-1 w-full">
-      {turn.role === "user" ? (
-        <div className={`text-cream-300/70 bg-ink-950 border border-ink-800 rounded-lg w-fit max-w-full ${compact ? "text-[11px] px-2.5 py-1.5" : "text-xs px-3 py-2"}`}>{turn.text}</div>
-      ) : (
-        <>
-          <div className={`text-cream-100 bg-violet-500/5 border border-violet-500/20 rounded-lg flex items-start gap-2 ${compact ? "text-[11px] px-2.5 py-1.5" : "text-sm px-3 py-2"}`}>
+    <div className={`flex w-full gap-2.5 ${turn.role === "user" ? "justify-end" : "justify-start"}`}>
+      {turn.role === "assistant" && (
+        <span className="w-7 h-7 rounded-full bg-violet-500/15 border border-violet-500/25 grid place-items-center shrink-0 mt-0.5">
+          <Sparkles size={13} className="text-violet-400" />
+        </span>
+      )}
+      <div className={`flex flex-col gap-1.5 max-w-[82%] ${turn.role === "user" ? "items-end" : "items-start"}`}>
+        <div
+          className={`px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm ${
+            turn.role === "user"
+              ? "bg-violet-600 text-white rounded-br-md"
+              : "bg-ink-800 border border-ink-700 text-cream-100 rounded-tl-md"
+          }`}
+        >
+          {turn.text}
+        </div>
+        {turn.role === "assistant" && (
+          <div className="flex items-center gap-1.5 px-1">
             {onReplay && (
-              <button type="button" title="Replay" onClick={() => onReplay(turn.text)} className="text-violet-400 hover:text-violet-300 mt-0.5 shrink-0">
-                <Sparkles size={compact ? 11 : 13} />
+              <button type="button" title="Read aloud" onClick={() => onReplay(turn.text)} className="w-6 h-6 rounded-full bg-ink-800 border border-ink-700 grid place-items-center text-cream-300/60 hover:text-violet-300 hover:border-violet-500/30 transition-colors">
+                <Sparkles size={11} />
               </button>
             )}
-            <span>{turn.text}</span>
+            <button
+              type="button"
+              title="Copy"
+              onClick={() => { try { navigator.clipboard.writeText(turn.text); } catch {} }}
+              className="w-6 h-6 rounded-full bg-ink-800 border border-ink-700 grid place-items-center text-cream-300/60 hover:text-cream-100 hover:border-ink-600 transition-colors"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v3" /></svg>
+            </button>
+            {turn.routing && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full border opacity-80" title={turn.routing.reason} style={TIER_STYLE(turn.routing.tier)}>
+                {TIER_LABEL[turn.routing.tier] ?? turn.routing.tier}
+              </span>
+            )}
           </div>
-          {turn.routing && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full border w-fit opacity-90" title={turn.routing.reason} style={TIER_STYLE(turn.routing.tier)}>
-              {TIER_LABEL[turn.routing.tier] ?? turn.routing.tier} · {turn.routing.complexity}{turn.routing.online != null ? (turn.routing.online ? " · online" : " · offline") : ""}
-            </span>
-          )}
-        </>
+        )}
+      </div>
+      {turn.role === "user" && (
+        <span className="w-7 h-7 rounded-full bg-ink-700 border border-ink-600 grid place-items-center shrink-0 mt-0.5 text-[10px] font-medium text-cream-300">You</span>
       )}
     </div>
   );

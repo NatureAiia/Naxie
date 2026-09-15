@@ -223,23 +223,13 @@ generated: ${new Date().toISOString()}
   return header + top3Block + "\n" + todayBlock + overdueBlock + weekBlock + backlogBlock + summary + footer;
 }
 
-export async function runTodoBrief(opts: { includeWeather?: boolean } = {}): Promise<TodoBriefResult> {
+export async function runTodoBrief(_opts?: any): Promise<TodoBriefResult> {
   if (inFlight) return inFlight;
   inFlight = (async () => {
     const runStartedAtIso = new Date().toISOString();
     const today = localYmd(new Date());
     const { today: todayItems, overdue, week, backlog, openCount, top3, allLists } = gatherTodos();
-    // Weather block for 6am brief (item 5)
-    let weatherBlock = "";
-    if (opts.includeWeather !== false) {
-      try {
-        const { getWeather } = await import("./host-tools.js");
-        const w = await getWeather("auto");
-        if (w) weatherBlock = `\n${w}\n`;
-      } catch { /* best-effort */ }
-    }
-    const baseMarkdown = renderTodoMarkdown({ date: today, today: todayItems, overdue, week, backlog, openCount, top3, lists: allLists });
-    const markdown = weatherBlock ? baseMarkdown.replace("---\n\n# ☀️ Good morning", `---\n\n${weatherBlock}\n# ☀️ Good morning`) : baseMarkdown;
+    const markdown = renderTodoMarkdown({ date: today, today: todayItems, overdue, week, backlog, openCount, top3, lists: allLists });
     const generatedAt = new Date().toISOString();
     const path = `${TODO_DIR}/${today}.md`;
     try {
@@ -283,7 +273,7 @@ async function deliverToTelegram(result: TodoBriefResult): Promise<void> {
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
     const niceDate = fmtNice(result.date);
     const body = result.markdown.slice(0, 3500);
-    const text = `☀️ *Todo Brief — ${niceDate}*\n📋 ${result.todayCount} today · ⚠️ ${result.overdueCount} overdue · 📅 ${result.weekCount} rest-of-week · 📦 ${result.openCount} open\n\n${body.slice(0, 3300)}\n\n— _Full brief in vault: ${result.path}_`;
+    const text = `☀️ *Todo Brief — ${niceDate}*\n📋 ${result.todayCount} today · ⚠️ ${result.overdueCount} overdue · 📅 ${result.weekCount} rest-of-week · 📦 ${result.openCount} open\n\n${body.slice(0, 3300)}\n\n📄 _Full brief in vault:_ ${result.path}`;
     const kb = (result.top3 ?? []).slice(0, 3).map((p: any) => {
       const t = String(p.task.title ?? "").slice(0, 22).replace(/"/g, "");
       return [

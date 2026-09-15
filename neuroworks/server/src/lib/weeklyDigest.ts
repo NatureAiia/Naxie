@@ -15,13 +15,7 @@ export async function buildWeeklyDigest(): Promise<string> {
     `**By model** ${cost.byModel.slice(0,3).map(m=>`${m.model} $${m.costUsd.toFixed(2)}`).join(" · ") || "none"}`,
     ``,
   ];
-  try {
-    const { listChatHistory } = await import("./chat-history.js");
-    // shallow job stats via job-store if available
-    const { getJob } = await import("./job-store.js");
-    void getJob;
-    lines.push(`_Digest generated — wire to Telegram via NEUROWORKS_TELEGRAM_ALLOWED_CHATS or SMTP._`);
-  } catch {}
+  lines.push(`_Digest generated — wire to Telegram via NEUROWORKS_TELEGRAM_ALLOWED_CHATS or SMTP._`);
   return lines.join("\n");
 }
 
