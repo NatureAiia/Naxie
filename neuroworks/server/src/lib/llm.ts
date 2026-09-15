@@ -1,7 +1,7 @@
 import { config } from "../config.js";
 import { pickModelFor, type TaskNeeds } from "./models.js";
 import { openrouterGenerateWithMeta, openrouterHealth, isTransientError, openrouterCircuitOpen, openrouterDailyQuotaExhausted, openrouterBillingExhausted } from "./openrouter.js";
-import { recordLlmCost } from "./cost-tracker.js";
+import { recordLlmCost, recordLlmFailure } from "./cost-tracker.js";
 import { isCloudReachableCached } from "./connectivity.js";
 
 export type LLMCallOptions = {
@@ -284,7 +284,20 @@ async function callOllamaStream(prompt: string, system: string | undefined, mode
 // how the Cost monitor page gets its data; recording is best-effort and never
 // blocks or breaks the actual generation).
 export async function llmGenerateWithMeta(prompt: string, system?: string, opts: LLMCallOptions = {}): Promise<{ text: string; model: string; usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } }> {
-  const result = await generateWithMetaInner(prompt, system, opts);
+  let result: { text: string; model: string; usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } };
+  try {
+    result = await generateWithMetaInner(prompt, system, opts);
+  } catch (e: any) {
+    // Terminal failure — every retry/fallback in generateWithMetaInner is
+    // exhausted. Record it once (previously invisible: cost-tracker only ever
+    // ran on the success path below) so byModel.failureRate is real, then
+    // rethrow unchanged — this is purely an observability hook.
+    try {
+      const { backend, model } = await chooseBackendAndModel(opts, prompt, system);
+      recordLlmFailure(model, backend === "little-coder" ? "ollama" : backend, opts.profile ?? "none", e?.message ?? String(e), "adhoc");
+    } catch { /* best-effort */ }
+    throw e;
+  }
   try { recordLlmCost(result.model, result.text, prompt, system, opts.profile ?? "none", "adhoc", result.usage); } catch { /* best-effort */ }
   // Prompt-cache effectiveness metric — only cloud providers report cached
   // prefix tokens (usage present). Best-effort; never blocks generation.

@@ -99,6 +99,7 @@ export type QualitySummary = {
   }[];
 };
 export type HostToolsSettings = { allowSystemControl: boolean; allowClipboardAccess: boolean; allowNotifications: boolean; gitRepoPath: string };
+export type RosterRow = { name: string; providerKind?: string; providerLabel?: string; tier?: "small" | "large"; free: boolean; active: boolean; calls: number; costUsd: number; failed: number; failureRate: number };
 
 export type OnboardingSector = {
   id: string; name: string; nameShona?: string; nameNdebele?: string; description: string; icon: string; contextNote: string;
@@ -442,6 +443,12 @@ export const api = {
   // stay off until explicitly approved here.
   getModelPolicy: () => req<{ policy: { allowPaidModels: boolean } }>("/api/models/policy"),
   setModelPolicy: (allowPaidModels: boolean) => req<{ policy: { allowPaidModels: boolean } }>("/api/models/policy", { method: "POST", body: JSON.stringify({ allowPaidModels }) }),
+  // Model roster — offline (local) / online free / online paid, with usage stats.
+  getModelRoster: () => req<{
+    policy: { allowPaidModels: boolean };
+    offline: RosterRow[];
+    online: RosterRow[];
+  }>("/api/models/roster"),
   // Open a live event stream for a running job. Returns the
   // EventSource so the caller can attach onmessage / onclose handlers
   // and close() when the consumer unmounts. Use this for streaming
@@ -525,11 +532,13 @@ export const api = {
     onboardingNeeded: boolean;
     daemonStatus: { cycleSeconds: number };
   }>("/api/naxie/status"),
-  // Naxie's general conversation — PA master, auto-routes model
-  // (free-tier online for speed, Ollama by size offline). Returns routing
-  // metadata so the UI can show quick-free vs deep vs local visibly.
+  // Naxie's general conversation — PA master. Routes through the real
+  // agent/tool loop (a Job), so this returns {jobId} immediately; the caller
+  // watches it via jobStream(jobId) (falling back to polling getJob) for the
+  // live step feed and the final answer. A "delegate" intent still short-
+  // circuits instantly with no job at all.
   voiceConverse: (messages: { role: "user" | "assistant"; content: string }[]) =>
-    req<{ text: string; model: string; routing?: { tier: string; complexity: string; reason: string; signals: string[]; online: boolean; backend: string }; sourceNoteId?: string | null }>("/api/voice/converse", { method: "POST", body: JSON.stringify({ messages }) }),
+    req<{ jobId?: string; text?: string; delegated?: { taskId: string; role: string } }>("/api/voice/converse", { method: "POST", body: JSON.stringify({ messages }) }),
   voiceTts: async (text: string, personaId?: string): Promise<Blob> => {
     const token = getToken();
     const r = await fetch("/api/voice/tts", {

@@ -146,6 +146,17 @@ async function reportContext(jobId: string, personaId?: string): Promise<{ repor
 //
 // Chat (/api/chat) remains the surface for talking to a specific persona/
 // worker — Naxie is the PA master that delegates there when needed.
+// Naxie's chat bar. Used to be a single direct-passthrough LLM call — now
+// routes through the real agent/tool loop (planAndExecute, same system
+// /api/chat and template runs use) via a Job, so a reply that needs a tool
+// (calendar, vault search, memory) actually calls it instead of guessing,
+// and the Workbench view (Naxie.tsx) has real step-by-step progress to show
+// via the job's SSE stream. Returns {jobId} immediately; the caller polls
+// /api/tasks/jobs/:id or opens jobStream(jobId) for the answer.
+//
+// The delegate-intent short-circuit below is UNCHANGED and stays instant —
+// it's already fire-and-forget with its own OrgTask tracking, no reason to
+// wrap that in a job too.
 voiceRouter.post("/converse", async (req, res) => {
   const messages: { role: string; content: string }[] = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const trimmed = messages.slice(-16).map(m => ({
@@ -154,18 +165,16 @@ voiceRouter.post("/converse", async (req, res) => {
   }));
   const last = trimmed.pop();
   if (!last || !last.content.trim()) return res.status(400).json({ error: "messages required" });
-  // Record interaction before generation — counts even if delegation short-circuits or LLM fails.
+  // Record interaction before generation — counts even if delegation short-circuits or the job fails.
   try { const { touchInteraction } = await import("../lib/naxie-interactions.js"); touchInteraction(); } catch { /* best-effort */ }
   try {
-    const { llmGenerateWithMeta } = await import("../lib/llm.js");
     const { injectLanguagePrompt } = await import("../lib/language-prompts.js");
-    const { classifyNaxieComplexity, classifyChatIntent, tierFor } = await import("../lib/naxie-router.js");
-    const { isCloudReachable } = await import("../lib/connectivity.js");
+    const { classifyChatIntent } = await import("../lib/naxie-router.js");
     const { buildNaxieContext } = await import("../lib/naxie-context.js");
     const baseSystem = injectLanguagePrompt(
       "You are Naxie, the personal assistant master of the whole system. Speak naturally, the way a person would say it out loud — " +
       "short sentences, no markdown, no headings, no bullet lists, no code fences unless the user explicitly asks for code. " +
-      "Answer directly from your own knowledge; never claim you can't help without actually trying. " +
+      "Answer directly from your own knowledge; use a tool when you genuinely need to (calendar, vault, memory) rather than guessing. " +
       "You route more complex or specialized work to the appropriate worker/agent when needed — the Chat surface is for those direct worker conversations.",
       "direct",
     );
@@ -173,12 +182,8 @@ voiceRouter.post("/converse", async (req, res) => {
     const naxieCtx = await buildNaxieContext(last.content, { ragLimit: 6, includeDated: true });
     const system = baseSystem + "\n\n" + naxieCtx.combinedSystemAddendum;
     const convo = trimmed.map(m => `${m.role}: ${m.content}`).join("\n");
-    // RAG block also goes into the user prompt as grounding (citeable)
-    const prompt = (convo ? `${convo}\n` : "") + (naxieCtx.rag ? naxieCtx.rag + "\n\n" : "") + `User: ${last.content}\nNaxie:`;
-    // 1) classify complexity from the actual user intent (last turn + convo size)
     const convoTokens = Math.ceil(convo.length / 4);
-    const cls = classifyNaxieComplexity(last.content, convoTokens);
-    // 1b) triage: is this actually a piece of work for a role's backlog, or
+    // 1) triage: is this actually a piece of work for a role's backlog, or
     // just a turn to answer directly? (See naxie-router.ts's classifyChatIntent
     // doc comment — this is chat's counterpart to naxie.ts's /ask endpoint,
     // reachable from ordinary conversation instead of only the widget's
@@ -188,9 +193,14 @@ voiceRouter.post("/converse", async (req, res) => {
     // the injected [MD System Audit] context in buildNaxieContext.
     const isMdQuery = /\b(md audit|system audit|managing director|system health|system update|what.*dormant|what.*useless|what.*needs.*improv|audit.*system|health.*system)\b/i.test(last.content)
       || /\b(dormant|useless|needs improv)\b/i.test(last.content) && /\b(system|feature|page|file)\b/i.test(last.content);
-    const rawIntent = isMdQuery ? { action: "answer" as const, role: undefined as any, reason: "MD audit query — answer directly from system-audit context" } : classifyChatIntent(last.content, convoTokens) as any;
+    // Model/cost health queries — same "answer from data already on hand"
+    // shortcut as MD audit above, so asking "how are the models doing" or
+    // "what's failing" doesn't need a tool call for something Naxie already
+    // has (see innovation-scan.ts's deriveModelHealthFindings).
+    const isModelHealthQuery = /\b(model|models).{0,20}\b(doing|health|failing|failure|status)\b|\bwhat.{0,10}(failing|broken)\b|\bhow much.{0,15}(spent|cost|paid)\b/i.test(last.content);
+    const rawIntent = (isMdQuery || isModelHealthQuery) ? { action: "answer" as const, role: undefined as any, reason: "answer directly from injected system/model context" } : classifyChatIntent(last.content, convoTokens) as any;
     const intent: any = rawIntent;
-    if (!isMdQuery && intent.action === "delegate" && intent.role) {
+    if (!isMdQuery && !isModelHealthQuery && intent.action === "delegate" && intent.role) {
       const { createOrgTask } = await import("../lib/org-tasks.js");
       const task = createOrgTask({
         role: intent.role,
@@ -203,37 +213,42 @@ voiceRouter.post("/converse", async (req, res) => {
       // reply can never accidentally narrate the internal role name.
       res.json({
         text: "I'll take care of that and follow up.",
-        model: null,
-        routing: {
-          tier: "delegated",
-          complexity: cls.level,
-          reason: intent.reason,
-          signals: cls.signals,
-          online: null,
-          backend: "org-task",
-        },
         delegated: { taskId: task.id, role: intent.role },
       });
       return;
     }
-    // 2) probe reachability (cached 45s) — real online vs just "key present"
-    const online = await isCloudReachable();
-    const tier = tierFor(cls.level, online);
-    const complexityFlag = cls.level === "complex" ? "high" as const : "normal" as const;
-    // Let the LLM router pick the right backend/model for this tier
-    const result = await llmGenerateWithMeta(prompt, system, { profile: "balanced", maxTokens: cls.level === "complex" ? 900 : 500, complexity: complexityFlag });
-    res.json({
-      text: result.text.trim(),
-      model: result.model,
-      routing: {
-        tier,
-        complexity: cls.level,
-        reason: cls.reason,
-        signals: cls.signals,
-        online,
-        backend: result.model.includes("/") ? "openrouter" : "ollama",
-      },
-      sourceNoteId: naxieCtx.sourceNoteId,
+    let modelHealthBlock = "";
+    if (isModelHealthQuery) {
+      try {
+        const { deriveModelHealthFindings } = await import("../lib/innovation-scan.js");
+        const findings = deriveModelHealthFindings();
+        modelHealthBlock = findings.length
+          ? `\n\n[Model & cost health]\n${findings.map(f => `- ${f.area}: ${f.issue} — ${f.recommendation}`).join("\n")}`
+          : "\n\n[Model & cost health]\nNo notable findings — either not enough call volume yet, or everything's healthy.";
+      } catch { /* best-effort */ }
+    }
+    const historyBlock = convo ? `Recent conversation:\n${convo}\n\n` : "";
+    const task = `${historyBlock}${naxieCtx.rag ? naxieCtx.rag + "\n\n" : ""}${modelHealthBlock ? modelHealthBlock.trim() + "\n\n" : ""}The user just said: "${last.content}"\n\nRespond as Naxie — speak naturally, use a tool only if you genuinely need one.`;
+
+    const { newJob, runJob } = await import("../lib/jobs.js");
+    const { planAndExecute } = await import("../lib/agent.js");
+    const { PA_IDENTITY } = await import("../lib/personas.js");
+    const job = newJob("naxie:converse");
+    job.title = last.content.slice(0, 80);
+    job.personaId = PA_IDENTITY.id;
+    job.personaName = PA_IDENTITY.name;
+    job.inputs = { task, userText: last.content, sourceNoteId: naxieCtx.sourceNoteId };
+    res.json({ jobId: job.id });
+
+    void runJob(job, async (push, progress) => {
+      const r = await planAndExecute(task, push, (patch) => progress(patch as Record<string, unknown>), {
+        personaSystemSuffix: system,
+        persona: PA_IDENTITY.name,
+        personaId: PA_IDENTITY.id,
+        scopeId: job.id,
+        taskKind: job.kind,
+      });
+      return { ...r, sourceNoteId: naxieCtx.sourceNoteId };
     });
   } catch (e: any) {
     res.status(400).json({ error: String(e?.message ?? e) });

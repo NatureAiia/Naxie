@@ -23,6 +23,8 @@ import { searchWeb, smartFetch } from "./web-client.js";
 import { validateSources } from "./source-validator.js";
 import { searchTrendingRepos } from "./github.js";
 import type { FetchedSource, ValidatedSource } from "./source-validator-types.js";
+import { getCostSummary } from "./cost-tracker.js";
+import { isFreeModelId } from "./model-policy.js";
 
 const SCAN_DIR = "_neuroworks/innovation-scans";
 
@@ -136,6 +138,45 @@ export function identifyOwnWeaknesses(): Weakness[] {
   return out.slice(0, 3);
 }
 
+// ─── Model & cost health — Naxie's model-selection self-improvement ───
+// Distinct from identifyOwnWeaknesses() above: those feed the web-research
+// pipeline (a weak quality axis → go read about it). This reads our OWN
+// cost-tracker data directly — no research needed, the evidence already
+// exists — and is reported plainly in the digest, with an OrgTask for
+// anything concretely actionable so Naxie can propose a fix via
+// system.admin's "switch_model" action (approval-gated, same as every other
+// self-improvement loop this session wired up).
+export type ModelHealthFinding = { area: string; issue: string; recommendation: string; evidence: string; actionable: boolean };
+
+export function deriveModelHealthFindings(): ModelHealthFinding[] {
+  const out: ModelHealthFinding[] = [];
+  const { byModel } = getCostSummary();
+  for (const m of byModel) {
+    if (m.calls < 5) continue; // too little signal to act on
+    if (m.failureRate >= 0.2) {
+      out.push({
+        area: "Model reliability",
+        issue: `"${m.model}" is failing ${Math.round(m.failureRate * 100)}% of calls (${m.failed}/${m.calls})`,
+        recommendation: `Switch the tier using "${m.model}" to a healthier model via system.admin's switch_model action — prefer a free one (isFreeModelId) unless paid models are separately approved.`,
+        evidence: `byModel["${m.model}"]: calls=${m.calls} failed=${m.failed} failureRate=${m.failureRate.toFixed(2)}`,
+        actionable: true,
+      });
+    }
+  }
+  const paidSpend = byModel.filter(m => m.costUsd > 0 && !isFreeModelId(m.model));
+  const totalPaidUsd = paidSpend.reduce((s, m) => s + m.costUsd, 0);
+  if (totalPaidUsd > 0) {
+    out.push({
+      area: "Model cost",
+      issue: `$${totalPaidUsd.toFixed(4)} spent on paid models this window (${paidSpend.map(m => m.model).join(", ")})`,
+      recommendation: "Review whether a free-tier model would serve these calls just as well — informational only, no auto-switch without checking output quality first.",
+      evidence: paidSpend.map(m => `${m.model}: $${m.costUsd.toFixed(4)} (${m.calls} calls)`).join("; "),
+      actionable: false,
+    });
+  }
+  return out;
+}
+
 // ─── Shared fetch/validate helper — mirrors research.deep's pipeline ───
 async function searchFetchValidate(query: string, depth: number): Promise<{ kept: ValidatedSource[]; fetchedCount: number }> {
   const search = await searchWeb(query, depth).catch(() => ({ engine: "none", results: [], tried: [] }));
@@ -233,18 +274,21 @@ export async function runBroadWatch(): Promise<BroadWatch> {
 }
 
 // ─── 4. Synthesize the operator-facing digest ───
-export async function synthesizeDigest(targeted: TargetedFinding[], broad: BroadWatch): Promise<{ text: string; modelUsed?: string }> {
-  if (targeted.length === 0 && broad.repos.length === 0 && broad.news.length === 0) {
+export async function synthesizeDigest(targeted: TargetedFinding[], broad: BroadWatch, modelHealth: ModelHealthFinding[] = []): Promise<{ text: string; modelUsed?: string }> {
+  if (targeted.length === 0 && broad.repos.length === 0 && broad.news.length === 0 && modelHealth.length === 0) {
     return {
       text: `_Nothing to report yet. Once the system has run enough tasks to learn where it's weak, and/or the web is reachable, this scan will have real material to work with._`,
     };
   }
 
-  const sys = `You are NeuroWorks's Innovation Scan writer — and Naxie, the operator's PA, is delivering this. The operator is NOT deeply technical — plain language, no jargon dump, no wall of acronyms. Your job is to make two things clear: (1) how we're fixing our own weak spots, and (2) what's new and interesting in AI/tech this week.
+  const sys = `You are NeuroWorks's Innovation Scan writer — and Naxie, the operator's PA, is delivering this. The operator is NOT deeply technical — plain language, no jargon dump, no wall of acronyms. Your job is to make three things clear: (1) how we're fixing our own weak spots, (2) how the AI models we're actually using are doing (failure rates, cost, free vs paid), and (3) what's new and interesting in AI/tech this week.
 
 Output sections — use these EXACT headings (including the emoji prefix):
 ## 🔧 Fixing our weak spots
 For EACH targeted finding, tie it back to the specific weakness that prompted it — say what's weak, then what the research suggests doing about it. Plain language. If there are no targeted findings, say plainly that nothing weak enough to chase was found.
+
+## 🧠 Model & cost health
+State plainly what's happening with the models this week — failure rates, which ones are struggling, how much (if anything) was spent on paid models and whether that seems worth it. If a finding is flagged actionable, say Naxie will propose a fix for the operator to approve. If there's nothing to report, say so.
 
 ## ✨ What's new and interesting
 Digestible highlights from the trending repos and news findings — what it is and why it might matter to us, in plain terms. If there's nothing, say so.
@@ -262,6 +306,10 @@ Rules:
     ? targeted.map(t => `### Weakness: ${t.reason}\nResearch query: "${t.weaknessQuery}"\nFindings: ${t.summary}`).join("\n\n")
     : "_(no weaknesses identified this run — insufficient quality/bottleneck data yet)_";
 
+  const modelHealthBlock = modelHealth.length > 0
+    ? modelHealth.map(m => `### ${m.area}${m.actionable ? " (actionable — OrgTask created)" : ""}\n${m.issue}\nRecommendation: ${m.recommendation}\nEvidence: ${m.evidence}`).join("\n\n")
+    : "_(no model/cost health findings this run — not enough call volume yet, or everything's healthy)_";
+
   const reposBlock = broad.repos.length > 0
     ? broad.repos.map(r => `- ${r.fullName} (${r.stars}★) — ${r.description ?? "no description"} — ${r.url}`).join("\n")
     : "_(no trending repos found)_";
@@ -270,7 +318,7 @@ Rules:
     ? broad.news.map(n => `### "${n.query}"\n${n.summary}`).join("\n\n")
     : "_(no news findings)_";
 
-  const prompt = `## Targeted findings (our own weak spots)\n\n${targetedBlock}\n\n## Trending repos\n\n${reposBlock}\n\n## News findings\n\n${newsBlock}\n\nWrite the digest.`;
+  const prompt = `## Targeted findings (our own weak spots)\n\n${targetedBlock}\n\n## Model & cost health\n\n${modelHealthBlock}\n\n## Trending repos\n\n${reposBlock}\n\n## News findings\n\n${newsBlock}\n\nWrite the digest.`;
 
   const attemptSynthesis = async (): Promise<{ text: string; modelUsed?: string }> => {
     let lastErr: any;
@@ -290,7 +338,7 @@ Rules:
       }
     }
     return {
-      text: `_LLM digest synthesis failed after retry (\`${String(lastErr?.message ?? lastErr).slice(0, 100)}\`). The raw findings below are still valid — review them manually.\n\n## Fixing our weak spots\n${targetedBlock}\n\n## What's new and interesting\n${reposBlock}\n\n${newsBlock}`,
+      text: `_LLM digest synthesis failed after retry (\`${String(lastErr?.message ?? lastErr).slice(0, 100)}\`). The raw findings below are still valid — review them manually.\n\n## Fixing our weak spots\n${targetedBlock}\n\n## Model & cost health\n${modelHealthBlock}\n\n## What's new and interesting\n${reposBlock}\n\n${newsBlock}`,
     };
   };
 
@@ -304,7 +352,7 @@ Rules:
       const mins = Math.round(SYNTH_TIMEOUT_MS / 60_000);
       console.warn(`[innovation-scan] synthesis exceeded ${mins}min cap — abandoning the LLM call and writing the findings-only digest`);
       resolve({
-        text: `_LLM digest synthesis exceeded the ${mins}min cap and was abandoned so the scan wouldn't stall. The raw findings below are still valid.\n\n## Fixing our weak spots\n${targetedBlock}\n\n## What's new and interesting\n${reposBlock}\n\n${newsBlock}`,
+        text: `_LLM digest synthesis exceeded the ${mins}min cap and was abandoned so the scan wouldn't stall. The raw findings below are still valid.\n\n## Fixing our weak spots\n${targetedBlock}\n\n## Model & cost health\n${modelHealthBlock}\n\n## What's new and interesting\n${reposBlock}\n\n${newsBlock}`,
       });
     }, SYNTH_TIMEOUT_MS);
     if (typeof capTimer.unref === "function") capTimer.unref();
@@ -367,11 +415,30 @@ export async function runInnovationScan(opts: { force?: boolean } = {}): Promise
   inFlight = (async () => {
     const runStartedAtIso = new Date().toISOString();
     const weaknesses = identifyOwnWeaknesses();
+    const modelHealth = deriveModelHealthFindings();
     const [targeted, broad] = await Promise.all([
       runTargetedScan(weaknesses),
       runBroadWatch(),
     ]);
-    const { text, modelUsed } = await synthesizeDigest(targeted, broad);
+    const { text, modelUsed } = await synthesizeDigest(targeted, broad, modelHealth);
+
+    // Model-selection self-improvement loop: an actionable finding (a model
+    // with a real failure rate) becomes an OrgTask — same pattern
+    // system-audit.ts uses for its improvements[] — so Naxie can propose the
+    // fix via system.admin's switch_model action and the operator approves
+    // it, instead of the finding just sitting in a digest nobody acts on.
+    try {
+      const { createOrgTask, listOrgTasks } = await import("./org-tasks.js");
+      const openTitles = new Set(listOrgTasks({ role: "admin" }).filter(t => t.status !== "done").map(t => t.title));
+      for (const f of modelHealth) {
+        if (!f.actionable) continue;
+        const title = `Innovation Scan: ${f.area} — ${f.issue}`.slice(0, 160);
+        if (openTitles.has(title)) continue;
+        createOrgTask({ role: "admin", title, detail: `${f.recommendation}\n\nEvidence: ${f.evidence}`, priority: "high", createdBy: "daemon" });
+      }
+    } catch (e: any) {
+      console.warn(`[innovation-scan] model-health org-task creation failed: ${e?.message ?? e}`);
+    }
     const generatedAt = new Date().toISOString();
     const date = generatedAt.slice(0, 10);
     const path = `${SCAN_DIR}/${date}.md`;

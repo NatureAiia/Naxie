@@ -356,7 +356,7 @@ export function Extensions() {
             onClick={() => togglePaidModels(!modelPolicy?.allowPaidModels)}
             className={`shrink-0 w-11 h-6 rounded-full border transition-colors relative ${modelPolicy?.allowPaidModels ? "bg-violet-600 border-violet-500" : "bg-ink-800 border-ink-700"}`}
           >
-            <span className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white transition-transform ${modelPolicy?.allowPaidModels ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${modelPolicy?.allowPaidModels ? "translate-x-[22px]" : "translate-x-0.5"}`} />
           </button>
         </div>
       </Card>

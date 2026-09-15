@@ -14,6 +14,14 @@ export type CostRecord = {
   // Generative media is billed per unit (image/second), not per token; count
   // is the number of assets. Absent on plain LLM calls.
   units?: number;
+  // Absent/true = a successful call, same as every record before this field
+  // existed. false marks a call that exhausted every retry/fallback and
+  // threw — see recordLlmFailure in llm.ts's terminal-failure path. Lets the
+  // Cost page and innovation-scan report a real per-model failure rate
+  // instead of only ever seeing successes (failures used to be invisible
+  // here entirely — cost was only ever recorded on the success path).
+  ok?: boolean;
+  error?: string;
 };
 
 export type CostSummary = {
@@ -21,7 +29,7 @@ export type CostSummary = {
   totalInputTokens: number;
   totalOutputTokens: number;
   callCount: number;
-  byModel: { model: string; costUsd: number; calls: number }[];
+  byModel: { model: string; costUsd: number; calls: number; failed: number; failureRate: number }[];
   byDay: { date: string; costUsd: number; calls: number }[];
   recentCalls: CostRecord[];
 };
@@ -151,6 +159,18 @@ export function recordLlmCost(model: string, outputText: string, inputText: stri
   } catch { /* cost tracking is best-effort — never break a real LLM call */ }
 }
 
+// Records a call that exhausted every retry/fallback and threw. Call ONCE per
+// terminal failure (not per retry attempt) from llm.ts, right before the
+// error propagates to the caller. $0 cost — it was never billed — but still
+// counted per-model so getCostSummary().byModel.failureRate reflects reality
+// instead of failures being invisible (the gap this closes: before this,
+// cost-tracker only ever ran on the success path).
+export function recordLlmFailure(model: string, backend: CostRecord["backend"], profile = "none", error?: string, jobId = "adhoc"): void {
+  try {
+    recordCost({ jobId, model: model || "unknown", backend, profile, inputTokens: 0, outputTokens: 0, costUsd: 0, ts: new Date().toISOString(), ok: false, error: String(error ?? "").slice(0, 300) });
+  } catch { /* best-effort — never break a real failure path over a logging failure */ }
+}
+
 // Per-IMAGE cost estimates (USD) for the studio image providers. Image models
 // bill per generated asset, not per token, so the LLM token estimate doesn't
 // apply. Ballparks by provider (override any with a real invoice later):
@@ -223,21 +243,30 @@ export function recordHeyGenVideoCost(script: string, jobId = "adhoc"): number {
 }
 
 function aggregate(records: CostRecord[]): CostSummary {
-  const totalCostUsd = records.reduce((s, r) => s + r.costUsd, 0);
-  const totalInputTokens = records.reduce((s, r) => s + r.inputTokens, 0);
-  const totalOutputTokens = records.reduce((s, r) => s + r.outputTokens, 0);
-  const byModelMap = new Map<string, { costUsd: number; calls: number }>();
+  // Failure records (ok: false) carry $0 cost and no tokens — exclude them
+  // from the cost/token totals (they were never billed) but still count them
+  // per-model so failureRate is real.
+  const okRecords = records.filter(r => r.ok !== false);
+  const totalCostUsd = okRecords.reduce((s, r) => s + r.costUsd, 0);
+  const totalInputTokens = okRecords.reduce((s, r) => s + r.inputTokens, 0);
+  const totalOutputTokens = okRecords.reduce((s, r) => s + r.outputTokens, 0);
+  const byModelMap = new Map<string, { costUsd: number; calls: number; failed: number }>();
   const byDayMap = new Map<string, { costUsd: number; calls: number }>();
   for (const r of records) {
-    const m = byModelMap.get(r.model) ?? { costUsd: 0, calls: 0 };
-    m.costUsd += r.costUsd; m.calls++; byModelMap.set(r.model, m);
-    const day = r.ts.slice(0, 10);
-    const d = byDayMap.get(day) ?? { costUsd: 0, calls: 0 };
-    d.costUsd += r.costUsd; d.calls++; byDayMap.set(day, d);
+    const m = byModelMap.get(r.model) ?? { costUsd: 0, calls: 0, failed: 0 };
+    m.calls++;
+    if (r.ok === false) m.failed++;
+    else m.costUsd += r.costUsd;
+    byModelMap.set(r.model, m);
+    if (r.ok !== false) {
+      const day = r.ts.slice(0, 10);
+      const d = byDayMap.get(day) ?? { costUsd: 0, calls: 0 };
+      d.costUsd += r.costUsd; d.calls++; byDayMap.set(day, d);
+    }
   }
   return {
-    totalCostUsd, totalInputTokens, totalOutputTokens, callCount: records.length,
-    byModel: [...byModelMap.entries()].map(([model, v]) => ({ model, costUsd: v.costUsd, calls: v.calls })).sort((a, b) => b.costUsd - a.costUsd),
+    totalCostUsd, totalInputTokens, totalOutputTokens, callCount: okRecords.length,
+    byModel: [...byModelMap.entries()].map(([model, v]) => ({ model, costUsd: v.costUsd, calls: v.calls, failed: v.failed, failureRate: v.calls ? v.failed / v.calls : 0 })).sort((a, b) => b.costUsd - a.costUsd),
     byDay: [...byDayMap.entries()].map(([date, v]) => ({ date, costUsd: v.costUsd, calls: v.calls })).sort((a, b) => a.date.localeCompare(b.date)),
     recentCalls: records.slice(-50).reverse(),
   };
@@ -252,35 +281,7 @@ function rebuildAggregate(): void {
   try {
     const lines = readFileSync(full, "utf8").trim().split("\n").filter(Boolean);
     const records: CostRecord[] = lines.map(l => JSON.parse(l));
-    const totalCostUsd = records.reduce((s, r) => s + r.costUsd, 0);
-    const totalInputTokens = records.reduce((s, r) => s + r.inputTokens, 0);
-    const totalOutputTokens = records.reduce((s, r) => s + r.outputTokens, 0);
-
-    const byModelMap = new Map<string, { costUsd: number; calls: number }>();
-    const byDayMap = new Map<string, { costUsd: number; calls: number }>();
-    for (const r of records) {
-      const m = byModelMap.get(r.model) ?? { costUsd: 0, calls: 0 };
-      m.costUsd += r.costUsd;
-      m.calls++;
-      byModelMap.set(r.model, m);
-
-      const day = r.ts.slice(0, 10);
-      const d = byDayMap.get(day) ?? { costUsd: 0, calls: 0 };
-      d.costUsd += r.costUsd;
-      d.calls++;
-      byDayMap.set(day, d);
-    }
-
-    const agg: CostSummary = {
-      totalCostUsd,
-      totalInputTokens,
-      totalOutputTokens,
-      callCount: records.length,
-      byModel: [...byModelMap.entries()].map(([model, v]) => ({ model, costUsd: v.costUsd, calls: v.calls })).sort((a, b) => b.costUsd - a.costUsd),
-      byDay: [...byDayMap.entries()].map(([date, v]) => ({ date, costUsd: v.costUsd, calls: v.calls })).sort((a, b) => a.date.localeCompare(b.date)),
-      recentCalls: records.slice(-50).reverse(),
-    };
-    writeFileSync(aggregatePath(), JSON.stringify(agg, null, 2), "utf8");
+    writeFileSync(aggregatePath(), JSON.stringify(aggregate(records), null, 2), "utf8");
   } catch { /* ignore corrupt data */ }
 }
 

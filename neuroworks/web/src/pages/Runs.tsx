@@ -7,6 +7,7 @@ import { Card, SkeletonList } from "../components/Card";
 import { useLoadMore, LoadMoreButton } from "../components/LoadMore";
 import { ResultPanel } from "../components/ResultPanel";
 import { MultiStepLoader } from "../components/MultiStepLoader";
+import { AgentStepFeed } from "../components/AgentStepFeed";
 import { LinkPreview } from "../components/LinkPreview";
 import { VoiceDiscussion } from "../components/VoiceDiscussion";
 
@@ -1678,30 +1679,17 @@ function ProcessTrace({ job }: { job: any }) {
   const steps: any[] = r.plan?.steps ?? [];
   const runs: any[] = r.runs ?? [];
   if (steps.length === 0) return null;
+  // Prefer the executed runs (each already carries its own step) — falls
+  // back to the planned steps (no run yet) so an in-progress step still
+  // shows up before it's finished.
+  const feedSteps = steps.map((s, i) => runs[i] ?? { step: s, ok: false });
   return (
     <section className="mt-10">
       <details>
         <summary className="cursor-pointer text-sm text-cream-300/70 hover:text-cream-100">How Neuro arrived at this — {steps.length} {steps.length === 1 ? "step" : "steps"}</summary>
-        <ol className="mt-3 space-y-2 text-sm pl-1">
-          {steps.map((s, i) => {
-            const run = runs[i];
-            const dot = run?.ok ? "bg-leaf-500" : run?.error ? "bg-coral-500" : "bg-cream-300/30";
-            return (
-              <li key={i} className="flex items-start gap-3">
-                <span className={`inline-block w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0 ${dot}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-cream-100">{s.label || s.tool}</div>
-                  {s.rationale && <div className="text-[11px] text-cream-300/60 mt-0.5">{s.rationale}</div>}
-                  <div className="flex gap-3 mt-1 text-[10px] text-cream-300/40 font-mono">
-                    {run?.modelUsed && <span>{run.modelUsed}</span>}
-                    {run?.durationMs != null && <span>{(run.durationMs / 1000).toFixed(1)}s</span>}
-                    {run?.error && <span className="text-coral-400">error</span>}
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
+        <div className="mt-3 pl-1">
+          <AgentStepFeed steps={feedSteps} />
+        </div>
       </details>
     </section>
   );

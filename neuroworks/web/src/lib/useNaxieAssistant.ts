@@ -44,6 +44,18 @@ export type WaitingTask = {
   pendingApproval?: { actionDescription: string; kind: string; diff?: string; requestedAt: string };
 };
 
+// Mirrors the server's StepRun (agent.ts) shape closely enough for the
+// Workbench view — one entry per tool call in the currently-running (or most
+// recently finished) job driving Naxie's chat reply.
+export type WorkbenchStep = {
+  step: { tool: string; label?: string; rationale?: string };
+  ok: boolean;
+  error?: string;
+  result?: unknown;
+  durationMs: number;
+  modelUsed?: string;
+};
+
 // How long to wait after the last finalized phrase before treating the
 // accumulated speech as one complete ask (continuous mode never cleanly
 // goes inactive on a pause, unlike push-to-talk).
@@ -98,6 +110,11 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
   const [turns, setTurns] = useState<Turn[]>(loadTurns);
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  // Workbench — live step feed for the job currently driving a chat reply
+  // (see ask()/watchJob() below). activeJobId is set while one is running.
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [workbenchSteps, setWorkbenchSteps] = useState<WorkbenchStep[]>([]);
+  const [workbenchPhase, setWorkbenchPhase] = useState<string | undefined>(undefined);
   const [voice, setVoice] = useState<{ realtime: boolean; openaiTts: boolean; localTts: boolean } | null>(null);
   const [liveCaption, setLiveCaption] = useState("");
   const [alwaysListening, setAlwaysListeningState] = useState<boolean>(loadAlwaysListening);
@@ -332,19 +349,79 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     } catch { finishSpeaking(); }
   }
 
+  // Watches a job created by /api/voice/converse to completion: subscribes
+  // to its live SSE stream for Workbench step updates, falling back to
+  // short-polling if the stream errors (e.g. an intermediary that buffers
+  // SSE), then appends the final answer as a chat turn.
+  async function watchJob(jobId: string): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = async () => {
+        if (settled) return;
+        settled = true;
+        try {
+          const job: any = await api.getJob(jobId);
+          const result = job?.result ?? {};
+          const answerText = String(result.answer ?? result.partialAnswer ?? "").trim() || "I couldn't produce an answer for that.";
+          setTurns(prev => [...prev, { role: "assistant", text: answerText, kind: "chat", sourceNoteId: result.sourceNoteId ?? null }]);
+          void speak(answerText);
+        } catch (e: any) {
+          showToast(e?.message ?? String(e), "error");
+        } finally {
+          setBusy(false);
+          setActiveJobId(null);
+          resolve();
+        }
+      };
+      const pollFallback = async () => {
+        const deadline = Date.now() + 120_000;
+        while (Date.now() < deadline) {
+          try {
+            const job: any = await api.getJob(jobId);
+            if (Array.isArray(job?.result?.runs)) setWorkbenchSteps(job.result.runs);
+            if (job?.status && job.status !== "running" && job.status !== "queued") { void finish(); return; }
+          } catch { /* transient — keep polling */ }
+          await new Promise(r => setTimeout(r, 1500));
+        }
+        void finish(); // give up waiting — show whatever we have
+      };
+      try {
+        const es = api.jobStream(jobId);
+        es.addEventListener("patch", (ev: MessageEvent) => {
+          try {
+            const patch = JSON.parse(ev.data);
+            if (Array.isArray(patch.runs)) setWorkbenchSteps(patch.runs);
+            if (typeof patch.phase === "string") setWorkbenchPhase(patch.phase);
+          } catch { /* malformed patch — ignore */ }
+        });
+        es.addEventListener("done", () => { es.close(); void finish(); });
+        es.onerror = () => { es.close(); void pollFallback(); };
+      } catch {
+        void pollFallback();
+      }
+    });
+  }
+
   async function ask(text: string) {
     const question = text.trim();
     if (!question || busy) return;
     setBusy(true);
+    setWorkbenchSteps([]);
+    setWorkbenchPhase(undefined);
     const next: Turn[] = [...turns, { role: "user", text: question, kind: "chat" }];
     setTurns(next);
     try {
       const r = await api.voiceConverse(next.map(t => ({ role: t.role, content: t.text })));
-      setTurns(prev => [...prev, { role: "assistant", text: r.text, routing: r.routing, kind: "chat", sourceNoteId: r.sourceNoteId ?? null }]);
-      void speak(r.text);
+      if (r.delegated) {
+        setTurns(prev => [...prev, { role: "assistant", text: "I'll take care of that and follow up.", kind: "delegation", meta: { role: r.delegated!.role, task: { id: r.delegated!.taskId } } }]);
+        setBusy(false);
+        return;
+      }
+      if (!r.jobId) throw new Error("no jobId returned");
+      setActiveJobId(r.jobId);
+      await watchJob(r.jobId);
     } catch (e: any) {
       showToast(e?.message ?? String(e), "error");
-    } finally {
       setBusy(false);
     }
   }
@@ -454,5 +531,6 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     pendingApprovals, waitingTasks, resolveWaitingTask, briefing: briefingVisible, dismissBriefing,
     onboardingNudge: onboardingNudgeVisible, dismissOnboardingNudge,
     ask, speak, stopSpeaking, micToggle, delegate,
+    activeJobId, workbenchSteps, workbenchPhase,
   };
 }

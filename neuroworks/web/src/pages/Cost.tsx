@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { api, type TimeAnalysis, type CostTrend } from "../lib/api";
-import { Loader2, DollarSign, Cpu, BarChart3, TrendingUp, Calendar, Hourglass } from "lucide-react";
+import { api, type TimeAnalysis, type CostTrend, type RosterRow } from "../lib/api";
+import { Loader2, DollarSign, Cpu, BarChart3, TrendingUp, Calendar, Hourglass, Server } from "lucide-react";
 import { SignalBloom } from "../components/SignalBloom";
 import { GlassCard } from "../components/GlassCard";
+import { showToast } from "../components/Card";
 
 export function Cost() {
   const [summary, setSummary] = useState<any>(null);
@@ -10,16 +11,27 @@ export function Cost() {
   const [timeA, setTimeA] = useState<TimeAnalysis | null>(null);
   const [trend, setTrend] = useState<CostTrend | null>(null);
   const [cache, setCache] = useState<any>(null);
+  const [roster, setRoster] = useState<{ policy: { allowPaidModels: boolean }; offline: RosterRow[]; online: RosterRow[] } | null>(null);
 
+  const loadRoster = () => api.getModelRoster().then(setRoster).catch(() => {});
   const loadSide = () => {
     api.timeAnalysis(30).then(setTimeA).catch(() => {});
     api.costTrend(14).then(setTrend).catch(() => {});
     api.cacheStats().then(setCache).catch(() => {});
+    loadRoster();
   };
   useEffect(() => {
     api.getCostSummary().then(setSummary).catch(() => {}).finally(() => setLoading(false));
     loadSide();
   }, []);
+
+  async function togglePaidModels(next: boolean) {
+    try {
+      const r = await api.setModelPolicy(next);
+      setRoster(prev => prev ? { ...prev, policy: r.policy } : prev);
+      showToast(next ? "Paid models approved" : "Paid models blocked — free tier + local only", next ? "success" : "info");
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+  }
 
   if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="animate-spin w-6 h-6" /></div>;
 
@@ -52,6 +64,8 @@ export function Cost() {
           <div className="text-2xl font-bold">{(summary?.totalOutputTokens ?? 0).toLocaleString()}</div>
         </div>
       </div>
+
+      {roster && <ModelRosterCard roster={roster} onTogglePaid={togglePaidModels} />}
 
       {/* LLM/API spend trend — daily, USD. No chart lib in this app, so each
           day is a proportion bar scaled to the window's max daily spend. */}
@@ -170,6 +184,70 @@ export function Cost() {
       {summary?.recentCalls?.length > 0 && (
         <RecentCallsBlock summary={summary} />
       )}
+    </div>
+  );
+}
+
+function RosterRowView({ row }: { row: RosterRow }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5 border-b last:border-0 border-ink-800">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-mono text-xs truncate">{row.name}</span>
+          {row.tier && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/60">{row.tier} tier</span>}
+          {row.active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-leaf-500/10 text-leaf-400">active</span>}
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${row.free ? "bg-leaf-500/10 text-leaf-400" : "bg-amber-500/10 text-amber-400"}`}>{row.free ? "free" : "paid"}</span>
+        </div>
+        {row.providerLabel && <div className="text-[11px] text-cream-300/40 mt-0.5">{row.providerLabel}</div>}
+      </div>
+      <div className="flex gap-3 shrink-0 text-xs text-cream-300/60 tabular-nums">
+        <span>{row.calls} calls</span>
+        {row.failed > 0 && <span className="text-coral-400">{(row.failureRate * 100).toFixed(0)}% failed</span>}
+        <span>${row.costUsd.toFixed(4)}</span>
+      </div>
+    </div>
+  );
+}
+
+function ModelRosterCard({ roster, onTogglePaid }: { roster: { policy: { allowPaidModels: boolean }; offline: RosterRow[]; online: RosterRow[] }; onTogglePaid: (next: boolean) => void }) {
+  const onlineFree = roster.online.filter(r => r.free);
+  const onlinePaid = roster.online.filter(r => !r.free);
+  return (
+    <div className="bg-ink-900 rounded-lg border p-4">
+      <h2 className="font-semibold mb-3 flex items-center gap-2"><Server className="w-4 h-4" /> Model Roster</h2>
+      <div className="space-y-4">
+        <div>
+          <div className="text-xs font-semibold text-cream-300/60 mb-1">Offline — local (always free, last-resort fallback)</div>
+          {roster.offline.length === 0
+            ? <div className="text-xs text-cream-300/40">No local Ollama models pulled.</div>
+            : roster.offline.map(r => <RosterRowView key={r.name} row={r} />)}
+        </div>
+        <div>
+          <div className="text-xs font-semibold text-cream-300/60 mb-1">Online — free</div>
+          {onlineFree.length === 0
+            ? <div className="text-xs text-cream-300/40">No free online model configured.</div>
+            : onlineFree.map(r => <RosterRowView key={`${r.providerLabel}-${r.name}-${r.tier ?? ""}`} row={r} />)}
+        </div>
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="text-xs font-semibold text-cream-300/60">Online — paid</div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={roster.policy.allowPaidModels}
+              onClick={() => onTogglePaid(!roster.policy.allowPaidModels)}
+              title="Allow paid models"
+              className={`shrink-0 w-11 h-6 rounded-full border transition-colors relative ${roster.policy.allowPaidModels ? "bg-violet-600 border-violet-500" : "bg-ink-800 border-ink-700"}`}
+            >
+              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${roster.policy.allowPaidModels ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+            </button>
+          </div>
+          {!roster.policy.allowPaidModels && <div className="text-[11px] text-amber-400/80 mb-1">Blocked — the dispatcher downgrades these to a free model or local Ollama until approved.</div>}
+          {onlinePaid.length === 0
+            ? <div className="text-xs text-cream-300/40">No paid model registered.</div>
+            : onlinePaid.map(r => <RosterRowView key={`${r.providerLabel}-${r.name}-${r.tier ?? ""}`} row={r} />)}
+        </div>
+      </div>
     </div>
   );
 }

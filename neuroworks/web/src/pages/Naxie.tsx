@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, MicOff, Loader2, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign, Phone, PhoneOff, Share2, MessageSquare } from "lucide-react";
+import { Mic, MicOff, Loader2, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign, Phone, PhoneOff, Share2, MessageSquare, TerminalSquare } from "lucide-react";
+import { AgentStepFeed } from "../components/AgentStepFeed";
 import { Button } from "../components/Card";
 import { KnowledgeGraph } from "../components/KnowledgeGraph";
 import { NaxieOrb } from "../components/NaxieOrb";
@@ -74,13 +75,16 @@ export function Naxie() {
     waitingTasks, resolveWaitingTask, briefing, dismissBriefing,
     onboardingNudge, dismissOnboardingNudge,
     ask, speak, stopSpeaking, micToggle,
+    activeJobId, workbenchSteps, workbenchPhase,
   } = useNaxieAssistant();
   const [input, setInput] = useState("");
   // §8.2 layout — chat is the visual center by default; the knowledge graph
-  // ("the brain") moves into an on-demand panel instead of always filling
-  // half the screen. Toggled, not routed, so switching back doesn't lose the
-  // live conversation state.
-  const [showGraph, setShowGraph] = useState(false);
+  // ("the brain") and the Workbench (live tool-call feed) move into on-demand
+  // views instead of always filling half the screen. Toggled, not routed, so
+  // switching back doesn't lose the live conversation state. Mutually
+  // exclusive — only one of the three is shown at a time.
+  const [view, setView] = useState<"chat" | "graph" | "workbench">("chat");
+  const showGraph = view === "graph";
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
@@ -141,12 +145,30 @@ export function Naxie() {
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            {view !== "chat" && (
+              <button
+                type="button"
+                onClick={() => setView("chat")}
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-full border bg-ink-800 border-ink-700 text-cream-300 hover:bg-ink-700 hover:border-ink-600 transition-colors"
+              >
+                <MessageSquare size={12} /> Chat
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => setShowGraph(g => !g)}
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-full border transition-colors ${showGraph ? "bg-violet-500/15 border-violet-500/30 text-violet-300" : "bg-ink-800 border-ink-700 text-cream-300 hover:bg-ink-700 hover:border-ink-600"}`}
+              onClick={() => setView(v => v === "graph" ? "chat" : "graph")}
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-full border transition-colors ${view === "graph" ? "bg-violet-500/15 border-violet-500/30 text-violet-300" : "bg-ink-800 border-ink-700 text-cream-300 hover:bg-ink-700 hover:border-ink-600"}`}
             >
-              {showGraph ? <><MessageSquare size={12} /> Chat</> : <><Share2 size={12} /> Knowledge graph</>}
+              <Share2 size={12} /> Knowledge graph
+            </button>
+            <button
+              type="button"
+              onClick={() => setView(v => v === "workbench" ? "chat" : "workbench")}
+              title="Watch Naxie's live tool calls and recent delegated tasks"
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-full border transition-colors ${view === "workbench" ? "bg-violet-500/15 border-violet-500/30 text-violet-300" : "bg-ink-800 border-ink-700 text-cream-300 hover:bg-ink-700 hover:border-ink-600"}`}
+            >
+              <TerminalSquare size={12} /> Workbench
+              {activeJobId && view !== "workbench" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
             </button>
             <Link to="/naxie/memory" className="text-[11px] px-2.5 py-1.5 rounded-full bg-ink-800 border border-ink-700 text-cream-300 hover:bg-ink-700">Memory</Link>
           </div>
@@ -167,8 +189,12 @@ export function Naxie() {
           )}
         </div>
 
-        {/* Scrollable body — orb + results. Composer stays outside so it never scrolls away */}
+        {/* Scrollable body — orb + results, or the Workbench view. Composer stays outside so it never scrolls away */}
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin -mx-1 px-1">
+          {view === "workbench" ? (
+            <WorkbenchView activeJobId={activeJobId} steps={workbenchSteps} phase={workbenchPhase} recentJobs={recentJobs} />
+          ) : (
+          <>
           <div className="flex flex-col items-center gap-4 py-6">
             <div className="relative">
               <div className="absolute inset-0 blur-2xl bg-violet-500/10 rounded-full pointer-events-none" />
@@ -337,6 +363,8 @@ export function Naxie() {
               </details>
             )}
           </div>
+          </>
+          )}
         </div>
 
         {/* Sticky composer — stays at bottom while body scrolls */}
@@ -366,6 +394,41 @@ export function Naxie() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Live view of what Naxie is actually doing — the active job's tool-call
+// feed (via useNaxieAssistant's SSE-backed workbenchSteps/workbenchPhase),
+// plus a short list of recently delegated/run jobs below it, each
+// expandable to its own step trace. Reuses AgentStepFeed (also used by
+// Runs.tsx) rather than a second render implementation.
+function WorkbenchView({ activeJobId, steps, phase, recentJobs }: { activeJobId: string | null; steps: import("../lib/useNaxieAssistant").WorkbenchStep[]; phase?: string; recentJobs: any[] }) {
+  const others = recentJobs.filter(j => j.id !== activeJobId).slice(0, 8);
+  return (
+    <div className="space-y-4 py-2">
+      <div className="rounded-xl border border-ink-800 bg-ink-900/40 p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <span className={`w-1.5 h-1.5 rounded-full ${activeJobId ? "bg-emerald-400 animate-pulse" : "bg-cream-300/30"}`} />
+          <span className="text-xs font-semibold text-cream-200">{activeJobId ? "Working now" : "Idle"}</span>
+        </div>
+        <AgentStepFeed steps={steps} phase={phase} emptyLabel={activeJobId ? "Thinking — no tool calls yet." : "Nothing running. Ask Naxie something and watch here."} />
+      </div>
+
+      {others.length > 0 && (
+        <div>
+          <div className="text-[11px] font-semibold text-cream-300/60 mb-2 px-1">Recent activity</div>
+          <div className="space-y-1.5">
+            {others.map(j => (
+              <Link key={j.id} to={`/runs/${j.id}`} className="flex items-center gap-2 text-xs text-cream-300 hover:text-cream-100 px-3 py-2 rounded-lg bg-ink-900/30 border border-ink-800 hover:border-ink-700 transition-colors">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${j.status === "running" ? "bg-emerald-400 animate-pulse" : j.status === "failed" ? "bg-red-400" : "bg-cream-300/30"}`} />
+                <span className="truncate flex-1">{j.title ?? j.template ?? j.kind ?? "Task"}</span>
+                <span className="text-[10px] text-cream-300/40 shrink-0 capitalize">{j.status}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

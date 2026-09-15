@@ -5,7 +5,8 @@ import {
   listProviders, addProvider, removeProvider, activateProvider,
   PROVIDER_DEFAULTS, type ProviderKind,
 } from "../lib/model-providers.js";
-import { getModelPolicy, setAllowPaidModels } from "../lib/model-policy.js";
+import { getModelPolicy, setAllowPaidModels, isFreeModelId } from "../lib/model-policy.js";
+import { getCostSummary } from "../lib/cost-tracker.js";
 
 export const modelsRouter = Router();
 
@@ -189,4 +190,38 @@ modelsRouter.post("/policy", (req, res) => {
   const allow = Boolean(req.body?.allowPaidModels);
   const policy = setAllowPaidModels(allow);
   res.json({ policy });
+});
+
+// ── Model roster — offline (local) / online free / online paid, with usage ──
+// Read-only aggregation of existing state (models.ts, model-providers.ts,
+// model-policy.ts, cost-tracker.ts) — no new persistence.
+type RosterRow = { name: string; providerKind?: ProviderKind; providerLabel?: string; tier?: "small" | "large"; free: boolean; active: boolean; calls: number; costUsd: number; failed: number; failureRate: number };
+
+modelsRouter.get("/roster", async (_req, res) => {
+  const usageByModel = new Map(getCostSummary().byModel.map(m => [m.model, m]));
+  const usageFor = (name: string) => {
+    const u = usageByModel.get(name);
+    return { calls: u?.calls ?? 0, costUsd: u?.costUsd ?? 0, failed: u?.failed ?? 0, failureRate: u?.failureRate ?? 0 };
+  };
+
+  const localModels = await listModels();
+  const offline: RosterRow[] = localModels.map(m => ({
+    name: m.name, free: true, active: m.name === config.ollamaModel, ...usageFor(m.name),
+  }));
+
+  const providers = listProviders();
+  const activeProvider = providers.find(p => p.active);
+  const online: RosterRow[] = [];
+  if (config.openrouterEnabled) {
+    online.push({ name: config.openrouterModel, providerKind: activeProvider?.kind as ProviderKind | undefined, providerLabel: activeProvider?.label ?? "OpenRouter", tier: "small", free: isFreeModelId(config.openrouterModel), active: true, ...usageFor(config.openrouterModel) });
+    if (config.openrouterLargeModel && config.openrouterLargeModel !== config.openrouterModel) {
+      online.push({ name: config.openrouterLargeModel, providerKind: activeProvider?.kind as ProviderKind | undefined, providerLabel: activeProvider?.label ?? "OpenRouter", tier: "large", free: isFreeModelId(config.openrouterLargeModel), active: true, ...usageFor(config.openrouterLargeModel) });
+    }
+  }
+  for (const p of providers) {
+    if (p.active) continue; // already represented by the small/large rows above
+    online.push({ name: p.model, providerKind: p.kind as ProviderKind, providerLabel: p.label, free: isFreeModelId(p.model), active: false, ...usageFor(p.model) });
+  }
+
+  res.json({ policy: getModelPolicy(), offline, online });
 });

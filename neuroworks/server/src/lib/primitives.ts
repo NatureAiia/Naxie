@@ -3596,15 +3596,17 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "system.admin",
-    description: "Read or change Naxie's own host-level system-access settings (Settings > System Access): allowSystemControl (OS-level control — sleep/lock/volume/open-app), allowClipboardAccess, allowNotifications, gitRepoPath. NAXIE-ONLY — any other caller is refused. Every call pauses for the operator's approval before it runs. action=\"read\" is still gated (same tool, same approval checkpoint) so read and write both show up for review. Use this to propose expanding (or narrowing) what host tools are allowed to do, with a reason — never to flip system access on for yourself mid-task.",
+    description: "Read or change Naxie's own host-level system-access settings (Settings > System Access): allowSystemControl (OS-level control — sleep/lock/volume/open-app), allowClipboardAccess, allowNotifications, gitRepoPath — or switch which model serves the small/large dispatch tier (action=\"switch_model\", e.g. moving off a failing or paid model onto a better free one). NAXIE-ONLY — any other caller is refused. Every call pauses for the operator's approval before it runs. action=\"read\" is still gated (same tool, same approval checkpoint) so read and write both show up for review. Use this to propose a change with a reason — never to flip system access on, or switch models, for yourself mid-task.",
     readonly: false,
     args: [
-      { name: "action", type: "string", required: true, description: "\"read\" | \"update\"" },
+      { name: "action", type: "string", required: true, description: "\"read\" | \"update\" | \"switch_model\"" },
       { name: "allowSystemControl", type: "boolean", required: false, description: "update: enable/disable OS-level control tools" },
       { name: "allowClipboardAccess", type: "boolean", required: false, description: "update: enable/disable clipboard read/write" },
       { name: "allowNotifications", type: "boolean", required: false, description: "update: enable/disable desktop toast notifications" },
       { name: "gitRepoPath", type: "string", required: false, description: "update: the one repo path git_command may touch" },
-      { name: "reason", type: "string", required: true, description: "Why this change is needed" },
+      { name: "tier", type: "string", required: false, description: "switch_model: \"small\" | \"large\"" },
+      { name: "model", type: "string", required: false, description: "switch_model: the model id to switch that tier to — prefer a free one (isFreeModelId) unless the operator has separately approved paid models" },
+      { name: "reason", type: "string", required: true, description: "Why this change is needed — cite the evidence (failure rate, cost, a better free option)" },
     ],
     handler: async (args) => {
       const { PA_IDENTITY } = await import("./personas.js");
@@ -3621,7 +3623,19 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         if (Object.keys(patch).length === 0) return { error: "update needs at least one of allowSystemControl/allowClipboardAccess/allowNotifications/gitRepoPath" };
         return { ok: true, settings: updateHostToolsSettings(patch as any) };
       }
-      return { error: `unknown action "${action}" — use read or update` };
+      if (action === "switch_model") {
+        const tier = String(args.tier ?? "").trim();
+        const model = String(args.model ?? "").trim();
+        if (tier !== "small" && tier !== "large") return { error: "tier must be \"small\" or \"large\"" };
+        if (!model) return { error: "model is required" };
+        try {
+          const { setActiveTierModel } = await import("./model-providers.js");
+          return { ok: true, provider: setActiveTierModel(tier, model) };
+        } catch (e: any) {
+          return { error: e?.message ?? String(e) };
+        }
+      }
+      return { error: `unknown action "${action}" — use read, update, or switch_model` };
     },
   },
   {
