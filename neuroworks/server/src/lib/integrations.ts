@@ -152,15 +152,6 @@ export const PROVIDERS: Provider[] = [
   { id: "medium", name: "Medium", category: "productivity", auth: "token", testable: false,
     fields: [{ name: "integrationToken", label: "Integration Token", type: "password", secret: true, required: true }],
     docsUrl: "https://github.com/Medium/medium-api-docs" },
-  { id: "heygen", name: "HeyGen (AI video)", category: "productivity", auth: "token", testable: true,
-    fields: [
-      { name: "apiKey", label: "API Key", type: "password", secret: true, required: true, placeholder: "paste from HeyGen → Settings → API" },
-      { name: "avatarId", label: "Default Avatar ID", type: "text", required: false, placeholder: "HeyGen → Avatars → (…) → paste id — avoids the slow avatar-list call" },
-      { name: "voiceId", label: "Default Voice ID", type: "text", required: false, placeholder: "HeyGen → Voices → paste id" },
-    ],
-    note: "AI avatar video generation. Powers heygen.create_video / heygen.video_status. Set a Default Avatar + Voice ID — HeyGen's avatar-list endpoint is very slow, so without these each video call can time out.",
-    docsUrl: "https://app.heygen.com/settings?nav=API" },
-
   // Productivity / CRM / ops — token-auth SaaS the agent can read & act on.
   { id: "hubspot", name: "HubSpot", category: "productivity", auth: "token", testable: true,
     fields: [{ name: "token", label: "Private App Access Token", type: "password", secret: true, required: true, placeholder: "pat-..." }],
@@ -192,11 +183,6 @@ export const PROVIDERS: Provider[] = [
     fields: [{ name: "accessToken", label: "OAuth Access Token", type: "password", secret: true, required: true }],
     note: "OAuth redirect flow coming soon — paste an access token to use now.",
     docsUrl: "https://learn.microsoft.com/en-us/graph/auth/" },
-  // n8n moved OUT of this generic catalog — it has its own dedicated page
-  // (pages/N8n.tsx, under Connect) backed by N8N_BASE_URL + N8N_API_KEY in
-  // .env, not a saved connection here. A stub entry in both places is how
-  // you end up "connected" here while the actual n8n.* primitives still
-  // don't work — see server/src/lib/n8n.ts.
 ];
 
 export function getProvider(id: string): Provider | undefined {
@@ -519,19 +505,6 @@ async function runConnectionTest(id: string): Promise<{ ok: boolean; detail: str
         const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${secrets.token}`, "user-agent": "clawbot" } });
         const j: any = await r.json();
         return r.ok ? { ok: true, detail: `@${j?.login}` } : { ok: false, detail: j?.message ?? `HTTP ${r.status}` };
-      }
-      case "heygen": {
-        // HeyGen authenticates with an X-Api-Key header. Validate against the
-        // avatars endpoint and report how many avatars are available.
-        const key = (secrets.apiKey ?? "").trim();
-        if (!key) return { ok: false, detail: "no API key — paste your HeyGen API key (Settings → API)" };
-        const r = await fetch("https://api.heygen.com/v2/avatars", { headers: { "x-api-key": key, accept: "application/json" } });
-        const j: any = await r.json().catch(() => ({}));
-        if (r.ok && j?.data) {
-          const n = (j.data.avatars?.length ?? 0) + (j.data.talking_photos?.length ?? 0);
-          return { ok: true, detail: `HeyGen connected — ${n} avatar${n === 1 ? "" : "s"} available` };
-        }
-        return { ok: false, detail: `${j?.error?.message ?? j?.message ?? `HTTP ${r.status}`} — check the HeyGen API key` };
       }
       case "buffer": {
         // Buffer's "Public API" token uses the NEW GraphQL API at

@@ -12,7 +12,7 @@ import { Integrations } from "./Integrations";
 // (the old /integrations URL redirects in). Connectors (company systems +
 // personal Google/Microsoft accounts) and MCP Servers each moved OUT to
 // their own top-level pages under Connect — see pages/Connectors.tsx,
-// pages/McpServers.tsx, pages/N8n.tsx, and Layout.tsx's connectNav.
+// pages/McpServers.tsx, and Layout.tsx's connectNav.
 // Env secrets are never returned — only prefix + enabled/health.
 
 type ExtTab = "overview" | "platform" | "integrations" | "webhooks" | "marketplace" | "audit";

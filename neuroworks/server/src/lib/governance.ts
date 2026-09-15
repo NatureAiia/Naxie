@@ -397,7 +397,6 @@ export const CONSEQUENTIAL_TOOLS = new Set([
   "github.create_issue", "github.comment_on_issue", "github.update_issue", "github.request_review",
   "webhook.post", "slack.post", "telegram.send", "discord.post", "msteams.post", "googlechat.post",
   "connector.call",
-  "n8n.trigger_webhook", "n8n.trigger_workflow_by_name", "n8n.create_workflow",
   "crm.upsert_contact", "crm.move_deal_stage",
   "db.write",
   "data.publish", "omnisignal.publish",

@@ -137,7 +137,7 @@ export const templates: Template[] = [
     id: "buffer-story-post",
     role: "Operations",
     title: "Draft a social post from email stories",
-    description: "Scans a source mailbox for recent stories, picks the strongest fresh one, drafts a platform-native post, generates a HeyGen avatar video, and sends the post + video to the Telegram group and email FOR REVIEW before anything is published. Stages it on Buffer as a DRAFT (turn on Auto-queue to let Buffer publish automatically). Reads the learned posting strategy so drafts improve over time. Runs 3×/day when scheduled — dedupes against the last 3 days so it never repeats a story.",
+    description: "Scans a source mailbox for recent stories, picks the strongest fresh one, drafts a platform-native post, and sends it to the Telegram group and email FOR REVIEW before anything is published. Stages it on Buffer as a DRAFT (turn on Auto-queue to let Buffer publish automatically). Reads the learned posting strategy so drafts improve over time. Runs 3×/day when scheduled — dedupes against the last 3 days so it never repeats a story.",
     icon: "broadcast",
     agent: "clawbot",
     inputs: [
@@ -145,7 +145,6 @@ export const templates: Template[] = [
       { name: "days", label: "Look back (days)", type: "number", default: 3 },
       { name: "channels", label: "Channels (blank = all)", type: "text", placeholder: "e.g. twitter,linkedin — blank for all connected" },
       { name: "slot", label: "Slot label (morning/midday/evening)", type: "text", placeholder: "optional — for 3×/day variety" },
-      { name: "makeVideo", label: "Generate a HeyGen video", type: "boolean", default: true },
       { name: "reviewTelegram", label: "Send to Telegram group for review", type: "boolean", default: true },
       { name: "reviewEmail", label: "Email for review", type: "text", default: "" },
       { name: "autoQueue", label: "Auto-queue on Buffer (else save as draft)", type: "boolean", default: false },

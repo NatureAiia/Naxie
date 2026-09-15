@@ -630,20 +630,6 @@ export const api = {
   callMcpServer: (id: string, body: { tool: string; arguments?: Record<string, any> }) =>
     req<{ result: McpCallResult }>(`/api/mcp-servers/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(body) }),
 
-  // n8n — self-hosted workflow automation (N8N_BASE_URL + N8N_API_KEY in .env).
-  n8nStatus: () => req<N8nStatus>("/api/n8n/status"),
-  listN8nWorkflows: (params?: { limit?: number; active?: boolean }) =>
-    req<{ workflows: N8nWorkflow[]; count: number }>(`/api/n8n/workflows${params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))}` : ""}`),
-  activateN8nWorkflow: (id: string) => req<{ workflow: N8nWorkflow }>(`/api/n8n/workflows/${encodeURIComponent(id)}/activate`, { method: "POST" }),
-  deactivateN8nWorkflow: (id: string) => req<{ workflow: N8nWorkflow }>(`/api/n8n/workflows/${encodeURIComponent(id)}/deactivate`, { method: "POST" }),
-  deleteN8nWorkflow: (id: string) => req<{ ok: true }>(`/api/n8n/workflows/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  listN8nExecutions: (params?: { limit?: number; workflowId?: string; status?: string }) =>
-    req<{ data: N8nExecution[] }>(`/api/n8n/executions${params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))}` : ""}`),
-  triggerN8nWebhook: (body: { url?: string; path?: string; method?: string; body?: any }) =>
-    req<{ ok: boolean; status: number; url: string; method: string; body: unknown; error?: string }>("/api/n8n/trigger", { method: "POST", body: JSON.stringify(body) }),
-  createN8nWorkflow: (body: { name: string; nodes: any[]; connections: any; settings?: any }) =>
-    req<{ workflow: N8nWorkflow }>("/api/n8n/workflows", { method: "POST", body: JSON.stringify(body) }),
-  generateN8nWorkflow: (goal: string) => req<{ draft: WorkflowDraft }>("/api/n8n/generate", { method: "POST", body: JSON.stringify({ goal }) }),
 
   // CRM — contacts, deals/pipeline, and per-contact activity (local store, no external CRM required).
   listContacts: () => req<{ contacts: Contact[] }>("/api/crm/contacts"),
@@ -928,22 +914,6 @@ export type McpServerInput = {
 };
 export type McpTool = { name: string; description?: string; inputSchema?: any };
 export type McpCallResult = { ok: boolean; content?: any; truncated?: boolean; error?: string };
-
-export type N8nStatus = {
-  enabled: boolean;
-  configured: boolean;
-  baseUrl: string | null;
-  webhookBaseUrl: string | null;
-  health: { ok: boolean; detail: string };
-};
-export type N8nWorkflow = {
-  id: string; name: string; active: boolean; createdAt?: string; updatedAt?: string; tags?: any[]; nodes?: any[];
-};
-export type N8nExecution = {
-  id: string; workflowId?: string; finished?: boolean; mode?: string; status?: string;
-  startedAt?: string; stoppedAt?: string;
-};
-export type WorkflowDraft = { name: string; nodes: any[]; connections: any };
 
 export type Contact = {
   id: string; name?: string; email?: string; phone?: string; company?: string;

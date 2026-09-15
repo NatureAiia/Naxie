@@ -82,7 +82,6 @@ export function CommandPalette() {
     { id: "l-integrations", group: "Library", label: "Extensions — Integrations", icon: Plug, onSelect: go("/extensions?tab=integrations"), keywords: "connect slack telegram github notion social oauth api integrations" },
     { id: "l-connectors", group: "Library", label: "Connectors", icon: Plug, onSelect: go("/connectors"), keywords: "connect company api base url auth connectors google microsoft personal accounts email calendar" },
     { id: "l-mcp", group: "Library", label: "MCP Servers", icon: Plug, onSelect: go("/mcp-servers"), keywords: "model context protocol tool server filesystem browser" },
-    { id: "l-n8n", group: "Library", label: "n8n", icon: Plug, onSelect: go("/n8n"), keywords: "workflow automation webhook trigger execution" },
   ];
 
   if (!open) return null;

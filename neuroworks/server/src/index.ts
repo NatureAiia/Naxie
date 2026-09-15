@@ -69,7 +69,6 @@ import { projectsRouter } from "./routes/projects.js";
 import { schedulerRouter } from "./routes/scheduler.js";
 import { mcpServersRouter } from "./routes/mcp-servers.js";
 import { extensionsRouter } from "./routes/extensions.js";
-import { n8nRouter } from "./routes/n8n.js";
 import { crmRouter } from "./routes/crm.js";
 import { naxieRouter } from "./routes/naxie.js";
 import { onboardingRouter } from "./routes/onboarding.js";
@@ -265,7 +264,6 @@ app.use("/api/projects", projectsRouter); // repos grouped per account, watched 
 app.use("/api/scheduler", schedulerRouter); // orchestration-core engine introspection
 app.use("/api/mcp-servers", mcpServersRouter); // spawns local processes
 app.use("/api/extensions", extensionsRouter); // unified plugins/extensions monitor + connect (webhook is public via secret)
-app.use("/api/n8n", n8nRouter); // n8n workflow automation (env-gated: N8N_BASE_URL + N8N_API_KEY)
 app.use("/api/crm", crmRouter); // contacts/deals/activities — local JSON store, no external CRM required
 app.use("/api/executor", executorRouter); // flips who/what executes tasks (spend implications)
 app.use("/api/primitives", primitivesRouter);

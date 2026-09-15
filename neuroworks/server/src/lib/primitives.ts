@@ -3145,7 +3145,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "at", type: "string", required: false, description: "ISO 8601 datetime to schedule the post (e.g. 2026-08-01T14:00:00Z). Omit to add to Buffer's auto-queue." },
       { name: "now", type: "boolean", required: false, description: "true = publish immediately instead of queueing." },
       { name: "draft", type: "boolean", required: false, description: "true = save as a Buffer DRAFT for human review inside Buffer instead of queueing/publishing (safest for automated drafting). Overrides now/queue." },
-      { name: "videoUrl", type: "string", required: false, description: "Public URL of a video to attach (e.g. a HeyGen render). Required for video-only channels like TikTok." },
+      { name: "videoUrl", type: "string", required: false, description: "Public URL of a video to attach. Required for video-only channels like TikTok." },
       { name: "thumbnailUrl", type: "string", required: false, description: "Optional thumbnail URL for the attached video." },
       { name: "imageUrl", type: "string", required: false, description: "Public URL of an image to attach (used when no videoUrl)." },
     ],
@@ -3180,105 +3180,6 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       }
       const disposition = saveToDraft ? "buffer-draft" : (at ?? (args.now ? "now" : "buffer-queue"));
       return { ok: posted.length > 0, scheduled: disposition, posted, errors: errors.length ? errors : undefined };
-    },
-  },
-  {
-    name: "heygen.create_video",
-    description: "Generate an AI avatar video from a script via HeyGen. ASYNC — returns a videoId immediately; poll heygen.video_status until status is 'completed' for the video URL. Args: script (spoken text); optional avatarId + voiceId (default to the first available); title. Requires a HeyGen connection on the Integrations page.",
-    readonly: false,
-    args: [
-      { name: "script", type: "string", required: true, description: "The text the avatar will speak." },
-      { name: "avatarId", type: "string", required: false, description: "HeyGen avatar id (default: first available)." },
-      { name: "voiceId", type: "string", required: false, description: "HeyGen voice id (default: first available)." },
-      { name: "title", type: "string", required: false, description: "Optional video title." },
-    ],
-    handler: async (args) => {
-      const { getConnectionByProvider } = await import("./integrations.js");
-      const conn = getConnectionByProvider("heygen");
-      const key = (conn?.secrets?.apiKey ?? "").trim();
-      if (!key) return { error: "no HeyGen connection — add one on the Integrations page" };
-      const script = String(args.script ?? "").trim();
-      if (!script) return { error: "script is required" };
-      const H: Record<string, string> = { "x-api-key": key, "content-type": "application/json", accept: "application/json" };
-      // HeyGen's API can stall; without a timeout a scheduled job hangs forever
-      // (caught live 2026-07-28). Bound every call and turn a stall into an error.
-      const hf = async (url: string, init: RequestInit, ms = 25_000): Promise<{ j: any; status: number } | { err: string }> => {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), ms);
-        try {
-          const r = await fetch(url, { ...init, signal: ctrl.signal });
-          const j = await r.json().catch(() => ({}));
-          return { j, status: r.status };
-        } catch (e: any) {
-          return { err: e?.name === "AbortError" ? `timed out after ${ms}ms` : String(e?.message ?? e).slice(0, 120) };
-        } finally { clearTimeout(t); }
-      };
-      // Resolve avatar/voice WITHOUT hitting the very slow /v2/avatars list on the
-      // hot path. Order: explicit arg → connection config (set on Integrations
-      // page) → on-disk cache → (last resort) the slow list, whose result is then
-      // cached so it's paid at most once. HeyGen's list endpoints have been seen
-      // to hang >60s, so the list path is guarded by a long timeout + cache.
-      const fs = await import("node:fs"); const path = await import("node:path");
-      const cacheFile = path.resolve(config.vaultPath, "../.neuroworks/heygen-defaults.json");
-      const readCache = (): { avatarId?: string; voiceId?: string } => { try { return JSON.parse(fs.readFileSync(cacheFile, "utf8")); } catch { return {}; } };
-      const writeCache = (v: { avatarId?: string; voiceId?: string }) => { try { fs.mkdirSync(path.dirname(cacheFile), { recursive: true }); fs.writeFileSync(cacheFile, JSON.stringify(v)); } catch { /* non-fatal */ } };
-      const cache = readCache();
-      let avatarId = String(args.avatarId ?? conn?.config?.avatarId ?? cache.avatarId ?? "").trim();
-      let voiceId = String(args.voiceId ?? conn?.config?.voiceId ?? cache.voiceId ?? "").trim();
-      if (!avatarId) {
-        const a = await hf("https://api.heygen.com/v2/avatars", { headers: H }, 90_000);
-        if ("err" in a) return { error: `heygen avatars: ${a.err}. Set a Default Avatar ID on the Integrations page (HeyGen's avatar list is too slow to fetch each run).` };
-        avatarId = a.j?.data?.avatars?.[0]?.avatar_id ?? "";
-        if (!avatarId) return { error: `could not resolve a default avatar (${a.j?.error?.message ?? "none"}) — set a Default Avatar ID on the Integrations page` };
-      }
-      if (!voiceId) {
-        const v = await hf("https://api.heygen.com/v2/voices", { headers: H }, 90_000);
-        if ("err" in v) return { error: `heygen voices: ${v.err}. Set a Default Voice ID on the Integrations page.` };
-        voiceId = v.j?.data?.voices?.[0]?.voice_id ?? "";
-        if (!voiceId) return { error: `could not resolve a default voice (${v.j?.error?.message ?? "none"}) — set a Default Voice ID on the Integrations page` };
-      }
-      if (avatarId !== cache.avatarId || voiceId !== cache.voiceId) writeCache({ avatarId, voiceId });
-      const body = {
-        ...(args.title ? { title: String(args.title) } : {}),
-        video_inputs: [{
-          character: { type: "avatar", avatar_id: avatarId, avatar_style: "normal" },
-          voice: { type: "text", input_text: script, voice_id: voiceId },
-        }],
-        dimension: { width: 1280, height: 720 },
-      };
-      const g = await hf("https://api.heygen.com/v2/video/generate", { method: "POST", headers: H, body: JSON.stringify(body) }, 30_000);
-      if ("err" in g) return { error: `heygen generate: ${g.err}` };
-      const videoId = g.j?.data?.video_id;
-      if (!videoId) return { error: `heygen: ${g.j?.error?.message ?? g.j?.message ?? `HTTP ${g.status}`}` };
-      // Cost: HeyGen bills per generated video (credits). Record an estimate so
-      // avatar-video spend shows in the Cost monitor alongside LLM spend.
-      try { const { recordHeyGenVideoCost } = await import("./cost-tracker.js"); recordHeyGenVideoCost(script); } catch { /* non-fatal */ }
-      return { ok: true, videoId, status: "processing", note: "poll heygen.video_status with this videoId until status='completed'" };
-    },
-  },
-  {
-    name: "heygen.video_status",
-    description: "Check a HeyGen video generation by videoId. Returns { status, videoUrl }. status is processing|pending|completed|failed. Read-only — poll after heygen.create_video.",
-    readonly: true,
-    args: [{ name: "videoId", type: "string", required: true, description: "The video id from heygen.create_video." }],
-    handler: async (args) => {
-      const { getConnectionByProvider } = await import("./integrations.js");
-      const key = (getConnectionByProvider("heygen")?.secrets?.apiKey ?? "").trim();
-      if (!key) return { error: "no HeyGen connection — add one on the Integrations page" };
-      const id = String(args.videoId ?? "").trim();
-      if (!id) return { error: "videoId is required" };
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 20_000);
-      let j: any = {}; let status = 0;
-      try {
-        const r = await fetch(`https://api.heygen.com/v1/video_status.get?video_id=${encodeURIComponent(id)}`, { headers: { "x-api-key": key, accept: "application/json" }, signal: ctrl.signal });
-        status = r.status; j = await r.json().catch(() => ({}));
-      } catch (e: any) {
-        return { error: `heygen status: ${e?.name === "AbortError" ? "timed out" : String(e?.message ?? e).slice(0, 120)}` };
-      } finally { clearTimeout(t); }
-      const d = j?.data;
-      if (!d) return { error: `heygen: ${j?.error?.message ?? j?.message ?? `HTTP ${status}`}` };
-      return { status: d.status, videoUrl: d.video_url ?? null, thumbnailUrl: d.thumbnail_url ?? null, ...(d.error ? { videoError: d.error } : {}) };
     },
   },
   {
@@ -4208,56 +4109,6 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     },
   },
   {
-    name: "media.avatar_video",
-    description: "Generate an AI avatar / spokesperson video (a presenter speaking your script) using HeyGen. Use for 'make a talking-head/explainer/presenter video', 'have an avatar read this announcement'. Async — a render can take a few minutes; this waits for it. Returns { videoUrl, videoId, avatarId, voiceId }. Pass avatarId/voiceId from media.avatars / media.voices, or omit to use the account defaults. Requires HEYGEN_API_KEY.",
-    readonly: false,
-    args: [
-      { name: "script", type: "string", required: true, description: "The words the avatar should say" },
-      { name: "avatar_id", type: "string", required: false, description: "HeyGen avatar id (from media.avatars); omit for the account default" },
-      { name: "voice_id", type: "string", required: false, description: "HeyGen voice id (from media.voices); omit for the account default" },
-      { name: "background", type: "string", required: false, description: "Optional solid background colour hex, e.g. #ffffff" },
-    ],
-    handler: async (args) => {
-      const { config } = await import("../config.js");
-      if (!config.heygenEnabled) return { error: "HeyGen not configured — add HEYGEN_API_KEY to enable avatar video generation." };
-      const script = String(args.script ?? "").trim();
-      if (!script) return { error: "script is required" };
-      const { heygenGenerateAndWait } = await import("./heygen.js");
-      return await heygenGenerateAndWait({
-        script,
-        avatarId: args.avatar_id ? String(args.avatar_id) : undefined,
-        voiceId: args.voice_id ? String(args.voice_id) : undefined,
-        background: args.background ? String(args.background) : undefined,
-      });
-    },
-  },
-  {
-    name: "media.avatars",
-    description: "List the HeyGen avatars available on the account (id + name) so you can pick one for media.avatar_video. Requires HEYGEN_API_KEY.",
-    readonly: true,
-    args: [],
-    handler: async () => {
-      const { config } = await import("../config.js");
-      if (!config.heygenEnabled) return { error: "HeyGen not configured — add HEYGEN_API_KEY." };
-      const { heygenListAvatars } = await import("./heygen.js");
-      const avatars = await heygenListAvatars();
-      return { avatars: avatars.map(a => ({ avatar_id: a.avatar_id, name: a.avatar_name, gender: a.gender })) };
-    },
-  },
-  {
-    name: "media.voices",
-    description: "List the HeyGen voices available (id + name + language) so you can pick one for media.avatar_video. Requires HEYGEN_API_KEY.",
-    readonly: true,
-    args: [],
-    handler: async () => {
-      const { config } = await import("../config.js");
-      if (!config.heygenEnabled) return { error: "HeyGen not configured — add HEYGEN_API_KEY." };
-      const { heygenListVoices } = await import("./heygen.js");
-      const voices = await heygenListVoices();
-      return { voices: voices.map(v => ({ voice_id: v.voice_id, name: v.name, language: v.language, gender: v.gender })) };
-    },
-  },
-  {
     name: "orchestration.plan",
     description: "Decompose a complex objective into parallel sub-tasks, execute them simultaneously via independent agents, and synthesize the results. Use for multi-faceted research, cross-domain analysis, or any task that benefits from splitting work across specialists. Returns { id, label, status, subTasks: [{label, personaName, status, output}], finalReport }. Sub-tasks run in parallel — each agent sees only their own instructions. Final synthesis merges all outputs.",
     readonly: false,
@@ -4277,131 +4128,6 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         finalReport: run.finalReport.slice(0, 4000),
         elapsedMs: run.elapsedMs,
       };
-    },
-  },
-
-  // ─── n8n workflow automation (self-hosted) ────────────────────────────
-  {
-    name: "n8n.status",
-    description: "Check whether n8n is configured and reachable. Returns { enabled, health }. Requires N8N_BASE_URL + N8N_API_KEY in .env (n8n → Settings → API → Create API Key).",
-    readonly: true,
-    args: [],
-    handler: async () => {
-      const { isN8nEnabled, n8nHealth } = await import("./n8n.js");
-      return { enabled: isN8nEnabled(), health: await n8nHealth() };
-    },
-  },
-  {
-    name: "n8n.list_workflows",
-    description: "List n8n workflows visible to the API key (id, name, active). Filter by active state or tags. Requires n8n to be configured (N8N_BASE_URL + N8N_API_KEY).",
-    readonly: true,
-    args: [
-      { name: "limit", type: "number", required: false, description: "Max workflows to return (default 20, max 100)" },
-      { name: "active", type: "boolean", required: false, description: "Filter by active=true/false" },
-      { name: "tags", type: "string", required: false, description: "Comma-separated tag filter" },
-    ],
-    handler: async (args) => {
-      const { listWorkflows } = await import("./n8n.js");
-      return await listWorkflows({
-        limit: args.limit ? Number(args.limit) : undefined,
-        active: args.active !== undefined ? Boolean(args.active) : undefined,
-        tags: args.tags ? String(args.tags) : undefined,
-      });
-    },
-  },
-  {
-    name: "n8n.get_workflow",
-    description: "Fetch the full definition of one n8n workflow by id (nodes, connections, settings). Use after n8n.list_workflows.",
-    readonly: true,
-    args: [{ name: "id", type: "string", required: true, description: "Workflow id" }],
-    handler: async (args) => {
-      const { getWorkflow } = await import("./n8n.js");
-      const wf = await getWorkflow(String(args.id));
-      return { workflow: wf };
-    },
-  },
-  {
-    name: "n8n.trigger_webhook",
-    description: "Fire an n8n Webhook-triggered workflow. Pass the full webhook URL (from n8n's Webhook node) as `url`, OR a short `path` like 'my-hook' which resolves to N8N_WEBHOOK_BASE_URL/webhook/my-hook. `body` is the JSON payload sent to the workflow. Returns the workflow's HTTP response.",
-    readonly: false,
-    args: [
-      { name: "url", type: "string", required: false, description: "Full webhook URL (e.g. https://n8n.example.com/webhook/my-hook)" },
-      { name: "path", type: "string", required: false, description: "Webhook path only (e.g. 'my-hook' → N8N_WEBHOOK_BASE_URL/webhook/my-hook)" },
-      { name: "body", type: "string", required: false, description: "JSON payload to send (object or JSON string). Default {}" },
-      { name: "method", type: "string", required: false, description: "HTTP method: GET|POST|PUT|PATCH (default POST)" },
-    ],
-    handler: async (args) => {
-      const { triggerWebhook } = await import("./n8n.js");
-      const coerce = (v: any) => {
-        if (v === undefined || v === null || v === "") return undefined;
-        if (typeof v === "string") { try { return JSON.parse(v); } catch { return v; } }
-        return v;
-      };
-      return await triggerWebhook({
-        url: args.url ? String(args.url) : undefined,
-        path: args.path ? String(args.path) : undefined,
-        method: args.method ? String(args.method) : undefined,
-        body: coerce(args.body) ?? {},
-      });
-    },
-  },
-  {
-    name: "n8n.trigger_workflow_by_name",
-    description: "Fire an n8n workflow by its name instead of a raw webhook URL/path. Looks the workflow up via n8n.list_workflows, finds its Webhook trigger node, and calls it. Use this over n8n.trigger_webhook when you only know the workflow's name.",
-    readonly: false,
-    args: [
-      { name: "name", type: "string", required: true, description: "Exact (case-insensitive) workflow name, as shown by n8n.list_workflows" },
-      { name: "body", type: "string", required: false, description: "JSON payload to send (object or JSON string). Default {}" },
-    ],
-    handler: async (args) => {
-      const { triggerWorkflowByName } = await import("./n8n.js");
-      const coerce = (v: any) => {
-        if (v === undefined || v === null || v === "") return undefined;
-        if (typeof v === "string") { try { return JSON.parse(v); } catch { return v; } }
-        return v;
-      };
-      return await triggerWorkflowByName(String(args.name), coerce(args.body) ?? {});
-    },
-  },
-  {
-    name: "n8n.list_executions",
-    description: "List recent n8n workflow executions (run history). Filter by workflowId or status (success/error/waiting). Requires n8n to be configured.",
-    readonly: true,
-    args: [
-      { name: "workflowId", type: "string", required: false, description: "Filter to one workflow id" },
-      { name: "status", type: "string", required: false, description: "Filter by status: success|error|waiting" },
-      { name: "limit", type: "number", required: false, description: "Max executions to return (default 20, max 100)" },
-    ],
-    handler: async (args) => {
-      const { listExecutions } = await import("./n8n.js");
-      return await listExecutions({
-        workflowId: args.workflowId ? String(args.workflowId) : undefined,
-        status: args.status ? String(args.status) : undefined,
-        limit: args.limit ? Number(args.limit) : undefined,
-      });
-    },
-  },
-  {
-    name: "n8n.create_workflow",
-    description: "Create a new n8n workflow. Pass `name`, `nodes` (array), and `connections` (object) — export a starter workflow from n8n's UI to copy the shape. The workflow is created inactive; activate it via POST /api/n8n/workflows/:id/activate or the n8n UI.",
-    readonly: false,
-    args: [
-      { name: "name", type: "string", required: true, description: "Workflow name" },
-      { name: "nodes", type: "string", required: true, description: "Nodes as a JSON array string or already-parsed array" },
-      { name: "connections", type: "string", required: true, description: "Connections as a JSON object string or already-parsed object" },
-    ],
-    handler: async (args) => {
-      const { createWorkflow } = await import("./n8n.js");
-      const coerce = (v: any) => {
-        if (typeof v === "string") { try { return JSON.parse(v); } catch { return v; } }
-        return v;
-      };
-      const wf = await createWorkflow({
-        name: String(args.name),
-        nodes: coerce(args.nodes) ?? [],
-        connections: coerce(args.connections) ?? {},
-      });
-      return { workflow: wf };
     },
   },
 
@@ -4857,13 +4583,6 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "integration.slack.post":return "Posting to Slack";
     case "integration.gmail.send":return s("to") ? `Sending email to ${s("to")}` : "Sending an email";
     case "integration.gmail.read":return s("query") ? `Reading Gmail for "${s("query")}"` : "Reading Gmail";
-    case "n8n.status":         return "Checking n8n health";
-    case "n8n.list_workflows": return "Listing n8n workflows";
-    case "n8n.get_workflow":   return s("id") ? `Reading n8n workflow ${s("id")}` : "Reading an n8n workflow";
-    case "n8n.trigger_webhook":return s("path") ? `Triggering n8n webhook "${s("path")}"` : s("url") ? `Triggering n8n webhook` : "Triggering an n8n workflow";
-    case "n8n.trigger_workflow_by_name":return s("name") ? `Triggering n8n workflow "${s("name")}"` : "Triggering an n8n workflow";
-    case "n8n.list_executions":return "Reading n8n execution history";
-    case "n8n.create_workflow":return s("name") ? `Creating n8n workflow "${s("name")}"` : "Creating an n8n workflow";
     case "crm.list_contacts": return "Listing CRM contacts";
     case "crm.upsert_contact":return s("email") ? `Saving contact "${s("email")}"` : "Saving a contact";
     case "crm.list_deals":    return "Listing CRM deals";

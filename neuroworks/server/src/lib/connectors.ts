@@ -739,26 +739,6 @@ const CONNECTOR_TEMPLATES: ConnectorTemplate[] = [
       { name: "create-list", method: "POST",   path: "/me/todo/lists",                         description: "Create a new task list", body: "{ displayName }" },
     ],
   },
-  {
-    id: "n8n",
-    label: "n8n",
-    description: "Self-hosted n8n workflow automation — trigger webhook workflows and manage automations. Set baseUrl to your n8n instance (e.g. http://127.0.0.1:5678) and add your API key (n8n → Settings → API → Create API Key) as a header auth.",
-    baseUrl: "http://127.0.0.1:5678",
-    auth: { type: "header", name: "X-N8N-API-KEY", value: "" },
-    writeEnabled: true,
-    endpoints: [
-      { name: "list-workflows",   method: "GET",    path: "/api/v1/workflows",                         description: "List workflows (supports ?active=true&tags=...&limit=20)" , query: ["limit", "active", "tags"] },
-      { name: "get-workflow",     method: "GET",    path: "/api/v1/workflows/{id}",                     description: "Get a single workflow by id" },
-      { name: "create-workflow",  method: "POST",   path: "/api/v1/workflows",                         description: "Create a workflow", body: "{ name, nodes: [...], connections: {...}, settings? }" },
-      { name: "update-workflow",  method: "PUT",    path: "/api/v1/workflows/{id}",                     description: "Update a workflow", body: "{ name?, nodes?, connections?, settings? }" },
-      { name: "delete-workflow",  method: "DELETE", path: "/api/v1/workflows/{id}",                     description: "Delete a workflow" },
-      { name: "activate-workflow",   method: "POST", path: "/api/v1/workflows/{id}/activate",           description: "Activate a workflow" },
-      { name: "deactivate-workflow", method: "POST", path: "/api/v1/workflows/{id}/deactivate",         description: "Deactivate a workflow" },
-      { name: "list-executions",  method: "GET",    path: "/api/v1/executions",                         description: "List execution history" , query: ["limit", "workflowId", "status"] },
-      { name: "get-execution",    method: "GET",    path: "/api/v1/executions/{id}",                    description: "Get a single execution by id" },
-      { name: "trigger-webhook",  method: "POST",   path: "/webhook/{path}",                            description: "Trigger a webhook workflow (replace {path} with the Webhook node's path)", body: "{ any JSON payload }" },
-    ],
-  },
 ];
 
 export function listConnectorTemplates(): ConnectorTemplate[] {

@@ -1068,7 +1068,6 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
   const days = Number(inputs.days ?? 3);
   const channels = String(inputs.channels ?? "").trim(); // csv services/ids; blank = all
   const autoQueue = inputs.autoQueue === true; // default false → save as Buffer DRAFT for review
-  const makeVideo = inputs.makeVideo !== false; // default true → HeyGen avatar video
   const reviewTelegram = inputs.reviewTelegram !== false; // default true → post to the Telegram group
   const reviewEmail = String(inputs.reviewEmail ?? "").trim();
   const slot = String(inputs.slot ?? "").trim(); // "morning" | "midday" | "evening" — for 3×/day variety
@@ -1125,44 +1124,7 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
     const msg = d?.error ? `Drafting failed: ${d.error}` : `No story to post — ${sender} had nothing fresh and the fallback (innovation leads + web search) returned nothing.`;
     push(msg); return { answer: msg, drafted: false, source: sender };
   }
-  const { postText, videoScript, story } = d;
-
-  // ── HeyGen avatar video ──────────────────────────────────────────────
-  // Render a short avatar video that reads the story. Async: kick it off, then
-  // poll a bounded window (HeyGen can take minutes). Whatever state it's in by
-  // the deadline goes into the review so the human can grab the finished video
-  // in HeyGen. A missing HeyGen connection just skips this — non-fatal.
-  let video: { videoId?: string; status?: string; videoUrl?: string | null; error?: string } = {};
-  if (makeVideo) {
-    try {
-      const createPrim = findPrimitive("heygen.create_video");
-      if (createPrim) {
-        // Prefer the AIIA-values-aligned spoken script the model wrote; fall back
-        // to a cleaned version of the post text if it didn't produce one.
-        const script = videoScript && videoScript.length > 20 ? toVideoScript(videoScript) : toVideoScript(postText);
-        push("Generating a HeyGen avatar video of the story.");
-        const c: any = await createPrim.handler({ script, ...(inputs.avatarId ? { avatarId: String(inputs.avatarId) } : {}), ...(inputs.voiceId ? { voiceId: String(inputs.voiceId) } : {}), title: `Story post — ${stamp}` });
-        if (c?.videoId) {
-          video.videoId = c.videoId; video.status = "processing";
-          const statusPrim = findPrimitive("heygen.video_status");
-          // Poll up to ~5 min (20 × 15s). We want the finished videoUrl so it can
-          // be attached to the Buffer post — video-only channels (TikTok) need it.
-          // If it's still rendering at the deadline we hand the videoId to the
-          // reviewer and post text-only where allowed.
-          let thumb: string | null = null;
-          for (let i = 0; i < 20 && statusPrim; i++) {
-            await new Promise(r => setTimeout(r, 15_000));
-            const s: any = await statusPrim.handler({ videoId: c.videoId });
-            video.status = s?.status ?? video.status;
-            if (s?.status === "completed") { video.videoUrl = s.videoUrl ?? null; thumb = s.thumbnailUrl ?? null; push("HeyGen video ready."); break; }
-            if (s?.status === "failed") { video.error = s?.videoError?.detail ?? "render failed"; push("HeyGen video failed to render."); break; }
-          }
-          (video as any).thumbnailUrl = thumb;
-          if (video.status === "processing") push("HeyGen video still rendering — its id goes into the review to collect shortly.");
-        } else { video.error = c?.error ?? "create failed"; push(`HeyGen skipped: ${String(video.error).slice(0, 100)}`); }
-      }
-    } catch (e: any) { video.error = String(e?.message ?? e).slice(0, 140); push(`HeyGen skipped (non-fatal): ${video.error}`); }
-  }
+  const { postText, story } = d;
 
   // Put it on Buffer. Default = DRAFT (human reviews & schedules inside Buffer);
   // autoQueue opt-in adds it to Buffer's auto-queue (which WILL publish at the
@@ -1175,21 +1137,14 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
     text: postText,
     ...(channels ? { channels } : {}), // blank = ALL connected channels (same post everywhere)
     draft: !autoQueue,
-    ...(video.videoUrl ? { videoUrl: video.videoUrl, ...((video as any).thumbnailUrl ? { thumbnailUrl: (video as any).thumbnailUrl } : {}) } : {}),
   });
   const posted = (buffer?.posted ?? []) as any[];
 
   // ── Review gate: Telegram group + email BEFORE anything is published ──
-  const videoLine = video.videoUrl
-    ? `🎬 Video: ${video.videoUrl}`
-    : video.videoId
-      ? `🎬 Video (${video.status ?? "processing"}) — HeyGen id ${video.videoId}${video.error ? ` (error: ${video.error})` : ""}`
-      : (makeVideo ? `🎬 Video: not generated${video.error ? ` (${video.error})` : " (HeyGen not connected?)"}` : "");
   const dispositionShort = autoQueue ? "queued on Buffer" : "saved as a Buffer draft";
   const reviewText =
     `📝 New social post for review (${dispositionShort} — NOT yet published)\n\n` +
     `${postText}\n\n` +
-    (videoLine ? `${videoLine}\n\n` : "") +
     `Source: ${sourceUsed}\n` +
     (story ? `Story: ${story.replace(/\s+/g, " ").slice(0, 200)}\n` : "") +
     (posted.length ? `Channels drafted: ${posted.map(p => p.service).join(", ")}\n` : "") +
@@ -1207,7 +1162,7 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
     try {
       const em = findPrimitive("email.send");
       if (em) {
-        const body = `A new social post was drafted from **${sourceUsed}** and ${dispositionShort} (nothing is published yet).\n\n---\n\n${postText}\n\n${videoLine ? videoLine + "\n\n" : ""}${story ? `_Story: ${story}_\n\n` : ""}Review and schedule it in Buffer — nothing goes live until you do.`;
+        const body = `A new social post was drafted from **${sourceUsed}** and ${dispositionShort} (nothing is published yet).\n\n---\n\n${postText}\n\n${story ? `_Story: ${story}_\n\n` : ""}Review and schedule it in Buffer — nothing goes live until you do.`;
         review.email = await em.handler({ to: reviewEmail, subject: `Social post for review — ${stamp}`, body });
         push(review.email?.ok ? `Emailed the post to ${reviewEmail} for review.` : `Email review skipped: ${review.email?.error ?? "unknown"}`);
       }
@@ -1216,20 +1171,19 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
 
   // Journal the draft so the optimiser can see what we produced + the Buffer ids.
   const journal =
-    `---\ntype: social-draft\ngenerated: ${new Date().toISOString()}\nsource: ${sourceUsed}\ndisposition: ${buffer?.scheduled ?? "unknown"}\nchannels: ${(posted.map(p => p.service).join(", ")) || targetsLabel}\nbufferPostIds: ${posted.map(p => p.postId).filter(Boolean).join(", ")}\nvideoId: ${video.videoId ?? ""}\nvideoStatus: ${video.status ?? ""}\nvideoUrl: ${video.videoUrl ?? ""}\n---\n\n` +
-    `# Social draft — ${stamp}\n\n## Post\n\n${postText}\n\n## Story chosen\n\n${story || "(not stated)"}\n\n## Video\n\n${videoLine || "(none)"}\n\n## Buffer result\n\n\`\`\`json\n${JSON.stringify(buffer, null, 2)}\n\`\`\`\n\n## Review\n\ntelegram: ${review.telegram?.ok ? "sent" : (review.telegram?.error ?? "skipped")} · email: ${review.email?.ok ? `sent → ${reviewEmail}` : (review.email?.error ?? "skipped")}\n`;
+    `---\ntype: social-draft\ngenerated: ${new Date().toISOString()}\nsource: ${sourceUsed}\ndisposition: ${buffer?.scheduled ?? "unknown"}\nchannels: ${(posted.map(p => p.service).join(", ")) || targetsLabel}\nbufferPostIds: ${posted.map(p => p.postId).filter(Boolean).join(", ")}\n---\n\n` +
+    `# Social draft — ${stamp}\n\n## Post\n\n${postText}\n\n## Story chosen\n\n${story || "(not stated)"}\n\n## Buffer result\n\n\`\`\`json\n${JSON.stringify(buffer, null, 2)}\n\`\`\`\n\n## Review\n\ntelegram: ${review.telegram?.ok ? "sent" : (review.telegram?.error ?? "skipped")} · email: ${review.email?.ok ? `sent → ${reviewEmail}` : (review.email?.error ?? "skipped")}\n`;
   try { writeVaultFile(`${SOCIAL_DIR}/drafts/${stamp}.md`, journal); } catch (e: any) { push(`Draft journal write skipped: ${String(e?.message ?? e).slice(0, 80)}`); }
 
   const okCount = posted.length;
   const disposition = autoQueue ? "added to the Buffer queue" : "saved as a Buffer draft (review & schedule it in Buffer)";
   const answer =
-    `Drafted a post from ${sourceUsed}${video.videoUrl ? ", generated a video," : ""} and sent it to ${[reviewTelegram && review.telegram?.ok ? "the Telegram group" : null, reviewEmail && review.email?.ok ? reviewEmail : null].filter(Boolean).join(" + ") || "no review channel"} for review. ${okCount ? `Also ${disposition} on ${okCount} channel${okCount === 1 ? "" : "s"}` : "Buffer draft hit an error"} — nothing is published yet.\n\n` +
+    `Drafted a post from ${sourceUsed} and sent it to ${[reviewTelegram && review.telegram?.ok ? "the Telegram group" : null, reviewEmail && review.email?.ok ? reviewEmail : null].filter(Boolean).join(" + ") || "no review channel"} for review. ${okCount ? `Also ${disposition} on ${okCount} channel${okCount === 1 ? "" : "s"}` : "Buffer draft hit an error"} — nothing is published yet.\n\n` +
     `**Post**\n\n${postText}\n\n` +
-    (videoLine ? `${videoLine}\n\n` : "") +
     (story ? `_Story: ${story}_\n\n` : "") +
     (buffer?.errors ? `⚠️ Buffer errors: ${JSON.stringify(buffer.errors)}\n\n` : "") +
     `Review in Buffer, then publish/schedule it there.`;
-  return { answer, drafted: okCount > 0, postText, story, video, buffer, review, source: sourceUsed };
+  return { answer, drafted: okCount > 0, postText, story, buffer, review, source: sourceUsed };
 }
 
 async function socialOptimizeRunner(inputs: Record<string, unknown>, push: (m: string) => void, _progress?: (p: Record<string, unknown>) => void) {

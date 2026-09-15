@@ -43,7 +43,6 @@ const Skills = lazy(() => import("./pages/Skills").then(m => ({ default: m.Skill
 const Extensions = lazy(() => import("./pages/Extensions").then(m => ({ default: m.Extensions })));
 const Connectors = lazy(() => import("./pages/Connectors").then(m => ({ default: m.Connectors })));
 const McpServers = lazy(() => import("./pages/McpServers").then(m => ({ default: m.McpServers })));
-const N8n = lazy(() => import("./pages/N8n").then(m => ({ default: m.N8n })));
 const GithubAccounts = lazy(() => import("./pages/GithubAccounts").then(m => ({ default: m.GithubAccounts })));
 
 // Govern
@@ -139,7 +138,6 @@ function AppShell() {
         <Route path="/integrations" element={<Navigate to="/extensions?tab=integrations" replace />} />
         <Route path="/connectors" element={<Connectors />} />
         <Route path="/mcp-servers" element={<McpServers />} />
-        <Route path="/n8n" element={<N8n />} />
         <Route path="/github-accounts" element={<GithubAccounts />} />
 
         {/* Govern */}

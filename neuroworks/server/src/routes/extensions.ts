@@ -48,7 +48,6 @@ extensionsRouter.get("/", async (req, res) => {
         switch (def.id) {
           case "openrouter": return b === "openrouter" || b === "anthropic" || (b === "openrouter" && (m.includes("/") || m.startsWith("gpt-") || m.startsWith("claude-")));
           case "ollama": return b === "ollama";
-          case "heygen": return b === "heygen";
           case "ideogram": return b === "ideogram";
           case "muapi": return b === "muapi";
           case "supabase": return false;
@@ -137,7 +136,6 @@ extensionsRouter.get("/analytics", async (req, res) => {
           const b = (r.backend ?? "").toLowerCase();
           if (id === "openrouter") return b === "openrouter" || b === "anthropic" || m.includes("/");
           if (id === "ollama") return b === "ollama";
-          if (id === "heygen") return b === "heygen";
           if (id === "ideogram") return b === "ideogram";
           if (id === "muapi") return b === "muapi";
           return false;

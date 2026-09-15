@@ -5,7 +5,7 @@ import { config } from "../config.js";
 export type CostRecord = {
   jobId: string;
   model: string;
-  backend: "ollama" | "openrouter" | "anthropic" | "ideogram" | "muapi" | "heygen";
+  backend: "ollama" | "openrouter" | "anthropic" | "ideogram" | "muapi";
   profile: string;
   inputTokens: number;
   outputTokens: number;
@@ -226,21 +226,6 @@ export function recordRealtimeVoiceCost(model: string, inputTokens: number, outp
   return costUsd;
 }
 
-// HeyGen avatar video — billed per generated video (credits ≈ video seconds).
-// The API doesn't return a price, so estimate from the spoken script: words ÷
-// ~2.5 words/sec ≈ duration, at a ballpark $0.02/sec of avatar video, min
-// $0.10/video. Override with a real invoice figure later. Recorded so avatar-
-// video spend shows in the Cost monitor next to LLM + image + voice spend.
-export function recordHeyGenVideoCost(script: string, jobId = "adhoc"): number {
-  const words = (script ?? "").trim().split(/\s+/).filter(Boolean).length;
-  const seconds = Math.max(4, Math.round(words / 2.5));
-  const costUsd = Math.max(0.10, seconds * 0.02);
-  recordCost({
-    jobId, model: "heygen/avatar-video", backend: "heygen", profile: "video:heygen",
-    inputTokens: 0, outputTokens: 0, costUsd, units: 1, ts: new Date().toISOString(),
-  });
-  return costUsd;
-}
 
 function aggregate(records: CostRecord[]): CostSummary {
   // Failure records (ok: false) carry $0 cost and no tokens — exclude them

@@ -20,7 +20,6 @@ import {
   GitBranch,
   Boxes,
   Cable,
-  Workflow,
   Network,
   Contact,
 } from "lucide-react";
@@ -106,13 +105,11 @@ const memoryNav: NavItem[] = [
 
 const connectNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
-  // Integrations stays as an Extensions internal tab. Connectors, MCP
-  // Servers, and n8n each got their own top-level page — company systems +
-  // personal Google/Microsoft accounts, local MCP tool servers, and
-  // self-hosted n8n workflows respectively.
+  // Integrations stays as an Extensions internal tab. Connectors and MCP
+  // Servers each got their own top-level page — company systems + personal
+  // Google/Microsoft accounts, and local MCP tool servers respectively.
   { to: "/connectors", label: "Connectors", icon: Boxes },
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
-  { to: "/n8n", label: "n8n", icon: Workflow },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
 ];
 
