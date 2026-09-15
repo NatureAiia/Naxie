@@ -270,10 +270,10 @@ export async function runTodoBrief(_opts?: any): Promise<TodoBriefResult> {
 
 async function deliverToTelegram(result: TodoBriefResult): Promise<void> {
   try {
-    const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    const { sendTelegramMessage, stripVaultFrontmatterForTelegram } = await import("./telegram-bridge.js");
     const niceDate = fmtNice(result.date);
-    const body = result.markdown.slice(0, 3500);
-    const text = `☀️ *Todo Brief — ${niceDate}*\n📋 ${result.todayCount} today · ⚠️ ${result.overdueCount} overdue · 📅 ${result.weekCount} rest-of-week · 📦 ${result.openCount} open\n\n${body.slice(0, 3300)}\n\n📄 _Full brief in vault:_ ${result.path}`;
+    const body = stripVaultFrontmatterForTelegram(result.markdown).slice(0, 3300);
+    const text = `☀️ *Todo Brief — ${niceDate}*\n📋 ${result.todayCount} today · ⚠️ ${result.overdueCount} overdue · 📅 ${result.weekCount} rest-of-week · 📦 ${result.openCount} open\n\n${body}\n\n📄 _Full brief in vault:_ ${result.path}`;
     const kb = (result.top3 ?? []).slice(0, 3).map((p: any) => {
       const t = String(p.task.title ?? "").slice(0, 22).replace(/"/g, "");
       return [

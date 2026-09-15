@@ -5,6 +5,7 @@ import {
   listProviders, addProvider, removeProvider, activateProvider,
   PROVIDER_DEFAULTS, type ProviderKind,
 } from "../lib/model-providers.js";
+import { getModelPolicy, setAllowPaidModels } from "../lib/model-policy.js";
 
 export const modelsRouter = Router();
 
@@ -175,4 +176,17 @@ modelsRouter.delete("/providers/:id", (req, res) => {
   const ok = removeProvider(req.params.id);
   if (!ok) return res.status(404).json({ error: "provider not found" });
   res.json({ ok: true });
+});
+
+// ── Model spend policy — free-first, paid models need explicit approval ────
+// Default OFF: the dispatcher (llm.ts) downgrades any paid-model pick to a
+// free OpenRouter/Gemini model or local Ollama until this is flipped on.
+modelsRouter.get("/policy", (_req, res) => {
+  res.json({ policy: getModelPolicy() });
+});
+
+modelsRouter.post("/policy", (req, res) => {
+  const allow = Boolean(req.body?.allowPaidModels);
+  const policy = setAllowPaidModels(allow);
+  res.json({ policy });
 });

@@ -109,6 +109,14 @@ export function Extensions() {
   const [ragEmbedKey, setRagEmbedKey] = useState("");
   const [ragSaving, setRagSaving] = useState(false);
   const [ragReembedding, setRagReembedding] = useState(false);
+  const [modelPolicy, setModelPolicyState] = useState<{ allowPaidModels: boolean } | null>(null);
+  async function togglePaidModels(next: boolean) {
+    try {
+      const r = await api.setModelPolicy(next);
+      setModelPolicyState(r.policy);
+      showToast(next ? "Paid models approved — the dispatcher may now use billed models" : "Paid models blocked — free tier + local only", next ? "success" : "info");
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+  }
 
   function refreshRagStatus() {
     api.ragStatus().then(setRagStatus).catch(() => {});
@@ -157,6 +165,7 @@ export function Extensions() {
     fetch("/api/extensions/scheduler/status", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(setScheduler).catch(()=>{});
     fetch("/api/extensions/analytics?days=14", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(setAnalytics).catch(()=>{});
     fetch("/api/extensions/marketplace", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(j=> setMarketplace(j.skills ?? [])).catch(()=>{});
+    api.getModelPolicy().then(r => setModelPolicyState(r.policy)).catch(() => {});
     refreshRagStatus();
   }, []);
 
@@ -330,6 +339,27 @@ export function Extensions() {
           </div>
         </Card>
       )}
+
+      {/* Model spend policy — free-first, paid needs explicit approval */}
+      <Card title="Model spend policy">
+        <div className="flex items-center justify-between gap-3 py-1">
+          <div>
+            <div className="text-sm text-cream-100">Allow paid models</div>
+            <div className="text-xs text-cream-300/60 mt-0.5 max-w-md">
+              Off by default. Naxie always prefers free online models (OpenRouter/NVIDIA free tier, Gemini Flash) and falls back to local Ollama when offline — a paid model is never dispatched until you flip this on.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!!modelPolicy?.allowPaidModels}
+            onClick={() => togglePaidModels(!modelPolicy?.allowPaidModels)}
+            className={`shrink-0 w-11 h-6 rounded-full border transition-colors relative ${modelPolicy?.allowPaidModels ? "bg-violet-600 border-violet-500" : "bg-ink-800 border-ink-700"}`}
+          >
+            <span className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white transition-transform ${modelPolicy?.allowPaidModels ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+          </button>
+        </div>
+      </Card>
 
       {/* Model Providers */}
       <Card title={`Model Providers · ${data.providers.length}`} action={<Button variant="subtle" onClick={() => { setAddTab("model"); setShowAdd(true); }}><Cpu size={13} /> Add provider</Button>}>

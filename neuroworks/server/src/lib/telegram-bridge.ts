@@ -190,6 +190,18 @@ async function tg(token: string, method: string, params: Record<string, unknown>
   }
 }
 
+// Some scheduled senders (todo-brief, weekly-rollup) embed the whole vault
+// FILE — frontmatter block + a trailing `<details><summary>Raw…` JSON dump —
+// into their Telegram body, not just the human-readable narrative. Strip both
+// before the text ever reaches markdownToTelegramHtml, or the frontmatter and
+// raw JSON show up verbatim in the chat.
+export function stripVaultFrontmatterForTelegram(md: string): string {
+  return md
+    .replace(/^---\n[\s\S]*?\n---\n+/, "")
+    .replace(/<details>[\s\S]*?<\/details>\s*/gi, "")
+    .trim();
+}
+
 // Exported for scheduled senders (reflection, innovation-scan, todo-brief) and
 // sendTelegramMessage above.
 export function escapeHtml(s: string): string {

@@ -899,6 +899,33 @@ export async function runSystemAudit(): Promise<SystemAuditResult> {
     }
     const result: SystemAuditResult = { date, path, stats, report: text, generatedAt: finalGeneratedAt, modelUsed };
     lastResult = result;
+    // Self-improvement loop — findings.improvements used to dead-end here as a
+    // Telegram message with nowhere to act on it. Turn high/medium-priority
+    // ones into OrgTasks so they land on the org board instead: Naxie can then
+    // propose a fix (personas.manage / system.admin, both approval-gated —
+    // see agent.ts SENSITIVE_APPROVAL_TOOLS) and the operator approves it from
+    // there, same as any other org task. Deduped by title against existing
+    // open (non-done) admin tasks so a daily re-run doesn't pile up repeats
+    // for a finding nobody's acted on yet.
+    try {
+      const { createOrgTask, listOrgTasks } = await import("./org-tasks.js");
+      const open = listOrgTasks({ role: "admin" }).filter(t => t.status !== "done");
+      const openTitles = new Set(open.map(t => t.title));
+      for (const imp of stats.improvements) {
+        if (imp.priority === "low") continue;
+        const title = `MD Audit: ${imp.area} — ${imp.issue}`.slice(0, 160);
+        if (openTitles.has(title)) continue;
+        createOrgTask({
+          role: "admin",
+          title,
+          detail: `${imp.recommendation}\n\nEvidence: ${imp.evidence}\n\nFrom the ${date} MD System Audit — ${path}`,
+          priority: imp.priority === "high" ? "high" : "normal",
+          createdBy: "daemon",
+        });
+      }
+    } catch (e: any) {
+      console.warn(`[system-audit] org-task creation failed: ${e?.message ?? e}`);
+    }
     // Surface on Calendar / audit
     try {
       const { newJob } = await import("./jobs.js");

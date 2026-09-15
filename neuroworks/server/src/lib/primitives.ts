@@ -18,6 +18,7 @@ import { classifyDeliverable } from "./deliverable.js";
 import { checkContentAgainstGovernance } from "./governance.js";
 import {
   getWeather, setReminder, systemControl, manageClipboard, gitCommand, browserOpen,
+  getHostToolsSettings, updateHostToolsSettings,
   type SystemControlAction,
 } from "./host-tools.js";
 import { publishDataset, listDatasets } from "./adrs.js";
@@ -3524,6 +3525,103 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
           workMode: p.workMode ?? "agent",
         })),
       };
+    },
+  },
+  {
+    name: "personas.manage",
+    description: "Create, update, or retire an org persona (agent/hire). NAXIE-ONLY — any other caller is refused. Every call pauses for the operator's approval before it runs (see Approvals), so use this to PROPOSE a roster change, not to sneak one through. action=\"create\" needs name+jobDescription; action=\"update\" needs personaId + one or more of tone/description/role/systemPromptOverride/workMode(agent|hybrid|human); action=\"retire\" needs personaId and permanently deletes that persona + its generated templates (built-in personas can't be retired). Use personas.list first to find the right personaId and to justify the change with real usage evidence (e.g. a system-audit dormancy finding).",
+    readonly: false,
+    args: [
+      { name: "action", type: "string", required: true, description: "\"create\" | \"update\" | \"retire\"" },
+      { name: "personaId", type: "string", required: false, description: "Required for update/retire" },
+      { name: "name", type: "string", required: false, description: "create: display name" },
+      { name: "jobDescription", type: "string", required: false, description: "create: the raw job description this persona is hired for" },
+      { name: "role", type: "string", required: false, description: "Short title, e.g. \"Marketing Specialist\"" },
+      { name: "description", type: "string", required: false, description: "One-line summary" },
+      { name: "tone", type: "string", required: false, description: "e.g. \"concise · warm · formal\"" },
+      { name: "systemPromptOverride", type: "string", required: false, description: "Override the generated system prompt" },
+      { name: "workMode", type: "string", required: false, description: "\"agent\" | \"hybrid\" | \"human\"" },
+      { name: "reason", type: "string", required: true, description: "Why this change — cite the evidence (e.g. a system-audit finding, usage stats)" },
+    ],
+    handler: async (args) => {
+      const { PA_IDENTITY } = await import("./personas.js");
+      if (String(args.__callerPersonaId ?? "") !== PA_IDENTITY.id) {
+        return { error: `personas.manage is restricted to ${PA_IDENTITY.name} — this caller is not authorized to use it.` };
+      }
+      const { addPersona, updatePersona, deletePersona, extractPersonaMetadata, slugifyId } = await import("./personas.js");
+      const action = String(args.action ?? "").trim();
+      if (action === "create") {
+        const name = String(args.name ?? "").trim();
+        const jobDescription = String(args.jobDescription ?? "").trim();
+        if (!name) return { error: "name is required to create a persona" };
+        if (!jobDescription) return { error: "jobDescription is required to create a persona" };
+        let meta = { role: String(args.role ?? "Specialist"), description: String(args.description ?? ""), tone: String(args.tone ?? "professional"), responsibilities: [] as string[] };
+        if (!args.role || !args.description) {
+          try { meta = { ...meta, ...(await extractPersonaMetadata(jobDescription)) }; } catch { /* keep heuristic defaults */ }
+        }
+        const persona = {
+          id: slugifyId(name),
+          name,
+          role: meta.role,
+          description: meta.description,
+          jobDescription,
+          tone: meta.tone,
+          responsibilities: meta.responsibilities,
+          systemPromptOverride: args.systemPromptOverride ? String(args.systemPromptOverride) : undefined,
+          workMode: (["agent", "hybrid", "human"] as const).includes(args.workMode as any) ? (args.workMode as "agent" | "hybrid" | "human") : undefined,
+          createdAt: new Date().toISOString(),
+        };
+        addPersona(persona);
+        return { ok: true, persona };
+      }
+      const personaId = String(args.personaId ?? "").trim();
+      if (!personaId) return { error: "personaId is required for update/retire" };
+      if (action === "update") {
+        const patch: Record<string, unknown> = {};
+        for (const k of ["tone", "description", "role", "systemPromptOverride", "workMode"]) {
+          if (args[k] !== undefined) patch[k] = args[k];
+        }
+        if (Object.keys(patch).length === 0) return { error: "update needs at least one of tone/description/role/systemPromptOverride/workMode" };
+        const p = updatePersona(personaId, patch as any);
+        if (!p) return { error: `persona "${personaId}" not found` };
+        return { ok: true, persona: p };
+      }
+      if (action === "retire") {
+        const ok = deletePersona(personaId);
+        if (!ok) return { error: `persona "${personaId}" not found, or it's a built-in that can't be retired` };
+        return { ok: true, retired: personaId };
+      }
+      return { error: `unknown action "${action}" — use create, update, or retire` };
+    },
+  },
+  {
+    name: "system.admin",
+    description: "Read or change Naxie's own host-level system-access settings (Settings > System Access): allowSystemControl (OS-level control — sleep/lock/volume/open-app), allowClipboardAccess, allowNotifications, gitRepoPath. NAXIE-ONLY — any other caller is refused. Every call pauses for the operator's approval before it runs. action=\"read\" is still gated (same tool, same approval checkpoint) so read and write both show up for review. Use this to propose expanding (or narrowing) what host tools are allowed to do, with a reason — never to flip system access on for yourself mid-task.",
+    readonly: false,
+    args: [
+      { name: "action", type: "string", required: true, description: "\"read\" | \"update\"" },
+      { name: "allowSystemControl", type: "boolean", required: false, description: "update: enable/disable OS-level control tools" },
+      { name: "allowClipboardAccess", type: "boolean", required: false, description: "update: enable/disable clipboard read/write" },
+      { name: "allowNotifications", type: "boolean", required: false, description: "update: enable/disable desktop toast notifications" },
+      { name: "gitRepoPath", type: "string", required: false, description: "update: the one repo path git_command may touch" },
+      { name: "reason", type: "string", required: true, description: "Why this change is needed" },
+    ],
+    handler: async (args) => {
+      const { PA_IDENTITY } = await import("./personas.js");
+      if (String(args.__callerPersonaId ?? "") !== PA_IDENTITY.id) {
+        return { error: `system.admin is restricted to ${PA_IDENTITY.name} — this caller is not authorized to use it.` };
+      }
+      const action = String(args.action ?? "").trim();
+      if (action === "read") return { settings: getHostToolsSettings() };
+      if (action === "update") {
+        const patch: Record<string, unknown> = {};
+        for (const k of ["allowSystemControl", "allowClipboardAccess", "allowNotifications", "gitRepoPath"]) {
+          if (args[k] !== undefined) patch[k] = args[k];
+        }
+        if (Object.keys(patch).length === 0) return { error: "update needs at least one of allowSystemControl/allowClipboardAccess/allowNotifications/gitRepoPath" };
+        return { ok: true, settings: updateHostToolsSettings(patch as any) };
+      }
+      return { error: `unknown action "${action}" — use read or update` };
     },
   },
   {

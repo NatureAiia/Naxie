@@ -119,7 +119,22 @@ const SOCIAL_TASK_RE = new RegExp(`\\b${SOCIAL_ACTION}\\b[^]{0,60}?\\b${SOCIAL_P
 // pauses here, same as email.send. git_pull mutates the configured repo, so
 // it's gated the same way; git_status is read-only and deliberately left out
 // so a routine status check doesn't need sign-off.
-export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "heygen.create_video", "system_control", "manage_clipboard", "git_pull"]);
+// personas.manage / system.admin: Naxie's own roster + host-settings
+// control (see docs/naxie-architecture.md §2.2/§5 for the same posture
+// applied to host tools). Every call pauses here unconditionally, same as
+// email.send — there is no autonomous lane for retiring a persona or
+// flipping a system-access toggle, however low-risk the specific action
+// looks, because this tool set didn't exist before and the operator asked
+// for a human in the loop on all of it, not just the destructive half.
+export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "heygen.create_video", "system_control", "manage_clipboard", "git_pull", "personas.manage", "system.admin"]);
+
+// Tools whose caller identity actually matters — right now, only Naxie (the
+// MD/triage persona) may reach personas.manage / system.admin (docs
+// §2.2/§5: "more power over the system, Naxie only"). The planner never
+// sets this itself — runStep stamps the REAL caller onto args just before
+// invoking the handler, so a persona can't just ask for the tool and get it;
+// the handler in primitives.ts checks it and refuses anyone but Naxie.
+export const CALLER_IDENTITY_GATED_TOOLS = new Set(["personas.manage", "system.admin"]);
 
 // connector.call is gated by default (see SENSITIVE_APPROVAL_TOOLS above), but
 // a READ (GET/HEAD, or no method → GET default) against a connector the
@@ -833,7 +848,7 @@ const FATAL_ERROR_RE = /\b(?:401|403|model not found|model not pulled|API key|in
 // more, longer-spaced attempt would likely have recovered them.
 const STEP_RETRY_BACKOFF_MS = [1500, 4000, 8000];
 
-export async function executePlan(p: Plan, push: (msg: string) => void, onProgress?: (runs: StepRun[]) => void, signal?: AbortSignal, scopeId?: string): Promise<{ runs: StepRun[]; hadWrites: boolean; budgets?: { llm: number; io: number; idlePeers: number }; subagentTimings?: { wave: number; elapsedMs: number; ioCount: number; llmCount: number }[]; cancelled?: boolean; delegatedApproval?: { tools: string[]; plan?: Plan } }> {
+export async function executePlan(p: Plan, push: (msg: string) => void, onProgress?: (runs: StepRun[]) => void, signal?: AbortSignal, scopeId?: string, callerPersonaId?: string): Promise<{ runs: StepRun[]; hadWrites: boolean; budgets?: { llm: number; io: number; idlePeers: number }; subagentTimings?: { wave: number; elapsedMs: number; ioCount: number; llmCount: number }[]; cancelled?: boolean; delegatedApproval?: { tools: string[]; plan?: Plan } }> {
   // Per-run offload archive id — see context-offload.ts. Large step-result
   // fields get archived under .neuroworks/offload/<offloadRunId>/ and
   // replaced in the running history with a short preview, so steps 2..N of
@@ -941,10 +956,14 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
         return;
       }
     } catch { /* governance is non-fatal — never block a task on its own failure */ }
+    // Stamp the real caller identity onto args for identity-gated tools —
+    // AFTER the planner's own args are resolved, so nothing it put in the
+    // plan can spoof this. See CALLER_IDENTITY_GATED_TOOLS above.
+    const dispatchArgs = CALLER_IDENTITY_GATED_TOOLS.has(step.tool) ? { ...args, __callerPersonaId: callerPersonaId ?? null } : args;
     let attempt = 0;
     while (true) {
       try {
-        const result = await tool.handler(args);
+        const result = await tool.handler(dispatchArgs);
         // ollama.generate returns { text, model } so we capture the model used.
         // Other tools just leave modelUsed undefined.
         const modelUsed = result && typeof result === "object" && "model" in result ? String((result as any).model) : undefined;
@@ -1290,7 +1309,7 @@ export async function planAndExecute(
   task: string,
   push: (msg: string) => void,
   onProgress?: (patch: Partial<AgentResult> & { phase?: string }) => void,
-  opts: { personaSystemSuffix?: string; autoReview?: boolean; preplan?: Plan; workMode?: "agent" | "hybrid" | "human"; testMode?: boolean; signal?: AbortSignal; skipApprovalGate?: boolean; taskKind?: string; persona?: string; scopeId?: string } = {},
+  opts: { personaSystemSuffix?: string; autoReview?: boolean; preplan?: Plan; workMode?: "agent" | "hybrid" | "human"; testMode?: boolean; signal?: AbortSignal; skipApprovalGate?: boolean; taskKind?: string; persona?: string; personaId?: string; scopeId?: string } = {},
 ): Promise<AgentResult> {
   // Human-worker gate: a hire whose workMode is "human" doesn't get an agent
   // loop at all — the task is logged, parked in waiting_on_human, and the
@@ -1371,7 +1390,7 @@ export async function planAndExecute(
     const { runs, hadWrites } = await executePlan(p, push, (rs) => {
       runsBuffer.splice(0, runsBuffer.length, ...rs);
       onProgress?.({ runs: [...rs] });
-    }, undefined, opts.scopeId);
+    }, undefined, opts.scopeId, opts.personaId);
     const preplanHumanReq = extractHumanRequest(runs);
     if (preplanHumanReq) {
       return { task, plan: p, runs, answer: humanWaitAnswer(preplanHumanReq), hadWrites, humanRequest: preplanHumanReq };
@@ -2033,7 +2052,7 @@ export async function planAndExecute(
 
   onProgress?.({ phase: "executing", plan: p, runs: [] });
 
-  const { runs, hadWrites, budgets, subagentTimings, cancelled, delegatedApproval } = await executePlan(p, push, (runs) => onProgress?.({ runs: [...runs] }), opts.signal, opts.scopeId);
+  const { runs, hadWrites, budgets, subagentTimings, cancelled, delegatedApproval } = await executePlan(p, push, (runs) => onProgress?.({ runs: [...runs] }), opts.signal, opts.scopeId, opts.personaId);
   if (budgets) onProgress?.({ budgets, subagentTimings });
 
   // A delegated sub-task parked for approval — re-park THIS (parent) job. Carry

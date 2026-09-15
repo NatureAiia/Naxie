@@ -313,7 +313,29 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
       throw new fb(b.spentUsd, b.budgetUsd);
     }
   } catch (e: any) { if (e?.name === "AiBudgetExceededError") throw e; /* budget file missing = open */ }
-  const { backend, model, reason } = await chooseBackendAndModel(opts, prompt, system);
+  let { backend, model, reason } = await chooseBackendAndModel(opts, prompt, system);
+  // Paid-model approval gate — free online models (OpenRouter free tier,
+  // Gemini Flash) are the primary pick; local Ollama is the last-resort
+  // fallback; anything that actually bills stays off unless the operator
+  // has explicitly approved paid models (Settings > Models). Downgrades
+  // instead of erroring so a routine chat message doesn't just fail.
+  if (backend === "openrouter") {
+    try {
+      const { isFreeModelId, getModelPolicy } = await import("./model-policy.js");
+      if (!isFreeModelId(model) && !getModelPolicy().allowPaidModels) {
+        const freeSmallModel = pickOpenRouterModelFor(opts.profile);
+        if (isFreeModelId(freeSmallModel) && freeSmallModel !== model) {
+          reason = `paid model "${model}" needs approval (Settings → Models → Allow paid models) — using free tier "${freeSmallModel}" instead`;
+          model = freeSmallModel;
+        } else {
+          const localModel = opts.profile ? await pickModelFor(opts.profile, config.ollamaModel) : config.ollamaModel;
+          reason = `paid model "${model}" needs approval (Settings → Models → Allow paid models) — falling back to local ${localModel}`;
+          backend = "ollama";
+          model = localModel;
+        }
+      }
+    } catch { /* policy check is best-effort — never block a call on its own failure */ }
+  }
   const tokenEstimate = estimateTokens(prompt) + estimateTokens(system);
   // Customer-facing notification: caller decides whether to push the
   // routing decision into the chat run log. We pass enough context for the

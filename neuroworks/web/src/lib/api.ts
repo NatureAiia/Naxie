@@ -438,6 +438,10 @@ export const api = {
     req<{ provider: any }>("/api/models/providers", { method: "POST", body: JSON.stringify(body) }),
   activateModelProvider: (id: string) => req<{ provider: any }>(`/api/models/providers/${encodeURIComponent(id)}/activate`, { method: "POST" }),
   removeModelProvider: (id: string) => req<{ ok: true }>(`/api/models/providers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // Model spend policy — free-tier models are used by default; paid models
+  // stay off until explicitly approved here.
+  getModelPolicy: () => req<{ policy: { allowPaidModels: boolean } }>("/api/models/policy"),
+  setModelPolicy: (allowPaidModels: boolean) => req<{ policy: { allowPaidModels: boolean } }>("/api/models/policy", { method: "POST", body: JSON.stringify({ allowPaidModels }) }),
   // Open a live event stream for a running job. Returns the
   // EventSource so the caller can attach onmessage / onclose handlers
   // and close() when the consumer unmounts. Use this for streaming

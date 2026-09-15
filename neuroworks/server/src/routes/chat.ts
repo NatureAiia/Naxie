@@ -2059,7 +2059,7 @@ chatRouter.post("/team", async (req, res) => {
           : content + attachmentBlock;
         const personaSuffix = personaSystemSuffix(persona);
         if (persona) push(`Working as ${persona.name} — ${persona.role}.`);
-        const r = await planAndExecute(enriched, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, testMode, taskKind: job.kind, persona: persona?.name, scopeId: job.id });
+        const r = await planAndExecute(enriched, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, testMode, taskKind: job.kind, persona: persona?.name, personaId: persona?.id, scopeId: job.id });
         if (r.hadWrites) {
           push("Wrote to second brain — committing.");
           try {

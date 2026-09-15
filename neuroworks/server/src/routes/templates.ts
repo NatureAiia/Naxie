@@ -163,7 +163,7 @@ templatesRouter.post("/jobs/:id/retry", async (req, res) => {
     push(`retry of job ${req.params.id} (${old.status})`);
     const persona = getActivePersona();
     const suffix = personaSystemSuffix(persona);
-    const r = await planAndExecute(task, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: suffix, workMode: persona?.workMode, taskKind: job.kind, persona: persona?.name });
+    const r = await planAndExecute(task, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: suffix, workMode: persona?.workMode, taskKind: job.kind, persona: persona?.name, personaId: persona?.id });
     return {
       answer: r.answer,
       plan: r.plan,
@@ -351,6 +351,7 @@ templatesRouter.post("/jobs/:id/approve", requireLayer("admin"), async (req, res
       planAndExecute(task, push, (patch) => progress(patch as Record<string, unknown>), {
         personaSystemSuffix: j.personaSuffix,
         preplan: j.plan && j.plan.steps.length > 0 ? j.plan : undefined,
+        personaId: j.personaId,
       }));
     return;
   }
@@ -606,7 +607,7 @@ export async function generalTaskRunner(inputs: Record<string, unknown>, push: (
   // persisted) so the operator's Cancel Run stops the local agent loop too,
   // not just delegated runs.
   const signal = inputs._signal instanceof AbortSignal ? inputs._signal : undefined;
-  const r = await planAndExecute(task, push, (patch) => progress?.(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, testMode, signal, taskKind: "insights:general-task", persona: persona?.name });
+  const r = await planAndExecute(task, push, (patch) => progress?.(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, testMode, signal, taskKind: "insights:general-task", persona: persona?.name, personaId: persona?.id });
 
   // If the agent wrote anything to the vault, also commit + push
   if (r.hadWrites) {
