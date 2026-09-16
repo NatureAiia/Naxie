@@ -14,13 +14,20 @@ import path from "node:path";
 import { config } from "../config.js";
 import { isHermesLocal } from "./executor-mode.js";
 
-// Locate the Hermes binary installed by the Nous Research installer (same
-// detection the external-agents route uses): %LOCALAPPDATA%/hermes/... on
-// Windows, $HERMES_HOME, or ~/.hermes on Unix.
-export function detectHermesBin(): string | null {
-  const home = process.env.HERMES_HOME
+// Locate the Hermes install root (same resolution order the installer uses):
+// $HERMES_HOME, %LOCALAPPDATA%/hermes on Windows, or ~/.hermes on Unix.
+// Exported so lib/hermes-bridge.ts can find config.yaml without duplicating
+// this lookup.
+export function detectHermesHome(): string | null {
+  return process.env.HERMES_HOME
     ?? (process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "hermes") : null)
     ?? (process.env.HOME ? path.join(process.env.HOME, ".hermes") : null);
+}
+
+// Locate the Hermes binary installed by the Nous Research installer (same
+// detection the external-agents route uses).
+export function detectHermesBin(): string | null {
+  const home = detectHermesHome();
   if (!home) return null;
   for (const rel of ["hermes-agent/venv/Scripts/hermes.exe", "hermes-agent/venv/bin/hermes"]) {
     const p = path.join(home, rel);

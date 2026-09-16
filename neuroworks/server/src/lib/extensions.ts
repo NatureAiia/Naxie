@@ -67,16 +67,6 @@ export const EXTENSION_CATALOG: ExtensionDef[] = [
     connectHint: "Paste your Firecrawl API key (fc-…).",
   },
   {
-    id: "heygen",
-    name: "HeyGen",
-    category: "media",
-    description: "AI avatar / spokesperson video (media.avatar_video). Async render.",
-    envKey: "HEYGEN_API_KEY",
-    docsUrl: "https://app.heygen.com/settings?nav=API",
-    testable: true,
-    connectHint: "Paste your HeyGen API key. Set HEYGEN_BASE_URL if you use a proxy.",
-  },
-  {
     id: "ayrshare",
     name: "Ayrshare",
     category: "social",
@@ -105,17 +95,6 @@ export const EXTENSION_CATALOG: ExtensionDef[] = [
     docsUrl: "https://muapi.ai",
     testable: false,
     connectHint: "Paste your Muapi API key (x-api-key header).",
-  },
-  {
-    id: "n8n",
-    name: "n8n",
-    category: "infra",
-    description: "Self-hosted workflow automation — trigger workflows, fire webhooks, chain AI tasks. Powers n8n.* primitives.",
-    envKey: "N8N_API_KEY",
-    envKeys: ["N8N_BASE_URL", "N8N_WEBHOOK_BASE_URL"],
-    docsUrl: "https://docs.n8n.io/api/authentication/",
-    testable: true,
-    connectHint: "Run n8n (docker run -p 5678:5678 n8nio/n8n), open Settings → API → Create API Key, then set N8N_BASE_URL=http://127.0.0.1:5678 + N8N_API_KEY.",
   },
 ];
 
@@ -180,10 +159,6 @@ export async function getExtensionsStatus(): Promise<ExtensionStatus[]> {
         detail = configured ? `Key set (${prefixOf(raw)})` : "Not configured — smartFetch stops at Playwright";
         break;
       }
-      case "heygen": {
-        detail = configured ? `Key set (${prefixOf(raw)})` : "Not configured — media.avatar_video returns storyboard only";
-        break;
-      }
       case "ayrshare": {
         detail = configured ? `Key set (${prefixOf(raw)})` : "Not configured — social.post not available";
         break;
@@ -194,13 +169,6 @@ export async function getExtensionsStatus(): Promise<ExtensionStatus[]> {
       }
       case "muapi": {
         detail = configured ? `Key set (${prefixOf(raw)})` : "Not configured — image gen uses OpenRouter Gemini";
-        break;
-      }
-      case "n8n": {
-        const base = (process.env.N8N_BASE_URL ?? "").trim();
-        if (!base || !raw) detail = "Not configured — set N8N_BASE_URL + N8N_API_KEY";
-        else detail = config.n8nEnabled ? `Connected to ${base}` : "Base URL set but missing API key";
-        // probe lazily via getExtensionsStatus caller; live health is in testExtension
         break;
       }
       default:
@@ -268,30 +236,6 @@ export async function testExtension(id: string): Promise<{ ok: boolean; detail: 
         else {
           const r = await fetch(`${url.replace(/\/+$/, "")}/rest/v1/`, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
           result = r.ok || r.status === 404 ? { ok: true, detail: `Supabase reachable (HTTP ${r.status})` } : { ok: false, detail: `HTTP ${r.status}` };
-        }
-      } catch (e: any) { result = { ok: false, detail: String(e?.message ?? e) }; }
-      break;
-    }
-    case "heygen": {
-      try {
-        const r = await fetch("https://api.heygen.com/v2/avatars", { headers: { "x-api-key": raw, accept: "application/json" } });
-        const j: any = await r.json().catch(() => ({}));
-        if (r.ok && j?.data) {
-          const n = (j.data.avatars?.length ?? 0) + (j.data.talking_photos?.length ?? 0);
-          result = { ok: true, detail: `HeyGen ok — ${n} avatars` };
-        } else result = { ok: false, detail: j?.error?.message ?? `HTTP ${r.status}` };
-      } catch (e: any) { result = { ok: false, detail: String(e?.message ?? e) }; }
-      break;
-    }
-    case "n8n": {
-      try {
-        const base = (process.env.N8N_BASE_URL ?? "").trim().replace(/\/+$/, "");
-        if (!base) result = { ok: false, detail: "N8N_BASE_URL not set" };
-        else {
-          const r = await fetch(`${base}/api/v1/workflows?limit=1`, { headers: { "X-N8N-API-KEY": raw, accept: "application/json" } });
-          const j: any = await r.json().catch(() => ({}));
-          if (r.ok) result = { ok: true, detail: `n8n ok — ${j?.data?.length ?? 0} workflow(s) reachable at ${base}` };
-          else result = { ok: false, detail: j?.message ?? `HTTP ${r.status} — check N8N_BASE_URL + N8N_API_KEY` };
         }
       } catch (e: any) { result = { ok: false, detail: String(e?.message ?? e) }; }
       break;

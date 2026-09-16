@@ -1,7 +1,7 @@
 import { config } from "../config.js";
 import { pickModelFor, type TaskNeeds } from "./models.js";
 import { openrouterGenerateWithMeta, openrouterHealth, isTransientError, openrouterCircuitOpen, openrouterDailyQuotaExhausted, openrouterBillingExhausted } from "./openrouter.js";
-import { recordLlmCost } from "./cost-tracker.js";
+import { recordLlmCost, recordLlmFailure } from "./cost-tracker.js";
 import { isCloudReachableCached } from "./connectivity.js";
 
 export type LLMCallOptions = {
@@ -284,7 +284,20 @@ async function callOllamaStream(prompt: string, system: string | undefined, mode
 // how the Cost monitor page gets its data; recording is best-effort and never
 // blocks or breaks the actual generation).
 export async function llmGenerateWithMeta(prompt: string, system?: string, opts: LLMCallOptions = {}): Promise<{ text: string; model: string; usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } }> {
-  const result = await generateWithMetaInner(prompt, system, opts);
+  let result: { text: string; model: string; usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } };
+  try {
+    result = await generateWithMetaInner(prompt, system, opts);
+  } catch (e: any) {
+    // Terminal failure — every retry/fallback in generateWithMetaInner is
+    // exhausted. Record it once (previously invisible: cost-tracker only ever
+    // ran on the success path below) so byModel.failureRate is real, then
+    // rethrow unchanged — this is purely an observability hook.
+    try {
+      const { backend, model } = await chooseBackendAndModel(opts, prompt, system);
+      recordLlmFailure(model, backend === "little-coder" ? "ollama" : backend, opts.profile ?? "none", e?.message ?? String(e), "adhoc");
+    } catch { /* best-effort */ }
+    throw e;
+  }
   try { recordLlmCost(result.model, result.text, prompt, system, opts.profile ?? "none", "adhoc", result.usage); } catch { /* best-effort */ }
   // Prompt-cache effectiveness metric — only cloud providers report cached
   // prefix tokens (usage present). Best-effort; never blocks generation.
@@ -304,7 +317,38 @@ export async function llmGenerateWithMeta(prompt: string, system?: string, opts:
 }
 
 async function generateWithMetaInner(prompt: string, system?: string, opts: LLMCallOptions = {}): Promise<{ text: string; model: string; usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } }> {
-  const { backend, model, reason } = await chooseBackendAndModel(opts, prompt, system);
+  // Kuwana-inspired budget gate — before any paid dispatch, check monthly cap
+  try {
+    const { checkBudget } = await import("./ai/budget.js");
+    const b = checkBudget();
+    if (!b.allowed) {
+      const fb = (await import("./ai/budget.js")).AiBudgetExceededError;
+      throw new fb(b.spentUsd, b.budgetUsd);
+    }
+  } catch (e: any) { if (e?.name === "AiBudgetExceededError") throw e; /* budget file missing = open */ }
+  let { backend, model, reason } = await chooseBackendAndModel(opts, prompt, system);
+  // Paid-model approval gate — free online models (OpenRouter free tier,
+  // Gemini Flash) are the primary pick; local Ollama is the last-resort
+  // fallback; anything that actually bills stays off unless the operator
+  // has explicitly approved paid models (Settings > Models). Downgrades
+  // instead of erroring so a routine chat message doesn't just fail.
+  if (backend === "openrouter") {
+    try {
+      const { isFreeModelId, getModelPolicy } = await import("./model-policy.js");
+      if (!isFreeModelId(model) && !getModelPolicy().allowPaidModels) {
+        const freeSmallModel = pickOpenRouterModelFor(opts.profile);
+        if (isFreeModelId(freeSmallModel) && freeSmallModel !== model) {
+          reason = `paid model "${model}" needs approval (Settings → Models → Allow paid models) — using free tier "${freeSmallModel}" instead`;
+          model = freeSmallModel;
+        } else {
+          const localModel = opts.profile ? await pickModelFor(opts.profile, config.ollamaModel) : config.ollamaModel;
+          reason = `paid model "${model}" needs approval (Settings → Models → Allow paid models) — falling back to local ${localModel}`;
+          backend = "ollama";
+          model = localModel;
+        }
+      }
+    } catch { /* policy check is best-effort — never block a call on its own failure */ }
+  }
   const tokenEstimate = estimateTokens(prompt) + estimateTokens(system);
   // Customer-facing notification: caller decides whether to push the
   // routing decision into the chat run log. We pass enough context for the

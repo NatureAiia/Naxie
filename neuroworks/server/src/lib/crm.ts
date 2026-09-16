@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { maskSensitiveFields } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
@@ -223,15 +224,21 @@ export function logActivity(input: { contactId: string; kind: Activity["kind"]; 
 export function crmContextSummary(): string {
   const store = load();
   if (store.contacts.length === 0 && store.deals.length === 0) return "";
-  const openDeals = store.deals.filter(d => d.stage !== "Won" && d.stage !== "Lost");
+  // Masked before any field is read out into the prompt string below — a
+  // future field (or a synced-in record with more columns than today's
+  // Contact/Deal shape) shouldn't have to earn its way into this summary by
+  // remembering to mask it here too.
+  const contacts: Contact[] = store.contacts.map(c => maskSensitiveFields(c, "contact"));
+  const deals: Deal[] = store.deals.map(d => maskSensitiveFields(d, "deal"));
+  const openDeals = deals.filter(d => d.stage !== "Won" && d.stage !== "Lost");
   const openValue = openDeals.reduce((sum, d) => sum + (d.value ?? 0), 0);
   const topDeals = openDeals.slice().sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).slice(0, 3);
   const contactLabel = (id: string) => {
-    const c = store.contacts.find(x => x.id === id);
+    const c = contacts.find(x => x.id === id);
     return c?.name || c?.email || "unknown contact";
   };
   const lines = [
-    `${store.contacts.length} contact${store.contacts.length === 1 ? "" : "s"}, ${openDeals.length} open deal${openDeals.length === 1 ? "" : "s"}` +
+    `${contacts.length} contact${contacts.length === 1 ? "" : "s"}, ${openDeals.length} open deal${openDeals.length === 1 ? "" : "s"}` +
     (openValue > 0 ? ` (${openValue.toLocaleString()} total open value)` : "") + ".",
   ];
   if (topDeals.length > 0) {

@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { encryptSecret, decryptSecret, isEncrypted } from "./secret-box.js";
+import { maskSensitiveFields } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
@@ -651,6 +652,12 @@ export async function callConnector(idOrLabel: string, input: CallInput): Promis
     if (contentType?.includes("application/json")) {
       try { parsed = JSON.parse(slice); } catch { parsed = slice; }
     }
+    // Connectors hit arbitrary operator-configured APIs (member lists,
+    // payment records, ...) whose schema we don't know ahead of time — the
+    // agent reads this body straight into its context, so scrub
+    // sensitive-named fields (no entityType: an unknown schema means no
+    // allowlist to lean on) before it ever gets there.
+    if (parsed && typeof parsed === "object") parsed = maskSensitiveFields(parsed);
     // A 200 that returns an HTML PAGE (directory index, SPA shell, or a login
     // page) is not usable API data — but body:<html> + ok:true looks like a
     // success, so an agent would summarise the page as if it were the answer
@@ -737,26 +744,6 @@ const CONNECTOR_TEMPLATES: ConnectorTemplate[] = [
       { name: "update-task", method: "PATCH",  path: "/me/todo/lists/{listId}/tasks/{taskId}", description: "Update a task, e.g. mark done with { status: \"completed\" }", body: "{ status?, title?, dueDateTime?, reminderDateTime? }" },
       { name: "delete-task", method: "DELETE", path: "/me/todo/lists/{listId}/tasks/{taskId}", description: "Delete a task" },
       { name: "create-list", method: "POST",   path: "/me/todo/lists",                         description: "Create a new task list", body: "{ displayName }" },
-    ],
-  },
-  {
-    id: "n8n",
-    label: "n8n",
-    description: "Self-hosted n8n workflow automation — trigger webhook workflows and manage automations. Set baseUrl to your n8n instance (e.g. http://127.0.0.1:5678) and add your API key (n8n → Settings → API → Create API Key) as a header auth.",
-    baseUrl: "http://127.0.0.1:5678",
-    auth: { type: "header", name: "X-N8N-API-KEY", value: "" },
-    writeEnabled: true,
-    endpoints: [
-      { name: "list-workflows",   method: "GET",    path: "/api/v1/workflows",                         description: "List workflows (supports ?active=true&tags=...&limit=20)" , query: ["limit", "active", "tags"] },
-      { name: "get-workflow",     method: "GET",    path: "/api/v1/workflows/{id}",                     description: "Get a single workflow by id" },
-      { name: "create-workflow",  method: "POST",   path: "/api/v1/workflows",                         description: "Create a workflow", body: "{ name, nodes: [...], connections: {...}, settings? }" },
-      { name: "update-workflow",  method: "PUT",    path: "/api/v1/workflows/{id}",                     description: "Update a workflow", body: "{ name?, nodes?, connections?, settings? }" },
-      { name: "delete-workflow",  method: "DELETE", path: "/api/v1/workflows/{id}",                     description: "Delete a workflow" },
-      { name: "activate-workflow",   method: "POST", path: "/api/v1/workflows/{id}/activate",           description: "Activate a workflow" },
-      { name: "deactivate-workflow", method: "POST", path: "/api/v1/workflows/{id}/deactivate",         description: "Deactivate a workflow" },
-      { name: "list-executions",  method: "GET",    path: "/api/v1/executions",                         description: "List execution history" , query: ["limit", "workflowId", "status"] },
-      { name: "get-execution",    method: "GET",    path: "/api/v1/executions/{id}",                    description: "Get a single execution by id" },
-      { name: "trigger-webhook",  method: "POST",   path: "/webhook/{path}",                            description: "Trigger a webhook workflow (replace {path} with the Webhook node's path)", body: "{ any JSON payload }" },
     ],
   },
 ];

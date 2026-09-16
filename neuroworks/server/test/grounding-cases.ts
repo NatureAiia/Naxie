@@ -412,7 +412,7 @@ export const GROUNDING_CASES: GroundingCase[] = [
       "failed precisely because the agent reached for a Gmail connector that was " +
       "not configured. Knowing what it CANNOT do is grounding too.",
     expectTools: ["integration.list", "connector.list"],
-    mustIncludeAny: ["telegram", "mailjet", "imap", "heygen", "configured", "missing"],
+    mustIncludeAny: ["telegram", "mailjet", "imap", "ideogram", "configured", "missing"],
     critical: false,
   },
   {

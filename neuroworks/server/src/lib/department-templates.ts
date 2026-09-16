@@ -43,7 +43,7 @@ export type DepartmentTemplate = {
 export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
   {
     id: "it-devops",
-    name: "IT & DevOps",
+    name: "ICT",
     tagline: "Infrastructure monitoring, GitHub automation, deployment workflows",
     description: "A complete IT department: monitor repos, triage issues, run deployments, and keep the engineering team aligned. Includes a daily digest of all project activity.",
     icon: "Terminal",
@@ -70,11 +70,11 @@ export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
     ],
   },
   {
-    id: "marketing",
-    name: "Marketing & Comms",
-    tagline: "Content creation, social media monitoring, brand compliance",
-    description: "Marketing team that drafts content, monitors brand mentions, enforces brand voice guidelines, and produces weekly performance reports.",
-    icon: "Megaphone",
+    id: "sales-marketing",
+    name: "Sales & Marketing",
+    tagline: "Content creation, brand compliance, lead qualification, pipeline tracking",
+    description: "Combined sales and marketing team: drafts content, monitors brand mentions and enforces brand voice, qualifies leads, updates CRM records, drafts follow-up emails, and produces weekly content and pipeline reports. Integrates with HubSpot and Google.",
+    icon: "TrendingUp",
     color: "coral",
     agents: [
       {
@@ -83,28 +83,6 @@ export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
         jobDescription: "Draft blog posts, social media content, and newsletters. Research industry trends and competitors. Ensure all content follows brand voice guidelines. Produce weekly content performance reports.",
         tone: "engaging, professional, on-brand",
       },
-    ],
-    recommendedIntegrations: ["slack", "google", "webhook"],
-    recommendedTemplates: ["search-brain", "add-note", "daily-briefing"],
-    schedule: {
-      name: "Weekly content report",
-      templateId: "daily-briefing",
-      cadence: { daysOfWeek: [5], hour: 16, minute: 0 },
-    },
-    workflow: [
-      { persona: "Content Strategist", task: "Research trending topics in the industry" },
-      { persona: "Content Strategist", task: "Draft content aligned with brand voice" },
-      { persona: "Content Strategist", task: "Review for brand compliance and publish" },
-    ],
-  },
-  {
-    id: "sales",
-    name: "Sales & CRM",
-    tagline: "Lead qualification, pipeline tracking, follow-up automation",
-    description: "Sales team that qualifies leads, updates CRM records, drafts follow-up emails, and generates weekly pipeline reports. Integrates with HubSpot and Google.",
-    icon: "TrendingUp",
-    color: "green",
-    agents: [
       {
         name: "Sales Analyst",
         role: "Operations",
@@ -112,49 +90,28 @@ export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
         tone: "professional, persuasive, concise",
       },
     ],
-    recommendedIntegrations: ["hubspot", "google", "slack"],
-    recommendedTemplates: ["daily-briefing", "search-brain"],
+    recommendedIntegrations: ["slack", "google", "webhook", "hubspot"],
+    recommendedTemplates: ["search-brain", "add-note", "daily-briefing"],
     schedule: {
-      name: "Weekly pipeline report",
+      name: "Weekly sales & marketing report",
       templateId: "daily-briefing",
-      cadence: { daysOfWeek: [1], hour: 9, minute: 0 },
+      cadence: { daysOfWeek: [5], hour: 16, minute: 0 },
     },
     workflow: [
+      { persona: "Content Strategist", task: "Research trending topics in the industry" },
+      { persona: "Content Strategist", task: "Draft content aligned with brand voice" },
       { persona: "Sales Analyst", task: "Review new leads and qualify by priority" },
       { persona: "Sales Analyst", task: "Update deal stages in CRM" },
       { persona: "Sales Analyst", task: "Draft follow-up sequence for warm leads" },
     ],
   },
   {
-    id: "hr",
-    name: "HR & People Ops",
-    tagline: "Employee onboarding, policy management, HR compliance",
-    description: "HR team that manages employee records, drafts policies, handles onboarding documentation, and ensures HR compliance with labor regulations.",
-    icon: "Users",
-    color: "blue",
-    agents: [
-      {
-        name: "HR Coordinator",
-        role: "Operations",
-        jobDescription: "Manage employee records and onboarding documentation. Draft and update HR policies. Track leave balances and compliance training. Generate headcount reports.",
-        tone: "empathetic, professional, clear",
-      },
-    ],
-    recommendedIntegrations: ["google", "slack"],
-    recommendedTemplates: ["add-note", "search-brain", "daily-briefing"],
-    workflow: [
-      { persona: "HR Coordinator", task: "Process new employee onboarding documents" },
-      { persona: "HR Coordinator", task: "Review and update HR policies for compliance" },
-      { persona: "HR Coordinator", task: "Generate monthly headcount and leave report" },
-    ],
-  },
-  {
-    id: "finance",
-    name: "Finance & Accounting",
-    tagline: "Expense tracking, financial reporting, budget monitoring",
-    description: "Finance team that tracks expenses, monitors budgets, generates financial reports, and flags anomalies. Connects to company data sources for live financial querying.",
+    id: "finance-legal",
+    name: "Finance and Legal",
+    tagline: "Expense tracking, financial reporting, contract review, compliance monitoring",
+    description: "Combined finance and legal team: tracks expenses, monitors budgets, generates financial reports and flags anomalies, reviews contracts, monitors regulatory compliance, and manages risk assessments. Connects to company data sources for live financial querying and integrates with governance guardrails.",
     icon: "CreditCard",
-    color: "amber",
+    color: "navy",
     agents: [
       {
         name: "Financial Analyst",
@@ -162,28 +119,6 @@ export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
         jobDescription: "Monitor expenses against budgets. Generate weekly financial summaries. Flag unusual transactions. Prepare month-end reports. Query financial data sources for live numbers.",
         tone: "precise, detail-oriented, conservative",
       },
-    ],
-    recommendedIntegrations: ["google", "webhook"],
-    recommendedTemplates: ["daily-briefing", "search-brain"],
-    schedule: {
-      name: "Weekly finance summary",
-      templateId: "daily-briefing",
-      cadence: { daysOfWeek: [1], hour: 7, minute: 30 },
-    },
-    workflow: [
-      { persona: "Financial Analyst", task: "Review expenses and flag anomalies" },
-      { persona: "Financial Analyst", task: "Update budget vs actuals report" },
-      { persona: "Financial Analyst", task: "Prepare weekly financial summary" },
-    ],
-  },
-  {
-    id: "legal",
-    name: "Legal & Compliance",
-    tagline: "Contract review, compliance monitoring, policy drafting",
-    description: "Legal team that reviews contracts, monitors regulatory compliance, drafts policies, and manages risk assessments. Integrates with governance guardrails.",
-    icon: "Scale",
-    color: "purple",
-    agents: [
       {
         name: "Legal Counsel",
         role: "Insights",
@@ -192,19 +127,25 @@ export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
       },
     ],
     recommendedIntegrations: ["google", "webhook"],
-    recommendedTemplates: ["search-brain", "add-note", "daily-briefing"],
+    recommendedTemplates: ["daily-briefing", "search-brain", "add-note"],
+    schedule: {
+      name: "Weekly finance & legal summary",
+      templateId: "daily-briefing",
+      cadence: { daysOfWeek: [1], hour: 7, minute: 30 },
+    },
     workflow: [
+      { persona: "Financial Analyst", task: "Review expenses and flag anomalies" },
+      { persona: "Financial Analyst", task: "Update budget vs actuals report" },
       { persona: "Legal Counsel", task: "Review documents for compliance risks" },
       { persona: "Legal Counsel", task: "Research regulatory requirements for new initiative" },
-      { persona: "Legal Counsel", task: "Draft compliance assessment report" },
     ],
   },
   {
-    id: "customer-support",
-    name: "Customer Service",
-    tagline: "Ticket triage, response drafting, satisfaction tracking",
-    description: "Support team that triages incoming tickets, drafts responses, tracks resolution SLAs, and monitors customer satisfaction trends. Both agents can be pinned to Shona or Ndebele independently (Personas page) for a local-language support desk.",
-    icon: "Headphones",
+    id: "communications",
+    name: "Communications",
+    tagline: "Ticket triage, response drafting, press releases, announcements, media & inbound response",
+    description: "Combined communications and customer-service team: triages incoming support tickets, drafts responses, tracks resolution SLAs and satisfaction trends, drafts press releases and announcements, and monitors/responds to media and public inquiries — keeping messaging consistent under normal operations and during a crisis. All agents can be pinned to Shona or Ndebele independently (Personas page) for a local-language desk.",
+    icon: "Megaphone",
     color: "teal",
     agents: [
       {
@@ -219,23 +160,6 @@ export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
         jobDescription: "Track resolution times against SLAs. Summarize weekly support trends, recurring issues, and escalation patterns into a digest for the team lead.",
         tone: "concise, pattern-focused, actionable",
       },
-    ],
-    recommendedIntegrations: ["slack", "google"],
-    recommendedTemplates: ["daily-briefing"],
-    workflow: [
-      { persona: "Ticket Responder", task: "Triage new tickets and prioritize" },
-      { persona: "Ticket Responder", task: "Draft responses for pending tickets" },
-      { persona: "Support Summariser", task: "Generate weekly support metrics report" },
-    ],
-  },
-  {
-    id: "communications",
-    name: "Communications",
-    tagline: "Press releases, announcements, media & inbound response",
-    description: "Communications team that drafts press releases and announcements, monitors and responds to media/public inquiries, and keeps messaging consistent under normal operations and during a crisis.",
-    icon: "Megaphone",
-    color: "coral",
-    agents: [
       {
         name: "Comms Writer",
         role: "Knowledge",
@@ -252,44 +176,12 @@ export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
     recommendedIntegrations: ["slack", "google", "webhook"],
     recommendedTemplates: ["daily-briefing"],
     workflow: [
+      { persona: "Ticket Responder", task: "Triage new tickets and prioritize" },
+      { persona: "Ticket Responder", task: "Draft responses for pending tickets" },
+      { persona: "Support Summariser", task: "Generate weekly support metrics report" },
       { persona: "Comms Writer", task: "Draft a release or statement for a pending announcement" },
       { persona: "Comms Responder", task: "Triage and respond to inbound media/public inquiries" },
       { persona: "Comms Writer", task: "Review outgoing statements for consistency before publishing" },
-    ],
-  },
-  {
-    id: "grant-writing",
-    name: "Grant Writing",
-    tagline: "Donor proposals, program reports, funder-ready summaries",
-    description: "Grant writing team for NGOs and development-sector organizations: drafts funding proposals, writes quarterly donor reports, and summarizes program/M&E data into funder-ready narrative. Pairs naturally with the NGO & Civil Society sector.",
-    icon: "HandHeart",
-    color: "green",
-    agents: [
-      {
-        name: "Grant Writer",
-        role: "Knowledge",
-        jobDescription: "Draft funding proposals and letters of inquiry against a donor's stated priorities and format requirements. Translate program activities into the outcomes language funders expect.",
-        tone: "persuasive, evidence-led, funder-aware",
-      },
-      {
-        name: "Donor Report Writer",
-        role: "Knowledge",
-        jobDescription: "Write quarterly and end-of-grant narrative reports pairing program activities with verifiable indicators. Flag any indicator that's off-track early rather than at report deadline.",
-        tone: "precise, indicator-anchored, honest about gaps",
-      },
-      {
-        name: "Program Summariser",
-        role: "Knowledge",
-        jobDescription: "Summarize beneficiary tracking and M&E data into short digests the Grant Writer and Donor Report Writer can draw on, so every proposal and report is grounded in current program numbers.",
-        tone: "concise, numbers-first, current",
-      },
-    ],
-    recommendedIntegrations: ["slack", "google"],
-    recommendedTemplates: ["daily-briefing", "research-deep"],
-    workflow: [
-      { persona: "Program Summariser", task: "Digest current program/M&E data" },
-      { persona: "Grant Writer", task: "Draft a funding proposal against a donor's priorities" },
-      { persona: "Donor Report Writer", task: "Write the quarterly donor narrative report" },
     ],
   },
   {
@@ -298,7 +190,7 @@ export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
     tagline: "Process automation, reporting, vendor management",
     description: "Operations team that automates recurring processes, manages vendor relationships, generates operational reports, and keeps the business running smoothly.",
     icon: "Settings",
-    color: "slate",
+    color: "red",
     agents: [
       {
         name: "Operations Manager",
@@ -349,6 +241,9 @@ export function applyResolvedTemplate(tpl: DepartmentTemplate): {
       tone: agent.tone ?? "professional",
       responsibilities: tpl.workflow.filter(w => w.persona === agent.name).map(w => w.task),
       language: agent.language ?? tpl.defaultLanguage,
+      // Structured field (see personas.ts) alongside the free-text description
+      // above — this is what actually seats the persona in the right Office room.
+      department: tpl.id,
       createdAt: new Date().toISOString(),
     };
     addPersona(persona);

@@ -24,9 +24,7 @@ export const extensionsRouter = Router();
 extensionsRouter.get("/", async (req, res) => {
   try {
     const days = Math.max(1, Math.min(90, Number(req.query.days ?? 7)));
-    const since30 = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-    const since7 = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
-    const [core, integrations, connectors, providers, healthSummaries, healthHistory, costSummary, cost30, cost7] = await Promise.all([
+    const [core, integrations, connectors, providers, healthSummaries, healthHistory, costSummary] = await Promise.all([
       getExtensionsStatus(),
       Promise.resolve(listConnections()),
       Promise.resolve(listConnectors()),
@@ -34,39 +32,9 @@ extensionsRouter.get("/", async (req, res) => {
       Promise.resolve(getHealthSummaries(days)),
       Promise.resolve(getHealthHistory(new Date(Date.now() - days * 24 * 3600 * 1000).toISOString())),
       Promise.resolve(getCostSummary()),
-      Promise.resolve(getCostRecords(since30)),
-      Promise.resolve(getCostRecords(since7)),
     ]);
     const coreEnabled = core.filter((c) => c.enabled).length;
     const coreHealthy = core.filter((c) => c.health?.ok).length;
-
-    // Cost per extension — map cost-tracker backends to platform IDs
-    const costByExtension = EXTENSION_CATALOG.map(def => {
-      const match = (r: any) => {
-        const m = (r.model ?? "").toLowerCase();
-        const b = (r.backend ?? "").toLowerCase();
-        switch (def.id) {
-          case "openrouter": return b === "openrouter" || b === "anthropic" || (b === "openrouter" && (m.includes("/") || m.startsWith("gpt-") || m.startsWith("claude-")));
-          case "ollama": return b === "ollama";
-          case "heygen": return b === "heygen";
-          case "ideogram": return b === "ideogram";
-          case "muapi": return b === "muapi";
-          case "supabase": return false;
-          case "firecrawl": return false;
-          case "ayrshare": return false;
-          default: return false;
-        }
-      };
-      const c30 = cost30.filter(match);
-      const c7 = cost7.filter(match);
-      return {
-        id: def.id,
-        costUsd30d: Math.round(c30.reduce((s, r) => s + r.costUsd, 0) * 10000) / 10000,
-        calls30d: c30.length,
-        costUsd7d: Math.round(c7.reduce((s, r) => s + r.costUsd, 0) * 10000) / 10000,
-        calls7d: c7.length,
-      };
-    });
 
     // Alerts: any extension with alert in healthSummaries + cost anomaly (7d > 2x 30d avg)
     const alerts = healthSummaries.filter(h => h.alert).map(h => ({ id: h.id, alert: h.alert, uptimePct: h.uptimePct }));
@@ -79,7 +47,6 @@ extensionsRouter.get("/", async (req, res) => {
       healthSummaries,
       healthHistory: healthHistory.slice(-200),
       costSummary,
-      costByExtension,
       alerts,
       counts: {
         coreTotal: core.length,
@@ -137,7 +104,6 @@ extensionsRouter.get("/analytics", async (req, res) => {
           const b = (r.backend ?? "").toLowerCase();
           if (id === "openrouter") return b === "openrouter" || b === "anthropic" || m.includes("/");
           if (id === "ollama") return b === "ollama";
-          if (id === "heygen") return b === "heygen";
           if (id === "ideogram") return b === "ideogram";
           if (id === "muapi") return b === "muapi";
           return false;

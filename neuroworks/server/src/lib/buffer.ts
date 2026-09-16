@@ -125,9 +125,8 @@ export async function bufferAggregatedMetrics(token: string, opts: {
 
 // Create one post on one channel. mode: "addToQueue" (default — Buffer slots it
 // into the channel's schedule), "customScheduled" (+dueAt ISO), "shareNow", or
-// draft via saveToDraft. A videoUrl (e.g. a HeyGen render) attaches as a video
-// asset — required for video-only channels like TikTok. Returns the post id or
-// an error string.
+// draft via saveToDraft. A videoUrl attaches as a video asset — required for
+// video-only channels like TikTok. Returns the post id or an error string.
 export async function bufferCreatePost(token: string, opts: {
   channelId: string; text: string; mode?: string; dueAt?: string; saveToDraft?: boolean;
   videoUrl?: string; thumbnailUrl?: string; imageUrl?: string;
@@ -135,7 +134,7 @@ export async function bufferCreatePost(token: string, opts: {
   // Buffer AssetInput is a union: { video:{url} } | { image:{url} }.
   // NB: do NOT send a custom video thumbnailUrl — Buffer rejects it ("social
   // networks do not accept custom video thumbnail images"; a thumbnail is picked
-  // via metadata.thumbnailOffset instead). So the HeyGen thumbnail is used only
+  // via metadata.thumbnailOffset instead). So a supplied thumbnail is used only
   // in the review message, never on the Buffer asset (live 2026-07-28).
   const assets: unknown[] = [];
   if (opts.videoUrl) assets.push({ video: { url: opts.videoUrl } });

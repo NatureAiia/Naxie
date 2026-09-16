@@ -1,0 +1,25 @@
+⚡ Quick Wins (1-2 days)
+- Smart Email Triage 7am — Naxie classifies inbox 🔥 Action / 📅 Scheduled / 👀 FYI with one-liner why + inline ✅ Archive/➡️ Delegate Telegram buttons (reuses current callback infra telegram-bridge.ts:282).
+- Habit & Focus Streaks — auto-track ✅ Today completion rate → weekly 🔥 5-day streak Telegram nudge + vault _neuroworks/streaks.md.
+- Meeting Prep/Post — 30min before any calendar.read_today event, Naxie DMs attendees + agenda; after, auto vault.search + draft ## Action Items to approve.
+- Voice Wake-Word — finish the naxie-wakeword-proactive-spike.md spike: on-device Vosk hey Naxie → continuous listen without push-to-talk.
+- Expense Snap — photo→media.image→OCR→## Expense table + vault _finance/ + Telegram 💳 Logged $X card.
+🧠 Intelligence Upgrades (3-5 days)
+- Predictive Tomorrow — LLM predicts likely overdue slips (based on avg completion lag my-tasks.json) and proactively suggests ⏰ Reschedule 3 overdue to tomorrow? on Sunday rollup.
+- Vault Co-Pilot Chat — vault.search + graphify subgraph injected as context chips in chat UI (GlassCard.tsx) so Naxie cites [vault:path] with preview hover.
+- Multi-Agent Board — weekly Researcher vs Ops vs Sales debate (research.multiperspective fan-out already in innovation-scan.ts) summarised to # 🎭 Board Verdict in Weekly Rollup.
+- Auto-Skill Learning — reflection.ts:522 bottlenecks → auto-generate skill-forge playbook patch with architect.ts review, no human prompt.
+- Language & Tone — Shona/Ndebele switch per language-prompts.ts + Naxie persona personas.ts:63 — 🗣️ Mhoro morning greeting variant.
+🔌 Integrations & OS (1 week)
+- WhatsApp Bridge — mirror telegram-bridge.ts for WhatsApp Cloud API (same sendTelegramMessage abstraction → sendChannelMessage).
+- N8N Public API Gallery — expose Innovation Scan + Weekly Rollup as N8N triggers so users chain Scan → Notion → Slack without code (n8n.ts already mounted).
+- File Watch → Auto-Ingest — vault watcher already index.ts:487 — add auto-tag + summary sidecar for every new 0-Inbox/ doc, like wiki-compile but real-time.
+- Calendar Conflict Resolver — detects double-book → proposes 3 alternatives via calendar.plan_day + one-tap Telegram ✅ Move to Tue 10am.
+- Supabase Vault Sync — bidirectional vault mirror (you already hydrate MAG hydrateMemoryFromSupabaseIfLocalEmpty index.ts:591) → make weekly-rollup also push to Supabase for mobile offline.
+📊 System & UX
+- DailyReports Heatmap DailyReports.tsx:1 — calendar heatmap (like GitHub) for reflections/scans/briefs completion.
+- Naxie Ledger _neuroworks/ledger.md → single source of truth cost.ts + audit + todo stats, rendered as System Audit card you just added.
+- PWA Offline Queue — my-tasks toggle queues offline and syncs on reconnect (like commit-queue.ts but for tasks).
+- Kuwana App Shell — ship the bottom-composer + signal bloom components already stubbed (KuwanaBottomComposer.tsx, SignalBloom.tsx) + glass morphism across Layout.tsx/Naxie.tsx.
+Recommended next sprint:
+Email Triage + Calendar Conflict + Vault Chips → biggest daily time-save for Nature, reuse existing 6am Brief/Telegram infra, low risk.

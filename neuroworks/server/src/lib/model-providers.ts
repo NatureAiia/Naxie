@@ -48,6 +48,12 @@ export type ModelProvider = {
   apiKey: string;       // encrypted at rest
   active: boolean;
   createdAt: string;
+  // Naxie's model-selection self-improvement loop (system.admin's
+  // "switch_model" action, approval-gated) writes here instead of the
+  // kind-based defaults in applyToRuntime below — persists across restart,
+  // survives until explicitly changed again.
+  smallModelOverride?: string;
+  largeModelOverride?: string;
 };
 
 export type ModelProviderPublic = Omit<ModelProvider, "apiKey"> & { keyPrefix: string };
@@ -192,6 +198,10 @@ export function applyToRuntime(p: ModelProvider | null): void {
     config.openrouterModel = p.model;
     config.openrouterLargeModel = p.model;
   }
+  // A Naxie-proposed model switch (system.admin's "switch_model", approval-
+  // gated) wins over the kind-based defaults above, same as an env pin would.
+  if (p.smallModelOverride) config.openrouterModel = p.smallModelOverride;
+  if (p.largeModelOverride) config.openrouterLargeModel = p.largeModelOverride;
   config.openrouterEnabled = config.openrouterApiKey.length > 0;
 }
 
@@ -239,4 +249,20 @@ export function getFallbackChain(): FallbackProvider[] {
 export function loadAndApplyActiveProvider(): void {
   const active = load().find(p => p.active);
   if (active) applyToRuntime(active);
+}
+
+// Naxie's model-selection self-improvement loop (system.admin's "switch_model"
+// action, approval-gated — see agent.ts SENSITIVE_APPROVAL_TOOLS) calls this
+// to change just the small or large tier model for the currently active
+// provider, without re-registering a whole provider record. Persists (so the
+// switch survives a restart) and takes effect immediately via applyToRuntime.
+export function setActiveTierModel(tier: "small" | "large", model: string): ModelProviderPublic {
+  const list = load();
+  const active = list.find(p => p.active);
+  if (!active) throw new Error("no active model provider to switch — register one on the Models page first");
+  if (tier === "small") active.smallModelOverride = model;
+  else active.largeModelOverride = model;
+  save(list);
+  applyToRuntime(active);
+  return redact(active);
 }

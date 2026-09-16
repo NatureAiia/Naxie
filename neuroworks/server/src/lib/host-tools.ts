@@ -139,9 +139,15 @@ const WEATHER_DESCRIPTIONS: Record<number, string> = {
   71: "Slight snow", 80: "Rain showers", 95: "Thunderstorm",
 };
 
+const WEATHER_EMOJI: Record<string, string> = {
+  "Clear sky": "☀️", "Mainly clear": "🌤️", "Partly cloudy": "⛅", "Overcast": "☁️",
+  "Foggy": "🌫️", "Light drizzle": "🌦️", "Slight rain": "🌧️", "Moderate rain": "🌧️",
+  "Slight snow": "🌨️", "Rain showers": "🌧️", "Thunderstorm": "⛈️",
+};
+
 export async function getWeather(location = "auto"): Promise<string> {
   try {
-    let lat = 51.5074, lon = -0.1278, locName = "London"; // fallback, matches naxionai's default
+    let lat = 51.5074, lon = -0.1278, locName = "London";
     if (location && location.toLowerCase() !== "auto") {
       const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`;
       const geoRes = await fetch(geoUrl, { headers: { "User-Agent": "NeuroWorks/1.0" }, signal: AbortSignal.timeout(5000) });
@@ -153,14 +159,35 @@ export async function getWeather(location = "auto"): Promise<string> {
         locName = `${first.name}, ${(first.country_code ?? "").toUpperCase()}`;
       }
     }
-    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=temperature_2m,relativehumidity_2m,windspeed_10m`;
+    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=temperature_2m,relativehumidity_2m,windspeed_10m,daily=temperature_2m_max,temperature_2m_min&timezone=auto`;
     const wRes = await fetch(weatherUrl, { headers: { "User-Agent": "NeuroWorks/1.0" }, signal: AbortSignal.timeout(5000) });
     const wData: any = await wRes.json();
     const current = wData?.current_weather ?? {};
+    const hourly = wData?.hourly ?? {};
+    const daily = wData?.daily ?? {};
     const desc = WEATHER_DESCRIPTIONS[current.weathercode] ?? "Clear";
-    return `Weather for ${locName}: ${current.temperature}°C (${desc}), Wind speed: ${current.windspeed} km/h.`;
+    const emoji = WEATHER_EMOJI[desc] ?? "🌡️";
+    const temp = current.temperature ?? "—";
+    const wind = current.windspeed ?? "—";
+    const windGust = current.windgusts ?? "";
+    const humidity = hourly?.relativehumidity_2m?.[0] ?? "";
+    const todayMax = daily?.temperature_2m_max?.[0] ?? "";
+    const todayMin = daily?.temperature_2m_min?.[0] ?? "";
+    const range = todayMax !== "" && todayMin !== "" ? ` · 📈 ${todayMax}° / 📉 ${todayMin}°` : "";
+    const humLine = humidity !== "" ? ` · 💧 Humidity ${humidity}%` : "";
+    return [
+      `## ${emoji} Weather — ${locName}`,
+      ``,
+      `**${desc}** · **${temp}°C**${range}`,
+      ``,
+      `| 💨 Wind | 💧 Humidity | 🕐 Observed |`,
+      `|---|---|---|`,
+      `| ${wind} km/h${windGust ? ` (gusts ${windGust})` : ""} | ${humidity !== "" ? `${humidity}%` : "—"} | ${current.time ?? "now"} |`,
+      ``,
+      `_Source: Open-Meteo · ${locName} (${lat.toFixed(2)}, ${lon.toFixed(2)})_`,
+    ].join("\n");
   } catch (e: any) {
-    return `Could not retrieve weather: ${e?.message ?? e}`;
+    return `## ⚠️ Weather\n\n_Could not retrieve weather: ${e?.message ?? e}_`;
   }
 }
 

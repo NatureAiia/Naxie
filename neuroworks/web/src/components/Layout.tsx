@@ -2,7 +2,6 @@ import { NavLink, Link, useLocation } from "react-router-dom";
 import { ReactNode, useEffect, useState, type ComponentType } from "react";
 import { ToastRack } from "./Card";
 import {
-  Users2,
   Search as SearchIcon,
   ChevronRight,
   CalendarDays,
@@ -10,7 +9,6 @@ import {
   Puzzle,
   LogOut,
   Zap,
-  DollarSign,
   Inbox,
   PanelLeftClose,
   PanelLeftOpen,
@@ -20,9 +18,10 @@ import {
   GitBranch,
   Boxes,
   Cable,
-  Workflow,
+  ArrowLeftRight,
   Network,
   Contact,
+  Building2,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -43,7 +42,6 @@ import { NaxieWidget } from "./NaxieWidget";
 const TodoIcon = matIcon("todo");
 const ChangelogIcon = matIcon("changelog");
 const ReviewFolderIcon = matIcon("folder-review");
-const LogIcon = matIcon("log");
 const TemplateIcon = matIcon("template");
 const RobotIcon = matIcon("robot");
 const RobotFolderIcon = matIcon("folder-robot");
@@ -51,7 +49,6 @@ const DocsFolderIcon = matIcon("folder-docs");
 const CertificateIcon = matIcon("certificate");
 const EventFolderIcon = matIcon("folder-event");
 const WorkspaceFolderIcon = matIcon("folder"); // generic nav-group container glyph
-const ConfigFolderIcon = matIcon("folder-config");
 
 type NavItem = {
   to: string;
@@ -71,7 +68,7 @@ type NavItem = {
 const primaryNav: NavItem[] = [
   { to: "/naxie", label: "Naxie", icon: Sparkles, iconColor: "text-violet-400" },
   { to: "/command", label: "Command Center", icon: LayoutDashboard },
-  { to: "/chat", label: "Board Meeting", icon: Users2 },
+  { to: "/office", label: "Office", icon: Building2 },
   { to: "/ide", label: "Naxion IDE", icon: Terminal },
 ];
 
@@ -80,6 +77,8 @@ const agentsNav: NavItem[] = [
   { to: "/squads", label: "Squads", icon: Zap },
   { to: "/orchestrate", label: "Orchestrate", icon: RobotFolderIcon },
   { to: "/spin-up", label: "Spin up an agent", icon: Sparkles },
+  { to: "/org-dashboard", label: "Org Dashboard", icon: Network },
+  { to: "/policies", label: "Policies", icon: CertificateIcon },
 ];
 
 const workNav: NavItem[] = [
@@ -106,21 +105,13 @@ const memoryNav: NavItem[] = [
 
 const connectNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
-  // Integrations stays as an Extensions internal tab. Connectors, MCP
-  // Servers, and n8n each got their own top-level page — company systems +
-  // personal Google/Microsoft accounts, local MCP tool servers, and
-  // self-hosted n8n workflows respectively.
+  // Integrations stays as an Extensions internal tab. Connectors and MCP
+  // Servers each got their own top-level page — company systems + personal
+  // Google/Microsoft accounts, and local MCP tool servers respectively.
   { to: "/connectors", label: "Connectors", icon: Boxes },
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
-  { to: "/n8n", label: "n8n", icon: Workflow },
+  { to: "/hermes-bridge", label: "Hermes Bridge", icon: ArrowLeftRight },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
-];
-
-const governNav: NavItem[] = [
-  { to: "/policies", label: "Policies", icon: CertificateIcon },
-  { to: "/audit", label: "Audit Log", icon: LogIcon },
-  { to: "/org-dashboard", label: "Org Dashboard", icon: Network },
-  { to: "/cost", label: "Cost", icon: DollarSign },
 ];
 
 // Ambient Watch — a single stub slot, not a real group yet (no logic behind
@@ -137,31 +128,10 @@ export function Layout({ children }: { children: ReactNode }) {
   // Per-group open state. Undefined = "not toggled yet"; a group with an active
   // child defaults to open so the current page is always visible in the rail.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  // Four named color themes: "dark" = Atom One Dark (the existing default
-  // palette — see index.css), "dracula" = the official Dracula palette,
-  // "paper-light"/"paper-dark" = the warm cream/teal editorial palette in
-  // its light and dark halves. Any older saved "light"/"paper" value falls
-  // back to "dark".
-  const THEMES = ["dark", "dracula", "paper-light", "paper-dark"] as const;
-  type Theme = (typeof THEMES)[number];
-  const THEME_LABELS: Record<Theme, string> = {
-    dark: "Atom One Dark",
-    dracula: "Dracula",
-    "paper-light": "Paper (light)",
-    "paper-dark": "Paper (dark)",
-  };
-  // Swatch dot shows the accent color of the theme it represents.
-  const THEME_SWATCH: Record<Theme, string> = {
-    dark: "bg-[#61afef]",
-    dracula: "bg-[#bd93f9]",
-    "paper-light": "bg-[#2B6E63]",
-    "paper-dark": "bg-[#5FBFA9]",
-  };
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === "undefined") return "dark";
-    const saved = localStorage.getItem("neuroworks.theme");
-    return (THEMES as readonly string[]).includes(saved ?? "") ? (saved as Theme) : "dark";
-  });
+  // Atom One Dark only — the theme switcher was removed, but [data-theme]
+  // stays set (index.css keys off it, and OfficeScene/PixelDriftText observe
+  // it for repaints) so this constant just fixes it to "dark" everywhere.
+  const theme = "dark" as const;
   // Collapsed sidebar — an icon-only rail (~4x narrower) for more working
   // space. Sticky across reloads like the theme choice.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -197,8 +167,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("neuroworks.theme", theme);
-  }, [theme]);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("neuroworks.sidebarCollapsed", collapsed ? "1" : "0");
@@ -233,6 +202,13 @@ export function Layout({ children }: { children: ReactNode }) {
     const i = setInterval(tick, 5000);
     return () => clearInterval(i);
   }, []);
+  // Page-view beacon for MD audit dormancy (S) — best-effort, no await
+  useEffect(() => {
+    try {
+      const page = location.pathname;
+      fetch("/api/system-audit/page-view", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ page }) }).catch(() => {});
+    } catch { /* ignore */ }
+  }, [location.pathname]);
   // Warm the chunks a user almost always opens next, once the app is idle.
   useEffect(() => {
     preloadLikelyRoutes();
@@ -341,18 +317,6 @@ export function Layout({ children }: { children: ReactNode }) {
             <div className={`flex items-center gap-1 ${collapsed ? "" : "shrink-0"}`}>
               <button
                 type="button"
-                onClick={() => setTheme((t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length])}
-                title={`Switch to ${THEME_LABELS[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]]} theme`}
-                aria-label="Toggle color theme"
-                className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0"
-              >
-                {/* Swatch shows the theme you'd switch TO, matching the old sun/moon pattern. */}
-                <span
-                  className={`block w-3 h-3 rounded-full ${THEME_SWATCH[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]]}`}
-                />
-              </button>
-              <button
-                type="button"
                 onClick={() => setCollapsed((c) => !c)}
                 title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                 aria-label="Toggle sidebar"
@@ -381,7 +345,6 @@ export function Layout({ children }: { children: ReactNode }) {
                 {workNav.map(renderNavItem)}
                 {memoryNav.map(renderNavItem)}
                 {connectNav.map(renderNavItem)}
-                {governNav.map(renderNavItem)}
                 {renderNavItem(ambientNav)}
               </>
             ) : (
@@ -390,7 +353,6 @@ export function Layout({ children }: { children: ReactNode }) {
                 {renderGroup("work", "Work Queue", WorkspaceFolderIcon, workNav, counts.approvals + counts.activity)}
                 {renderGroup("memory", "Memory & Knowledge", DocsFolderIcon, memoryNav)}
                 {renderGroup("connect", "Connect", Puzzle, connectNav)}
-                {renderGroup("govern", "Govern", ConfigFolderIcon, governNav)}
                 {renderNavItem(ambientNav)}
               </>
             )}

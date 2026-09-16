@@ -26,6 +26,9 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { loadPersonas, type Persona } from "./personas.js";
 import { llmGenerateWithMeta } from "./llm.js";
+import { ragSearch, formatRagBlock } from "./rag.js";
+import { readBoardLessonSuffix, classifyCorrection, recordBoardCorrection, CHAIRMAN_BUCKET } from "./board-lessons.js";
+import { writeBoardMeetingNote } from "./board-notes.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
@@ -47,6 +50,8 @@ export type BoardOpinion = {
   endedAt?: string;
   elapsedMs?: number;
   error?: string;
+  // A correction's prior text, oldest first, capped at 5 — see correctBoardOpinion().
+  revisions?: { at: string; note: string; previousText: string }[];
 };
 export type BoardRanking = {
   personaId: string;
@@ -54,6 +59,15 @@ export type BoardRanking = {
   label: string;
   rankingText: string; // free text — ranked order + rationale, not force-parsed
   error?: string;
+};
+export type BoardCorrection = {
+  id: string;
+  targetPersonaId?: string; // absent = targeted the chairman synthesis
+  note: string;
+  classification: "one-off" | "standing-rule";
+  ruleText?: string;
+  error?: string;
+  createdAt: string;
 };
 export type BoardRunStatus = "running" | "completed" | "failed";
 export type BoardRun = {
@@ -67,6 +81,20 @@ export type BoardRun = {
   jobId?: string;
   createdAt: string;
   updatedAt: string;
+  // Grounding (Feature A) — retrieved once per run, reused by every stage and
+  // any later correction, not re-queried per member/stage.
+  ragBlock?: string;
+  groundedIn?: { path: string; preview: string; source: string }[];
+  // Vault capture (Feature B) — set once the note is written; a later
+  // correction overwrites this same path instead of minting a new file.
+  notePath?: string;
+  // Standing-rule corrections (Feature C).
+  corrections?: BoardCorrection[];
+  // A correction's prior synthesis, oldest first, capped at 5.
+  synthesisRevisions?: { at: string; note: string; previousText: string }[];
+  // Set when this run was fired by a recurring schedule (Feature D) —
+  // the Schedule's id, for the "recurring" badge in the UI.
+  scheduleId?: string;
 };
 
 // ─── persistence (in-memory authoritative, mirrored to disk) ───
@@ -135,15 +163,33 @@ function buildRoster(personaIds?: string[]): BoardMember[] {
   return roster;
 }
 
-// A light, non-lane-policed voice: reuse the persona's identity/expertise/tone
-// so members sound distinct, but frame this as an opinion in a brainstorm —
-// not a deliverable that must stay inside the persona's job lane.
-function councilVoiceSystemPrompt(p: Persona): string {
+// The persona's usual identity block — name/role/description/tone, no more.
+// Used as the voice source when the persona has no saved systemPromptOverride.
+function buildBaseIdentity(p: Persona): string {
   return [
     `You are ${p.name}, the ${p.role}. ${p.description || ""}`.trim(),
     p.tone ? `Voice: ${p.tone}.` : "",
-    "You are one member of a board / brainstorming council convened to discuss a topic. Give your own honest, independent opinion or analysis, drawing on your professional background and the lens your role gives you — even if the topic isn't strictly your day job. This is a discussion, not a work order: don't refuse or redirect to another specialist, just weigh in as yourself.",
-    "Be direct and substantive. A few tight paragraphs beats a hedge-everything essay.",
+  ].filter(Boolean).join("\n");
+}
+
+// A light, non-lane-policed voice: reuse the persona's identity/expertise/tone
+// (and, if the operator saved one, their customized systemPromptOverride) so
+// members sound distinct AND reflect any customization the operator already
+// made to that persona — but frame this as an opinion in a brainstorm, not a
+// deliverable that must stay inside the persona's job lane.
+function councilVoiceSystemPrompt(p: Persona, ragBlock?: string): string {
+  const voiceSource = p.systemPromptOverride?.trim() || buildBaseIdentity(p);
+  const usingOverride = !!p.systemPromptOverride?.trim();
+  return [
+    usingOverride
+      ? "You are one member of a board / brainstorming council convened to discuss a topic — not an employee being handed a deliverable to execute. Below is how this persona is normally briefed for work; use it ONLY to color your voice, expertise, and standards. Ignore any instruction in it to 'do the work', produce a deliverable, stay in a narrow lane, or hand off to someone else — here you just give your own honest opinion as this person."
+      : "You are one member of a board / brainstorming council convened to discuss a topic. Give your own honest, independent opinion or analysis, drawing on your professional background and the lens your role gives you — even if the topic isn't strictly your day job. This is a discussion, not a work order: don't refuse or redirect to another specialist, just weigh in as yourself.",
+    "",
+    voiceSource,
+    "",
+    "Be direct and substantive — a few tight paragraphs beats a hedge-everything essay. Give YOUR opinion, don't recap the topic.",
+    ragBlock ? `\n${ragBlock}` : "",
+    readBoardLessonSuffix(p.id),
   ].filter(Boolean).join("\n");
 }
 
@@ -152,12 +198,14 @@ function councilVoiceSystemPrompt(p: Persona): string {
 // memory.*, hand off to a specialist, etc.) — none of that applies to a
 // pure-text synthesis call with no tool loop. This is Naxie's chairman hat,
 // not Naxie's PA hat.
-function naxieChairmanSystemPrompt(): string {
+function naxieChairmanSystemPrompt(ragBlock?: string): string {
   return [
     "You are Naxie, chairing this board meeting. You are not one of the council members — you convened them, and now it's your job to weigh what they said and give the user one clear, final answer.",
     "Voice: warm but decisive, concise, next-step-first — the same Naxie the user talks to everywhere else, now speaking as chairman.",
     "Synthesize, don't summarize: don't just recap each member in turn. Form your own judgement, favor points multiple members converged on or that ranked well in their peer review, and be willing to disagree with the majority if the reasoning doesn't hold up. Flag real, unresolved disagreement rather than papering over it.",
-  ].join("\n");
+    ragBlock ? `\n${ragBlock}` : "",
+    readBoardLessonSuffix(CHAIRMAN_BUCKET),
+  ].filter(Boolean).join("\n");
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -169,7 +217,7 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-export type BoardStartOpts = { topic: string; personaIds?: string[]; jobId?: string };
+export type BoardStartOpts = { topic: string; personaIds?: string[]; jobId?: string; scheduleId?: string };
 
 // Create + register a run synchronously (no LLM work yet). Lets a route
 // return the runId immediately, then drive execution in the background.
@@ -185,6 +233,7 @@ export function createBoardRun(opts: BoardStartOpts): BoardRun {
     rankings: [],
     chairmanSynthesis: "",
     jobId: opts.jobId,
+    scheduleId: opts.scheduleId,
     createdAt: now(),
     updatedAt: now(),
   };
@@ -213,6 +262,18 @@ export async function executeBoardRun(run: BoardRun, push: (msg: string) => void
   if (run.roster.length < MIN_MEMBERS) { run.status = "failed"; run.chairmanSynthesis = `Need at least ${MIN_MEMBERS} valid council members.`; run.updatedAt = now(); persist(); return run; }
 
   try {
+    // ─── Stage 0: ground the whole meeting in the vault, once ───
+    // One retrieval for the entire run (not per member/stage) — every member
+    // and the chairman see the SAME evidence, which is both cheaper and
+    // fairer for the peer-review stage. Reused as-is by any later correction
+    // (Feature C), so a correction days later could act on a stale snapshot
+    // if the vault changed a lot meanwhile — acceptable for v1.
+    try {
+      const hits = await ragSearch(run.topic, 6);
+      run.ragBlock = formatRagBlock(hits);
+      run.groundedIn = hits.map(h => ({ path: h.path, preview: h.preview, source: h.source }));
+    } catch { /* grounding is best-effort — an empty ragBlock just means ungrounded opinions, not a failed meeting */ }
+
     // ─── Stage 1: opinions, in parallel ───
     push(`Convening the board on: ${run.topic.slice(0, 120)}`);
     const opinions = await Promise.all(run.roster.map(async (m): Promise<BoardOpinion> => {
@@ -223,7 +284,7 @@ export async function executeBoardRun(run: BoardRun, push: (msg: string) => void
         const t0 = Date.now();
         const { text } = await llmGenerateWithMeta(
           run.topic,
-          persona ? councilVoiceSystemPrompt(persona) : undefined,
+          persona ? councilVoiceSystemPrompt(persona, run.ragBlock) : undefined,
           { profile: "planning" },
         );
         opinion.text = text.trim();
@@ -268,7 +329,7 @@ export async function executeBoardRun(run: BoardRun, push: (msg: string) => void
       try {
         const { text } = await llmGenerateWithMeta(
           reviewPrompt,
-          persona ? councilVoiceSystemPrompt(persona) : undefined,
+          persona ? councilVoiceSystemPrompt(persona, run.ragBlock) : undefined,
           { profile: "planning", maxTokens: 700 },
         );
         ranking.rankingText = text.trim();
@@ -301,7 +362,7 @@ export async function executeBoardRun(run: BoardRun, push: (msg: string) => void
 
     const { text: synthesis } = await llmGenerateWithMeta(
       chairmanPrompt,
-      naxieChairmanSystemPrompt(),
+      naxieChairmanSystemPrompt(run.ragBlock),
       { profile: "synthesis", complexity: "high" },
     );
     run.chairmanSynthesis = synthesis.trim();
@@ -309,6 +370,15 @@ export async function executeBoardRun(run: BoardRun, push: (msg: string) => void
     run.updatedAt = now();
     persist();
     push("Naxie has compiled the board's final response.");
+
+    // ─── Vault capture (Feature B) — best-effort, never fails a completed meeting ───
+    try {
+      const notePath = await writeBoardMeetingNote(run);
+      if (notePath) { run.notePath = notePath; run.updatedAt = now(); persist(); }
+      else push("note capture skipped: writeBoardMeetingNote returned no path");
+    } catch (e: any) {
+      push(`note capture skipped: ${String(e?.message ?? e).slice(0, 150)}`);
+    }
   } catch (e: any) {
     run.status = "failed";
     run.chairmanSynthesis = run.chairmanSynthesis || `Board meeting failed: ${String(e?.message ?? e).slice(0, 200)}`;
@@ -316,5 +386,80 @@ export async function executeBoardRun(run: BoardRun, push: (msg: string) => void
     persist();
     push(`Board meeting failed: ${String(e?.message ?? e).slice(0, 200)}`);
   }
+  return run;
+}
+
+// ─── Feature C: standing-rule corrections ───
+function newCorrectionId(): string { return randomUUID(); }
+
+// Correct one council member's opinion. Records the lesson FIRST (so it
+// survives even if the re-generation call below fails), then re-asks the
+// same persona with the correction folded in, using the now-updated
+// councilVoiceSystemPrompt — which will include the just-recorded lesson via
+// readBoardLessonSuffix(). Archives the prior text into opinion.revisions
+// (cap 5) and best-effort re-writes the vault note.
+export async function correctBoardOpinion(run: BoardRun, personaId: string, note: string): Promise<BoardRun> {
+  const opinion = run.opinions.find(o => o.personaId === personaId);
+  if (!opinion) throw new Error("no opinion from that persona in this meeting");
+  const persona = resolvePersona(personaId);
+  const verdict = await classifyCorrection({ topic: run.topic, targetLabel: opinion.name, originalText: opinion.text, note });
+  const correction: BoardCorrection = {
+    id: newCorrectionId(), targetPersonaId: personaId, note,
+    classification: verdict.classification, ruleText: verdict.ruleText,
+    createdAt: new Date().toISOString(),
+  };
+  if (verdict.classification === "standing-rule" && verdict.ruleText) {
+    try { await recordBoardCorrection(personaId, verdict.ruleText); }
+    catch (e: any) { correction.error = `lesson not saved: ${String(e?.message ?? e).slice(0, 150)}`; }
+  }
+  try {
+    const revisionPrompt = `TOPIC: ${run.topic}\n\nYour previous answer:\n${opinion.text}\n\nThe owner's correction: "${note}"\n\nRevise your answer accordingly. Give the full revised answer, not just a diff.`;
+    const { text } = await llmGenerateWithMeta(
+      revisionPrompt,
+      persona ? councilVoiceSystemPrompt(persona, run.ragBlock) : undefined,
+      { profile: "planning" },
+    );
+    const revisions = opinion.revisions ?? [];
+    revisions.push({ at: new Date().toISOString(), note, previousText: opinion.text });
+    opinion.revisions = revisions.slice(-5);
+    opinion.text = text.trim();
+  } catch (e: any) {
+    correction.error = `${correction.error ? correction.error + "; " : ""}revision failed: ${String(e?.message ?? e).slice(0, 150)}`;
+  }
+  run.corrections = [...(run.corrections ?? []), correction];
+  run.updatedAt = new Date().toISOString();
+  persist();
+  try { const p = await writeBoardMeetingNote(run); if (p) { run.notePath = p; persist(); } } catch { /* best-effort */ }
+  return run;
+}
+
+// Correct the chairman synthesis — same shape as correctBoardOpinion() but
+// targets naxieChairmanSystemPrompt()/run.chairmanSynthesis and records the
+// lesson under CHAIRMAN_BUCKET instead of a persona id.
+export async function correctBoardSynthesis(run: BoardRun, note: string): Promise<BoardRun> {
+  const verdict = await classifyCorrection({ topic: run.topic, targetLabel: "Naxie's synthesis", originalText: run.chairmanSynthesis, note });
+  const correction: BoardCorrection = {
+    id: newCorrectionId(), note,
+    classification: verdict.classification, ruleText: verdict.ruleText,
+    createdAt: new Date().toISOString(),
+  };
+  if (verdict.classification === "standing-rule" && verdict.ruleText) {
+    try { await recordBoardCorrection(CHAIRMAN_BUCKET, verdict.ruleText); }
+    catch (e: any) { correction.error = `lesson not saved: ${String(e?.message ?? e).slice(0, 150)}`; }
+  }
+  try {
+    const revisionPrompt = `TOPIC put to the board: ${run.topic}\n\nYour previous final synthesis:\n${run.chairmanSynthesis}\n\nThe owner's correction: "${note}"\n\nRevise your synthesis accordingly. Give the full revised synthesis, not just a diff.`;
+    const { text } = await llmGenerateWithMeta(revisionPrompt, naxieChairmanSystemPrompt(run.ragBlock), { profile: "synthesis", complexity: "high" });
+    const revisions = run.synthesisRevisions ?? [];
+    revisions.push({ at: new Date().toISOString(), note, previousText: run.chairmanSynthesis });
+    run.synthesisRevisions = revisions.slice(-5);
+    run.chairmanSynthesis = text.trim();
+  } catch (e: any) {
+    correction.error = `${correction.error ? correction.error + "; " : ""}revision failed: ${String(e?.message ?? e).slice(0, 150)}`;
+  }
+  run.corrections = [...(run.corrections ?? []), correction];
+  run.updatedAt = new Date().toISOString();
+  persist();
+  try { const p = await writeBoardMeetingNote(run); if (p) { run.notePath = p; persist(); } } catch { /* best-effort */ }
   return run;
 }

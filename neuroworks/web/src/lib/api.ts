@@ -99,6 +99,7 @@ export type QualitySummary = {
   }[];
 };
 export type HostToolsSettings = { allowSystemControl: boolean; allowClipboardAccess: boolean; allowNotifications: boolean; gitRepoPath: string };
+export type RosterRow = { name: string; providerKind?: string; providerLabel?: string; tier?: "small" | "large"; free: boolean; active: boolean; calls: number; costUsd: number; failed: number; failureRate: number };
 
 export type OnboardingSector = {
   id: string; name: string; nameShona?: string; nameNdebele?: string; description: string; icon: string; contextNote: string;
@@ -157,7 +158,8 @@ export const api = {
   health: () => req<{ ok: boolean; name: string; version: string; model: string; port: number; ready: boolean; missing: string[]; inflightJobs?: number; peers?: string[] }>("/api/health"),
   listRepos: () => req<{ repos: any[] }>("/api/repos"),
   getRepo: (owner: string, name: string) => req<any>(`/api/repos/${owner}/${name}`),
-  listTemplates: () => req<{ roles: Role[]; templates: Template[] }>("/api/templates"),
+  listTemplates: (opts?: { includeHidden?: boolean }) =>
+    req<{ roles: Role[]; templates: Template[] }>(`/api/templates${opts?.includeHidden ? "?includeHidden=1" : ""}`),
   runTemplate: (id: string, inputs: Record<string, any>) => req<{ jobId: string; requiresApproval: boolean; status: string }>(`/api/templates/run/${id}`, { method: "POST", body: JSON.stringify(inputs) }),
   getJob: (id: string) => req<any>(`/api/templates/jobs/${id}`),
   listJobs: () => req<{ jobs: any[] }>("/api/templates/jobs"),
@@ -263,6 +265,17 @@ export const api = {
   listInnovationScans: () => req<{ scans: { date: string; path: string; preview: string; stats?: any }[]; last?: any }>("/api/innovation-scan"),
   runInnovationScan: (force = false) => req<{ date: string; path: string; targeted: any; broad: any; digest: string; generatedAt: string; modelUsed?: string }>("/api/innovation-scan/run", { method: "POST", body: JSON.stringify({ force }) }),
   getInnovationScan: (date: string) => req<{ date: string; path: string; body: string }>(`/api/innovation-scan/${encodeURIComponent(date)}`),
+  listSystemAudits: () => req<{ audits: { date: string; path: string; preview: string; stats?: any }[]; last?: any; inventory: any }>("/api/system-audit"),
+  runSystemAudit: () => req<{ date: string; path: string; stats: any; report: string; generatedAt: string; modelUsed?: string }>("/api/system-audit/run", { method: "POST", body: JSON.stringify({}) }),
+  getSystemAudit: (date: string) => req<{ date: string; path: string; body: string }>(`/api/system-audit/${encodeURIComponent(date)}`),
+  systemAuditInventory: () => req<{ inventory: { pages: number; routes: number; lib: number; templates: number; personas: number } }>("/api/system-audit/inventory"),
+  systemAuditHealthTrend: () => req<{ trend: { date: string; healthScore: number }[] }>("/api/system-audit/health-trend"),
+  systemAuditVaultHygiene: () => req<{ duplicates: { hash: string; files: string[] }[]; staleNotes: { path: string; daysOld: number }[]; totalNotes: number }>("/api/system-audit/vault-hygiene"),
+  systemAuditDeadCode: () => req<{ deadCode: { file: string; reason: string }[] }>("/api/system-audit/dead-code"),
+  systemAuditPersonaMerges: () => req<{ merges: { a: string; b: string; similarity: number; reason: string }[] }>("/api/system-audit/persona-merges"),
+  systemAuditIntegrationHealth: () => req<{ health: { id: string; label: string; ok: boolean; detail: string }[] }>("/api/system-audit/integration-health"),
+  systemAuditVoiceBriefing: () => req<{ ok: boolean; text?: string; error?: string }>("/api/system-audit/voice-briefing", { method: "POST", body: JSON.stringify({}) }),
+  systemAuditArchitectPr: (finding: string) => req<{ created: boolean; taskId?: string; reason?: string; finding: string }>("/api/system-audit/architect-pr", { method: "POST", body: JSON.stringify({ finding }) }),
   triggerDigest: (lookbackDays = 7) => req<{ jobId: string }>("/api/tasks/digest", { method: "POST", body: JSON.stringify({ lookbackDays: String(lookbackDays) }) }),
   chat: (messages: { role: "user" | "assistant" | "system"; content: string }[], opts?: {
     attachments?: { contextId: string }[];
@@ -325,6 +338,8 @@ export const api = {
     req<{ runId: string; jobId: string; roster: { personaId: string; name: string; role: string }[] }>("/api/board", { method: "POST", body: JSON.stringify(body) }),
   listBoards: () => req<{ runs: BoardRun[] }>("/api/board"),
   getBoard: (id: string) => req<{ run: BoardRun }>(`/api/board/${encodeURIComponent(id)}`),
+  correctBoard: (id: string, body: { targetPersonaId?: string; note: string }) =>
+    req<{ run: BoardRun }>(`/api/board/${encodeURIComponent(id)}/correct`, { method: "POST", body: JSON.stringify(body) }),
   // Workforce contact book — AI agents + human team, grouped by department.
   getWorkforce: () => req<{ departments: WorkforceDepartment[]; counts: { agents: number; people: number; departments: number } }>("/api/workforce"),
   // Scan an uploaded doc (any type) for people and populate the contact book.
@@ -427,6 +442,16 @@ export const api = {
     req<{ provider: any }>("/api/models/providers", { method: "POST", body: JSON.stringify(body) }),
   activateModelProvider: (id: string) => req<{ provider: any }>(`/api/models/providers/${encodeURIComponent(id)}/activate`, { method: "POST" }),
   removeModelProvider: (id: string) => req<{ ok: true }>(`/api/models/providers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // Model spend policy — free-tier models are used by default; paid models
+  // stay off until explicitly approved here.
+  getModelPolicy: () => req<{ policy: { allowPaidModels: boolean } }>("/api/models/policy"),
+  setModelPolicy: (allowPaidModels: boolean) => req<{ policy: { allowPaidModels: boolean } }>("/api/models/policy", { method: "POST", body: JSON.stringify({ allowPaidModels }) }),
+  // Model roster — offline (local) / online free / online paid, with usage stats.
+  getModelRoster: () => req<{
+    policy: { allowPaidModels: boolean };
+    offline: RosterRow[];
+    online: RosterRow[];
+  }>("/api/models/roster"),
   // Open a live event stream for a running job. Returns the
   // EventSource so the caller can attach onmessage / onclose handlers
   // and close() when the consumer unmounts. Use this for streaming
@@ -510,11 +535,13 @@ export const api = {
     onboardingNeeded: boolean;
     daemonStatus: { cycleSeconds: number };
   }>("/api/naxie/status"),
-  // Naxie's general conversation — PA master, auto-routes model
-  // (free-tier online for speed, Ollama by size offline). Returns routing
-  // metadata so the UI can show quick-free vs deep vs local visibly.
+  // Naxie's general conversation — PA master. Routes through the real
+  // agent/tool loop (a Job), so this returns {jobId} immediately; the caller
+  // watches it via jobStream(jobId) (falling back to polling getJob) for the
+  // live step feed and the final answer. A "delegate" intent still short-
+  // circuits instantly with no job at all.
   voiceConverse: (messages: { role: "user" | "assistant"; content: string }[]) =>
-    req<{ text: string; model: string; routing?: { tier: string; complexity: string; reason: string; signals: string[]; online: boolean; backend: string }; sourceNoteId?: string | null }>("/api/voice/converse", { method: "POST", body: JSON.stringify({ messages }) }),
+    req<{ jobId?: string; text?: string; delegated?: { taskId: string; role: string } }>("/api/voice/converse", { method: "POST", body: JSON.stringify({ messages }) }),
   voiceTts: async (text: string, personaId?: string): Promise<Blob> => {
     const token = getToken();
     const r = await fetch("/api/voice/tts", {
@@ -605,21 +632,9 @@ export const api = {
   mcpServerTools: (id: string) => req<{ tools: McpTool[] }>(`/api/mcp-servers/${encodeURIComponent(id)}/tools`),
   callMcpServer: (id: string, body: { tool: string; arguments?: Record<string, any> }) =>
     req<{ result: McpCallResult }>(`/api/mcp-servers/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(body) }),
+  hermesBridgeStatus: () => req<HermesBridgeStatus>("/api/hermes-bridge/status"),
+  registerHermesBridge: () => req<{ ok: boolean; alreadyRegistered: boolean; status: HermesBridgeStatus }>("/api/hermes-bridge/register", { method: "POST" }),
 
-  // n8n — self-hosted workflow automation (N8N_BASE_URL + N8N_API_KEY in .env).
-  n8nStatus: () => req<N8nStatus>("/api/n8n/status"),
-  listN8nWorkflows: (params?: { limit?: number; active?: boolean }) =>
-    req<{ workflows: N8nWorkflow[]; count: number }>(`/api/n8n/workflows${params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))}` : ""}`),
-  activateN8nWorkflow: (id: string) => req<{ workflow: N8nWorkflow }>(`/api/n8n/workflows/${encodeURIComponent(id)}/activate`, { method: "POST" }),
-  deactivateN8nWorkflow: (id: string) => req<{ workflow: N8nWorkflow }>(`/api/n8n/workflows/${encodeURIComponent(id)}/deactivate`, { method: "POST" }),
-  deleteN8nWorkflow: (id: string) => req<{ ok: true }>(`/api/n8n/workflows/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  listN8nExecutions: (params?: { limit?: number; workflowId?: string; status?: string }) =>
-    req<{ data: N8nExecution[] }>(`/api/n8n/executions${params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))}` : ""}`),
-  triggerN8nWebhook: (body: { url?: string; path?: string; method?: string; body?: any }) =>
-    req<{ ok: boolean; status: number; url: string; method: string; body: unknown; error?: string }>("/api/n8n/trigger", { method: "POST", body: JSON.stringify(body) }),
-  createN8nWorkflow: (body: { name: string; nodes: any[]; connections: any; settings?: any }) =>
-    req<{ workflow: N8nWorkflow }>("/api/n8n/workflows", { method: "POST", body: JSON.stringify(body) }),
-  generateN8nWorkflow: (goal: string) => req<{ draft: WorkflowDraft }>("/api/n8n/generate", { method: "POST", body: JSON.stringify({ goal }) }),
 
   // CRM — contacts, deals/pipeline, and per-contact activity (local store, no external CRM required).
   listContacts: () => req<{ contacts: Contact[] }>("/api/crm/contacts"),
@@ -905,21 +920,18 @@ export type McpServerInput = {
 export type McpTool = { name: string; description?: string; inputSchema?: any };
 export type McpCallResult = { ok: boolean; content?: any; truncated?: boolean; error?: string };
 
-export type N8nStatus = {
+export type HermesBridgeStatus = {
+  hermesInstalled: boolean;
+  hermesBinPath: string | null;
+  hermesConfigPath: string | null;
+  hermesConfigExists: boolean;
+  bridgeScriptPath: string;
+  bridgeScriptExists: boolean;
+  registered: boolean;
   enabled: boolean;
-  configured: boolean;
-  baseUrl: string | null;
-  webhookBaseUrl: string | null;
-  health: { ok: boolean; detail: string };
+  toolCount: number;
+  tools: { name: string; description: string; readonly: boolean }[];
 };
-export type N8nWorkflow = {
-  id: string; name: string; active: boolean; createdAt?: string; updatedAt?: string; tags?: any[]; nodes?: any[];
-};
-export type N8nExecution = {
-  id: string; workflowId?: string; finished?: boolean; mode?: string; status?: string;
-  startedAt?: string; stoppedAt?: string;
-};
-export type WorkflowDraft = { name: string; nodes: any[]; connections: any };
 
 export type Contact = {
   id: string; name?: string; email?: string; phone?: string; company?: string;
@@ -1046,6 +1058,7 @@ export type BoardOpinion = {
   endedAt?: string;
   elapsedMs?: number;
   error?: string;
+  revisions?: { at: string; note: string; previousText: string }[];
 };
 export type BoardRanking = {
   personaId: string;
@@ -1053,6 +1066,15 @@ export type BoardRanking = {
   label: string;
   rankingText: string;
   error?: string;
+};
+export type BoardCorrection = {
+  id: string;
+  targetPersonaId?: string;
+  note: string;
+  classification: "one-off" | "standing-rule";
+  ruleText?: string;
+  error?: string;
+  createdAt: string;
 };
 export type BoardRun = {
   id: string;
@@ -1065,6 +1087,12 @@ export type BoardRun = {
   jobId?: string;
   createdAt: string;
   updatedAt: string;
+  ragBlock?: string;
+  groundedIn?: { path: string; preview: string; source: string }[];
+  notePath?: string;
+  corrections?: BoardCorrection[];
+  synthesisRevisions?: { at: string; note: string; previousText: string }[];
+  scheduleId?: string;
 };
 
 // Workforce contact book.

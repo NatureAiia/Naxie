@@ -72,11 +72,9 @@ async function pgvectorSearch(query: string, limit: number): Promise<RagHit[]> {
       source: "vault-semantic",
       path: r.path,
       preview: String(r.content).slice(0, 200),
-      // Cosine distance is 0 (identical) .. 2 (opposite); convert to a
-      // "higher is better" score so it sorts alongside the other sources'
-      // score conventions (MiniSearch scores are typically small positive
-      // numbers, memory hits are pinned at 5).
-      score: Math.max(0, 5 - Number(r.distance) * 5),
+      // Cosine distance 0..2 → score 7..0 so fresh semantic beats stale BM25 when pgvector is live (Kuwana tuning).
+      // Memory stays pinned at 5; semantic fresh hit (distance ~0.1) scores ~6.3 → ranks above BM25.
+      score: Math.max(0, 7 - Number(r.distance) * 7),
     }));
   } catch (e: any) {
     console.debug(`[rag] pgvectorSearch skipped: ${e?.message ?? e}`);

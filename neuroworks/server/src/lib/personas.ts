@@ -28,6 +28,11 @@ export type Persona = {
   // the org default. Department templates can set a default that flows down
   // to their agents at apply-time (see department-templates.ts).
   language?: "en";
+  // Structured department id (see department-templates.ts's DEPARTMENT_TEMPLATES
+  // for the built-in set, or a custom-departments.ts id) — powers the Office
+  // page's room grouping. Absent = the office buckets this persona into a
+  // synthetic "general" room; it is NOT one of the real hireable templates.
+  department?: string;
   createdAt: string;
 };
 
@@ -49,8 +54,8 @@ export const PA_IDENTITY = { id: "naxie", name: "Naxie" } as const;
 export const BUILTIN_NAXIE_PERSONA: Persona = {
   id: "naxie",
   name: "Naxie",
-  role: "Personal Assistant to Nature",
-  description: "Your first point of contact — triages, remembers, and delegates to the right specialist.",
+  role: "Personal Assistant to Nature · COO, Operations & Admin",
+  description: "Your first point of contact — triages, remembers, and delegates to the right specialist. Also serves as COO, part of Operations & Admin.",
   jobDescription: "Built-in. Naxie is Nature's PA. First contact for every Telegram, chat, and voice message. Knows the operator, remembers preferences, and routes complex work to the right hired persona (Maya, Sam, Olivia, etc.) while reporting back in Naxie's voice. Warm, concise, proactive — never a generic assistant.",
   tone: "adaptive · triage-first · calendar-aware",
   responsibilities: [
@@ -60,7 +65,7 @@ export const BUILTIN_NAXIE_PERSONA: Persona = {
     "Delegate deep work to the right hired persona (Maya, Sam, Olivia, etc.) and report back as Naxie",
     "Remember operator preferences and prior context (memory.note / memory.recall) and capture outcomes to the vault",
   ],
-  systemPromptOverride: `You are Naxie — Nature's Personal Assistant, the FIRST point of contact for every message on Telegram, /naxie, and chat.
+  systemPromptOverride: `You are Naxie — Nature's Personal Assistant, the FIRST point of contact for every message on Telegram, /naxie, and chat. You also serve as COO, part of the Operations & Admin department.
 
 Identity:
 - You serve Nature (the operator). You OWN triage + calendar. Never a generic assistant — you are Naxie.
@@ -68,7 +73,7 @@ Identity:
   - Morning/day (06:00-18:00 Africa/Harare): crisp, decisive, execution-focused. Short sentences, next-step first.
   - Evening/night (18:00-06:00): warm, concise, reassuring. One-line acknowledgment, then the answer.
   - Question-type switch: sales → Drew/Maya lens; engineering → Sam lens; ops/scheduling → Olivia/Evie lens; research → Researcher lens; but always reply AS Naxie (name the lane if you switched: "Working this as: <role>").
-- You triage: lightweight Q&A → answer directly; multi-step/calendar/inbox work → use tools (calendar.read_today, calendar.plan_day, schedule.create, vault.search, research.deep, n8n.trigger_webhook, memory.recall) or hand off to a specialist, then report back.
+- You triage: lightweight Q&A → answer directly; multi-step/calendar/inbox work → use tools (calendar.read_today, calendar.plan_day, schedule.create, vault.search, research.deep, memory.recall) or hand off to a specialist, then report back.
 
 How you operate:
 - Calendar-first: before proposing a time, check calendar.read_today / calendar.plan_day. Protect deep-work, cluster meetings, never guess.
@@ -77,13 +82,18 @@ How you operate:
 - Use clock.now to know the time, memory.note to remember durable facts ("Nature prefers...", "project X deadline...") and memory.recall at thread start. Capture outcomes to the vault.
 - Always close with a clear next step. Cite sources as [N] or [vault:path].
 
-Output discipline:
+Output discipline — every Naxie reply must look *nice* on every surface (chat, Telegram HTML, email):
 - Lead with the bottom line. State the answer or decision first, then the reasoning — never bury it under setup.
 - Be compressed. No "Sure!", "Great question", throat-clearing, or trailing summaries that just restate what you said.
-- Use Markdown headings/bullets only when the content is genuinely structured (a list of discrete items, a real comparison); a one-line answer stays one line.
+- Use clean Markdown with hierarchy: \`##\` headings with a leading emoji when it helps scannability (e.g. \`## ☀️ Today\`, \`## 📋 Summary\`, \`## ⚠️ Needs attention\`), tight bullets (\`- \` or \`•\`), tables for weather/calendar comparisons, and \`**bold**\` for labels. Never emit raw unformatted walls of text.
+- Emojis: 1-2 per heading/bullet where they add signal, never spam. Keep professional.
+- For Telegram: headings become **bold** HTML, links become clickable, code becomes monospace — write markdown so it converts cleanly.
+- For email: markdown is rendered to a branded HTML card — headings, bullets, and tables all survive, so use them.
 - Stay calm and steady under a busy queue — acknowledge directly, then act. No filler apologies, no over-explaining a simple action.
 
-You are NOT Neuro (clawbot) — Neuro is a tool in your kit for structured-document drafting and vault authorship, not a separate voice the operator talks to. You are the PA who owns the relationship and owns the clock.`,
+You are NOT Neuro (clawbot) — Neuro is a tool in your kit for structured-document drafting and vault authorship, not a separate voice the operator talks to. You are the PA who owns the relationship and owns the clock.
+
+Self-improvement: you are the ONLY persona with personas.manage (create/update/retire a hire) and system.admin (host-tools access settings). Both are proposal tools, not do-it-yourself ones — every call pauses in Approvals for Nature's sign-off before anything actually changes, no exceptions. The daily MD System Audit turns its high/medium-priority findings (e.g. "N/M personas dormant") into org-tasks automatically; when you see one of those in org.reports, look at the real evidence (personas.list, usage) before proposing the fix — never retire or reconfigure something on the finding's word alone.`,
   createdAt: "2026-08-23T00:00:00.000Z",
 };
 
@@ -1151,6 +1161,32 @@ export const BUILTIN_PERSONAS: Persona[] = [
   BUILTIN_SOCIALMEDIA_PERSONA,
 ];
 
+// One-time default department assignment for the built-in roster, keyed by
+// persona id — powers the Office page's room grouping (see department-templates.ts
+// for the department ids themselves). Not derived logic: a best-guess default
+// the operator can freely correct afterward via PATCH /api/personas/:id, since
+// `department` is a normal editable field once set. "naxie" is deliberately
+// absent — she gets a fixed front-desk spot in the office, not a department
+// room. Anything absent here (including future new built-ins) falls back to
+// the synthetic "general" room.
+const BUILTIN_DEPARTMENTS: Record<string, string> = {
+  "software-engineer": "it-devops", "qa-engineer": "it-devops", "devops-sre": "it-devops", "it-support": "it-devops",
+  "marketing-manager": "sales-marketing", "voice-producer": "sales-marketing", "video-producer": "sales-marketing", "music-producer": "sales-marketing", "multimedia-producer": "sales-marketing", "social-media-manager": "sales-marketing",
+  "account-executive": "sales-marketing", "sdr": "sales-marketing",
+  "financial-analyst": "finance-legal", "aiia-finance": "finance-legal", "accountant": "finance-legal",
+  "contracts-reviewer": "finance-legal", "compliance": "finance-legal",
+  "customer-success": "communications",
+  "communications": "communications", "technical-writer": "communications",
+  "operations-coordinator": "operations", "executive-assistant": "operations", "procurement": "operations",
+  "office-manager": "operations", "business-analyst": "operations", "project-manager": "operations",
+  "logistics": "operations", "data-analyst": "operations",
+  // HR folded into Operations & Admin now that the standalone "hr" department
+  // template was removed (see department-templates.ts) — these three had no
+  // other home to reconcile to.
+  "recruiter": "operations", "hr-manager": "operations", "learning-development": "operations",
+  "clawbot": "general",
+};
+
 function ensureBuiltinSeeded(s: PersonaStore): PersonaStore {
   // Seed every built-in that isn't already in the store. Preserves user
   // customisations: if a user has edited their own copy of the built-in (same
@@ -1160,14 +1196,23 @@ function ensureBuiltinSeeded(s: PersonaStore): PersonaStore {
     const existing = s.personas.find(p => p.id === builtin.id);
     if (!existing) {
       // Insert built-ins at the top so they're easy to find.
-      s.personas.unshift({ ...builtin });
+      s.personas.unshift({ ...builtin, department: builtin.department ?? BUILTIN_DEPARTMENTS[builtin.id] });
       newlyAdded.push(builtin);
-    } else if (existing.name !== builtin.name) {
-      // Keep the built-in's DISPLAY NAME in sync with code so a rename (e.g.
-      // Clawbot → Neuro) propagates to installs that already persisted the old
-      // name. We only touch `name` — user customisations to other fields stay.
-      existing.name = builtin.name;
-      personasSyncDirty = true;
+    } else {
+      if (existing.name !== builtin.name) {
+        // Keep the built-in's DISPLAY NAME in sync with code so a rename (e.g.
+        // Clawbot → Neuro) propagates to installs that already persisted the old
+        // name. We only touch `name` — user customisations to other fields stay.
+        existing.name = builtin.name;
+        personasSyncDirty = true;
+      }
+      // Backfill `department` once for stores persisted before this field
+      // existed. Never overwrites an operator's own reassignment — only fills
+      // a genuinely missing value.
+      if (existing.department === undefined && builtin.id !== "naxie") {
+        existing.department = BUILTIN_DEPARTMENTS[builtin.id]; // undefined → office falls back to "general"
+        personasSyncDirty = true;
+      }
     }
   }
   // First-ever seed → activate Naxie by default. Clawbot ("Neuro") is an
@@ -1222,7 +1267,7 @@ export function addPersona(p: Persona): void {
 // Patch a subset of a persona's fields (Workforce page edits — work mode,
 // tone, description). Built-ins accept workMode changes too: parking the
 // built-in researcher as "human" is a legitimate org decision.
-export function updatePersona(id: string, patch: Partial<Pick<Persona, "workMode" | "tone" | "description" | "role" | "systemPromptOverride" | "language">>): Persona | null {
+export function updatePersona(id: string, patch: Partial<Pick<Persona, "workMode" | "tone" | "description" | "role" | "systemPromptOverride" | "language" | "department">>): Persona | null {
   const s = loadPersonas();
   const p = s.personas.find(x => x.id === id);
   if (!p) return null;
@@ -1236,6 +1281,10 @@ export function updatePersona(id: string, patch: Partial<Pick<Persona, "workMode
   if (patch.language !== undefined) {
     p.language = (["en", "sn", "nd"] as const).includes(patch.language as any) ? patch.language : undefined;
   }
+  // Office room reassignment — any string id is accepted (built-in or custom
+  // department); the Office page falls back to "general" for an id it doesn't
+  // recognize, so there's no need to validate against the department catalog here.
+  if (patch.department !== undefined) p.department = patch.department || undefined;
   savePersonaStore(s);
   return p;
 }

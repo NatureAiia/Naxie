@@ -432,6 +432,16 @@ body::after {                               /* blueprint glow — light from abo
   opacity: 0.18;
   mix-blend-mode: overlay;
 }
+/* Same panning gradient as the Send button's noise-fill, scaled down to a
+   tiny glowing dot (no grain overlay — invisible at this size) with a
+   matching soft halo, for the office directory's un-departmented "General"
+   room marker. */
+.nw-dot-glow {
+  background-image: linear-gradient(115deg, #663af3, #3fb3a0, #ff7657, #663af3);
+  background-size: 300% 300%;
+  animation: nw-noise-pan 6s ease-in-out infinite;
+  box-shadow: 0 0 6px 1px rgba(102, 58, 243, 0.65), 0 0 3px 1px rgba(63, 179, 160, 0.55);
+}
 
 /* Skeletons — shimmer over an ink-tinted rounded block. Match the colour
    to the surface so the contrast feels intentional, not harsh. */

@@ -286,6 +286,45 @@ export async function maybeRunProactiveResearch(now = Date.now()): Promise<boole
   return true;
 }
 
+// Telegram news monitor — batch-score pending posts from monitored groups.
+// Delegates to telegram-news-monitor.ts's scoreAndNotifyBatch which handles
+// LLM relevance scoring and DM notification.
+export async function maybeScoreTelegramNews(now = Date.now()): Promise<boolean> {
+  try {
+    const { scoreAndNotifyBatch, isMonitorEnabled, pendingCount } = await import("./telegram-news-monitor.js");
+    if (!isMonitorEnabled()) return false;
+    if (pendingCount() === 0) return false;
+    const notified = await scoreAndNotifyBatch(now);
+    if (notified > 0) {
+      void notifyAttention(
+        `Naxie — Telegram news`,
+        `${notified} post${notified === 1 ? "" : "s"} from monitored groups scored relevant — check your Telegram DMs.`,
+        { actor: "monitor" },
+      );
+    }
+    return notified > 0;
+  } catch (e) {
+    console.warn(`[org-daemon] maybeScoreTelegramNews failed: ${(e as Error).message}`);
+    return false;
+  }
+}
+
+// Compliance/renewal reminders — real-world deadlines (licenses, insurance,
+// certs, contracts) tracked outside the OrgTask backlog since they're
+// calendar-driven, not work-item-driven. Delegates to compliance-renewals.ts
+// for the actual reminder/escalation logic — same dynamic-import shape as
+// maybeScoreTelegramNews above, since it's another self-contained module.
+export async function maybeProcessComplianceReminders(now = Date.now()): Promise<boolean> {
+  try {
+    const { processDueReminders } = await import("./compliance-renewals.js");
+    const { reminded, escalated } = await processDueReminders(now);
+    return reminded > 0 || escalated > 0;
+  } catch (e) {
+    console.warn(`[org-daemon] maybeProcessComplianceReminders failed: ${(e as Error).message}`);
+    return false;
+  }
+}
+
 export const DAEMON_CYCLE_SECONDS = Number(process.env.NEUROWORKS_ORG_DAEMON_CYCLE_SECONDS ?? "300") || 300;
 
 // How long an OrgTask may sit at waiting-on-approval before it's stale.
@@ -346,9 +385,33 @@ export function reconcileOrphanedActiveTasks(now = Date.now()): number {
   return reconciled;
 }
 
+// SLA: blocked tasks that have sat >48h without update get escalated (priority bump + urgent notify)
+const BLOCKED_SLA_MS = Number(process.env.NEUROWORKS_ORG_BLOCKED_SLA_MS) || 48 * 3600 * 1000;
+const BLOCKED_SLA_THROTTLE_MS = 24 * 3600 * 1000;
+const blockedSlaNotified = new Map<string, number>();
+
+export function maybeEscalateBlockedSLA(now = Date.now()): number {
+  let escalated = 0;
+  for (const t of listOrgTasks({ status: "blocked" })) {
+    if (now - new Date(t.updatedAt).getTime() <= BLOCKED_SLA_MS) continue;
+    const last = blockedSlaNotified.get(t.id) ?? 0;
+    if (now - last < BLOCKED_SLA_THROTTLE_MS) continue;
+    blockedSlaNotified.set(t.id, now);
+    void notifyUrgent(
+      `Naxie — SLA breached: "${(t.title ?? "").slice(0, 80)}" blocked >${Math.round(BLOCKED_SLA_MS / 3600000)}h`,
+      `Task ${t.id} (${t.role}) has been blocked for ${Math.round((now - new Date(t.updatedAt).getTime()) / 3600000)}h without update. Review on /org-dashboard and unblock or archive.`,
+      { actor: t.role, target: t.title },
+    );
+    auditBestEffort(t, "org_task.sla_breach", `blocked >${Math.round(BLOCKED_SLA_MS / 3600000)}h — escalated`);
+    escalated += 1;
+  }
+  return escalated;
+}
+
 function tick(): void {
   try { sweepStaleOrgApprovals(); } catch (e) { console.warn(`[org-daemon] sweepStaleOrgApprovals failed: ${(e as Error).message}`); }
   try { reconcileOrphanedActiveTasks(); } catch (e) { console.warn(`[org-daemon] reconcileOrphanedActiveTasks failed: ${(e as Error).message}`); }
+  try { maybeEscalateBlockedSLA(); } catch (e) { console.warn(`[org-daemon] maybeEscalateBlockedSLA failed: ${(e as Error).message}`); }
   try { maybeNudgePendingApprovals(); } catch (e) { console.warn(`[org-daemon] maybeNudgePendingApprovals failed: ${(e as Error).message}`); }
   try { maybeBackupVault(); } catch (e) { console.warn(`[org-daemon] maybeBackupVault failed: ${(e as Error).message}`); }
   try { void maybeRunArchitectReview(); } catch (e) { console.warn(`[org-daemon] maybeRunArchitectReview failed: ${(e as Error).message}`); }
@@ -357,6 +420,22 @@ function tick(): void {
   try { maybeReportIdleActivity(); } catch (e) { console.warn(`[org-daemon] maybeReportIdleActivity failed: ${(e as Error).message}`); }
   try { void maybeNudgeChatInactivity(); } catch (e) { console.warn(`[org-daemon] maybeNudgeChatInactivity failed: ${(e as Error).message}`); }
   try { void maybeRunProactiveResearch(); } catch (e) { console.warn(`[org-daemon] maybeRunProactiveResearch failed: ${(e as Error).message}`); }
+  // Telegram news monitor — batch-score pending posts for relevance, notify via DM
+  try { void maybeScoreTelegramNews(); } catch (e) { console.warn(`[org-daemon] maybeScoreTelegramNews failed: ${(e as Error).message}`); }
+  // Compliance/renewal reminders — due-date reminders + overdue escalation
+  try { void maybeProcessComplianceReminders(); } catch (e) { console.warn(`[org-daemon] maybeProcessComplianceReminders failed: ${(e as Error).message}`); }
+  // MD voice briefing — 5 min after audit (07:05) — best-effort, once per day
+  try {
+    const now = new Date();
+    if (now.getHours() === 7 && now.getMinutes() >= 5) {
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      (globalThis as any).__mdVoiceBriefedDate = (globalThis as any).__mdVoiceBriefedDate ?? null;
+      if ((globalThis as any).__mdVoiceBriefedDate !== today) {
+        (globalThis as any).__mdVoiceBriefedDate = today;
+        void import("./system-audit.js").then(m => (m.triggerVoiceBriefing as any)().catch(() => {}));
+      }
+    }
+  } catch { /* ignore */ }
 }
 
 let timer: NodeJS.Timeout | null = null;

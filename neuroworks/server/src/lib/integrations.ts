@@ -55,10 +55,6 @@ export const PROVIDERS: Provider[] = [
     fields: [{ name: "webhookUrl", label: "Incoming Webhook URL", type: "url", secret: true, required: true, placeholder: "https://outlook.office.com/webhook/..." }],
     note: "Add an 'Incoming Webhook' connector to a Teams channel and paste its URL.",
     docsUrl: "https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook" },
-  { id: "googlechat", name: "Google Chat", category: "messaging", auth: "webhook", testable: true,
-    fields: [{ name: "webhookUrl", label: "Space Webhook URL", type: "url", secret: true, required: true, placeholder: "https://chat.googleapis.com/v1/spaces/.../messages?key=..." }],
-    docsUrl: "https://developers.google.com/chat/how-tos/webhooks" },
-
   // Dev / data tools.
   { id: "github", name: "GitHub", category: "dev", auth: "token", testable: true,
     fields: [{ name: "token", label: "Personal Access Token", type: "password", secret: true, required: true, placeholder: "ghp_..." }],
@@ -66,19 +62,6 @@ export const PROVIDERS: Provider[] = [
   { id: "notion", name: "Notion", category: "dev", auth: "token", testable: true,
     fields: [{ name: "token", label: "Internal Integration Token", type: "password", secret: true, required: true, placeholder: "secret_... / ntn_..." }],
     docsUrl: "https://www.notion.so/my-integrations" },
-  { id: "linear", name: "Linear", category: "dev", auth: "token", testable: true,
-    fields: [{ name: "apiKey", label: "API Key", type: "password", secret: true, required: true, placeholder: "lin_api_..." }],
-    docsUrl: "https://linear.app/settings/api" },
-  { id: "jira", name: "Jira", category: "dev", auth: "token", testable: true,
-    fields: [
-      { name: "site", label: "Site (host)", type: "text", required: true, placeholder: "yourcompany.atlassian.net" },
-      { name: "email", label: "Account Email", type: "text", required: true, placeholder: "you@company.com" },
-      { name: "apiToken", label: "API Token", type: "password", secret: true, required: true },
-    ], docsUrl: "https://id.atlassian.com/manage-profile/security/api-tokens" },
-  { id: "webhook", name: "Webhook (custom)", category: "dev", auth: "webhook", testable: true,
-    fields: [{ name: "webhookUrl", label: "Endpoint URL", type: "url", secret: true, required: true, placeholder: "https://example.com/hooks/neuro" }],
-    note: "Any HTTPS endpoint. Neuro POSTs JSON ({ text, source }) to it — wire it into Zapier, Make, n8n, or your own service.",
-    docsUrl: "https://zapier.com/apps/webhook/integrations" },
 
   // Social.
   { id: "twitter", name: "X / Twitter", category: "social", auth: "token", testable: false,
@@ -96,9 +79,6 @@ export const PROVIDERS: Provider[] = [
     fields: [{ name: "accessToken", label: "Access Token", type: "password", secret: true, required: true, placeholder: "1/xxxxxxxx…" }],
     note: "Social scheduler — queues posts across your connected Buffer channels. Paste an access token from a Buffer developer app.",
     docsUrl: "https://buffer.com/developers/api" },
-  { id: "hootsuite", name: "Hootsuite", category: "social", auth: "oauth", testable: false,
-    fields: [{ name: "accessToken", label: "OAuth Access Token", type: "password", secret: true, required: true }],
-    docsUrl: "https://developer.hootsuite.com/docs/using-the-rest-api" },
   { id: "ayrshare", name: "Ayrshare (multi-social)", category: "social", auth: "token", testable: false,
     fields: [{ name: "apiKey", label: "API Key", type: "password", secret: true, required: true }],
     note: "One key fans social.post out to X, LinkedIn, Facebook, Instagram, TikTok, etc. Can also be set via the AYRSHARE_API_KEY env var.",
@@ -122,66 +102,17 @@ export const PROVIDERS: Provider[] = [
   { id: "pinterest", name: "Pinterest", category: "social", auth: "token", testable: false,
     fields: [{ name: "accessToken", label: "Access Token", type: "password", secret: true, required: true }],
     docsUrl: "https://developers.pinterest.com/docs/api/v5/" },
-  { id: "reddit", name: "Reddit", category: "social", auth: "oauth", testable: false,
-    fields: [
-      { name: "clientId", label: "Client ID", type: "text", required: true },
-      { name: "clientSecret", label: "Client Secret", type: "password", secret: true, required: true },
-      { name: "refreshToken", label: "Refresh Token", type: "password", secret: true, required: true },
-    ], docsUrl: "https://www.reddit.com/prefs/apps" },
-  { id: "threads", name: "Threads", category: "social", auth: "token", testable: false,
-    fields: [{ name: "accessToken", label: "Access Token", type: "password", secret: true, required: true }],
-    docsUrl: "https://developers.facebook.com/docs/threads" },
-  { id: "bluesky", name: "Bluesky", category: "social", auth: "token", testable: false,
-    fields: [
-      { name: "handle", label: "Handle", type: "text", required: true, placeholder: "you.bsky.social" },
-      { name: "appPassword", label: "App Password", type: "password", secret: true, required: true },
-    ], docsUrl: "https://bsky.app/settings/app-passwords" },
-  { id: "mastodon", name: "Mastodon", category: "social", auth: "token", testable: false,
-    fields: [
-      { name: "instanceUrl", label: "Instance URL", type: "url", required: true, placeholder: "https://mastodon.social" },
-      { name: "accessToken", label: "Access Token", type: "password", secret: true, required: true },
-    ], docsUrl: "https://docs.joinmastodon.org/client/token/" },
-  { id: "snapchat", name: "Snapchat", category: "social", auth: "oauth", testable: false,
-    fields: [{ name: "accessToken", label: "OAuth Access Token", type: "password", secret: true, required: true }],
-    docsUrl: "https://developers.snap.com/api/marketing-api/Ads-API/getting-started" },
   { id: "whatsapp", name: "WhatsApp Business", category: "messaging", auth: "token", testable: false,
     fields: [
       { name: "phoneNumberId", label: "Phone Number ID", type: "text", required: true },
       { name: "accessToken", label: "Access Token", type: "password", secret: true, required: true },
     ], docsUrl: "https://developers.facebook.com/docs/whatsapp/cloud-api" },
-  { id: "medium", name: "Medium", category: "productivity", auth: "token", testable: false,
-    fields: [{ name: "integrationToken", label: "Integration Token", type: "password", secret: true, required: true }],
-    docsUrl: "https://github.com/Medium/medium-api-docs" },
-  { id: "heygen", name: "HeyGen (AI video)", category: "productivity", auth: "token", testable: true,
-    fields: [
-      { name: "apiKey", label: "API Key", type: "password", secret: true, required: true, placeholder: "paste from HeyGen → Settings → API" },
-      { name: "avatarId", label: "Default Avatar ID", type: "text", required: false, placeholder: "HeyGen → Avatars → (…) → paste id — avoids the slow avatar-list call" },
-      { name: "voiceId", label: "Default Voice ID", type: "text", required: false, placeholder: "HeyGen → Voices → paste id" },
-    ],
-    note: "AI avatar video generation. Powers heygen.create_video / heygen.video_status. Set a Default Avatar + Voice ID — HeyGen's avatar-list endpoint is very slow, so without these each video call can time out.",
-    docsUrl: "https://app.heygen.com/settings?nav=API" },
-
   // Productivity / CRM / ops — token-auth SaaS the agent can read & act on.
-  { id: "hubspot", name: "HubSpot", category: "productivity", auth: "token", testable: true,
-    fields: [{ name: "token", label: "Private App Access Token", type: "password", secret: true, required: true, placeholder: "pat-..." }],
-    docsUrl: "https://developers.hubspot.com/docs/api/private-apps" },
-  { id: "airtable", name: "Airtable", category: "productivity", auth: "token", testable: true,
-    fields: [
-      { name: "apiKey", label: "Personal Access Token", type: "password", secret: true, required: true, placeholder: "pat..." },
-      { name: "baseId", label: "Default Base ID", type: "text", required: false, placeholder: "app..." },
-    ], docsUrl: "https://airtable.com/create/tokens" },
-  { id: "trello", name: "Trello", category: "productivity", auth: "token", testable: true,
+  { id: "mailjet", name: "Mailjet", category: "productivity", auth: "token", testable: true,
     fields: [
       { name: "apiKey", label: "API Key", type: "password", secret: true, required: true },
-      { name: "token", label: "Token", type: "password", secret: true, required: true },
-    ], docsUrl: "https://trello.com/power-ups/admin" },
-  { id: "asana", name: "Asana", category: "productivity", auth: "token", testable: true,
-    fields: [{ name: "accessToken", label: "Personal Access Token", type: "password", secret: true, required: true }],
-    docsUrl: "https://app.asana.com/0/my-apps" },
-  { id: "mailchimp", name: "Mailchimp", category: "productivity", auth: "token", testable: true,
-    fields: [{ name: "apiKey", label: "API Key", type: "password", secret: true, required: true, placeholder: "xxxx-us21" }],
-    note: "The datacenter suffix (e.g. us21) is taken from the key automatically.",
-    docsUrl: "https://mailchimp.com/help/about-api-keys/" },
+      { name: "secretKey", label: "Secret Key", type: "password", secret: true, required: true },
+    ], docsUrl: "https://app.mailjet.com/account/apikeys" },
 
   // Productivity — OAuth providers; paste an access token for now (full OAuth flow is future).
   { id: "google", name: "Google (Gmail/Calendar/Drive)", category: "productivity", auth: "oauth", testable: true,
@@ -192,11 +123,6 @@ export const PROVIDERS: Provider[] = [
     fields: [{ name: "accessToken", label: "OAuth Access Token", type: "password", secret: true, required: true }],
     note: "OAuth redirect flow coming soon — paste an access token to use now.",
     docsUrl: "https://learn.microsoft.com/en-us/graph/auth/" },
-  // n8n moved OUT of this generic catalog — it has its own dedicated page
-  // (pages/N8n.tsx, under Connect) backed by N8N_BASE_URL + N8N_API_KEY in
-  // .env, not a saved connection here. A stub entry in both places is how
-  // you end up "connected" here while the actual n8n.* primitives still
-  // don't work — see server/src/lib/n8n.ts.
 ];
 
 export function getProvider(id: string): Provider | undefined {
@@ -506,32 +432,10 @@ async function runConnectionTest(id: string): Promise<{ ok: boolean; detail: str
         const r = await fetch(secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "✅ Neuro connected to this Teams channel." }) });
         return r.ok ? { ok: true, detail: "test message sent" } : { ok: false, detail: `HTTP ${r.status}: ${(await r.text()).slice(0, 120)}` };
       }
-      case "googlechat": {
-        const r = await fetch(secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "✅ Neuro connected to this space." }) });
-        return r.ok ? { ok: true, detail: "test message sent" } : { ok: false, detail: `HTTP ${r.status}: ${(await r.text()).slice(0, 120)}` };
-      }
-      case "webhook": {
-        const r = await fetch(secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "ping from Neuro", source: "neuroworks" }) });
-        // Generic endpoint — any non-5xx means it's reachable and accepted the POST.
-        return r.status < 500 ? { ok: true, detail: `endpoint reachable (HTTP ${r.status})` } : { ok: false, detail: `HTTP ${r.status}` };
-      }
       case "github": {
         const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${secrets.token}`, "user-agent": "clawbot" } });
         const j: any = await r.json();
         return r.ok ? { ok: true, detail: `@${j?.login}` } : { ok: false, detail: j?.message ?? `HTTP ${r.status}` };
-      }
-      case "heygen": {
-        // HeyGen authenticates with an X-Api-Key header. Validate against the
-        // avatars endpoint and report how many avatars are available.
-        const key = (secrets.apiKey ?? "").trim();
-        if (!key) return { ok: false, detail: "no API key — paste your HeyGen API key (Settings → API)" };
-        const r = await fetch("https://api.heygen.com/v2/avatars", { headers: { "x-api-key": key, accept: "application/json" } });
-        const j: any = await r.json().catch(() => ({}));
-        if (r.ok && j?.data) {
-          const n = (j.data.avatars?.length ?? 0) + (j.data.talking_photos?.length ?? 0);
-          return { ok: true, detail: `HeyGen connected — ${n} avatar${n === 1 ? "" : "s"} available` };
-        }
-        return { ok: false, detail: `${j?.error?.message ?? j?.message ?? `HTTP ${r.status}`} — check the HeyGen API key` };
       }
       case "buffer": {
         // Buffer's "Public API" token uses the NEW GraphQL API at
@@ -551,49 +455,15 @@ async function runConnectionTest(id: string): Promise<{ ok: boolean; detail: str
         const j: any = await r.json();
         return r.ok ? { ok: true, detail: j?.name ?? j?.bot?.owner?.type ?? "ok" } : { ok: false, detail: j?.message ?? `HTTP ${r.status}` };
       }
-      case "linear": {
-        const r = await fetch("https://api.linear.app/graphql", { method: "POST", headers: { authorization: secrets.apiKey, "content-type": "application/json" }, body: JSON.stringify({ query: "{ viewer { name email } }" }) });
-        const j: any = await r.json();
-        return j?.data?.viewer ? { ok: true, detail: j.data.viewer.name } : { ok: false, detail: j?.errors?.[0]?.message ?? `HTTP ${r.status}` };
-      }
       case "linkedin": {
         const r = await fetch("https://api.linkedin.com/v2/me", { headers: { authorization: `Bearer ${secrets.accessToken}` } });
         return r.ok ? { ok: true, detail: "token valid" } : { ok: false, detail: `HTTP ${r.status}` };
       }
-      case "jira": {
-        const site = (config.site ?? "").replace(/^https?:\/\//, "").replace(/\/+$/, "");
-        const auth = Buffer.from(`${config.email}:${secrets.apiToken}`).toString("base64");
-        const r = await fetch(`https://${site}/rest/api/3/myself`, { headers: { authorization: `Basic ${auth}`, accept: "application/json" } });
+      case "mailjet": {
+        const auth = Buffer.from(`${secrets.apiKey}:${secrets.secretKey}`).toString("base64");
+        const r = await fetch("https://api.mailjet.com/v3/REST/apikey", { headers: { authorization: `Basic ${auth}` } });
         const j: any = await r.json().catch(() => ({}));
-        return r.ok ? { ok: true, detail: j?.displayName ?? j?.emailAddress ?? "token valid" } : { ok: false, detail: j?.errorMessages?.[0] ?? `HTTP ${r.status}` };
-      }
-      case "hubspot": {
-        const r = await fetch("https://api.hubapi.com/account-info/v3/details", { headers: { authorization: `Bearer ${secrets.token}` } });
-        const j: any = await r.json().catch(() => ({}));
-        return r.ok ? { ok: true, detail: `portal ${j?.portalId ?? "connected"}` } : { ok: false, detail: j?.message ?? `HTTP ${r.status}` };
-      }
-      case "airtable": {
-        const r = await fetch("https://api.airtable.com/v0/meta/whoami", { headers: { authorization: `Bearer ${secrets.apiKey}` } });
-        const j: any = await r.json().catch(() => ({}));
-        return r.ok ? { ok: true, detail: j?.id ? `user ${j.id}` : "token valid" } : { ok: false, detail: j?.error?.message ?? j?.error?.type ?? `HTTP ${r.status}` };
-      }
-      case "trello": {
-        const r = await fetch(`https://api.trello.com/1/members/me?key=${encodeURIComponent(secrets.apiKey)}&token=${encodeURIComponent(secrets.token)}`);
-        const j: any = await r.json().catch(() => ({}));
-        return r.ok ? { ok: true, detail: j?.fullName ?? j?.username ?? "token valid" } : { ok: false, detail: typeof j === "string" ? j : `HTTP ${r.status}` };
-      }
-      case "asana": {
-        const r = await fetch("https://app.asana.com/api/1.0/users/me", { headers: { authorization: `Bearer ${secrets.accessToken}` } });
-        const j: any = await r.json().catch(() => ({}));
-        return r.ok ? { ok: true, detail: j?.data?.name ?? j?.data?.email ?? "token valid" } : { ok: false, detail: j?.errors?.[0]?.message ?? `HTTP ${r.status}` };
-      }
-      case "mailchimp": {
-        const dc = (secrets.apiKey.split("-")[1] ?? "").trim();
-        if (!dc) return { ok: false, detail: "API key has no datacenter suffix (expected key-usXX)" };
-        const auth = Buffer.from(`anystring:${secrets.apiKey}`).toString("base64");
-        const r = await fetch(`https://${dc}.api.mailchimp.com/3.0/`, { headers: { authorization: `Basic ${auth}` } });
-        const j: any = await r.json().catch(() => ({}));
-        return r.ok ? { ok: true, detail: j?.account_name ?? "token valid" } : { ok: false, detail: j?.detail ?? `HTTP ${r.status}` };
+        return r.ok ? { ok: true, detail: "token valid" } : { ok: false, detail: j?.ErrorMessage ?? `HTTP ${r.status}` };
       }
       case "google": {
         const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { authorization: `Bearer ${secrets.accessToken}` } });

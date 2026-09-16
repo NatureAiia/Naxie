@@ -28,6 +28,7 @@ import { config } from "../config.js";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { presentApproval, handleApprovalReply } from "./action-approvals.js";
 
 const BASE = `http://127.0.0.1:${config.port}`;
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -99,35 +100,60 @@ async function getBotToken(): Promise<string> {
 
 // Shared outbound send — the ONE place that calls Telegram's sendMessage API.
 // Used by the telegram.send agent tool (primitives.ts) AND by background
-// schedulers (reflection.ts, innovation-scan.ts) that push a finished
+// schedulers (reflection.ts, innovation-scan.ts, todo-brief.ts) that push a finished
 // report to the operator's default chat without going through the agent
 // loop. Defaults to the integration's saved chat id; pass chatId to override.
-export async function sendTelegramMessage(text: string, chatId?: string): Promise<{ ok: boolean; error?: string; messageId?: number }> {
+//
+// All Naxie texts must look nice: markdown is auto-converted to rich Telegram HTML
+// (bold, italic, code, links, headings → bold) with chunking + plain-text fallback
+// so no report lands as raw `**` / `##` noise.
+// Inline keyboards: pass `keyboard` as Telegram inline_keyboard array for one-tap actions.
+export async function sendTelegramMessage(text: string, chatId?: string, keyboard?: any[][]): Promise<{ ok: boolean; error?: string; messageId?: number }> {
   const { getConnectionByProvider } = await import("./integrations.js");
   const conn = getConnectionByProvider("telegram");
   if (!conn?.secrets?.botToken) return { ok: false, error: "no Telegram connection — add one on the Integrations page" };
   const botToken = stripToken(conn.secrets.botToken);
   const chat = String(chatId ?? conn.config?.chatId ?? "").trim();
   if (!chat) return { ok: false, error: "no chatId (set a default on the Integrations page or pass chatId)" };
-  // A bot's own @username is not a valid send target — the single most
-  // common Telegram misconfig. Catch it with a clear message instead of
-  // Telegram's opaque "chat not found".
   if (/bot$/i.test(chat) && !/^-?\d+$/.test(chat) && !chat.startsWith("@")) {
     return { ok: false, error: `chatId "${chat}" looks like a bot username, not a chat — a bot can't message itself. Use a numeric chat id (DM the bot, then read it from getUpdates) or @channelusername.` };
   }
   const trimmed = text.trim();
   if (!trimmed) return { ok: false, error: "text is required" };
-  try {
-    const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      // Telegram's hard cap is 4096 UTF-16 code units per message.
-      body: JSON.stringify({ chat_id: chat, text: trimmed.slice(0, 4096) }),
-    });
-    const j: any = await r.json().catch(() => ({}));
-    return j?.ok ? { ok: true, messageId: j.result?.message_id } : { ok: false, error: `telegram: ${j?.description ?? `HTTP ${r.status}`}` };
-  } catch (e: any) {
-    return { ok: false, error: `telegram send failed: ${e?.message ?? e}` };
+  // Try rich HTML first (nice headings/bold/links), chunked at ~3800 to leave room for HTML tags
+  const html = markdownToTelegramHtml(trimmed);
+  const plainChunks: string[] = [];
+  const htmlChunks: string[] = [];
+  for (let i = 0; i < trimmed.length; i += 3800) plainChunks.push(trimmed.slice(i, i + 3800));
+  for (let i = 0; i < html.length; i += 3800) htmlChunks.push(html.slice(i, i + 3800));
+  // Send each chunk; on HTML parse failure fall back to plain for that chunk
+  // Only attach inline keyboard to the last chunk (where it makes sense)
+  let lastId: number | undefined;
+  for (let i = 0; i < htmlChunks.length; i++) {
+    const isLast = i === htmlChunks.length - 1;
+    const extra: any = isLast && keyboard?.length ? { reply_markup: { inline_keyboard: keyboard } } : {};
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chat, text: htmlChunks[i].slice(0, 4096), parse_mode: "HTML", ...extra }),
+      });
+      const j: any = await r.json().catch(() => ({}));
+      if (j?.ok) { lastId = j.result?.message_id; continue; }
+      if (j?.description && /parse|can't parse|wrong string/i.test(String(j.description))) {
+        const rf = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ chat_id: chat, text: plainChunks[i].slice(0, 4096), ...(isLast && keyboard?.length ? { reply_markup: { inline_keyboard: keyboard } } : {}) }),
+        });
+        const jf: any = await rf.json().catch(() => ({}));
+        if (jf?.ok) { lastId = jf.result?.message_id; continue; }
+        return { ok: false, error: `telegram: ${jf?.description ?? `HTTP ${rf.status}`}` };
+      }
+      return { ok: false, error: `telegram: ${j?.description ?? `HTTP ${r.status}`}` };
+    } catch (e: any) {
+      return { ok: false, error: `telegram send failed: ${e?.message ?? e}` };
+    }
   }
+  return { ok: true, messageId: lastId };
 }
 
 // Effective allow-list: env chat ids UNION the integration's default chat id, so
@@ -165,13 +191,24 @@ async function tg(token: string, method: string, params: Record<string, unknown>
   }
 }
 
-// Telegram caps a message at 4096 chars. Render agent markdown as rich
-// Telegram HTML (like ChatGPT/Claude: bold headings, italic, code, links) —
-// with a plain-text fallback so a parse error never drops the reply.
-function escapeHtml(s: string): string {
+// Some scheduled senders (todo-brief, weekly-rollup) embed the whole vault
+// FILE — frontmatter block + a trailing `<details><summary>Raw…` JSON dump —
+// into their Telegram body, not just the human-readable narrative. Strip both
+// before the text ever reaches markdownToTelegramHtml, or the frontmatter and
+// raw JSON show up verbatim in the chat.
+export function stripVaultFrontmatterForTelegram(md: string): string {
+  return md
+    .replace(/^---\n[\s\S]*?\n---\n+/, "")
+    .replace(/<details>[\s\S]*?<\/details>\s*/gi, "")
+    .trim();
+}
+
+// Exported for scheduled senders (reflection, innovation-scan, todo-brief) and
+// sendTelegramMessage above.
+export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-function markdownToTelegramHtml(md: string): string {
+export function markdownToTelegramHtml(md: string): string {
   let html = md;
   // Fenced code blocks ```lang\ncode``` -> <pre>code</pre> (escape inside)
   html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (_m, _lang, code) => `<pre>${escapeHtml(code.trim())}</pre>`);
@@ -259,12 +296,85 @@ function appendHistory(chatId: string, role: "user" | "assistant", content: stri
   chatHistory.set(chatId, h);
 }
 
+async function handleTodoCallback(token: string, allow: Set<string>, cb: any): Promise<void> {
+  try {
+    const data: string = String(cb.data ?? "");
+    const chatId = String(cb.message?.chat?.id ?? cb.from?.id ?? "");
+    if (!allow.has(chatId)) return;
+    const cbId = String(cb.id ?? "");
+    // Ack immediately to clear spinner
+    void tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Working…" }).catch(() => {});
+    const m = data.match(/^todo:(done|snooze):(.+)$/);
+    if (!m) {
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Unknown action" });
+      return;
+    }
+    const [, action, taskId] = m;
+    // Direct my-tasks store edit (cross-owner search)
+    try {
+      const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
+      const { resolve, dirname } = await import("node:path");
+      const { fileURLToPath } = await import("node:url");
+      const storePath = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.neuroworks/my-tasks.json");
+      if (!existsSync(storePath)) throw new Error("no store");
+      const parsed = JSON.parse(readFileSync(storePath, "utf8"));
+      const items: any[] = parsed.items ?? [];
+      const idx = items.findIndex((x: any) => x.id === taskId);
+      if (idx === -1) {
+        await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Task not found" });
+        return;
+      }
+      const it = items[idx];
+      if (action === "done") {
+        it.completed = !it.completed;
+        it.completedAt = it.completed ? new Date().toISOString() : undefined;
+        writeFileSync(storePath, JSON.stringify(parsed, null, 2));
+        await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: it.completed ? "✅ Marked done" : "↩️ Marked open" });
+        void tg(token, "sendMessage", { chat_id: chatId, text: `${it.completed ? "✅ Done" : "↩️ Reopened"}: ${String(it.title).slice(0,120)}`, parse_mode: "HTML" }).catch(() => {});
+      } else if (action === "snooze") {
+        const tmr = new Date(); tmr.setDate(tmr.getDate()+1);
+        const ymd = `${tmr.getFullYear()}-${String(tmr.getMonth()+1).padStart(2,"0")}-${String(tmr.getDate()).padStart(2,"0")}`;
+        it.dueDate = ymd;
+        writeFileSync(storePath, JSON.stringify(parsed, null, 2));
+        await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: `⏰ Snoozed to ${ymd}` });
+        void tg(token, "sendMessage", { chat_id: chatId, text: `⏰ Snoozed to <b>${ymd}</b>: ${escapeHtml(String(it.title).slice(0,120))}`, parse_mode: "HTML" }).catch(() => {});
+      }
+    } catch (e: any) {
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: `Failed: ${String(e?.message ?? e).slice(0,60)}` });
+    }
+  } catch (e: any) { console.warn(`[telegram] callback failed: ${e?.message ?? e}`); }
+}
+
 async function processUpdate(token: string, allow: Set<string>, update: any): Promise<void> {
+  if (update.callback_query) {
+    return handleTodoCallback(token, allow, update.callback_query);
+  }
   const msg = update.message ?? update.channel_post;
   if (!msg || typeof msg.text !== "string") return; // ignore non-text (stickers, joins, edits…)
   const chat = msg.chat ?? {};
   const chatId = String(chat.id);
   const isGroup = chat.type === "group" || chat.type === "supergroup";
+
+  // ── Telegram news monitor — silently capture all messages from monitor groups ──
+  // These messages are NOT routed to /api/chat and NOT replied to in the group.
+  // They land in the pending queue for batch LLM scoring (telegram-news-monitor.ts).
+  try {
+    const { isMonitorEnabled, monitorGroups, capturePost } = await import("./telegram-news-monitor.js");
+    if (isMonitorEnabled() && monitorGroups().includes(chatId)) {
+      const sender = msg.from ?? {};
+      const senderName = [sender.first_name, sender.last_name].filter(Boolean).join(" ") || sender.username || "unknown";
+      capturePost({
+        messageId: msg.message_id,
+        chatId,
+        chatName: chat.title ?? chatId,
+        text: msg.text,
+        senderName,
+        timestamp: new Date(msg.date * 1000).toISOString(),
+        capturedAt: new Date().toISOString(),
+      });
+      return; // silent — do not route to agent, do not reply
+    }
+  } catch { /* monitor module optional — fall through to normal bridge logic */ }
 
   // ── Allow-list gate (the security boundary) ──
   if (!allow.has(chatId)) {
@@ -290,6 +400,16 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
     return;
   }
 
+  // Gate 2 of the approval protocol (action-approvals.ts) — a bare yes/no
+  // reply to a just-presented approval is consumed HERE, before it would
+  // otherwise be routed to the agent as a new message.
+  const approvalReply = await handleApprovalReply(chatId, text);
+  if (approvalReply !== null) {
+    await sendReply(token, chatId, approvalReply, msg.message_id);
+    state.processed += 1;
+    return;
+  }
+
   // Typing indicator while we work (Telegram clears it after ~5s; best-effort).
   void tg(token, "sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
 
@@ -306,7 +426,7 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
       answer = String(r.text ?? "").trim() || "I couldn't process that request.";
     } else if ((r?.kind === "task" || r?.kind === "approval") && r.jobId) {
       if (r.kind === "approval" || r.requiresApproval) {
-        answer = `That needs an action that requires sign-off — I've parked it on the Approvals page for review. (${r.text ?? "awaiting approval"})`;
+        answer = await presentApproval(chatId, String(r.jobId), r.text);
       } else {
         const j = await pollJob(String(r.jobId));
         answer = String(j?.result?.answer ?? "").trim() || (j?.error ? `The task hit an error: ${j.error}` : "I wasn't able to produce an answer for that one.");
@@ -380,7 +500,7 @@ export async function startTelegramBridge(): Promise<void> {
     while (!abort) {
       refreshLock(); // keep the single-poller lease alive
       try {
-        const res = await tg(token, "getUpdates", { offset, timeout: pollTimeout, allowed_updates: ["message", "channel_post"] }, (pollTimeout + 10) * 1000);
+        const res = await tg(token, "getUpdates", { offset, timeout: pollTimeout, allowed_updates: ["message", "channel_post", "callback_query"] }, (pollTimeout + 10) * 1000);
         if (res?.ok && Array.isArray(res.result)) {
           for (const update of res.result) {
             offset = update.update_id + 1;

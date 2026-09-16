@@ -28,11 +28,15 @@ import { loadPersonas } from "./lib/personas.js";
 import { ensureAllPersonasHaveTemplates } from "./lib/persona-templates.js";
 import { startReflectionScheduler, stopReflectionScheduler } from "./lib/reflection.js";
 import { startInnovationScanScheduler, stopInnovationScanScheduler } from "./lib/innovation-scan.js";
+import { startSystemAuditScheduler, stopSystemAuditScheduler, startWeeklyBoardScheduler, stopWeeklyBoardScheduler } from "./lib/system-audit.js";
+import { startTodoBriefScheduler, stopTodoBriefScheduler } from "./lib/todo-brief.js";
+import { startWeeklyRollupScheduler, stopWeeklyRollupScheduler } from "./lib/weekly-rollup.js";
 import { startWikiCompileScheduler, stopWikiCompileScheduler, startWikiDigestScheduler, stopWikiDigestScheduler } from "./lib/wiki-compile.js";
 import { ensureAgentsMdExists } from "./lib/agents-routing.js";
 import { abortInflightJobs } from "./lib/jobs.js";
 import { reflectionRouter } from "./routes/reflection.js";
 import { innovationScanRouter } from "./routes/innovation-scan.js";
+import { systemAuditRouter } from "./routes/system-audit.js";
 import { wikiCompileRouter } from "./routes/wiki-compile.js";
 import { skillsRouter } from "./routes/skills.js";
 import { uploadsRouter } from "./routes/uploads.js";
@@ -65,13 +69,13 @@ import { projectsRouter } from "./routes/projects.js";
 import { schedulerRouter } from "./routes/scheduler.js";
 import { mcpServersRouter } from "./routes/mcp-servers.js";
 import { extensionsRouter } from "./routes/extensions.js";
-import { n8nRouter } from "./routes/n8n.js";
 import { crmRouter } from "./routes/crm.js";
 import { naxieRouter } from "./routes/naxie.js";
 import { onboardingRouter } from "./routes/onboarding.js";
 import { seedAiiAWebsiteConnector, seedPublicApiConnectors } from "./lib/connectors.js";
 import { executorRouter } from "./routes/executor.js";
 import { primitivesRouter } from "./routes/primitives.js";
+import { hermesBridgeRouter } from "./routes/hermes-bridge.js";
 import { usersRouter } from "./routes/users.js";
 import { assignmentsRouter } from "./routes/assignments.js";
 import { voiceRouter } from "./routes/voice.js";
@@ -80,6 +84,7 @@ import { departmentsRouter } from "./routes/departments.js";
 import { knowledgePacksRouter } from "./routes/knowledge-packs.js";
 import { dispatchRouter, dispatchKeysRouter } from "./routes/dispatch.js";
 import { publicFinanceRouter } from "./routes/public-finance.js";
+import { agentIngestRouter } from "./routes/agent-ingest.js";
 import { datasetsRouter } from "./routes/datasets.js";
 import { omnisignalRouter } from "./routes/omnisignal.js";
 import { qualityRouter } from "./routes/quality.js";
@@ -92,6 +97,7 @@ import { startTelegramBridge, stopTelegramBridge } from "./lib/telegram-bridge.j
 import { startExtensionHealthScheduler, stopExtensionHealthScheduler } from "./lib/extension-scheduler.js";
 import { startGithubWatcher } from "./lib/github-watcher.js";
 import { originGuard, ALLOWED_ORIGINS } from "./lib/origin-guard.js";
+import { securityHeaders } from "./lib/security-headers.js";
 import { enterpriseAuthGuard } from "./lib/enterprise-auth.js";
 import { applyRagOverrides } from "./lib/rag-config.js";
 
@@ -104,6 +110,9 @@ validateConfig();
 applyRagOverrides();
 
 const app = express();
+// CSP + Permissions-Policy (absent before now — see lib/security-headers.ts)
+// applied first so every response carries them, including an early error.
+app.use(securityHeaders);
 // Gzip/brotli every compressible response — the built SPA's JS/CSS, JSON API
 // responses, markdown. Only touches the OUTGOING body so it's safe ahead of
 // the raw-body webhook parsers below (those need the raw REQUEST body,
@@ -218,6 +227,7 @@ app.use("/api/peers", peersRouter);
 app.use("/api/models", modelsRouter); // provider API keys
 app.use("/api/reflection", reflectionRouter);
 app.use("/api/innovation-scan", innovationScanRouter);
+app.use("/api/system-audit", systemAuditRouter);
 app.use("/api/wiki-compile", wikiCompileRouter);
 app.use("/api/skills", skillsRouter);
 app.use("/api/uploads", uploadsRouter);
@@ -260,10 +270,10 @@ app.use("/api/projects", projectsRouter); // repos grouped per account, watched 
 app.use("/api/scheduler", schedulerRouter); // orchestration-core engine introspection
 app.use("/api/mcp-servers", mcpServersRouter); // spawns local processes
 app.use("/api/extensions", extensionsRouter); // unified plugins/extensions monitor + connect (webhook is public via secret)
-app.use("/api/n8n", n8nRouter); // n8n workflow automation (env-gated: N8N_BASE_URL + N8N_API_KEY)
 app.use("/api/crm", crmRouter); // contacts/deals/activities — local JSON store, no external CRM required
 app.use("/api/executor", executorRouter); // flips who/what executes tasks (spend implications)
 app.use("/api/primitives", primitivesRouter);
+app.use("/api/hermes-bridge", hermesBridgeRouter); // status/register for the clawbot-mcp.mjs ↔ Hermes bridge
 app.use("/api/users", usersRouter); // directory admin (salary redaction inside)
 app.use("/api/assignments", assignmentsRouter); // human-in-the-loop work (My Work page; per-route access checks inside)
 app.use("/api/voice", voiceRouter); // employee voices: report Q&A, local TTS proxy, realtime session mint
@@ -281,6 +291,9 @@ app.use("/api/dispatch-keys", dispatchKeysRouter); // mints external machine-dis
 app.use("/api/datasets", datasetsRouter);
 app.use("/api/omnisignal", omnisignalRouter);
 app.use("/api/public", publicFinanceRouter);
+// External news ingest (same /api/public origin-guard exemption as above),
+// gated by AGENT_INGEST_TOKEN — see routes/agent-ingest.ts.
+app.use("/api/public/agent", agentIngestRouter);
 app.use("/api/quality", qualityRouter);
 app.use("/api/cost", costRouter); // money
 app.use("/api/audit", auditRouter); // audit trail (actors, role changes, sensitive-tool calls)
@@ -503,22 +516,52 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // reads. Default every 5m; opt out with NEUROWORKS_VAULT_PULL=0.
   startVaultPullScheduler();
 
-  // Nightly self-reflection. Only the primary runs the scheduler — secondary
-  // clawbots are workers and the reflection covers the whole fleet from the
-  // primary's job list anyway. Disable with NEUROWORKS_REFLECTION=0.
+  // End-of-day reflection at 8pm (20:00) — the day's report. Only the primary
+  // runs the scheduler — secondary clawbots are workers and the reflection
+  // covers the whole fleet from the primary's job list anyway. Disable with
+  // NEUROWORKS_REFLECTION=0. Override hour with NEUROWORKS_REFLECTION_HOUR.
   if (process.env.NEUROWORKS_REFLECTION !== "0" && config.role === "primary") {
     startReflectionScheduler();
-    console.log(`  ⓘ nightly reflection scheduler armed (hour=${process.env.NEUROWORKS_REFLECTION_HOUR ?? "8"}, delivers to Telegram if connected)`);
+    console.log(`  ⓘ daily reflection scheduler armed (hour=${process.env.NEUROWORKS_REFLECTION_HOUR ?? "20"}, delivers to Telegram if connected)`);
   }
 
-  // Innovation Scan — same primary-only guard as reflection above. Both
-  // default to 8am (the operator wants them "everyday at 8am, sent to
-  // Telegram") — they may land in the same 10-minute catch-up tick, which is
-  // fine, each fires and delivers independently. Disable with
-  // NEUROWORKS_INNOVATION_SCAN=0.
+  // Innovation Scan at 8am — Naxie's morning scan with nicer headings & emojis.
+  // Same primary-only guard as reflection above. Disable with
+  // NEUROWORKS_INNOVATION_SCAN=0. Todo brief (6am) fires just before this
+  // so the operator gets todos first, then the scan.
   if (process.env.NEUROWORKS_INNOVATION_SCAN !== "0" && config.role === "primary") {
     startInnovationScanScheduler();
-    console.log(`  ⓘ nightly innovation scan scheduler armed (hour=${process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8"}, delivers to Telegram if connected)`);
+    console.log(`  ⓘ innovation scan scheduler armed (hour=${process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8"}, delivers to Telegram if connected)`);
+  }
+
+  // MD System Audit at 7am — Naxie's daily managing-director scan (every file,
+  // feature, page — what's improving, dormant, useless). Fires before the 8am
+  // innovation scan so the operator gets MD report first, then the tech watch.
+  // Primary-only. Disable with NEUROWORKS_SYSTEM_AUDIT=0.
+  if (process.env.NEUROWORKS_SYSTEM_AUDIT !== "0" && config.role === "primary") {
+    startSystemAuditScheduler();
+    console.log(`  ⓘ MD system-audit scheduler armed (hour=${process.env.NEUROWORKS_SYSTEM_AUDIT_HOUR ?? "7"}, delivers to Telegram if connected)`);
+  }
+
+  // Todo brief at 6am — today's tasks + remaining for the week (with weather + 🔥 Top 3 + inline buttons). Fires before
+  // the 7am MD audit so the operator starts the day with todos, then the MD
+  // report, then the 8am innovation scan.
+  // Primary-only. Disable with NEUROWORKS_TODO_BRIEF=0.
+  if (process.env.NEUROWORKS_TODO_BRIEF !== "0" && config.role === "primary") {
+    startTodoBriefScheduler();
+    console.log(`  ⓘ todo brief scheduler armed (hour=${process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"}, delivers to Telegram if connected)`);
+  }
+
+  // MD Weekly Board — Monday 08:00, convenes on latest audit's top improvements
+  if (process.env.NEUROWORKS_WEEKLY_BOARD !== "0" && config.role === "primary") {
+    startWeeklyBoardScheduler();
+    console.log(`  ⓘ MD weekly board scheduler armed (Monday 08:00)`);
+  }
+
+  // Weekly rollup Sundays 9am — combines todos + reflections + scans.
+  if (process.env.NEUROWORKS_WEEKLY_ROLLUP !== "0" && config.role === "primary") {
+    startWeeklyRollupScheduler();
+    console.log(`  ⓘ weekly rollup scheduler armed (dow=${process.env.NEUROWORKS_WEEKLY_ROLLUP_DOW ?? "0"} hour=${process.env.NEUROWORKS_WEEKLY_ROLLUP_HOUR ?? "9"})`);
   }
 
   // Second-brain wiki compile — distills raw captures (_archive/) into
@@ -627,6 +670,14 @@ async function gracefulExit(signal: string) {
   try { stopReflectionScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopInnovationScanScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopSystemAuditScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopWeeklyBoardScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopTodoBriefScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopWeeklyRollupScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopWikiCompileScheduler(); stopWikiDigestScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
