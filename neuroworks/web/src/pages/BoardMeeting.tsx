@@ -11,13 +11,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { marked } from "marked";
-import { RefreshCw, Users2, History } from "lucide-react";
-import { api, type BoardRun } from "../lib/api";
-import { Card, Button } from "../components/Card";
+import { RefreshCw, Users2, History, MessageSquareWarning, Clock, X } from "lucide-react";
+import { api, type BoardRun, type Cadence } from "../lib/api";
+import { Card, Button, showToast } from "../components/Card";
 import { BrandMark } from "../components/BrandMark";
 
 const DEFAULT_COUNCIL = ["researcher", "knowitall", "product-manager", "qa-engineer", "data-analyst"];
 const STORAGE_KEY = "neuroworks.board.topic";
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 type PersonaLite = { id: string; name: string; role: string; description?: string };
 
@@ -42,6 +43,21 @@ export function BoardMeeting() {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const [activeMemberTab, setActiveMemberTab] = useState(0);
+
+  // Feature C — correction UI. `correctingTarget` is undefined (synthesis) or
+  // a personaId (one opinion); null means the panel is closed.
+  const [correctingTarget, setCorrectingTarget] = useState<string | null | undefined>(null);
+  const [correctionNote, setCorrectionNote] = useState("");
+  const [correcting, setCorrecting] = useState(false);
+
+  // Feature D — recurring meetings via the existing generic Schedules
+  // pipeline (registers as a hidden "board-meeting" template — see
+  // lib/templates.ts / routes/templates.ts).
+  const [recurringOpen, setRecurringOpen] = useState(false);
+  const [recurDays, setRecurDays] = useState<Set<number>>(new Set([1, 2, 3, 4, 5]));
+  const [recurHour, setRecurHour] = useState(9);
+  const [recurMinute, setRecurMinute] = useState(0);
+  const [savingRecurring, setSavingRecurring] = useState(false);
 
   useEffect(() => {
     api.listPersonas().then(r => {
@@ -105,6 +121,59 @@ export function BoardMeeting() {
     setHistoryOpen(false);
   }
 
+  async function submitCorrection() {
+    if (!run || correctingTarget === null || !correctionNote.trim() || correcting) return;
+    setCorrecting(true);
+    try {
+      const body = correctingTarget === undefined
+        ? { note: correctionNote.trim() }
+        : { targetPersonaId: correctingTarget, note: correctionNote.trim() };
+      const r = await api.correctBoard(run.id, body);
+      setRun(r.run);
+      const last = r.run.corrections?.[r.run.corrections.length - 1];
+      showToast(
+        last?.classification === "standing-rule" ? `Standing rule added: ${last.ruleText}` : "Noted for this meeting",
+        "success",
+      );
+      setCorrectingTarget(null);
+      setCorrectionNote("");
+      refreshHistory();
+    } catch (e: any) {
+      showToast(e?.message ?? String(e), "error");
+    } finally {
+      setCorrecting(false);
+    }
+  }
+
+  function toggleRecurDay(d: number) {
+    setRecurDays(prev => {
+      const next = new Set(prev);
+      if (next.has(d)) next.delete(d); else next.add(d);
+      return next;
+    });
+  }
+
+  async function saveRecurring() {
+    if (!topic.trim() || selected.size < 3 || savingRecurring) return;
+    setSavingRecurring(true);
+    try {
+      const cadence: Cadence = { daysOfWeek: [...recurDays].sort((a, b) => a - b), hour: recurHour, minute: recurMinute };
+      await api.createSchedule({
+        name: `Board: ${topic.trim().slice(0, 40)}`,
+        templateId: "board-meeting",
+        inputs: { topic: topic.trim(), personaIds: [...selected].join(",") },
+        cadence,
+        enabled: true,
+      });
+      showToast("Recurring board meeting scheduled — see it on the Schedules page", "success");
+      setRecurringOpen(false);
+    } catch (e: any) {
+      showToast(e?.message ?? String(e), "error");
+    } finally {
+      setSavingRecurring(false);
+    }
+  }
+
   function toggleMember(id: string) {
     setSelected(prev => {
       const next = new Set(prev);
@@ -163,6 +232,7 @@ export function BoardMeeting() {
                     className="w-full text-left text-xs text-cream-100 hover:text-violet-300 truncate px-2 py-1.5 rounded hover:bg-ink-800/60"
                   >
                     <span className="text-cream-300/50 mr-2">{new Date(r.createdAt).toLocaleString()}</span>
+                    {r.scheduleId && <Clock size={11} className="inline mr-1 text-violet-300" aria-label="recurring" />}
                     {r.topic}
                   </button>
                 </li>
@@ -188,13 +258,53 @@ export function BoardMeeting() {
           >
             {selected.size} council member{selected.size === 1 ? "" : "s"} selected — {pickerOpen ? "hide" : "change"}
           </button>
-          <Button onClick={convene} disabled={!topic.trim() || starting || selected.size < 3}>
-            {starting ? <RefreshCw size={13} className="mr-1 inline animate-spin" /> : null}
-            Convene the board
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={() => setRecurringOpen(v => !v)} disabled={!topic.trim() || selected.size < 3}>
+              <Clock size={13} className="mr-1 inline" /> Make recurring…
+            </Button>
+            <Button onClick={convene} disabled={!topic.trim() || starting || selected.size < 3}>
+              {starting ? <RefreshCw size={13} className="mr-1 inline animate-spin" /> : null}
+              Convene the board
+            </Button>
+          </div>
         </div>
         {selected.size < 3 && (
           <div className="text-[11px] text-flame-300 mt-1">Pick at least 3 members.</div>
+        )}
+        {recurringOpen && (
+          <div className="mt-3 border-t border-ink-800 pt-3 space-y-2">
+            <div className="text-[11px] text-cream-300/60">Run this topic + council automatically on a schedule (see it later on the Schedules page).</div>
+            <div className="flex flex-wrap gap-1.5">
+              {DAY_LABELS.map((label, d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => toggleRecurDay(d)}
+                  className={`px-2 py-1 rounded text-[11px] border ${recurDays.has(d) ? "bg-violet-600 border-violet-500 text-white" : "border-ink-800 text-cream-300/60 hover:text-cream-100"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number" min={0} max={23} value={recurHour}
+                onChange={e => setRecurHour(Math.max(0, Math.min(23, Number(e.target.value) || 0)))}
+                className="w-16 bg-ink-950 border border-ink-800 rounded px-2 py-1 text-xs text-cream-100"
+              />
+              <span className="text-cream-300/50 text-xs">:</span>
+              <input
+                type="number" min={0} max={59} value={recurMinute}
+                onChange={e => setRecurMinute(Math.max(0, Math.min(59, Number(e.target.value) || 0)))}
+                className="w-16 bg-ink-950 border border-ink-800 rounded px-2 py-1 text-xs text-cream-100"
+              />
+              <span className="text-cream-300/50 text-xs">(this machine's clock)</span>
+              <Button onClick={saveRecurring} disabled={savingRecurring || recurDays.size === 0}>
+                {savingRecurring ? <RefreshCw size={13} className="mr-1 inline animate-spin" /> : null}
+                Save schedule
+              </Button>
+            </div>
+          </div>
         )}
         {pickerOpen && (
           <div className="mt-3 border-t border-ink-800 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto">
@@ -237,6 +347,21 @@ export function BoardMeeting() {
                 className="prose-vault text-sm text-cream-100"
                 dangerouslySetInnerHTML={{ __html: md(run.chairmanSynthesis) }}
               />
+              {run.synthesisRevisions && run.synthesisRevisions.length > 0 && (
+                <details className="mt-2">
+                  <summary className="text-[11px] text-cream-300/50 cursor-pointer hover:text-cream-100">Revised — show original</summary>
+                  <div className="prose-vault text-xs text-cream-300/70 mt-1" dangerouslySetInnerHTML={{ __html: md(run.synthesisRevisions[run.synthesisRevisions.length - 1].previousText) }} />
+                </details>
+              )}
+              <CorrectionAffordance
+                active={correctingTarget === undefined}
+                open={() => { setCorrectingTarget(undefined); setCorrectionNote(""); }}
+                close={() => setCorrectingTarget(null)}
+                note={correctionNote}
+                setNote={setCorrectionNote}
+                submit={submitCorrection}
+                submitting={correcting}
+              />
             </Card>
           )}
 
@@ -262,10 +387,27 @@ export function BoardMeeting() {
                   {run.opinions[activeMemberTab].error ? (
                     <div className="text-xs text-coral-300">Failed: {run.opinions[activeMemberTab].error}</div>
                   ) : (
-                    <div
-                      className="prose-vault text-sm text-cream-100"
-                      dangerouslySetInnerHTML={{ __html: md(run.opinions[activeMemberTab].text) }}
-                    />
+                    <>
+                      <div
+                        className="prose-vault text-sm text-cream-100"
+                        dangerouslySetInnerHTML={{ __html: md(run.opinions[activeMemberTab].text) }}
+                      />
+                      {run.opinions[activeMemberTab].revisions && run.opinions[activeMemberTab].revisions!.length > 0 && (
+                        <details className="mt-2">
+                          <summary className="text-[11px] text-cream-300/50 cursor-pointer hover:text-cream-100">Revised — show original</summary>
+                          <div className="prose-vault text-xs text-cream-300/70 mt-1" dangerouslySetInnerHTML={{ __html: md(run.opinions[activeMemberTab].revisions![run.opinions[activeMemberTab].revisions!.length - 1].previousText) }} />
+                        </details>
+                      )}
+                      <CorrectionAffordance
+                        active={correctingTarget === run.opinions[activeMemberTab].personaId}
+                        open={() => { setCorrectingTarget(run.opinions[activeMemberTab].personaId); setCorrectionNote(""); }}
+                        close={() => setCorrectingTarget(null)}
+                        note={correctionNote}
+                        setNote={setCorrectionNote}
+                        submit={submitCorrection}
+                        submitting={correcting}
+                      />
+                    </>
                   )}
                 </div>
               )}
@@ -296,6 +438,53 @@ export function BoardMeeting() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// Feature C — the "Correct this" affordance shared by the synthesis card and
+// each opinion tab. `active` distinguishes which target (undefined =
+// synthesis, or a personaId) currently has this panel open, since only one
+// correction panel is open at a time across the whole page.
+function CorrectionAffordance({ active, open, close, note, setNote, submit, submitting }: {
+  active: boolean;
+  open: () => void;
+  close: () => void;
+  note: string;
+  setNote: (v: string) => void;
+  submit: () => void;
+  submitting: boolean;
+}) {
+  if (!active) {
+    return (
+      <button
+        type="button"
+        onClick={open}
+        className="mt-2 text-[11px] text-cream-300/50 hover:text-cream-100 flex items-center gap-1"
+      >
+        <MessageSquareWarning size={12} /> Correct this
+      </button>
+    );
+  }
+  return (
+    <div className="mt-2 border-t border-ink-800 pt-2 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] text-cream-300/60">What should change? A clear "always…" reads as a standing rule; anything else is a one-off.</div>
+        <button type="button" onClick={close} className="text-cream-300/40 hover:text-cream-100"><X size={13} /></button>
+      </div>
+      <textarea
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        rows={2}
+        placeholder="e.g. Always keep this under 100 words / this once, focus more on cost"
+        className="w-full bg-ink-950 border border-ink-800 rounded p-2 text-xs text-cream-100 placeholder:text-cream-300/30 focus:outline-none focus:border-violet-500/60 resize-y"
+      />
+      <div className="flex justify-end">
+        <Button onClick={submit} disabled={submitting || !note.trim()}>
+          {submitting ? <RefreshCw size={12} className="mr-1 inline animate-spin" /> : null}
+          Submit correction
+        </Button>
+      </div>
     </div>
   );
 }

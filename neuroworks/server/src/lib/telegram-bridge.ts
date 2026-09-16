@@ -28,6 +28,7 @@ import { config } from "../config.js";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { presentApproval, handleApprovalReply } from "./action-approvals.js";
 
 const BASE = `http://127.0.0.1:${config.port}`;
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -354,6 +355,27 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
   const chatId = String(chat.id);
   const isGroup = chat.type === "group" || chat.type === "supergroup";
 
+  // ── Telegram news monitor — silently capture all messages from monitor groups ──
+  // These messages are NOT routed to /api/chat and NOT replied to in the group.
+  // They land in the pending queue for batch LLM scoring (telegram-news-monitor.ts).
+  try {
+    const { isMonitorEnabled, monitorGroups, capturePost } = await import("./telegram-news-monitor.js");
+    if (isMonitorEnabled() && monitorGroups().includes(chatId)) {
+      const sender = msg.from ?? {};
+      const senderName = [sender.first_name, sender.last_name].filter(Boolean).join(" ") || sender.username || "unknown";
+      capturePost({
+        messageId: msg.message_id,
+        chatId,
+        chatName: chat.title ?? chatId,
+        text: msg.text,
+        senderName,
+        timestamp: new Date(msg.date * 1000).toISOString(),
+        capturedAt: new Date().toISOString(),
+      });
+      return; // silent — do not route to agent, do not reply
+    }
+  } catch { /* monitor module optional — fall through to normal bridge logic */ }
+
   // ── Allow-list gate (the security boundary) ──
   if (!allow.has(chatId)) {
     state.skippedUnauthorized += 1;
@@ -378,6 +400,16 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
     return;
   }
 
+  // Gate 2 of the approval protocol (action-approvals.ts) — a bare yes/no
+  // reply to a just-presented approval is consumed HERE, before it would
+  // otherwise be routed to the agent as a new message.
+  const approvalReply = await handleApprovalReply(chatId, text);
+  if (approvalReply !== null) {
+    await sendReply(token, chatId, approvalReply, msg.message_id);
+    state.processed += 1;
+    return;
+  }
+
   // Typing indicator while we work (Telegram clears it after ~5s; best-effort).
   void tg(token, "sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
 
@@ -394,7 +426,7 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
       answer = String(r.text ?? "").trim() || "I couldn't process that request.";
     } else if ((r?.kind === "task" || r?.kind === "approval") && r.jobId) {
       if (r.kind === "approval" || r.requiresApproval) {
-        answer = `That needs an action that requires sign-off — I've parked it on the Approvals page for review. (${r.text ?? "awaiting approval"})`;
+        answer = await presentApproval(chatId, String(r.jobId), r.text);
       } else {
         const j = await pollJob(String(r.jobId));
         answer = String(j?.result?.answer ?? "").trim() || (j?.error ? `The task hit an error: ${j.error}` : "I wasn't able to produce an answer for that one.");

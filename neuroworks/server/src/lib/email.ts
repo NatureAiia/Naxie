@@ -26,8 +26,9 @@
 //   NEUROWORKS_EMAIL=0                hard-disable the bridge even if creds present
 
 import nodemailer, { type Transporter } from "nodemailer";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename, extname } from "node:path";
+import { existsSync, readFileSync, statSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { basename, extname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { ImapFlow } from "imapflow";
 import { simpleParser, type ParsedMail } from "mailparser";
 import { marked } from "marked";
@@ -35,6 +36,9 @@ import { config } from "../config.js";
 import { startInboundWebhook, stopInboundWebhook, getInboundWebhookStatus } from "./email-inbound.js";
 import { verifyInboundDkim, type AuthVerdict } from "./email-auth.js";
 import { lookup as dnsLookup } from "node:dns/promises";
+import { importBinaryIntoVault, writeVaultFile } from "./vault.js";
+import { extractDocText } from "./doc-extractor.js";
+import { enqueueVaultCommit } from "./commit-queue.js";
 
 // How inbound email requests reach clawbot:
 //   "webhook" — Mailjet Parse API POSTs to our token-gated webhook (no Gmail).
@@ -173,6 +177,120 @@ export function loadAttachments(paths: string[]): EmailAttachment[] {
     });
   }
   return out;
+}
+
+// ── Inbound attachments → vault ─────────────────────────────────────────
+// A parsed inbound attachment — mailparser's Attachment shape, trimmed to
+// what we need. Currently only the IMAP path (mailparser) populates this;
+// the Mailjet Parse webhook (email-inbound.ts) doesn't decode attachment
+// parts from its payload yet, so that path's InboundMessage.attachments
+// stays empty and fileAttachmentsToVault below is a no-op for it.
+export type InboundAttachment = { filename?: string; content: Buffer; contentDisposition?: string };
+
+// Matches the inbound cap doc-ingest.ts / routes/uploads.ts already use for
+// a decoded upload — no reason for an email attachment to get a looser limit.
+const MAX_INBOUND_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+/** Files an inbound email's attachments into the vault, reusing the EXACT
+ *  pipeline a manual "save to my vault" upload goes through (primitives.ts's
+ *  fs.import_to_vault): importBinaryIntoVault() copies the binary in,
+ *  extractDocText() pulls a best-effort text excerpt, and a sidecar note
+ *  carries the excerpt + provenance. The sidecar deliberately reuses the same
+ *  frontmatter keys/telltales (imported_from/imported_at/tags:[imported]) as
+ *  that primitive so stripVaultReportMetadata() above also recognises these
+ *  notes if a user later asks to be emailed one back. Best-effort per
+ *  attachment — a filing failure must never block the email reply. */
+export async function fileAttachmentsToVault(attachments: InboundAttachment[] | undefined, sender: string, subject: string): Promise<{ filed: string[]; skipped: string[] }> {
+  const filed: string[] = [];
+  const skipped: string[] = [];
+  if (!attachments?.length) return { filed, skipped };
+
+  const dateStamp = new Date().toISOString().slice(0, 10);
+  const senderSlug = sender.split("@")[0].toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "unknown";
+  const folder = "0-Inbox/email-attachments";
+
+  for (const att of attachments) {
+    const rawName = String(att.filename ?? "").trim();
+    if (!rawName) { skipped.push("(unnamed attachment)"); continue; }
+    // Inline (cid-referenced) parts are signature logos / tracking pixels,
+    // not real attachments — filing every signed email's logo would flood
+    // the vault. Only genuine "attachment"-disposition parts get filed.
+    if (att.contentDisposition && att.contentDisposition !== "attachment") { skipped.push(rawName); continue; }
+    if (!att.content?.length) { skipped.push(rawName); continue; }
+    if (att.content.length > MAX_INBOUND_ATTACHMENT_BYTES) {
+      console.warn(`[email] skipped oversized attachment "${rawName}" from ${sender} (${att.content.length} bytes)`);
+      skipped.push(rawName);
+      continue;
+    }
+
+    const safeName = basename(rawName).replace(/[^\w.\-]+/g, "_").slice(0, 120) || "attachment";
+    const ext = extname(safeName);
+    const stem = safeName.slice(0, safeName.length - ext.length);
+    let binaryRel = `${folder}/${dateStamp}-${senderSlug}-${safeName}`;
+    // copyFileSync inside importBinaryIntoVault silently overwrites — avoid
+    // clobbering an earlier same-day, same-name attachment from this sender.
+    for (let i = 2; existsSync(`${config.vaultPath}/${binaryRel}`); i++) {
+      binaryRel = `${folder}/${dateStamp}-${senderSlug}-${stem}-${i}${ext}`;
+    }
+    const sidecarRel = `${folder}/${dateStamp}-${senderSlug}-${stem}.md`;
+
+    let tmpDir: string | undefined;
+    try {
+      tmpDir = mkdtempSync(join(tmpdir(), "nw-email-attach-"));
+      const tmpPath = join(tmpDir, safeName);
+      writeFileSync(tmpPath, att.content);
+      const copied = importBinaryIntoVault(binaryRel, tmpPath);
+
+      let excerpt = "";
+      let kind = ext.replace(/^\./, "") || "file";
+      let pages: number | undefined;
+      try {
+        const extracted = await extractDocText(copied.abs);
+        excerpt = (extracted.text ?? "").slice(0, 2000).trim();
+        kind = extracted.kind || kind;
+        pages = extracted.pages;
+      } catch (e: any) {
+        excerpt = `_Couldn't auto-extract text (${String(e?.message ?? e).slice(0, 80)}). The file is still in the vault — open it directly to read._`;
+      }
+
+      const sizeKB = (att.content.length / 1024).toFixed(1);
+      const sidecarBody = [
+        `---`,
+        `title: "${safeName.replace(/"/g, "'")}"`,
+        `imported_from: "email:${sender}"`,
+        `imported_at: ${new Date().toISOString()}`,
+        `created: ${dateStamp}`,
+        `kind: ${kind}`,
+        `size_kb: ${sizeKB}`,
+        pages != null ? `pages: ${pages}` : null,
+        `tags: [imported, neuroworks, email-attachment]`,
+        `---`,
+        ``,
+        `# ${safeName}`,
+        ``,
+        `Imported from email \`${sender}\` on ${dateStamp}${subject ? ` (subject: "${subject.slice(0, 160)}")` : ""}. Original size ${sizeKB} KB${pages != null ? `, ${pages} page${pages === 1 ? "" : "s"}` : ""}.`,
+        ``,
+        `The full file is filed in your vault at [[${binaryRel}]] — click through to open it in Obsidian, or browse it under NeuroWorks Knowledge.`,
+        ``,
+        excerpt ? `## Excerpt (first ${Math.min(2000, excerpt.length)} chars)\n\n${excerpt}\n` : "",
+        `## Source provenance`,
+        `- From: ${sender}`,
+        `- Subject: ${subject || "(no subject)"}`,
+        `- Imported by: clawbot email bridge (inbound attachment)`,
+        ``,
+      ].filter(Boolean).join("\n");
+
+      writeVaultFile(sidecarRel, sidecarBody);
+      void enqueueVaultCommit(`neuroworks: email attachment — ${safeName} from ${sender}`);
+      filed.push(binaryRel);
+    } catch (e: any) {
+      console.warn(`[email] failed to file attachment "${rawName}" from ${sender}: ${e?.message ?? e}`);
+      skipped.push(rawName);
+    } finally {
+      if (tmpDir) { try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* tolerate */ } }
+    }
+  }
+  return { filed, skipped };
 }
 
 // Mailjet HTTPS sender — POSTs to api.mailjet.com/v3.1/send. Used instead
@@ -557,6 +675,10 @@ export type InboundMessage = {
   // mailauth; webhook path verifies upstream and leaves this undefined). "fail"
   // is rejected as a spoof; "unknown" is rejected only in strict mode.
   authVerdict?: AuthVerdict;
+  // Populated by the IMAP path (mailparser gives us these for free); the
+  // Mailjet Parse webhook doesn't decode attachment parts yet — see
+  // fileAttachmentsToVault's doc comment.
+  attachments?: InboundAttachment[];
 };
 
 // Core inbound handler — SHARED by the IMAP poll and the Mailjet Parse webhook.
@@ -602,6 +724,15 @@ export async function processInboundEmail(msg: InboundMessage): Promise<{ status
     const contact = upsertContact({ email: sender, source: "email" });
     if (prompt) logActivity({ contactId: contact.id, kind: "email", body: `${cleanSubject || subject}: ${prompt}`.slice(0, 500) });
   } catch (e: any) { console.warn(`[email] CRM linkage failed: ${e?.message ?? e}`); }
+  // Vault filing — attachments become vault notes for free. Best-effort: a
+  // filing failure must never block the actual email reply.
+  if (msg.attachments?.length) {
+    try {
+      const { filed, skipped } = await fileAttachmentsToVault(msg.attachments, sender, subject);
+      if (filed.length) console.log(`[email] filed ${filed.length} attachment(s) from ${sender} into the vault`);
+      if (skipped.length) console.warn(`[email] skipped ${skipped.length} attachment(s) from ${sender}: ${skipped.join(", ")}`);
+    } catch (e: any) { console.warn(`[email] attachment filing failed: ${e?.message ?? e}`); }
+  }
   // Thread key — groups this message with prior turns in the same mail thread so
   // an email back-and-forth keeps context (computed even when the body is empty
   // so the reply below still threads).
@@ -698,6 +829,7 @@ async function processMessage(_env: EmailEnv, parsed: ParsedMail, rawSource: Buf
     references: refs(parsed),
     inReplyTo: parsed.inReplyTo,
     authVerdict,
+    attachments: parsed.attachments?.map(a => ({ filename: a.filename, content: a.content, contentDisposition: a.contentDisposition })),
   });
 }
 

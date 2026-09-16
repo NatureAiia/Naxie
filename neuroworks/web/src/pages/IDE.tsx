@@ -25,7 +25,6 @@ import {
 } from "lucide-react";
 import { api, type FileBackendId, type FileEntry } from "../lib/api";
 import { useTerminal } from "../lib/terminalContext";
-import { Tile } from "./CommandCenter";
 
 interface OpenFile {
   path: string;
@@ -294,9 +293,8 @@ export function IDE() {
     api.filesGitStatus(backend).then(setGitStatus).catch(() => setGitStatus(null));
   }, [backend]);
 
-  // Slim ops strip for the right column — same live-ish glance Command
-  // Center gives, at a fraction of the calls, so the editor still gets most
-  // of the width.
+
+
   const [runningCount, setRunningCount] = useState<number | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<number | null>(null);
   const [ready, setReady] = useState<boolean | null>(null);
@@ -750,6 +748,9 @@ export function IDE() {
             <span className="w-1.5 h-1.5 rounded-full bg-leaf-500" />
             Ready
           </span>
+          <span className="flex items-center gap-1"><PlayCircle size={11} /> {runningCount ?? "…"}</span>
+          <span className="flex items-center gap-1"><CheckCircle2 size={11} /> {pendingApprovals ?? "…"}</span>
+          <span className={`flex items-center gap-1 ${ready === false ? "text-coral-400" : ready ? "text-leaf-400" : ""}`}><ShieldCheck size={11} /> {ready === null ? "…" : ready ? "Ready" : "Degraded"}</span>
           {activeFile && <span>{activeFile.path}</span>}
         </div>
         <div className="flex items-center gap-3">
@@ -764,13 +765,6 @@ export function IDE() {
           <span>Spaces: 2</span>
         </div>
       </div>
-    </div>
-
-    {/* ── dashboard strip ── */}
-    <div className="w-full tablet:w-64 tablet:shrink-0 h-auto tablet:h-full overflow-y-auto scrollbar-thin space-y-3 py-1">
-      <Tile icon={<PlayCircle size={14} />} label="Running now" value={runningCount ?? "…"} />
-      <Tile icon={<CheckCircle2 size={14} />} label="Waiting on your approval" value={pendingApprovals ?? "…"} />
-      <Tile icon={<ShieldCheck size={14} />} label="Connectivity" value={ready === null ? "…" : ready ? "Ready" : "Degraded"} tone={ready === null ? undefined : ready ? "ok" : "warn"} />
     </div>
 
       {/* ── rename modal ── */}

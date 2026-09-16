@@ -18,6 +18,7 @@ import { enqueueVaultCommit } from "./commit-queue.js";
 import { llmGenerate } from "./llm.js";
 import { loadJobsInWindow, asJob, type PersistedJob } from "./job-store.js";
 import { config } from "../config.js";
+import { gradeDecision, type DecisionGrade } from "./decision-grader.js";
 
 const REFLECTION_DIR = "_neuroworks/reflections";
 
@@ -63,6 +64,7 @@ export type ReflectionResult = {
   reflection: string;       // markdown body
   generatedAt: string;
   modelUsed?: string;
+  qualityGrade?: DecisionGrade; // model-free grade of `reflection` itself — see decision-grader.ts
 };
 
 let lastResult: ReflectionResult | null = null;
@@ -501,6 +503,17 @@ export async function runReflection(opts: { windowHours?: number; force?: boolea
     const jobs = await collectJobsInWindow(windowStartMs, windowEndMs);
     const stats = aggregate(jobs, windowStartMs, windowEndMs);
     const { text, modelUsed } = await synthesizeReflection(stats);
+    // Grade the synthesized reflection BEFORE it's persisted/delivered as
+    // final (decision-grader.ts) — model-free, so this never adds latency or
+    // an extra LLM call. Non-blocking: a bad grade still lands the reflection
+    // (this is a nightly informational report, not a user-facing gate), but
+    // a fail is worth knowing about — e.g. a "What to try next" section that
+    // never got past "consider improving quality" (the exact failure mode
+    // the synth prompt above already tries to forbid).
+    const qualityGrade = gradeDecision(text);
+    if (qualityGrade.verdict === "fail") {
+      console.warn(`[reflection] decision-quality grade FAILED for ${stats.date}: ${qualityGrade.summary}`);
+    }
     const generatedAt = new Date().toISOString();
     const path = `${REFLECTION_DIR}/${stats.date}.md`;
     const body = renderMarkdown({ stats, text, generatedAt, modelUsed });
@@ -543,7 +556,7 @@ export async function runReflection(opts: { windowHours?: number; force?: boolea
     } catch (e: any) {
       console.warn(`[reflection] persona profile update failed (non-fatal): ${e?.message ?? e}`);
     }
-    const result: ReflectionResult = { date: stats.date, path, stats, reflection: text, generatedAt, modelUsed };
+    const result: ReflectionResult = { date: stats.date, path, stats, reflection: text, generatedAt, modelUsed, qualityGrade };
     lastResult = result;
     // Surface the reflection on the Calendar by registering a Job record.
     // /api/calendar/activity reads from listJobs() + the persisted journal;
@@ -563,6 +576,7 @@ export async function runReflection(opts: { windowHours?: number; force?: boolea
         plan: { summary: `Reflection over ${windowHours}h window` },
         stats,
         reflectionPath: path,
+        qualityGrade,
       };
       try { persistJobRecord(j); } catch { /* tolerate */ }
     } catch (e: any) {

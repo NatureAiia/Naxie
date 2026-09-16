@@ -21,10 +21,18 @@ import { learnedQualitySignals } from "./quality.js";
 import { listBottlenecks } from "./reflection-bottlenecks.js";
 import { searchWeb, smartFetch } from "./web-client.js";
 import { validateSources } from "./source-validator.js";
+import { sanitizeFetchedText } from "./injection-guard.js";
+import { fetchCuratedRss, type CuratedRssItem } from "./rss-client.js";
 import { searchTrendingRepos } from "./github.js";
 import type { FetchedSource, ValidatedSource } from "./source-validator-types.js";
 import { getCostSummary } from "./cost-tracker.js";
 import { isFreeModelId } from "./model-policy.js";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { resolve, join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { scanForSecurityRisks } from "./security.js";
+import { nextSkillVersion } from "./skill-version.js";
+import { logAudit } from "./audit-log.js";
 
 const SCAN_DIR = "_neuroworks/innovation-scans";
 
@@ -55,6 +63,7 @@ export type TrendingRepo = { name: string; fullName: string; description: string
 export type BroadWatch = {
   repos: TrendingRepo[];
   news: NewsFinding[];
+  curated: CuratedRssItem[];
 };
 
 export type InnovationScanResult = {
@@ -186,8 +195,8 @@ async function searchFetchValidate(query: string, depth: number): Promise<{ kept
         const r = await smartFetch(w.url, { maxBytes: 60_000, timeoutMs: 8_000 });
         return {
           url: w.url,
-          title: r.title ?? w.title,
-          text: r.text.slice(0, 4_000),
+          title: sanitizeFetchedText(r.title ?? w.title),
+          text: sanitizeFetchedText(r.text.slice(0, 4_000)),
           ok: true,
           usedBrowser: r.usedBrowser,
           status: (r as any).status,
@@ -270,12 +279,83 @@ export async function runBroadWatch(): Promise<BroadWatch> {
     news.push({ query: q, summary, sources: kept.map(s => ({ url: s.url, title: s.title ?? s.url, score: s.score })) });
   }
 
-  return { repos: repos.slice(0, 12), news };
+  // Verified-URL supplement, fetched/parsed directly — never handed to
+  // summarizeBatch, so nothing here is at risk of an LLM rewriting a
+  // headline or link. Best-effort: a feed outage shouldn't sink the scan.
+  const curated = await fetchCuratedRss().catch(() => [] as CuratedRssItem[]);
+
+  return { repos: repos.slice(0, 12), news, curated };
+}
+
+// ─── 3b. Marketplace sync — surface trending discoveries as skills ───
+// Mirrors the manual "Export" flow in routes/extensions.ts (POST
+// /export/:id): same skills/_user/*.md destination, same slugging,
+// versioning (skill-version.ts) and high-severity secret gate
+// (security.ts), so a discovered repo shows up in the Marketplace tab
+// exactly like a manually-exported connector/integration. Unlike the
+// model-health findings above, this doesn't touch anything live (no
+// routing, no credentials) so it writes directly — same posture as the
+// scan's own vault-file writes — rather than going through an
+// approval-gated OrgTask.
+const MIN_STARS_FOR_MARKETPLACE = 30;
+const MAX_MARKETPLACE_SYNC = 3;
+
+function slugifyRepoName(fullName: string): string {
+  return fullName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "repo";
+}
+
+export function syncMarketplaceFromBroadWatch(repos: TrendingRepo[]): { added: string[] } {
+  const added: string[] = [];
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const SKILLS_USER = resolve(__dirname, "../skills/_user");
+  if (!existsSync(SKILLS_USER)) mkdirSync(SKILLS_USER, { recursive: true });
+
+  const picks = repos.filter(r => r.stars >= MIN_STARS_FOR_MARKETPLACE).slice(0, MAX_MARKETPLACE_SYNC);
+  for (const repo of picks) {
+    const slug = slugifyRepoName(repo.fullName);
+    const filename = `${slug}.md`;
+    const dest = join(SKILLS_USER, filename);
+    let version = "1.0.0";
+    try {
+      version = nextSkillVersion(existsSync(dest) ? readFileSync(dest, "utf8") : null);
+    } catch { version = "1.0.1"; }
+    const description = (repo.description ?? "no description").replace(/"/g, "'");
+    const frontmatter = `---\nname: ${slug}\ndescription: "${description} — auto-discovered by Innovation Scan"\napplies_to: ["discovery"]\nversion: ${version}\n---\n`;
+    const date = new Date().toISOString().slice(0, 10);
+    const body = `# ${repo.fullName}
+
+${description}
+
+> Auto-discovered by **Innovation Scan** on ${date} — ${repo.stars}★ on GitHub.
+
+## Link
+${repo.url}
+
+## Notes
+- Surfaced because it cleared the trending-repo bar (${MIN_STARS_FOR_MARKETPLACE}+ stars). Resurfacing in a later scan bumps the version instead of duplicating the entry.
+- Version: \`${version}\`
+`;
+    const fullContent = frontmatter + body;
+    const findings = scanForSecurityRisks(fullContent, "note");
+    const high = findings.filter(f => f.severity === "high");
+    if (high.length > 0) {
+      logAudit({ level: "error", actor: "innovation-scan", action: "marketplace.blocked", target: `discovery:${slug}`, detail: `blocked high-severity ${high.map(h => h.type).join(",")}`, result: "failure" });
+      continue;
+    }
+    try {
+      writeFileSync(dest, fullContent, "utf8");
+      logAudit({ level: "info", actor: "innovation-scan", action: "marketplace.autoexport", target: `discovery:${slug}`, detail: `${filename} v${version}`, result: "success" });
+      added.push(slug);
+    } catch (e: any) {
+      console.warn(`[innovation-scan] marketplace sync write failed for ${slug}: ${e?.message ?? e}`);
+    }
+  }
+  return { added };
 }
 
 // ─── 4. Synthesize the operator-facing digest ───
 export async function synthesizeDigest(targeted: TargetedFinding[], broad: BroadWatch, modelHealth: ModelHealthFinding[] = []): Promise<{ text: string; modelUsed?: string }> {
-  if (targeted.length === 0 && broad.repos.length === 0 && broad.news.length === 0 && modelHealth.length === 0) {
+  if (targeted.length === 0 && broad.repos.length === 0 && broad.news.length === 0 && broad.curated.length === 0 && modelHealth.length === 0) {
     return {
       text: `_Nothing to report yet. Once the system has run enough tasks to learn where it's weak, and/or the web is reachable, this scan will have real material to work with._`,
     };
@@ -380,6 +460,7 @@ date: ${result.date}
 targetedCount: ${result.targeted.length}
 repoCount: ${result.broad.repos.length}
 newsCount: ${result.broad.news.length}
+curatedCount: ${result.broad.curated.length}
 generated: ${result.generatedAt}
 ${result.modelUsed ? `model: ${result.modelUsed}\n` : ""}---
 
@@ -387,13 +468,19 @@ ${result.modelUsed ? `model: ${result.modelUsed}\n` : ""}---
 
 > ✨ *Naxie's morning scan — fresh signals, fixes for our weak spots, and what's new in AI.*
 
-| 🔧 Weak spots | 📦 Trending repos | 📰 News |
-|---|---|---|
-| **${result.targeted.length}** investigated | **${result.broad.repos.length}** | **${result.broad.news.length}** |
+| 🔧 Weak spots | 📦 Trending repos | 📰 News | 📡 Curated |
+|---|---|---|---|
+| **${result.targeted.length}** investigated | **${result.broad.repos.length}** | **${result.broad.news.length}** | **${result.broad.curated.length}** |
 
 ---
 
 `;
+  // Deliberately NOT run through the digest LLM above — rendered straight
+  // from the fetched feed data so every title/link here is exactly what the
+  // feed published; the LLM never touches this text.
+  const curatedSection = result.broad.curated.length > 0
+    ? `\n\n## 📡 Verified feed roundup (last 48h)\n_Straight from the source feeds — titles and links exactly as published._\n\n${result.broad.curated.slice(0, 20).map(c => `- [${c.source}] ${c.title} — ${c.url}`).join("\n")}\n`
+    : "";
   const footer = `
 
 ---
@@ -406,7 +493,7 @@ ${JSON.stringify({ targeted: result.targeted, broad: result.broad }, null, 2)}
 
 </details>
 `;
-  return header + result.digest.trim() + footer;
+  return header + result.digest.trim() + curatedSection + footer;
 }
 
 // ─── 6. Top-level orchestrator — mirrors reflection.ts's runReflection ───
@@ -439,6 +526,14 @@ export async function runInnovationScan(opts: { force?: boolean } = {}): Promise
     } catch (e: any) {
       console.warn(`[innovation-scan] model-health org-task creation failed: ${e?.message ?? e}`);
     }
+
+    try {
+      const { added } = syncMarketplaceFromBroadWatch(broad.repos);
+      if (added.length > 0) console.log(`[innovation-scan] marketplace sync added/updated: ${added.join(", ")}`);
+    } catch (e: any) {
+      console.warn(`[innovation-scan] marketplace sync failed: ${e?.message ?? e}`);
+    }
+
     const generatedAt = new Date().toISOString();
     const date = generatedAt.slice(0, 10);
     const path = `${SCAN_DIR}/${date}.md`;

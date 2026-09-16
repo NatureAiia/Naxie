@@ -57,6 +57,7 @@ export type DatasetManifest = {
   rawCount: number;        // input records
   recordCount: number;     // golden records published
   reviewQueue: number;     // records flagged for HITL review
+  ambiguousMatches: number; // golden records left unmerged on a single weak signal — needs human resolution
   avgConfidence: number;   // mean confidence of published records (0..1)
   rootHash: string;        // batch root hash (tamper-evident provenance anchor)
   fields: string[];        // union of golden-record field names
@@ -123,11 +124,88 @@ function canonicalKey(k: string): string {
   return k.trim().toLowerCase().replace(/[\s.]+/g, "_").replace(/[^a-z0-9_]/g, "");
 }
 
-function coerce(v: unknown): unknown {
+// Values that look present but carry no real information. Must never count as
+// filled data — a "n/a" or "tbd" cell would otherwise inflate confidence and
+// win a golden-record merge over an actually-known value from another dupe.
+const WEAK_VALUES = new Set([
+  "n/a", "na", "none", "null", "-", "--", "tbd", "unknown", "unk",
+  "see attached", "as applicable", "not applicable", "not available", "pending", "?",
+]);
+
+function isWeakValue(t: string): boolean {
+  return WEAK_VALUES.has(t.toLowerCase());
+}
+
+// African-leaning phone normalisation: infer a country calling code from
+// whatever's already in the string (leading "+", a "00" trunk prefix, or a
+// bare national number with its own trunk "0"), rather than assuming one
+// country. Numbers we can't confidently place are left as digits-only rather
+// than guessing a code.
+const AFRICAN_TRUNK_CODES: Record<string, string> = {
+  "254": "0", // Kenya
+  "256": "0", // Uganda
+  "255": "0", // Tanzania
+  "263": "0", // Zimbabwe
+  "234": "0", // Nigeria
+  "27": "0",  // South Africa
+  "233": "0", // Ghana
+  "260": "0", // Zambia
+  "265": "0", // Malawi
+  "250": "0", // Rwanda
+};
+
+function coercePhone(raw: string): string | null {
+  let digits = raw.replace(/[^\d+]/g, "");
+  if (!digits) return null;
+  if (digits.startsWith("+")) return `+${digits.slice(1).replace(/\D/g, "")}`;
+  digits = digits.replace(/\D/g, "");
+  if (digits.startsWith("00")) return `+${digits.slice(2)}`;
+  for (const code of Object.keys(AFRICAN_TRUNK_CODES)) {
+    if (digits.startsWith(code) && digits.length >= code.length + 8) return `+${digits}`;
+  }
+  if (digits.startsWith("0") && digits.length >= 9) return digits; // national form, country unknown — leave for review rather than guess
+  return digits.length >= 8 ? digits : null;
+}
+
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const SLASH_DATE_RE = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/;
+
+function coerceDate(t: string): string | null {
+  if (DATE_RE.test(t)) return t;
+  const m = t.match(SLASH_DATE_RE);
+  if (m) {
+    let [, a, b, y] = m;
+    if (y.length === 2) y = Number(y) < 70 ? `20${y}` : `19${y}`;
+    // Ambiguous d/m vs m/d — prefer day-first (the common non-US convention in
+    // this dataset's target markets) but fall back to month-first if day-first
+    // is out of range.
+    let day = Number(a), month = Number(b);
+    if (day > 12 && month <= 12) { /* already day-first */ }
+    else if (month > 12 && day <= 12) { [day, month] = [month, day]; }
+    else if (day > 31) return null;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${y}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+  const parsed = Date.parse(t);
+  if (!Number.isNaN(parsed) && /[a-zA-Z]/.test(t)) return new Date(parsed).toISOString().slice(0, 10);
+  return null;
+}
+
+function isPhoneField(key: string): boolean {
+  return /phone|mobile|cell|whatsapp|contact_number|tel$/i.test(key);
+}
+
+function isDateField(key: string): boolean {
+  return /date|_dob$|^dob$|birthdate|born$/i.test(key);
+}
+
+function coerce(v: unknown, key = ""): unknown {
   if (v === null || v === undefined) return null;
   if (typeof v === "string") {
     const t = v.trim().replace(/\s+/g, " ");
-    if (t === "" || /^(n\/?a|null|none|-)$/i.test(t)) return null;
+    if (t === "" || isWeakValue(t)) return null;
+    if (isPhoneField(key)) return coercePhone(t) ?? t;
+    if (isDateField(key)) return coerceDate(t) ?? t;
     // Numeric-looking strings → numbers (keeps CSVs ML-ready).
     if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
     if (/^(true|false)$/i.test(t)) return t.toLowerCase() === "true";
@@ -142,7 +220,7 @@ function normalizeRecord(rec: AdrsRecord): AdrsRecord {
   for (const [k, v] of Object.entries(rec)) {
     const key = canonicalKey(k);
     if (!key) continue;
-    out[key] = coerce(v);
+    out[key] = coerce(v, key);
   }
   return out;
 }
@@ -173,48 +251,173 @@ function rootHashOf(hashes: string[]): string {
 }
 
 // ── Stage 3: Confidence Scoring ─────────────────────────────────────────────
-// Completeness against the dataset-wide field universe. A record that fills
-// every known column scores 1.0; sparse rows score lower and get gated by HITL.
+// Weighted multi-check score, not a raw completeness fraction: a record full
+// of technically-non-null-but-malformed values (a phone that isn't a phone)
+// shouldn't outscore a sparser but genuinely clean one.
+
+function isFilled(v: unknown): boolean {
+  return v !== null && v !== undefined && v !== "";
+}
+
+function isValidValue(v: unknown, field: string): boolean {
+  if (!isFilled(v)) return false;
+  if (typeof v === "string" && isWeakValue(v)) return false;
+  if (isPhoneField(field)) return typeof v === "string" && /^\+?\d{8,15}$/.test(v);
+  if (isDateField(field)) return typeof v === "string" && DATE_RE.test(v);
+  return true;
+}
 
 function scoreConfidence(rec: AdrsRecord, fieldUniverse: string[]): number {
   if (fieldUniverse.length === 0) return 0;
   let filled = 0;
+  let valid = 0;
+  let clean = 0;
   for (const f of fieldUniverse) {
     const v = rec[f];
-    if (v !== null && v !== undefined && v !== "") filled += 1;
+    if (isFilled(v)) {
+      filled += 1;
+      if (!(typeof v === "string" && isWeakValue(v))) clean += 1;
+      if (isValidValue(v, f)) valid += 1;
+    }
   }
-  return Math.round((filled / fieldUniverse.length) * 1000) / 1000;
+  const completeness = filled / fieldUniverse.length;
+  const validity = filled > 0 ? valid / filled : 0;
+  const denylistPass = filled > 0 ? clean / filled : 0;
+  const score = completeness * 0.5 + validity * 0.3 + denylistPass * 0.2;
+  return Math.round(score * 1000) / 1000;
 }
 
 // ── Stage 5: Entity Resolution → Golden Record ──────────────────────────────
-// Group by keyField (or by full-record hash when no key). Within a group, the
-// highest-confidence record is the base; nulls are backfilled from the rest.
-// One Golden Record per entity.
+// Group by keyField/full-hash (exact match, as before) AND by multi-signal
+// agreement (name+email, name+phone, email+phone — any 2 of the 3). Records
+// sharing only ONE weak signal (e.g. name alone) are never auto-merged; they're
+// left as separate golden records and flagged via ambiguousMatch for a human
+// to resolve. Within a merged group, each output field independently takes
+// the value from whichever member has the highest confidence AMONG members
+// that actually have that field — a per-field union, not a null-fill from a
+// single "base" record.
 
-type Scored = { rec: AdrsRecord; hash: string; confidence: number; review: boolean };
+type Scored = { rec: AdrsRecord; hash: string; confidence: number; review: boolean; ambiguousMatch: boolean };
+
+function isNameField(key: string): boolean {
+  return /^(name|full_name|fullname)$/.test(key);
+}
+
+type EntitySignals = { name?: string; email?: string; phone?: string };
+
+function extractSignals(rec: AdrsRecord): EntitySignals {
+  const sig: EntitySignals = {};
+  for (const [k, v] of Object.entries(rec)) {
+    if (v === null || v === undefined) continue;
+    const s = String(v).trim().toLowerCase();
+    if (!s) continue;
+    if (!sig.name && isNameField(k)) sig.name = s;
+    if (!sig.email && /email/.test(k)) sig.email = s;
+    if (!sig.phone && isPhoneField(k)) sig.phone = s;
+  }
+  if (!sig.name) {
+    const first = rec["first_name"];
+    const last = rec["last_name"] ?? rec["surname"];
+    if (first != null && last != null) sig.name = `${String(first).trim()} ${String(last).trim()}`.toLowerCase();
+  }
+  return sig;
+}
+
+function signalMatchCount(a: EntitySignals, b: EntitySignals): number {
+  let n = 0;
+  if (a.name && b.name && a.name === b.name) n += 1;
+  if (a.email && b.email && a.email === b.email) n += 1;
+  if (a.phone && b.phone && a.phone === b.phone) n += 1;
+  return n;
+}
 
 function goldenRecords(rows: Scored[], keyField?: string): Scored[] {
-  const groups = new Map<string, Scored[]>();
-  for (const r of rows) {
-    const key = keyField && r.rec[keyField] != null ? `k:${String(r.rec[keyField])}` : `h:${r.hash}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(r);
+  const n = rows.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  function find(x: number): number {
+    while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+    return x;
   }
-  const golden: Scored[] = [];
-  for (const group of groups.values()) {
-    group.sort((a, b) => b.confidence - a.confidence);
-    const base = { ...group[0].rec };
-    for (const dup of group.slice(1)) {
-      for (const [k, v] of Object.entries(dup.rec)) {
-        if ((base[k] === null || base[k] === undefined || base[k] === "") && v != null && v !== "") {
-          base[k] = v;
-        }
-      }
+  function union(a: number, b: number): void {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  }
+
+  const exactGroups = new Map<string, number[]>();
+  rows.forEach((r, i) => {
+    const key = keyField && r.rec[keyField] != null ? `k:${String(r.rec[keyField])}` : `h:${r.hash}`;
+    if (!exactGroups.has(key)) exactGroups.set(key, []);
+    exactGroups.get(key)!.push(i);
+  });
+  for (const idxs of exactGroups.values()) for (let j = 1; j < idxs.length; j++) union(idxs[0], idxs[j]);
+
+  const signals = rows.map(r => extractSignals(r.rec));
+  const ambiguous = new Set<number>();
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (find(i) === find(j)) continue;
+      const m = signalMatchCount(signals[i], signals[j]);
+      if (m >= 2) union(i, j);
+      else if (m === 1) { ambiguous.add(i); ambiguous.add(j); }
     }
+  }
+
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const root = find(i);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root)!.push(i);
+  }
+
+  const golden: Scored[] = [];
+  for (const idxs of groups.values()) {
+    const group = idxs.map(i => rows[i]);
+    const fieldNames = new Set<string>();
+    for (const g of group) for (const k of Object.keys(g.rec)) fieldNames.add(k);
+    const base: AdrsRecord = {};
+    for (const f of fieldNames) {
+      let bestVal: unknown = null;
+      let bestConf = -1;
+      for (const g of group) {
+        const v = g.rec[f];
+        if (v === null || v === undefined || v === "") continue;
+        if (g.confidence > bestConf) { bestConf = g.confidence; bestVal = v; }
+      }
+      base[f] = bestVal;
+    }
+    const bestConfidence = Math.max(...group.map(g => g.confidence));
     const hash = hashRecord(base);
-    golden.push({ rec: base, hash, confidence: group[0].confidence, review: group[0].review });
+    golden.push({
+      rec: base,
+      hash,
+      confidence: bestConfidence,
+      review: group.some(g => g.review),
+      ambiguousMatch: idxs.some(i => ambiguous.has(i)),
+    });
   }
   return golden;
+}
+
+// ── PII stripping (ML exports only — RAG markdown keeps every field) ───────
+// The ML CSV/JSONL are for training/feature pipelines, not human retrieval:
+// stripping identifier-shaped columns there closes a real leak without
+// touching the RAG export, which needs the full record to answer questions.
+
+const PII_FIELD_NAMES = new Set([
+  "email", "email_address", "phone", "phone_number", "mobile", "mobile_number",
+  "cell", "cell_phone", "whatsapp", "ssn", "social_security_number",
+  "national_id", "national_id_number", "id_number", "passport", "passport_number",
+  "address", "home_address", "street_address", "physical_address", "postal_address",
+  "dob", "date_of_birth", "birthdate", "birth_date",
+]);
+
+const PII_FIELD_PATTERNS = [
+  /email/, /phone|mobile|cell|whatsapp/, /ssn|social_security/,
+  /national_id|id_number|passport/, /address/, /dob$|date_of_birth|birth_?date/,
+];
+
+function isIdentifierField(field: string): boolean {
+  return PII_FIELD_NAMES.has(field) || PII_FIELD_PATTERNS.some(re => re.test(field));
 }
 
 // ── Output serialisers ──────────────────────────────────────────────────────
@@ -239,7 +442,9 @@ function toGraphJsonl(rows: Scored[], fields: string[], keyField: string | undef
   rows.forEach((r, i) => {
     const id = keyField && r.rec[keyField] != null ? `${datasetId}:${String(r.rec[keyField])}` : `${datasetId}:${r.hash.slice(0, 12)}`;
     const label = keyField && r.rec[keyField] != null ? String(r.rec[keyField]) : `record-${i + 1}`;
-    out.push(JSON.stringify({ type: "node", id, label, props: r.rec, confidence: r.confidence, hash: r.hash }));
+    const props: AdrsRecord = {};
+    for (const f of fields) props[f] = r.rec[f];
+    out.push(JSON.stringify({ type: "node", id, label, props, confidence: r.confidence, hash: r.hash }));
     for (const f of fields) {
       if (f === keyField) continue;
       const v = r.rec[f];
@@ -279,6 +484,7 @@ function packCard(m: DatasetManifest, sampleFields: string[]): string {
 - **Batch root hash** (tamper-evident): \`${m.rootHash}\`
 - **Records**: ${m.recordCount} golden (${m.rawCount} raw in) · **avg confidence**: ${(m.avgConfidence * 100).toFixed(1)}%
 - **HITL review queue**: ${m.reviewQueue} record${m.reviewQueue === 1 ? "" : "s"} flagged below confidence threshold
+- **Ambiguous matches**: ${m.ambiguousMatches} record${m.ambiguousMatches === 1 ? "" : "s"} left unmerged on a single weak signal — needs human resolution
 
 ## Fields
 ${m.fields.map(f => `- \`${f}\``).join("\n")}
@@ -324,7 +530,7 @@ export function publishDataset(input: PublishInput): PublishResult {
   const fieldUniverse = [...fieldSet];
 
   // 2. Cryptographic hashing
-  const hashed: Scored[] = normalized.map(rec => ({ rec, hash: hashRecord(rec), confidence: 0, review: false }));
+  const hashed: Scored[] = normalized.map(rec => ({ rec, hash: hashRecord(rec), confidence: 0, review: false, ambiguousMatch: false }));
   const rootHash = rootHashOf(hashed.map(h => h.hash));
   stages.push({ stage: "Cryptographic Hashing", in: normalized.length, out: hashed.length, note: `SHA-256 per record; batch root ${rootHash.slice(0, 12)}…` });
 
@@ -340,7 +546,13 @@ export function publishDataset(input: PublishInput): PublishResult {
 
   // 5. Entity resolution → golden records
   const golden = goldenRecords(hashed, input.keyField ? canonicalKey(input.keyField) : undefined);
-  stages.push({ stage: "Entity Resolution", in: hashed.length, out: golden.length, note: input.keyField ? `merged on "${input.keyField}"` : "deduplicated by record hash" });
+  const ambiguousMatches = golden.filter(g => g.ambiguousMatch).length;
+  stages.push({
+    stage: "Entity Resolution",
+    in: hashed.length,
+    out: golden.length,
+    note: `${input.keyField ? `merged on "${input.keyField}" + ` : ""}multi-signal (name+email/phone) match, per-field union merge; ${ambiguousMatches} flagged as ambiguous (single weak signal)`,
+  });
 
   // Recompute the published field universe from golden records (merge may add columns).
   const goldenFieldSet = new Set<string>();
@@ -370,6 +582,7 @@ export function publishDataset(input: PublishInput): PublishResult {
     rawCount: raw.length,
     recordCount: golden.length,
     reviewQueue,
+    ambiguousMatches,
     avgConfidence,
     rootHash,
     fields,
@@ -377,8 +590,9 @@ export function publishDataset(input: PublishInput): PublishResult {
     outputs,
   };
 
-  writeVaultFile(outputs.csv, toCsv(golden.map(g => g.rec), fields));
-  writeVaultFile(outputs.jsonl, toGraphJsonl(golden, fields, input.keyField ? canonicalKey(input.keyField) : undefined, id));
+  const mlFields = fields.filter(f => !isIdentifierField(f));
+  writeVaultFile(outputs.csv, toCsv(golden.map(g => g.rec), mlFields));
+  writeVaultFile(outputs.jsonl, toGraphJsonl(golden, mlFields, input.keyField ? canonicalKey(input.keyField) : undefined, id));
   writeVaultFile(outputs.rag, toRagMarkdown(input.name, golden, fields));
   writeVaultFile(outputs.card, packCard(manifest, fields.slice(0, 8)));
 

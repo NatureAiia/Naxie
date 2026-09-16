@@ -12,9 +12,9 @@ export function ToggleRow({ label, checked, onChange, disabled = false, compact 
         aria-label={label}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative shrink-0 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${compact ? "w-8 h-4" : "w-9 h-5"} ${checked ? "bg-violet-500" : "bg-ink-700"}`}
+        className={`relative shrink-0 rounded-full transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${compact ? "w-8 h-4" : "w-9 h-5"} ${checked ? "bg-violet-500" : "bg-ink-700"}`}
       >
-        <span className={`absolute top-0.5 left-0.5 rounded-full bg-white transition-transform ${compact ? "w-3 h-3" : "w-4 h-4"} ${checked ? "translate-x-4" : ""}`} />
+        <span className={`absolute top-0.5 left-0.5 rounded-full bg-white transition-transform duration-150 ${compact ? "w-3 h-3" : "w-4 h-4"} ${checked ? "translate-x-4" : ""}`} />
       </button>
     </div>
   );

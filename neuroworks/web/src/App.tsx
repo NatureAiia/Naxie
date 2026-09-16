@@ -15,6 +15,7 @@ const BoardMeeting = lazy(() => import("./pages/BoardMeeting").then(m => ({ defa
 const CommandCenter = lazy(() => import("./pages/CommandCenter").then(m => ({ default: m.CommandCenter })));
 
 // Agents & Subagents
+const Office = lazy(() => import("./pages/Office").then(m => ({ default: m.Office })));
 const AgentRoster = lazy(() => import("./pages/AgentRoster").then(m => ({ default: m.AgentRoster })));
 const Squads = lazy(() => import("./pages/Squads").then(m => ({ default: m.Squads })));
 const Orchestrate = lazy(() => import("./pages/Orchestrate").then(m => ({ default: m.Orchestrate })));
@@ -43,6 +44,7 @@ const Skills = lazy(() => import("./pages/Skills").then(m => ({ default: m.Skill
 const Extensions = lazy(() => import("./pages/Extensions").then(m => ({ default: m.Extensions })));
 const Connectors = lazy(() => import("./pages/Connectors").then(m => ({ default: m.Connectors })));
 const McpServers = lazy(() => import("./pages/McpServers").then(m => ({ default: m.McpServers })));
+const HermesBridge = lazy(() => import("./pages/HermesBridge").then(m => ({ default: m.HermesBridge })));
 const GithubAccounts = lazy(() => import("./pages/GithubAccounts").then(m => ({ default: m.GithubAccounts })));
 
 // Govern
@@ -101,6 +103,7 @@ function AppShell() {
         <Route path="/command" element={<CommandCenter />} />
 
         {/* Agents & Subagents */}
+        <Route path="/office" element={<Office />} />
         <Route path="/agents" element={<AgentRoster />} />
         <Route path="/squads" element={<Squads />} />
         <Route path="/orchestrate" element={<Orchestrate />} />
@@ -130,6 +133,7 @@ function AppShell() {
         <Route path="/integrations" element={<Navigate to="/extensions?tab=integrations" replace />} />
         <Route path="/connectors" element={<Connectors />} />
         <Route path="/mcp-servers" element={<McpServers />} />
+        <Route path="/hermes-bridge" element={<HermesBridge />} />
         <Route path="/github-accounts" element={<GithubAccounts />} />
 
         {/* Govern */}

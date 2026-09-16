@@ -66,7 +66,9 @@ const DEFAULT_ALLOWLIST = [
   "doc.ocr",
 ];
 
-function allowlist(): Set<string> {
+// Exported so routes/hermes-bridge.ts can render the same catalog the bridge
+// actually serves, without duplicating the allowlist.
+export function allowlist(): Set<string> {
   const env = (process.env.NEUROWORKS_MCP_TOOLS ?? "").split(",").map(s => s.trim()).filter(Boolean);
   return new Set(env.length ? env : DEFAULT_ALLOWLIST);
 }

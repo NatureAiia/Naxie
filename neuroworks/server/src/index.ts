@@ -75,6 +75,7 @@ import { onboardingRouter } from "./routes/onboarding.js";
 import { seedAiiAWebsiteConnector, seedPublicApiConnectors } from "./lib/connectors.js";
 import { executorRouter } from "./routes/executor.js";
 import { primitivesRouter } from "./routes/primitives.js";
+import { hermesBridgeRouter } from "./routes/hermes-bridge.js";
 import { usersRouter } from "./routes/users.js";
 import { assignmentsRouter } from "./routes/assignments.js";
 import { voiceRouter } from "./routes/voice.js";
@@ -83,6 +84,7 @@ import { departmentsRouter } from "./routes/departments.js";
 import { knowledgePacksRouter } from "./routes/knowledge-packs.js";
 import { dispatchRouter, dispatchKeysRouter } from "./routes/dispatch.js";
 import { publicFinanceRouter } from "./routes/public-finance.js";
+import { agentIngestRouter } from "./routes/agent-ingest.js";
 import { datasetsRouter } from "./routes/datasets.js";
 import { omnisignalRouter } from "./routes/omnisignal.js";
 import { qualityRouter } from "./routes/quality.js";
@@ -95,6 +97,7 @@ import { startTelegramBridge, stopTelegramBridge } from "./lib/telegram-bridge.j
 import { startExtensionHealthScheduler, stopExtensionHealthScheduler } from "./lib/extension-scheduler.js";
 import { startGithubWatcher } from "./lib/github-watcher.js";
 import { originGuard, ALLOWED_ORIGINS } from "./lib/origin-guard.js";
+import { securityHeaders } from "./lib/security-headers.js";
 import { enterpriseAuthGuard } from "./lib/enterprise-auth.js";
 import { applyRagOverrides } from "./lib/rag-config.js";
 
@@ -107,6 +110,9 @@ validateConfig();
 applyRagOverrides();
 
 const app = express();
+// CSP + Permissions-Policy (absent before now — see lib/security-headers.ts)
+// applied first so every response carries them, including an early error.
+app.use(securityHeaders);
 // Gzip/brotli every compressible response — the built SPA's JS/CSS, JSON API
 // responses, markdown. Only touches the OUTGOING body so it's safe ahead of
 // the raw-body webhook parsers below (those need the raw REQUEST body,
@@ -267,6 +273,7 @@ app.use("/api/extensions", extensionsRouter); // unified plugins/extensions moni
 app.use("/api/crm", crmRouter); // contacts/deals/activities — local JSON store, no external CRM required
 app.use("/api/executor", executorRouter); // flips who/what executes tasks (spend implications)
 app.use("/api/primitives", primitivesRouter);
+app.use("/api/hermes-bridge", hermesBridgeRouter); // status/register for the clawbot-mcp.mjs ↔ Hermes bridge
 app.use("/api/users", usersRouter); // directory admin (salary redaction inside)
 app.use("/api/assignments", assignmentsRouter); // human-in-the-loop work (My Work page; per-route access checks inside)
 app.use("/api/voice", voiceRouter); // employee voices: report Q&A, local TTS proxy, realtime session mint
@@ -284,6 +291,9 @@ app.use("/api/dispatch-keys", dispatchKeysRouter); // mints external machine-dis
 app.use("/api/datasets", datasetsRouter);
 app.use("/api/omnisignal", omnisignalRouter);
 app.use("/api/public", publicFinanceRouter);
+// External news ingest (same /api/public origin-guard exemption as above),
+// gated by AGENT_INGEST_TOKEN — see routes/agent-ingest.ts.
+app.use("/api/public/agent", agentIngestRouter);
 app.use("/api/quality", qualityRouter);
 app.use("/api/cost", costRouter); // money
 app.use("/api/audit", auditRouter); // audit trail (actors, role changes, sensitive-tool calls)

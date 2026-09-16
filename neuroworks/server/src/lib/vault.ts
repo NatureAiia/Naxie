@@ -323,7 +323,7 @@ function isMachineStatePath(rel: string): boolean {
   return norm === "_neuroworks" || norm.startsWith("_neuroworks/");
 }
 
-const AGENT_CAPTURE_RE = /^0-Inbox\/\d{12}-(?:research|curated|multiperspective)-/i;
+const AGENT_CAPTURE_RE = /^0-Inbox\/\d{12}-(?:research|curated|multiperspective|board)-/i;
 const AGENT_JOURNAL_RE = /^_neuroworks\/(?:jobs|session|sessions|reflections|templates)\//i;
 const DERIVED_DATASET_RE = /^_datasets\/[^/]+\/rag\.md$/i;
 

@@ -2,7 +2,6 @@ import { NavLink, Link, useLocation } from "react-router-dom";
 import { ReactNode, useEffect, useState, type ComponentType } from "react";
 import { ToastRack } from "./Card";
 import {
-  Users2,
   Search as SearchIcon,
   ChevronRight,
   CalendarDays,
@@ -19,8 +18,10 @@ import {
   GitBranch,
   Boxes,
   Cable,
+  ArrowLeftRight,
   Network,
   Contact,
+  Building2,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -67,7 +68,7 @@ type NavItem = {
 const primaryNav: NavItem[] = [
   { to: "/naxie", label: "Naxie", icon: Sparkles, iconColor: "text-violet-400" },
   { to: "/command", label: "Command Center", icon: LayoutDashboard },
-  { to: "/chat", label: "Board Meeting", icon: Users2 },
+  { to: "/office", label: "Office", icon: Building2 },
   { to: "/ide", label: "Naxion IDE", icon: Terminal },
 ];
 
@@ -109,6 +110,7 @@ const connectNav: NavItem[] = [
   // Google/Microsoft accounts, and local MCP tool servers respectively.
   { to: "/connectors", label: "Connectors", icon: Boxes },
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
+  { to: "/hermes-bridge", label: "Hermes Bridge", icon: ArrowLeftRight },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
 ];
 
@@ -126,31 +128,10 @@ export function Layout({ children }: { children: ReactNode }) {
   // Per-group open state. Undefined = "not toggled yet"; a group with an active
   // child defaults to open so the current page is always visible in the rail.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  // Four named color themes: "dark" = Atom One Dark (the existing default
-  // palette — see index.css), "dracula" = the official Dracula palette,
-  // "paper-light"/"paper-dark" = the warm cream/teal editorial palette in
-  // its light and dark halves. Any older saved "light"/"paper" value falls
-  // back to "dark".
-  const THEMES = ["dark", "dracula", "paper-light", "paper-dark"] as const;
-  type Theme = (typeof THEMES)[number];
-  const THEME_LABELS: Record<Theme, string> = {
-    dark: "Atom One Dark",
-    dracula: "Dracula",
-    "paper-light": "Paper (light)",
-    "paper-dark": "Paper (dark)",
-  };
-  // Swatch dot shows the accent color of the theme it represents.
-  const THEME_SWATCH: Record<Theme, string> = {
-    dark: "bg-[#61afef]",
-    dracula: "bg-[#bd93f9]",
-    "paper-light": "bg-[#2B6E63]",
-    "paper-dark": "bg-[#5FBFA9]",
-  };
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === "undefined") return "dark";
-    const saved = localStorage.getItem("neuroworks.theme");
-    return (THEMES as readonly string[]).includes(saved ?? "") ? (saved as Theme) : "dark";
-  });
+  // Atom One Dark only — the theme switcher was removed, but [data-theme]
+  // stays set (index.css keys off it, and OfficeScene/PixelDriftText observe
+  // it for repaints) so this constant just fixes it to "dark" everywhere.
+  const theme = "dark" as const;
   // Collapsed sidebar — an icon-only rail (~4x narrower) for more working
   // space. Sticky across reloads like the theme choice.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -186,8 +167,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("neuroworks.theme", theme);
-  }, [theme]);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("neuroworks.sidebarCollapsed", collapsed ? "1" : "0");
@@ -335,18 +315,6 @@ export function Layout({ children }: { children: ReactNode }) {
               )}
             </Link>
             <div className={`flex items-center gap-1 ${collapsed ? "" : "shrink-0"}`}>
-              <button
-                type="button"
-                onClick={() => setTheme((t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length])}
-                title={`Switch to ${THEME_LABELS[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]]} theme`}
-                aria-label="Toggle color theme"
-                className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0"
-              >
-                {/* Swatch shows the theme you'd switch TO, matching the old sun/moon pattern. */}
-                <span
-                  className={`block w-3 h-3 rounded-full ${THEME_SWATCH[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]]}`}
-                />
-              </button>
               <button
                 type="button"
                 onClick={() => setCollapsed((c) => !c)}

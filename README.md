@@ -1,19 +1,19 @@
 <div align="center">
 
-# NaxionAI Powered by Neuroworks
+# Naxie
 
-<img src="assets/naxie-reference/naxie-waveform.gif" alt="Voice/agent waveform" height="550" />
-
-**NaxionAI Powered by Neuroworks** — inspired by Mr Magaya and JARVIS.
+**Naxie** is Nature's (Mark's) personal AI assistant system — built on the open-source NeuroWorks platform.
 
 </div>
 
-## NeuroWorks Shell
+## What this is
 
-An **empty-state, UAT-ready** package of the NeuroWorks platform. Full
-functionality, **none of the operator's data** — no users, no connectors, no
-knowledge vault, no company personas, no API keys. Hand this to a tester and
-they stand up their own clean instance.
+This is a **personal, non-commercial project**, owned and run by one person. It
+is not a product, it is not for sale, and it is not distributed to anyone
+else — the running instance holds Mark's own operator data, connected
+accounts, and credentials, which is exactly why it stays private. If you're
+looking at this expecting a general-purpose product or a multi-tenant SaaS,
+this isn't that: it's one person's own AI staff.
 
 It contains two systems that can run independently or together:
 
@@ -21,14 +21,6 @@ It contains two systems that can run independently or together:
   port, `http://localhost:7471`.
 - **`digital-force-py/`** — the Python build (FastAPI backend + Next.js
   frontend + Qdrant + Postgres), `http://localhost:8000` / `:3000`.
-
-<p align="center">
- 
-  <br/>
-  <sub>Voice-assistant lineage — see <a href="#-inspiration">Inspiration</a> below. The live mic-listening
-  indicator in the app itself (<code>VoiceDiscussion</code>) is a few CSS-animated bars, not a video asset —
-  see <code>MicWaveform</code> in <code>neuroworks-ts/web/src/components/VoiceDiscussion.tsx</code>.</sub>
-</p>
 
 ## Start here
 
@@ -43,51 +35,26 @@ cp digital-force-py/.env.example digital-force-py/.env
 # Run the components locally per AI-STARTUP.md (no Docker)
 ```
 
-Then open the app and **create the first account** — it becomes the workspace
-**owner (superadmin)**. That is the entire onboarding.
+## History
 
-## What "shell" means here
-
-| Stripped out                                  | Kept (functionality)                                  |
-|-----------------------------------------------|-------------------------------------------------------|
-| All users (seeded owner removed)              | Full auth + first-run owner bootstrap                 |
-| Connectors, integrations, API keys            | The connector/integration framework (add your own)    |
-| Knowledge vault / "second brain" content      | Vault engine (points at a local empty `./vault`)      |
-| Company personas, datasets, job history       | The built-in generic skills + persona engine          |
-| Every real secret (`.env`, tokens, DB dumps)  | `.env.example` templates                              |
-
-No `.git` history is included (so no embedded tokens travel with the bundle).
-
-## 🎬 Inspiration
-
-The look and feel here nods to the "build your own JARVIS" lineage of
-open-source voice assistants — a single-user, single-machine loop that
-listens, thinks, and talks. NeuroWorks Shell takes that same premise (an AI
-that acts on your behalf) and scales it into a multi-agent workforce with
-memory, governance, and network reach. The Stark-HUD banner and mascot above
-are reference assets from that lineage, not screenshots of this app.
-
-## 🏷️ Rebrand
-
-This project was originally built as **Digital Force**, an autonomous
-social-media-agency multi-agent platform, and its voice-assistant page was
-internally named **Jarvis**. Both have since been rebranded:
+This started as **Digital Force**, an autonomous social-media-agency
+multi-agent platform, with a voice-assistant page internally named **Jarvis**.
+Both were renamed once the project became Mark's own personal assistant
+rather than a product:
 
 | Old name | New name | Scope |
 |---|---|---|
-| Digital Force | **NaxionAI** | The overall product/brand |
+| Digital Force | **NaxionAI** | The overall codebase |
 | Jarvis | **Naxie** | The voice-assistant persona/page (`/naxie` in both the `neuroworks/` and `naxionai/` frontends) |
 
-**NeuroWorks** is unaffected by this rebrand and keeps its name. References to
-the fictional Iron Man **JARVIS** as a design inspiration (see
-[Inspiration](#-inspiration) above) are attribution to that lineage, not the
-old product name. The reference assets themselves now live under
-`assets/naxie-reference/` (`naxie-mascot.gif`, `naxie-waveform.gif`,
-`stark-hud-background.jpg`), matching the page's current name.
+**NeuroWorks** is unaffected by this rename and keeps its name — it's the
+open-source platform this personal system is built on top of, not the
+personal system itself. Early design inspiration for the voice-assistant
+concept drew loosely from the "build your own AI assistant" open-source
+community — a single-user, single-machine loop that listens, thinks, and
+acts on your behalf — scaled here into a multi-agent workforce with memory,
+governance, and network reach.
 
 ## License
 
 See `neuroworks/LICENSE`.
-
-<br>
-<img src="assets/naxie-reference/stark-hud-background.jpg" alt="Stark HUD-style dashboard aesthetic that inspired this project" width="100%" />

@@ -3,6 +3,12 @@
 Local-first AI workforce platform paired with an Obsidian second-brain.
 (Repo renamed from `clawbot` on 2026-07-11 — GitHub redirects the old URL.)
 
+**This particular instance is Mark's own personal, non-commercial deployment**
+(see the [root README](../README.md)) — not a hosted product or a
+multi-tenant service. The dispatch API, "Enterprise mode," and machine-key
+tenancy described below are real functionality this instance can use, not
+signs it's being run or sold as a product for others.
+
 Two surfaces in one repo:
 
 - **NeuroWorks** — local web console: chat with the agent, browse the vault, run templated tasks, review daily reflections. Multi-worker capable (primary + secondary).

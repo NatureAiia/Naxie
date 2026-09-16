@@ -83,3 +83,63 @@ export function redactHighSeverity(content: string, findings: SecurityFinding[])
   }
   return out;
 }
+
+// ─── Field-level masking for records entering an LLM prompt/context ───
+// Distinct from the content scan above: that hunts for secret-SHAPED
+// substrings anywhere in free text. This looks at STRUCTURED records (a
+// contact pulled from the CRM, a row a connector fetched from an external
+// system) and masks by FIELD NAME — an ssn/salary/card-number column is
+// sensitive no matter what its value looks like, and connectors.ts calls
+// arbitrary external APIs with no fixed schema to run a value-shape scan against.
+export type MaskEntityType = "contact" | "customer" | "employee" | "deal" | "generic";
+
+// Per-type allowlist — fields that make sense to hand an LLM for that record
+// shape. Unknown/omitted entityType (connectors.ts's arbitrary API responses)
+// skips the allowlist — we don't know the schema, so allowlisting would strip
+// legitimate data as often as sensitive data — and relies on the name scrub below.
+const ENTITY_ALLOWLISTS: Record<Exclude<MaskEntityType, "generic">, string[]> = {
+  contact: ["id", "name", "email", "phone", "company", "source", "tags", "notes", "createdAt", "updatedAt", "title", "role"],
+  customer: ["id", "name", "email", "phone", "company", "tags", "notes", "createdAt", "updatedAt", "status", "plan"],
+  employee: ["id", "name", "email", "title", "department", "role", "status", "workMode", "reportsTo", "createdAt"],
+  deal: ["id", "contactId", "title", "pipelineId", "stage", "value", "createdAt", "updatedAt", "closedAt"],
+};
+
+// Fires regardless of entityType/allowlist — matched against the field NAME,
+// not its value, so it also catches a sensitive field on a record shape we
+// don't have (or haven't listed) an allowlist for. Substring match rather
+// than \b-bounded: field names are camelCase/snake_case identifiers
+// ("apiKey", "bank_account"), and \b never fires inside a camelCase join.
+const SENSITIVE_FIELD_RE = /password|passwd|pwd|secret|token|api[-_]?key|access[-_]?key|private[-_]?key|bank[-_]?account|iban|account[-_]?number|acct[-_]?(?:no|num)|routing[-_]?number|card[-_]?number|cardnum|cvv|cvc|ssn|social[-_]?security|national[-_]?id|passport(?:[-_]?number)?|tax[-_]?id|salary|compensation|wage/i;
+
+const MASKED_VALUE = "[REDACTED]";
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+// Recurses into nested objects/arrays — a connector response nests a record
+// under {data:{...}} / {results:[...]} as often as not, and a field named
+// "ssn" three levels down leaks exactly as much as one at the top.
+function scrubSensitiveNames(value: unknown, depth = 0): unknown {
+  if (depth > 6) return value; // guard against pathological/cyclical shapes
+  if (Array.isArray(value)) return value.map(v => scrubSensitiveNames(v, depth + 1));
+  if (!isPlainObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    out[k] = SENSITIVE_FIELD_RE.test(k) ? MASKED_VALUE : scrubSensitiveNames(v, depth + 1);
+  }
+  return out;
+}
+
+// Mask a record (or array of records) before it's assembled into an LLM
+// prompt/context. Pass the entityType when the shape is known (crm.ts's
+// contacts/deals); omit it for arbitrary shapes (connectors.ts's API bodies).
+export function maskSensitiveFields(record: any, entityType?: MaskEntityType): any {
+  if (Array.isArray(record)) return record.map(r => maskSensitiveFields(r, entityType));
+  if (!isPlainObject(record)) return record;
+  const allowlist = entityType && entityType !== "generic" ? ENTITY_ALLOWLISTS[entityType] : undefined;
+  const base = allowlist
+    ? Object.fromEntries(Object.entries(record).filter(([k]) => allowlist.includes(k)))
+    : record;
+  return scrubSensitiveNames(base);
+}

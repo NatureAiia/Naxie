@@ -38,7 +38,7 @@ export function Schedules() {
 
   async function load() {
     try {
-      const [s, t] = await Promise.all([api.listSchedules(), api.listTemplates()]);
+      const [s, t] = await Promise.all([api.listSchedules(), api.listTemplates({ includeHidden: true })]);
       setSchedules(s.schedules);
       setTemplates(t.templates);
     } catch (e: any) {

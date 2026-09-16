@@ -286,6 +286,45 @@ export async function maybeRunProactiveResearch(now = Date.now()): Promise<boole
   return true;
 }
 
+// Telegram news monitor — batch-score pending posts from monitored groups.
+// Delegates to telegram-news-monitor.ts's scoreAndNotifyBatch which handles
+// LLM relevance scoring and DM notification.
+export async function maybeScoreTelegramNews(now = Date.now()): Promise<boolean> {
+  try {
+    const { scoreAndNotifyBatch, isMonitorEnabled, pendingCount } = await import("./telegram-news-monitor.js");
+    if (!isMonitorEnabled()) return false;
+    if (pendingCount() === 0) return false;
+    const notified = await scoreAndNotifyBatch(now);
+    if (notified > 0) {
+      void notifyAttention(
+        `Naxie — Telegram news`,
+        `${notified} post${notified === 1 ? "" : "s"} from monitored groups scored relevant — check your Telegram DMs.`,
+        { actor: "monitor" },
+      );
+    }
+    return notified > 0;
+  } catch (e) {
+    console.warn(`[org-daemon] maybeScoreTelegramNews failed: ${(e as Error).message}`);
+    return false;
+  }
+}
+
+// Compliance/renewal reminders — real-world deadlines (licenses, insurance,
+// certs, contracts) tracked outside the OrgTask backlog since they're
+// calendar-driven, not work-item-driven. Delegates to compliance-renewals.ts
+// for the actual reminder/escalation logic — same dynamic-import shape as
+// maybeScoreTelegramNews above, since it's another self-contained module.
+export async function maybeProcessComplianceReminders(now = Date.now()): Promise<boolean> {
+  try {
+    const { processDueReminders } = await import("./compliance-renewals.js");
+    const { reminded, escalated } = await processDueReminders(now);
+    return reminded > 0 || escalated > 0;
+  } catch (e) {
+    console.warn(`[org-daemon] maybeProcessComplianceReminders failed: ${(e as Error).message}`);
+    return false;
+  }
+}
+
 export const DAEMON_CYCLE_SECONDS = Number(process.env.NEUROWORKS_ORG_DAEMON_CYCLE_SECONDS ?? "300") || 300;
 
 // How long an OrgTask may sit at waiting-on-approval before it's stale.
@@ -381,6 +420,10 @@ function tick(): void {
   try { maybeReportIdleActivity(); } catch (e) { console.warn(`[org-daemon] maybeReportIdleActivity failed: ${(e as Error).message}`); }
   try { void maybeNudgeChatInactivity(); } catch (e) { console.warn(`[org-daemon] maybeNudgeChatInactivity failed: ${(e as Error).message}`); }
   try { void maybeRunProactiveResearch(); } catch (e) { console.warn(`[org-daemon] maybeRunProactiveResearch failed: ${(e as Error).message}`); }
+  // Telegram news monitor — batch-score pending posts for relevance, notify via DM
+  try { void maybeScoreTelegramNews(); } catch (e) { console.warn(`[org-daemon] maybeScoreTelegramNews failed: ${(e as Error).message}`); }
+  // Compliance/renewal reminders — due-date reminders + overdue escalation
+  try { void maybeProcessComplianceReminders(); } catch (e) { console.warn(`[org-daemon] maybeProcessComplianceReminders failed: ${(e as Error).message}`); }
   // MD voice briefing — 5 min after audit (07:05) — best-effort, once per day
   try {
     const now = new Date();

@@ -158,7 +158,8 @@ export const api = {
   health: () => req<{ ok: boolean; name: string; version: string; model: string; port: number; ready: boolean; missing: string[]; inflightJobs?: number; peers?: string[] }>("/api/health"),
   listRepos: () => req<{ repos: any[] }>("/api/repos"),
   getRepo: (owner: string, name: string) => req<any>(`/api/repos/${owner}/${name}`),
-  listTemplates: () => req<{ roles: Role[]; templates: Template[] }>("/api/templates"),
+  listTemplates: (opts?: { includeHidden?: boolean }) =>
+    req<{ roles: Role[]; templates: Template[] }>(`/api/templates${opts?.includeHidden ? "?includeHidden=1" : ""}`),
   runTemplate: (id: string, inputs: Record<string, any>) => req<{ jobId: string; requiresApproval: boolean; status: string }>(`/api/templates/run/${id}`, { method: "POST", body: JSON.stringify(inputs) }),
   getJob: (id: string) => req<any>(`/api/templates/jobs/${id}`),
   listJobs: () => req<{ jobs: any[] }>("/api/templates/jobs"),
@@ -337,6 +338,8 @@ export const api = {
     req<{ runId: string; jobId: string; roster: { personaId: string; name: string; role: string }[] }>("/api/board", { method: "POST", body: JSON.stringify(body) }),
   listBoards: () => req<{ runs: BoardRun[] }>("/api/board"),
   getBoard: (id: string) => req<{ run: BoardRun }>(`/api/board/${encodeURIComponent(id)}`),
+  correctBoard: (id: string, body: { targetPersonaId?: string; note: string }) =>
+    req<{ run: BoardRun }>(`/api/board/${encodeURIComponent(id)}/correct`, { method: "POST", body: JSON.stringify(body) }),
   // Workforce contact book — AI agents + human team, grouped by department.
   getWorkforce: () => req<{ departments: WorkforceDepartment[]; counts: { agents: number; people: number; departments: number } }>("/api/workforce"),
   // Scan an uploaded doc (any type) for people and populate the contact book.
@@ -629,6 +632,8 @@ export const api = {
   mcpServerTools: (id: string) => req<{ tools: McpTool[] }>(`/api/mcp-servers/${encodeURIComponent(id)}/tools`),
   callMcpServer: (id: string, body: { tool: string; arguments?: Record<string, any> }) =>
     req<{ result: McpCallResult }>(`/api/mcp-servers/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(body) }),
+  hermesBridgeStatus: () => req<HermesBridgeStatus>("/api/hermes-bridge/status"),
+  registerHermesBridge: () => req<{ ok: boolean; alreadyRegistered: boolean; status: HermesBridgeStatus }>("/api/hermes-bridge/register", { method: "POST" }),
 
 
   // CRM — contacts, deals/pipeline, and per-contact activity (local store, no external CRM required).
@@ -915,6 +920,19 @@ export type McpServerInput = {
 export type McpTool = { name: string; description?: string; inputSchema?: any };
 export type McpCallResult = { ok: boolean; content?: any; truncated?: boolean; error?: string };
 
+export type HermesBridgeStatus = {
+  hermesInstalled: boolean;
+  hermesBinPath: string | null;
+  hermesConfigPath: string | null;
+  hermesConfigExists: boolean;
+  bridgeScriptPath: string;
+  bridgeScriptExists: boolean;
+  registered: boolean;
+  enabled: boolean;
+  toolCount: number;
+  tools: { name: string; description: string; readonly: boolean }[];
+};
+
 export type Contact = {
   id: string; name?: string; email?: string; phone?: string; company?: string;
   source?: string; tags: string[]; notes?: string; createdAt: string; updatedAt: string;
@@ -1040,6 +1058,7 @@ export type BoardOpinion = {
   endedAt?: string;
   elapsedMs?: number;
   error?: string;
+  revisions?: { at: string; note: string; previousText: string }[];
 };
 export type BoardRanking = {
   personaId: string;
@@ -1047,6 +1066,15 @@ export type BoardRanking = {
   label: string;
   rankingText: string;
   error?: string;
+};
+export type BoardCorrection = {
+  id: string;
+  targetPersonaId?: string;
+  note: string;
+  classification: "one-off" | "standing-rule";
+  ruleText?: string;
+  error?: string;
+  createdAt: string;
 };
 export type BoardRun = {
   id: string;
@@ -1059,6 +1087,12 @@ export type BoardRun = {
   jobId?: string;
   createdAt: string;
   updatedAt: string;
+  ragBlock?: string;
+  groundedIn?: { path: string; preview: string; source: string }[];
+  notePath?: string;
+  corrections?: BoardCorrection[];
+  synthesisRevisions?: { at: string; note: string; previousText: string }[];
+  scheduleId?: string;
 };
 
 // Workforce contact book.

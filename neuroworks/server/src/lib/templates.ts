@@ -17,6 +17,11 @@ export type Template = {
   requiresApproval: boolean;
   estimateSeconds: number;
   agent: "clawbot";
+  // Kept runnable via the generic /run/:id pipeline (so Schedules can fire it
+  // on a cadence) but excluded from the general Templates gallery and chat NL
+  // routing — for a template whose result needs a dedicated page's UI (stage
+  // tabs, rankings, etc.) rather than the generic Tasks/Reports view.
+  hidden?: boolean;
 };
 
 export const templates: Template[] = [
@@ -178,12 +183,27 @@ export const templates: Template[] = [
     requiresApproval: false,
     estimateSeconds: 60,
   },
+  {
+    id: "board-meeting",
+    role: "Insights",
+    title: "Board Meeting",
+    description: "Convene the AI council on a topic: independent opinions, anonymous peer review, then Naxie's chaired synthesis.",
+    icon: "users",
+    agent: "clawbot",
+    inputs: [
+      { name: "topic", label: "Topic", type: "textarea", required: true },
+      { name: "personaIds", label: "Council members (comma-separated persona ids; blank = default)", type: "text" },
+    ],
+    requiresApproval: false,
+    estimateSeconds: 90,
+    hidden: true,
+  },
 ];
 
 export const roles = [
-  { id: "Engineering", label: "Engineering", description: "Code, projects, GitHub", count: templates.filter(t => t.role === "Engineering").length },
-  { id: "Knowledge", label: "Knowledge", description: "Notes, search, capture", count: templates.filter(t => t.role === "Knowledge").length },
-  { id: "Operations", label: "Operations", description: "Schedules, integrations", count: templates.filter(t => t.role === "Operations").length },
-  { id: "Insights", label: "Insights", description: "Research, analysis", count: templates.filter(t => t.role === "Insights").length },
+  { id: "Engineering", label: "Engineering", description: "Code, projects, GitHub", count: templates.filter(t => t.role === "Engineering" && !t.hidden).length },
+  { id: "Knowledge", label: "Knowledge", description: "Notes, search, capture", count: templates.filter(t => t.role === "Knowledge" && !t.hidden).length },
+  { id: "Operations", label: "Operations", description: "Schedules, integrations", count: templates.filter(t => t.role === "Operations" && !t.hidden).length },
+  { id: "Insights", label: "Insights", description: "Research, analysis", count: templates.filter(t => t.role === "Insights" && !t.hidden).length },
   { id: "Custom", label: "Custom", description: "Saved from past ad-hoc runs", count: 0 },
 ];

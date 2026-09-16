@@ -10,7 +10,7 @@
 
 import { Router } from "express";
 import { newJob, runJob } from "../lib/jobs.js";
-import { createBoardRun, executeBoardRun, listBoardRuns, getBoardRun, failBoardRun, MIN_MEMBERS } from "../lib/board.js";
+import { createBoardRun, executeBoardRun, listBoardRuns, getBoardRun, failBoardRun, correctBoardOpinion, correctBoardSynthesis, MIN_MEMBERS } from "../lib/board.js";
 
 export const boardRouter = Router();
 
@@ -57,6 +57,35 @@ boardRouter.post("/", (req, res) => {
     });
 
     res.json({ runId: run.id, jobId: job.id, roster: run.roster });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// Feature C — a correction on a completed meeting. Omit targetPersonaId to
+// correct the chairman synthesis instead of a specific member's opinion.
+// Kept synchronous (one bounded LLM call, not a fan-out) — no job/poll
+// plumbing needed the way feedback.ts's /retry has for a full task re-run.
+boardRouter.post("/:id/correct", async (req, res) => {
+  try {
+    const run = getBoardRun(String(req.params.id));
+    if (!run) return res.status(404).json({ error: "board meeting not found" });
+    if (run.status === "running") return res.status(400).json({ error: "this meeting is still running" });
+
+    const note = String(req.body?.note ?? "").trim();
+    if (!note) return res.status(400).json({ error: "note required" });
+    if (note.length > 2000) return res.status(400).json({ error: "note is too long (max 2000 characters)" });
+
+    const targetPersonaId = typeof req.body?.targetPersonaId === "string" ? req.body.targetPersonaId.trim() : "";
+    if (targetPersonaId) {
+      if (!run.opinions.some(o => o.personaId === targetPersonaId)) {
+        return res.status(400).json({ error: "no opinion from that persona in this meeting" });
+      }
+      const updated = await correctBoardOpinion(run, targetPersonaId, note);
+      return res.json({ run: updated });
+    }
+    const updated = await correctBoardSynthesis(run, note);
+    res.json({ run: updated });
   } catch (e: any) {
     res.status(500).json({ error: String(e?.message ?? e) });
   }

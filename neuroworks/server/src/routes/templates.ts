@@ -19,12 +19,13 @@ import { loadCustomTemplates, saveCustomTemplate, findCustomTemplate, bumpRunCou
 import { loadPersonas, getActivePersona, personaSystemSuffix } from "../lib/personas.js";
 import { classifyCustomTemplate, type TemplateRole } from "../lib/template-classifier.js";
 import { findPrimitive } from "../lib/primitives.js";
+import { createBoardRun, executeBoardRun, failBoardRun, MIN_MEMBERS } from "../lib/board.js";
 
 export const templatesRouter = Router();
 
 const NEEDS_GITHUB = new Set(["summarize-repo", "run-digest", "publish-folder"]);
 
-templatesRouter.get("/", (_req, res) => {
+templatesRouter.get("/", (req, res) => {
   // Custom templates persist with role: "Custom" because save-time didn't
   // know which lane they belonged to. We re-classify on read so the UI
   // shows them under Engineering / Knowledge / Operations / Insights
@@ -49,7 +50,11 @@ templatesRouter.get("/", (_req, res) => {
   const customByRole: Record<TemplateRole, number> = { Engineering: 0, Knowledge: 0, Operations: 0, Insights: 0, Custom: 0 };
   for (const c of custom) customByRole[c.role as TemplateRole]++;
   const allRoles = roles.map(r => ({ ...r, count: (r.count ?? 0) + (customByRole[r.id as TemplateRole] ?? 0) }));
-  res.json({ roles: allRoles, templates: [...templates, ...custom] });
+  // Hidden templates (e.g. board-meeting) stay runnable via /run/:id — a
+  // schedule can still fire them — but don't clutter the general gallery
+  // unless explicitly asked for (Schedules.tsx's template picker passes this).
+  const visibleTemplates = req.query.includeHidden === "1" ? templates : templates.filter(t => !t.hidden);
+  res.json({ roles: allRoles, templates: [...visibleTemplates, ...custom] });
 });
 
 // Jobs feed for the Tasks / Reports pages. MERGES the in-memory jobs with the
@@ -277,7 +282,7 @@ templatesRouter.post("/run/:id", async (req, res) => {
       });
       return { ...r, fromCustom: custom.id };
     }
-    return runner(tpl.id, inputs, push, progress);
+    return runner(tpl.id, inputs, push, progress, { jobId: job.id, scheduledBy: job.scheduledBy });
   });
 });
 
@@ -381,13 +386,14 @@ templatesRouter.post("/intent", async (req, res) => {
   const fallback = keywordMatch(text);
   try {
     const sys = "You translate a user task description into a JSON template intent. Respond with JSON only, no prose. Available templates and their inputs:\n" +
-      templates.map(t => `- ${t.id}: ${t.title}. Inputs: ${t.inputs.length === 0 ? "(none)" : t.inputs.map(i => `${i.name}(${i.type}${i.required ? ",required" : ""})`).join(", ")}`).join("\n") +
+      templates.filter(t => !t.hidden).map(t => `- ${t.id}: ${t.title}. Inputs: ${t.inputs.length === 0 ? "(none)" : t.inputs.map(i => `${i.name}(${i.type}${i.required ? ",required" : ""})`).join(", ")}`).join("\n") +
       "\nReturn shape: {\"templateId\":\"<id>\",\"inputs\":{<name>:<value>}}. If you cannot determine, return {\"templateId\":null}.";
     const out = await ollamaGenerate(text, sys);
     const m = out.match(/\{[\s\S]*\}/);
     if (m) {
       const parsed = JSON.parse(m[0]);
-      if (parsed.templateId && templates.find(t => t.id === parsed.templateId)) {
+      const matched = templates.find(t => t.id === parsed.templateId);
+      if (parsed.templateId && matched && !matched.hidden) {
         return res.json({ source: "ollama", templateId: parsed.templateId, inputs: parsed.inputs ?? {} });
       }
     }
@@ -411,7 +417,7 @@ const KEYWORD_STOPWORDS = new Set([
 function keywordMatch(text: string): Template | null {
   const q = text.toLowerCase();
   let best: { t: Template; s: number } | null = null;
-  for (const t of templates) {
+  for (const t of templates.filter(t => !t.hidden)) {
     const hay = (t.title + " " + t.description + " " + t.role).toLowerCase();
     let s = 0;
     for (const w of q.split(/\s+/)) {
@@ -432,7 +438,7 @@ export async function runFromChat(templateId: string, inputs: Record<string, unk
   return runner(templateId, inputs, push, progress);
 }
 
-async function runner(templateId: string, inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void): Promise<unknown> {
+async function runner(templateId: string, inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void, meta?: { jobId?: string; scheduledBy?: string }): Promise<unknown> {
   switch (templateId) {
     case "summarize-repo": return summarizeRepoRunner(inputs, push);
     case "run-digest":     return runDigestRunner(inputs, push);
@@ -446,8 +452,31 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
     case "buffer-story-post": return bufferStoryPostRunner(inputs, push, progress);
     case "social-optimize": return socialOptimizeRunner(inputs, push, progress);
     case "general-task":   return generalTaskRunner(inputs, push, progress);
+    case "board-meeting":  return boardMeetingRunner(inputs, push, progress, meta);
     default: throw new Error(`no runner for ${templateId}`);
   }
+}
+
+// Feature D — lets a Board Meeting run on the existing generic Schedules
+// pipeline (a schedule just POSTs { templateId: "board-meeting", inputs } to
+// /run/:id on its cadence) without teaching schedules.ts anything new. Hidden
+// from the general Templates gallery (see templates.ts) because its result —
+// stage tabs, rankings — needs Board Meeting's own page, not the generic
+// Tasks/Reports view; still fully runnable through this same pipeline.
+async function boardMeetingRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void, meta?: { jobId?: string; scheduledBy?: string }) {
+  const topic = String(inputs.topic ?? "").trim();
+  if (!topic) throw new Error("missing 'topic' input");
+  const personaIds = typeof inputs.personaIds === "string" && inputs.personaIds.trim()
+    ? inputs.personaIds.split(",").map(s => s.trim()).filter(Boolean)
+    : undefined;
+  const run = createBoardRun({ topic, personaIds, jobId: meta?.jobId, scheduleId: meta?.scheduledBy });
+  if (run.roster.length < MIN_MEMBERS) {
+    failBoardRun(run, `need at least ${MIN_MEMBERS} valid council members`);
+    throw new Error(`need at least ${MIN_MEMBERS} valid council members`);
+  }
+  const finished = await executeBoardRun(run, push);
+  progress?.({ boardRunId: finished.id, status: finished.status });
+  return { kind: "board-meeting", boardRunId: finished.id, status: finished.status, answer: finished.chairmanSynthesis };
 }
 
 async function summarizeRepoRunner(inputs: Record<string, unknown>, push: (m: string) => void) {

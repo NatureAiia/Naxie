@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { encryptSecret, decryptSecret, isEncrypted } from "./secret-box.js";
+import { maskSensitiveFields } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
@@ -651,6 +652,12 @@ export async function callConnector(idOrLabel: string, input: CallInput): Promis
     if (contentType?.includes("application/json")) {
       try { parsed = JSON.parse(slice); } catch { parsed = slice; }
     }
+    // Connectors hit arbitrary operator-configured APIs (member lists,
+    // payment records, ...) whose schema we don't know ahead of time — the
+    // agent reads this body straight into its context, so scrub
+    // sensitive-named fields (no entityType: an unknown schema means no
+    // allowlist to lean on) before it ever gets there.
+    if (parsed && typeof parsed === "object") parsed = maskSensitiveFields(parsed);
     // A 200 that returns an HTML PAGE (directory index, SPA shell, or a login
     // page) is not usable API data — but body:<html> + ok:true looks like a
     // success, so an agent would summarise the page as if it were the answer
