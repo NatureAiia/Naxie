@@ -76,6 +76,9 @@ import { seedAiiAWebsiteConnector, seedPublicApiConnectors } from "./lib/connect
 import { executorRouter } from "./routes/executor.js";
 import { primitivesRouter } from "./routes/primitives.js";
 import { hermesBridgeRouter } from "./routes/hermes-bridge.js";
+import { brandsRouter } from "./routes/brands.js";
+import { seedDefaultBrands } from "./lib/brands.js";
+import { brandSignalsRouter } from "./routes/brand-signals.js";
 import { usersRouter } from "./routes/users.js";
 import { assignmentsRouter } from "./routes/assignments.js";
 import { voiceRouter } from "./routes/voice.js";
@@ -274,6 +277,8 @@ app.use("/api/crm", crmRouter); // contacts/deals/activities — local JSON stor
 app.use("/api/executor", executorRouter); // flips who/what executes tasks (spend implications)
 app.use("/api/primitives", primitivesRouter);
 app.use("/api/hermes-bridge", hermesBridgeRouter); // status/register for the clawbot-mcp.mjs ↔ Hermes bridge
+app.use("/api/brands", brandsRouter); // marketing brand registry (personal/work/business)
+app.use("/api/brand-signals", brandSignalsRouter); // own-brand mention/opportunity monitoring, MAIA-shaped
 app.use("/api/users", usersRouter); // directory admin (salary redaction inside)
 app.use("/api/assignments", assignmentsRouter); // human-in-the-loop work (My Work page; per-route access checks inside)
 app.use("/api/voice", voiceRouter); // employee voices: report Q&A, local TTS proxy, realtime session mint
@@ -446,6 +451,16 @@ const server = app.listen(config.port, config.bindHost, async () => {
     }
   } catch (e: any) {
     console.warn(`  ⚠ persona template backfill failed: ${e?.message ?? e}`);
+  }
+
+  // Seed the operator's 3 brands (personal / work=AIIA / business=Variety
+  // Vault) on first boot — idempotent (no-ops once .neuroworks/brands.json
+  // exists), unlike the demo connectors above: these are real identities, not
+  // sample data, so they always seed rather than requiring an opt-in flag.
+  try {
+    seedDefaultBrands();
+  } catch (e: any) {
+    console.warn(`  ⚠ brand seeding failed: ${e?.message ?? e}`);
   }
 
   // Parent-death watchdog (managed workers only). worker-manager.ts sets

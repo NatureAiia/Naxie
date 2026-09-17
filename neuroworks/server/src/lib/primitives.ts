@@ -3093,10 +3093,11 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     readonly: true,
     args: [
       { name: "limit", type: "number", required: false, description: "Max posts to return (default 30, max 100)." },
+      { name: "connectionLabel", type: "string", required: false, description: "Brand-scoped: use the Buffer connection with this label instead of the first one connected." },
     ],
     handler: async (args) => {
-      const { getConnectionByProvider } = await import("./integrations.js");
-      const token = (getConnectionByProvider("buffer")?.secrets?.accessToken ?? "").trim();
+      const { getConnectionByLabel } = await import("./integrations.js");
+      const token = (getConnectionByLabel("buffer", args.connectionLabel ? String(args.connectionLabel) : undefined)?.secrets?.accessToken ?? "").trim();
       if (!token) return { error: "no Buffer connection — add one on the Integrations page" };
       const { bufferSentPosts } = await import("./buffer.js");
       const posts = await bufferSentPosts(token, { first: Number(args.limit ?? 30) });
@@ -3111,10 +3112,11 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     args: [
       { name: "days", type: "number", required: false, description: "Look-back window in days (default 30)." },
       { name: "channels", type: "string", required: false, description: "Optional channel ids/services to filter (array or comma list). Defaults to all connected." },
+      { name: "connectionLabel", type: "string", required: false, description: "Brand-scoped: use the Buffer connection with this label instead of the first one connected." },
     ],
     handler: async (args) => {
-      const { getConnectionByProvider } = await import("./integrations.js");
-      const token = (getConnectionByProvider("buffer")?.secrets?.accessToken ?? "").trim();
+      const { getConnectionByLabel } = await import("./integrations.js");
+      const token = (getConnectionByLabel("buffer", args.connectionLabel ? String(args.connectionLabel) : undefined)?.secrets?.accessToken ?? "").trim();
       if (!token) return { error: "no Buffer connection — add one on the Integrations page" };
       const { bufferChannels, bufferAggregatedMetrics } = await import("./buffer.js");
       const all = await bufferChannels(token);
@@ -3148,10 +3150,11 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "videoUrl", type: "string", required: false, description: "Public URL of a video to attach. Required for video-only channels like TikTok." },
       { name: "thumbnailUrl", type: "string", required: false, description: "Optional thumbnail URL for the attached video." },
       { name: "imageUrl", type: "string", required: false, description: "Public URL of an image to attach (used when no videoUrl)." },
+      { name: "connectionLabel", type: "string", required: false, description: "Brand-scoped: use the Buffer connection with this label instead of the first one connected." },
     ],
     handler: async (args) => {
-      const { getConnectionByProvider } = await import("./integrations.js");
-      const token = (getConnectionByProvider("buffer")?.secrets?.accessToken ?? "").trim();
+      const { getConnectionByLabel } = await import("./integrations.js");
+      const token = (getConnectionByLabel("buffer", args.connectionLabel ? String(args.connectionLabel) : undefined)?.secrets?.accessToken ?? "").trim();
       if (!token) return { error: "no Buffer connection — add one on the Integrations page" };
       const text = String(args.text ?? "").trim();
       if (!text) return { error: "text is required" };

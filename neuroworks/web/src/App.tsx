@@ -44,7 +44,8 @@ const Skills = lazy(() => import("./pages/Skills").then(m => ({ default: m.Skill
 const Extensions = lazy(() => import("./pages/Extensions").then(m => ({ default: m.Extensions })));
 const Connectors = lazy(() => import("./pages/Connectors").then(m => ({ default: m.Connectors })));
 const McpServers = lazy(() => import("./pages/McpServers").then(m => ({ default: m.McpServers })));
-const HermesBridge = lazy(() => import("./pages/HermesBridge").then(m => ({ default: m.HermesBridge })));
+const Hermes = lazy(() => import("./pages/Hermes").then(m => ({ default: m.Hermes })));
+const Brands = lazy(() => import("./pages/Brands").then(m => ({ default: m.Brands })));
 const GithubAccounts = lazy(() => import("./pages/GithubAccounts").then(m => ({ default: m.GithubAccounts })));
 
 // Govern
@@ -114,6 +115,7 @@ function AppShell() {
         <Route path="/runs/:jobId" element={<RunDetail />} />
         <Route path="/approvals" element={<AgentApprovals />} />
         <Route path="/my-tasks" element={<MyTasks />} />
+        <Route path="/brands" element={<Brands />} />
         <Route path="/crm" element={<Crm />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/schedules" element={<Schedules />} />
@@ -133,7 +135,8 @@ function AppShell() {
         <Route path="/integrations" element={<Navigate to="/extensions?tab=integrations" replace />} />
         <Route path="/connectors" element={<Connectors />} />
         <Route path="/mcp-servers" element={<McpServers />} />
-        <Route path="/hermes-bridge" element={<HermesBridge />} />
+        <Route path="/hermes" element={<Hermes />} />
+        <Route path="/hermes-bridge" element={<Navigate to="/hermes" replace />} />
         <Route path="/github-accounts" element={<GithubAccounts />} />
 
         {/* Govern */}

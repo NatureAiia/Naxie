@@ -19,6 +19,7 @@ import {
   Boxes,
   Cable,
   ArrowLeftRight,
+  Megaphone,
   Network,
   Contact,
   Building2,
@@ -86,6 +87,7 @@ const workNav: NavItem[] = [
   // so a person's handoffs, the deliverables, and editing all live in one
   // place.
   { to: "/my-work", label: "My Work", icon: Inbox },
+  { to: "/brands", label: "Brands", icon: Megaphone },
   { to: "/crm", label: "CRM", icon: Contact },
   { to: "/runs", label: "Runs", icon: TodoIcon, badgeKey: "activity" },
   { to: "/approvals", label: "Agent Approvals", icon: ReviewFolderIcon, badgeKey: "approvals" },
@@ -110,7 +112,7 @@ const connectNav: NavItem[] = [
   // Google/Microsoft accounts, and local MCP tool servers respectively.
   { to: "/connectors", label: "Connectors", icon: Boxes },
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
-  { to: "/hermes-bridge", label: "Hermes Bridge", icon: ArrowLeftRight },
+  { to: "/hermes", label: "Hermes", icon: ArrowLeftRight },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
 ];
 

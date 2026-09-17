@@ -146,6 +146,7 @@ export const templates: Template[] = [
     icon: "broadcast",
     agent: "clawbot",
     inputs: [
+      { name: "brandId", label: "Brand", type: "text", default: "work", placeholder: "personal | work | business (see the Brands page)" },
       { name: "sender", label: "Source email address", type: "text", default: "", placeholder: "who the stories come from" },
       { name: "days", label: "Look back (days)", type: "number", default: 3 },
       { name: "channels", label: "Channels (blank = all)", type: "text", placeholder: "e.g. twitter,linkedin — blank for all connected" },
@@ -158,6 +159,19 @@ export const templates: Template[] = [
     estimateSeconds: 180,
   },
   {
+    id: "africa-ai-news",
+    role: "Operations",
+    title: "Africa AI news digest",
+    description: "Sweeps for the day's Africa/AI news (web search + saved story leads) and posts a short factual digest into a Telegram group. Pair with a daily Schedule.",
+    icon: "broadcast",
+    agent: "clawbot",
+    inputs: [
+      { name: "chatId", label: "Telegram group chat ID to post into", type: "text", required: true, placeholder: "-1004307136262" },
+    ],
+    requiresApproval: false,
+    estimateSeconds: 60,
+  },
+  {
     id: "social-optimize",
     role: "Operations",
     title: "Optimise social strategy (self-improving)",
@@ -165,6 +179,7 @@ export const templates: Template[] = [
     icon: "spark",
     agent: "clawbot",
     inputs: [
+      { name: "brandId", label: "Brand", type: "text", default: "work", placeholder: "personal | work | business (see the Brands page)" },
       { name: "days", label: "Review window (days)", type: "number", default: 30 },
     ],
     requiresApproval: false,

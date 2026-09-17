@@ -83,6 +83,29 @@ export type KnowledgePack = {
   installed: boolean;
   files: { path: string; title: string; wordCount: number }[];
 };
+// Omnisignal — acquires raw signal (web/db/file/vault) and, via ADRS, publishes
+// it as a dataset agents can RAG against. Surfaced on the Knowledge Packs page
+// alongside sector packs (same "reusable knowledge asset" concept).
+export type OmniSourceKind = "web_search" | "web_page" | "db" | "local_file" | "vault" | "email";
+export type OmniSourceKindInfo = { kind: OmniSourceKind; needs: string; description: string };
+export type OmniSource = {
+  id: string; name: string; category: string; kind: OmniSourceKind;
+  query?: string; urls?: string[]; sourceLabel?: string; path?: string; feedId?: string; limit?: number;
+  createdAt: string; lastAcquiredAt?: string;
+};
+export type OmniSpec = {
+  sourceId?: string; kind?: OmniSourceKind; category?: string;
+  query?: string; urls?: string[]; sourceLabel?: string; path?: string; feedId?: string; limit?: number;
+};
+export type OmniSourceReport = { source: string; kind: string; category: string; count: number; error?: string };
+export type AcquireResult = { records: Record<string, unknown>[]; report: OmniSourceReport[]; total: number };
+export type DatasetManifest = {
+  id: string; name: string; sector?: string; source: string; createdAt: string;
+  rawCount: number; recordCount: number; reviewQueue: number; ambiguousMatches: number;
+  avgConfidence: number; rootHash: string; fields: string[];
+  stages: { stage: string; in: number; out: number; note: string }[];
+  outputs: { csv: string; jsonl: string; rag: string; card: string };
+};
 export type QualitySummary = {
   totalFlags: number;
   upvotes: number;
@@ -634,6 +657,23 @@ export const api = {
     req<{ result: McpCallResult }>(`/api/mcp-servers/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(body) }),
   hermesBridgeStatus: () => req<HermesBridgeStatus>("/api/hermes-bridge/status"),
   registerHermesBridge: () => req<{ ok: boolean; alreadyRegistered: boolean; status: HermesBridgeStatus }>("/api/hermes-bridge/register", { method: "POST" }),
+  getExecutor: () => req<ExecutorStatus>("/api/executor"),
+  setExecutor: (body: { mode?: "clawbot" | "hermes"; hermesModel?: string | null; hermesLocal?: boolean }) =>
+    req<{ ok: true; mode: string; hermesModelOverride: string | null; hermesLocal: boolean }>("/api/executor", { method: "POST", body: JSON.stringify(body) }),
+  listBrands: () => req<{ brands: Brand[] }>("/api/brands"),
+  getBrand: (id: string) => req<{ brand: Brand }>(`/api/brands/${encodeURIComponent(id)}`),
+  updateBrand: (id: string, patch: Partial<Omit<Brand, "id" | "createdAt" | "personaIds">>) =>
+    req<{ brand: Brand }>(`/api/brands/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  addBrandChannel: (id: string, channel: BrandChannel) =>
+    req<{ brand: Brand }>(`/api/brands/${encodeURIComponent(id)}/channels`, { method: "POST", body: JSON.stringify(channel) }),
+  listBrandSignals: (params: { brandId?: string; status?: string } = {}) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    return req<{ signals: BrandSignal[] }>(`/api/brand-signals${qs ? `?${qs}` : ""}`);
+  },
+  validateBrandSignal: (id: string, decision: "validated" | "rejected") =>
+    req<{ signal: BrandSignal }>(`/api/brand-signals/${encodeURIComponent(id)}/validate`, { method: "POST", body: JSON.stringify({ decision }) }),
+  scanBrandSignals: (brandId: string) =>
+    req<{ run: BrandSignalRun }>("/api/brand-signals/scan", { method: "POST", body: JSON.stringify({ brandId }) }),
 
 
   // CRM — contacts, deals/pipeline, and per-contact activity (local store, no external CRM required).
@@ -692,6 +732,19 @@ export const api = {
   listKnowledgePacks: () => req<{ packs: KnowledgePack[] }>("/api/knowledge-packs"),
   installKnowledgePack: (sectorId: string) =>
     req<{ ok: boolean; files: string[] }>(`/api/knowledge-packs/${encodeURIComponent(sectorId)}/install`, { method: "POST" }),
+  // Omnisignal — source registry + acquire/publish.
+  listOmniKinds: () => req<{ kinds: OmniSourceKindInfo[] }>("/api/omnisignal/kinds"),
+  listOmniSources: () => req<{ sources: OmniSource[] }>("/api/omnisignal/sources"),
+  addOmniSource: (input: Omit<OmniSource, "id" | "createdAt" | "lastAcquiredAt">) =>
+    req<{ source: OmniSource }>("/api/omnisignal/sources", { method: "POST", body: JSON.stringify(input) }),
+  removeOmniSource: (id: string) => req<{ ok: boolean }>(`/api/omnisignal/sources/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  acquireOmni: (sources: OmniSpec[]) => req<AcquireResult>("/api/omnisignal/acquire", { method: "POST", body: JSON.stringify({ sources }) }),
+  publishOmniDataset: (body: { name: string; sources: OmniSpec[]; sector?: string; keyField?: string; confidenceThreshold?: number }) =>
+    req<{ acquisition: AcquireResult; published?: { manifest: DatasetManifest }; note?: string }>("/api/omnisignal/publish", { method: "POST", body: JSON.stringify(body) }),
+  // Published datasets (ADRS pipeline output — from Omnisignal or a direct publish).
+  listDatasets: () => req<{ datasets: DatasetManifest[] }>("/api/datasets"),
+  getDataset: (id: string) => req<{ dataset: DatasetManifest }>(`/api/datasets/${encodeURIComponent(id)}`),
+  datasetOutputUrl: (id: string, kind: "csv" | "jsonl" | "rag" | "card") => `/api/datasets/${encodeURIComponent(id)}/output/${kind}`,
   // Quality dashboard.
   submitQualityFlag: (body: { jobId: string; rating: "up" | "down"; note?: string; category?: string; persona?: string; template?: string; score?: number }) =>
     req<{ ok: true; flag: QualityFlag }>("/api/quality/flag", { method: "POST", body: JSON.stringify(body) }),
@@ -887,6 +940,44 @@ export type ConnectorCallResult = {
   contentType?: string; body: any; truncated?: boolean; error?: string;
 };
 
+export type BrandChannel = { provider: string; connectionLabel: string; platforms?: string[] };
+export type Brand = {
+  id: string;
+  name: string;
+  tagline: string;
+  voice: string;
+  audience: string;
+  values: string;
+  guidelinesVaultPath?: string;
+  personaIds: string[];
+  channels: BrandChannel[];
+  calendarCadence?: string;
+  color: string;
+  icon: string;
+  createdAt: string;
+  watchTerms?: string[];
+};
+
+export type BrandSignal = {
+  id: string;
+  dedupeKey: string;
+  brandId: string;
+  kind: "mention" | "opportunity";
+  text: string;
+  sourceUrl?: string;
+  sourceType: "web_search" | "web_page" | "vault" | "email" | "telegram";
+  provenance: number;
+  seenCount: number;
+  status: "draft" | "validated" | "rejected";
+  refusedReason?: string;
+  createdAt: string;
+  validatedAt?: string;
+};
+export type BrandSignalRun = {
+  id: string; brandId: string; startedAt: string; finishedAt?: string;
+  candidateCount: number; signalCount: number; refusedCount: number; error?: string;
+};
+
 export type McpServer = {
   id: string;
   label: string;
@@ -919,6 +1010,15 @@ export type McpServerInput = {
 };
 export type McpTool = { name: string; description?: string; inputSchema?: any };
 export type McpCallResult = { ok: boolean; content?: any; truncated?: boolean; error?: string };
+
+export type ExecutorStatus = {
+  mode: "clawbot" | "hermes";
+  hermesModelOverride: string | null;
+  hermesLocal: boolean;
+  fallbackToClawbot: boolean;
+  qualityGate: boolean;
+  hermes: { available: boolean; binPath?: string; model: string; provider: string; localModel: string };
+};
 
 export type HermesBridgeStatus = {
   hermesInstalled: boolean;

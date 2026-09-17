@@ -1,15 +1,13 @@
 import { useState, useEffect } from "react";
-import { ArrowLeftRight, CheckCircle2, XCircle, Loader2, RefreshCw, Plug, ListTree } from "lucide-react";
-import { api, type HermesBridgeStatus } from "../lib/api";
+import { ArrowLeftRight, CheckCircle2, XCircle, Loader2, RefreshCw, Plug, ListTree, TerminalSquare } from "lucide-react";
+import { api, type HermesBridgeStatus, type ExecutorStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 
-// Read-only(ish) visibility for the clawbot-mcp.mjs bridge that lets the
-// Hermes agent call clawbot's own primitives (vault, connectors, calendar,
-// memory, …) over MCP. The registration itself always lives in HERMES's own
-// config.yaml — MCP servers are configured client-side, and Hermes is the
-// client in this direction — so this page can't "be" the registration the
-// way /mcp-servers is for servers NeuroWorks itself connects to. It renders
-// that external state and offers a one-click write into Hermes's config.
+// Everything about the Hermes integration lives on this one page: launching
+// the external CLI, which agent (clawbot vs Hermes) actually runs tasks, and
+// the MCP bridge that lets Hermes call clawbot's own tools. Previously spread
+// across SpinUpAgent (the launcher) and nowhere at all (the executor toggle
+// had an API but no UI) — consolidated here so there's one place to look.
 
 function Row({ ok, label, detail }: { ok: boolean | null; label: string; detail?: string | null }) {
   return (
@@ -29,7 +27,105 @@ function Row({ ok, label, detail }: { ok: boolean | null; label: string; detail?
   );
 }
 
-export function HermesBridge() {
+function LaunchCard() {
+  const [launching, setLaunching] = useState(false);
+  async function launch() {
+    setLaunching(true);
+    try {
+      const r = await api.launchHermesAgent();
+      showToast(r.result, /turned off/i.test(r.result) ? "error" : "success");
+    } catch (e: any) {
+      showToast(`Couldn't launch Hermes: ${e.message}`, "error");
+    } finally {
+      setLaunching(false);
+    }
+  }
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 rounded-lg bg-violet-500/10 p-2 text-violet-400"><TerminalSquare size={20} /></div>
+          <div>
+            <div className="font-semibold text-cream-50">Hermes Agent</div>
+            <div className="text-sm text-cream-300/70">External, self-hosted (local, 127.0.0.1) — opens in its own terminal window, not a NeuroWorks persona.</div>
+          </div>
+        </div>
+        <Button onClick={launch} disabled={launching}>
+          {launching ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Opening…</span> : "Open Hermes"}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+function ExecutorCard() {
+  const [status, setStatus] = useState<ExecutorStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [modelDraft, setModelDraft] = useState("");
+
+  async function refresh() {
+    try {
+      const s = await api.getExecutor();
+      setStatus(s);
+      setModelDraft(s.hermesModelOverride ?? "");
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void refresh(); }, []);
+
+  async function patch(body: Parameters<typeof api.setExecutor>[0]) {
+    setBusy(true);
+    try {
+      await api.setExecutor(body);
+      await refresh();
+      showToast("Executor updated", "success");
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setBusy(false); }
+  }
+
+  if (loading || !status) {
+    return <Card><div className="flex items-center gap-2 text-sm text-cream-300/60"><Loader2 size={16} className="animate-spin" /> Loading executor…</div></Card>;
+  }
+
+  return (
+    <Card title="Primary executor">
+      <p className="text-[12px] text-cream-300/60 mb-3">
+        Which agent actually runs tasks. Clawbot is the built-in plan → execute → synth pipeline; Hermes runs
+        the task itself and offloads back to clawbot for anything it can't do.
+      </p>
+      <div className="flex gap-2 mb-3">
+        <Button variant={status.mode === "clawbot" ? "primary" : "subtle"} disabled={busy} onClick={() => patch({ mode: "clawbot" })}>Clawbot</Button>
+        <Button variant={status.mode === "hermes" ? "primary" : "subtle"} disabled={busy || !status.hermes.available} onClick={() => patch({ mode: "hermes" })}>Hermes</Button>
+      </div>
+
+      <div className="divide-y divide-ink-800/60">
+        <Row ok={status.hermes.available} label="Hermes installed" detail={status.hermes.binPath} />
+      </div>
+
+      {status.mode === "hermes" && (
+        <div className="mt-3 space-y-3 border-t border-ink-800 pt-3">
+          <label className="flex items-center gap-2 text-sm text-cream-200">
+            <input type="checkbox" checked={status.hermesLocal} disabled={busy}
+              onChange={e => patch({ hermesLocal: e.target.checked })} />
+            Run against local Ollama ({status.hermes.localModel}) instead of {status.hermes.provider} — free, offline
+          </label>
+          <div>
+            <label className="block text-[11px] text-cream-300/70 mb-1">Model override (blank = default: {status.hermes.model})</label>
+            <div className="flex gap-2">
+              <input value={modelDraft} onChange={e => setModelDraft(e.target.value)}
+                placeholder={status.hermes.model}
+                className="flex-1 bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/60 font-mono" />
+              <Button variant="subtle" disabled={busy} onClick={() => patch({ hermesModel: modelDraft.trim() || null })}>Save</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function BridgeCard() {
   const [status, setStatus] = useState<HermesBridgeStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
@@ -56,16 +152,8 @@ export function HermesBridge() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><ArrowLeftRight size={24} /> Hermes Bridge</h1>
-          <p className="text-sm text-cream-300/70 mt-1 max-w-3xl">
-            Lets the Hermes agent call clawbot's own tools — vault, connectors, calendar, memory, email — over MCP,
-            via <span className="font-mono text-[12px]">server/mcp/clawbot-mcp.mjs</span>. The registration lives in
-            Hermes's own config (MCP servers are always configured client-side), so this page just shows you that
-            state and can write it for you.
-          </p>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-cream-100 tracking-tight">MCP bridge — clawbot's tools, exposed to Hermes</h2>
         <Button variant="subtle" onClick={() => { setLoading(true); void refresh(); }}>
           {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Refresh
         </Button>
@@ -129,6 +217,24 @@ export function HermesBridge() {
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+export function Hermes() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><ArrowLeftRight size={24} /> Hermes</h1>
+        <p className="text-sm text-cream-300/70 mt-1 max-w-3xl">
+          Nous Research's Hermes CLI — a separate, self-hosted agent NeuroWorks can launch, hand tasks to, and hand
+          its own tools to. Everything about that integration lives here.
+        </p>
+      </div>
+
+      <LaunchCard />
+      <ExecutorCard />
+      <BridgeCard />
     </div>
   );
 }

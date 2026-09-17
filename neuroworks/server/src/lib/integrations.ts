@@ -336,6 +336,19 @@ export function getConnectionByProvider(providerId: string): { id: string; confi
   return full ? { id: c.id, config: full.config, secrets: full.secrets } : null;
 }
 
+// Same as getConnectionByProvider, but filtered by connection label when one
+// is given (brand-scoped channels — e.g. 3 separate Buffer connections, one
+// per brand, disambiguated by their user-facing label). Falls back to "first
+// match" when label is omitted or doesn't match anything, so every existing
+// caller (single-brand, pre-Brands) is unaffected.
+export function getConnectionByLabel(providerId: string, label?: string): { id: string; config: Record<string, string>; secrets: Record<string, string> } | null {
+  const all = load().filter(x => x.providerId === providerId);
+  const c = label ? (all.find(x => x.label === label) ?? all[0]) : all[0];
+  if (!c) return null;
+  const full = getConnectionSecrets(c.id);
+  return full ? { id: c.id, config: full.config, secrets: full.secrets } : null;
+}
+
 // ─── Test a connection (non-destructive auth check where possible) ───
 // Public entry: runs the test, then PERSISTS the verdict on the connection so
 // the UI shows a durable "connected & working" (or failing) signal.

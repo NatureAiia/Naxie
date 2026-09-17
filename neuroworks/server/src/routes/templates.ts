@@ -20,6 +20,7 @@ import { loadPersonas, getActivePersona, personaSystemSuffix } from "../lib/pers
 import { classifyCustomTemplate, type TemplateRole } from "../lib/template-classifier.js";
 import { findPrimitive } from "../lib/primitives.js";
 import { createBoardRun, executeBoardRun, failBoardRun, MIN_MEMBERS } from "../lib/board.js";
+import { getBrand, type Brand } from "../lib/brands.js";
 
 export const templatesRouter = Router();
 
@@ -450,6 +451,7 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
     case "daily-briefing": return dailyBriefingRunner(inputs, push, progress);
     case "innovation-scan": return innovationScanRunner(inputs, push, progress);
     case "buffer-story-post": return bufferStoryPostRunner(inputs, push, progress);
+    case "africa-ai-news":   return africaAiNewsRunner(inputs, push);
     case "social-optimize": return socialOptimizeRunner(inputs, push, progress);
     case "general-task":   return generalTaskRunner(inputs, push, progress);
     case "board-meeting":  return boardMeetingRunner(inputs, push, progress, meta);
@@ -853,12 +855,11 @@ async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: s
 //     that the drafter reads next run. That note is the "learning" that closes the
 //     loop.
 const SOCIAL_DIR = "_neuroworks/social";
-const SOCIAL_STRATEGY_REL = `${SOCIAL_DIR}/strategy.md`;
 
-// AIIA brand values — every post + video must reflect these. Stated by the org:
-// African unity, Ubuntu, inclusion, and "AI for a better Africa". Kept inline so
-// the voice is consistent even before a formal brand-guidelines doc exists; any
-// brand doc found in the vault (gatherBrandContext) augments this.
+// AIIA brand values — the ORIGINAL hardcoded brand, kept verbatim as the
+// fallback buildBrandValues() uses when no brandId resolves (so any caller
+// that hasn't been migrated to pass a brandId keeps working unchanged). The
+// "work" brand (lib/brands.ts) seeds from this exact text on first boot.
 const AIIA_VALUES =
   `AI Institute Africa (AIIA) brand values — reflect ALL of these in tone and framing:\n` +
   `• African unity & pride — celebrate African innovation and shared progress.\n` +
@@ -867,19 +868,38 @@ const AIIA_VALUES =
   `• AI for a better Africa — practical, ethical technology that uplifts Zimbabwean & African communities.\n` +
   `Voice: warm, hopeful, grounded, credible. Never hype-y, never a colonial/"saviour" framing, no empty buzzwords.`;
 
-// Pull the AIIA brand guidelines from company knowledge so posts + videos match
-// the real brand. The guidelines live as a PDF in `_company/`; we read the
-// text-extracted companion (created 2026-07-28) directly — vault.search doesn't
-// index PDF binaries, so a direct read is the reliable path. Falls back to a
-// vault.search sweep if the known files aren't present.
-async function gatherBrandContext(push: (m: string) => void): Promise<string> {
-  // 1) Known extracted company docs, read directly (most reliable).
-  const known = ["_company/aiia_brand_guidlines.extracted.md", "_company/aiia_brand_guidelines.extracted.md"];
+// Generalized brand-values block — formats a Brand record's own voice/
+// audience/values into the same shape AIIA_VALUES used, so drafting prompts
+// don't need a special case per brand. Falls back to the literal AIIA text
+// when no brand resolved (back-compat for callers that omit brandId).
+function buildBrandValues(brand?: Brand): string {
+  if (!brand) return AIIA_VALUES;
+  const lines = [`${brand.name} brand values — reflect these in tone and framing:`];
+  if (brand.values.trim()) lines.push(brand.values.trim());
+  if (brand.audience.trim()) lines.push(`Audience: ${brand.audience.trim()}`);
+  if (brand.voice.trim()) lines.push(`Voice: ${brand.voice.trim()}`);
+  if (lines.length === 1) lines.push("(no voice/audience/values set yet for this brand — ask the operator before assuming one, or check the Brands page.)");
+  return lines.join("\n");
+}
+
+// Pull a brand's guidelines from company knowledge so posts + videos match the
+// real brand. Originally AIIA-only (a PDF's text-extracted companion in
+// `_company/`); now parameterized per-brand via Brand.guidelinesVaultPath.
+// Falls back to a vault.search sweep if no known path is set/found.
+async function gatherBrandContext(push: (m: string) => void, brandId?: string): Promise<string> {
+  const brand = brandId ? getBrand(brandId) : undefined;
+
+  // 1) The brand's own guidelines doc, read directly (most reliable). AIIA's
+  // two historical filename spellings stay as the fallback list when no
+  // brand-specific path is set, for any caller mid-migration.
+  const known = brand?.guidelinesVaultPath
+    ? [brand.guidelinesVaultPath]
+    : ["_company/aiia_brand_guidlines.extracted.md", "_company/aiia_brand_guidelines.extracted.md"];
   for (const rel of known) {
     const txt = readVaultText(rel);
     if (txt && txt.trim().length > 100) {
-      push("Grounded on the AIIA brand guidelines from company knowledge.");
-      return `\n\nAIIA BRAND GUIDELINES (from company knowledge — honour these exactly):\n${txt.replace(/^---[\s\S]*?---\n/, "").trim().slice(0, 2600)}`;
+      push(`Grounded on the ${brand?.name ?? "AIIA"} brand guidelines from company knowledge.`);
+      return `\n\n${(brand?.name ?? "AIIA").toUpperCase()} BRAND GUIDELINES (from company knowledge — honour these exactly):\n${txt.replace(/^---[\s\S]*?---\n/, "").trim().slice(0, 2600)}`;
     }
   }
   // 2) Fallback: search the vault for a brand/company doc.
@@ -887,7 +907,10 @@ async function gatherBrandContext(push: (m: string) => void): Promise<string> {
     const prim = findPrimitive("vault.search");
     if (!prim) return "";
     const seen = new Set<string>(); const snippets: string[] = [];
-    for (const q of ["AIIA brand guidelines voice values", "AI Institute Africa brand tone", "company profile mission"]) {
+    const queries = brand
+      ? [`${brand.name} brand guidelines voice values`, `${brand.name} brand tone`, `${brand.name} profile audience`]
+      : ["AIIA brand guidelines voice values", "AI Institute Africa brand tone", "company profile mission"];
+    for (const q of queries) {
       const r: any = await prim.handler({ query: q });
       for (const m of (r?.results ?? r?.matches ?? [])) {
         const path = m.path ?? m.file ?? ""; if (!path || seen.has(path)) continue; seen.add(path);
@@ -897,7 +920,7 @@ async function gatherBrandContext(push: (m: string) => void): Promise<string> {
       }
       if (snippets.length >= 3) break;
     }
-    if (snippets.length) { push(`Grounded on ${snippets.length} brand/company note(s) from the vault.`); return `\n\nAIIA BRAND / COMPANY NOTES from the knowledge base (honour these):\n${snippets.join("\n")}`; }
+    if (snippets.length) { push(`Grounded on ${snippets.length} brand/company note(s) from the vault.`); return `\n\n${(brand?.name ?? "AIIA").toUpperCase()} BRAND / COMPANY NOTES from the knowledge base (honour these):\n${snippets.join("\n")}`; }
   } catch { /* non-fatal */ }
   return "";
 }
@@ -1092,6 +1115,42 @@ async function gatherFallbackStories(push: (m: string) => void): Promise<StorySo
   return out;
 }
 
+// Daily digest of Africa/AI news, posted straight into a Telegram group —
+// reuses gatherFallbackStories' web sweep (same real-URL story pool the
+// social-post drafter falls back to) rather than duplicating the search.
+async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
+  const chatId = String(inputs.chatId ?? "").trim();
+  if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
+
+  push("Sweeping for today's Africa/AI news.");
+  const stories = await gatherFallbackStories(push);
+  if (!stories.length) {
+    const skip = "No fresh Africa/AI news found today — skipping the post.";
+    push(skip);
+    return { kind: "africa-ai-news", posted: false, note: skip };
+  }
+
+  const material = stories.slice(0, 10)
+    .map((s, i) => `[${i + 1}] ${s.title}${s.url ? ` (${s.url})` : ""}\n${s.text ?? ""}`)
+    .join("\n\n");
+  const digest = (await llmGenerate(
+    `From the Africa/AI news candidates below, pick the 4-6 most newsworthy and write a short daily digest for a Telegram group. For each: one punchy line on the substance (what happened, who, why it matters), then its real URL on the next line — never invent or alter a URL, only use ones given. Open with a one-line "📰 Africa AI Daily" header (with today's date). Plain text only (no markdown headings/bold), keep it skimmable.\n\nCANDIDATES:\n\n${material.slice(0, 6000)}`,
+    "You write a factual, skimmable daily AI-in-Africa news digest for a Telegram channel. No hype, no invented facts or links.",
+    { maxTokens: 700 },
+  )).trim();
+
+  if (!digest) {
+    push("Digest came back empty — skipping the post.");
+    return { kind: "africa-ai-news", posted: false, note: "empty digest" };
+  }
+
+  const tg = findPrimitive("telegram.send");
+  if (!tg) throw new Error("telegram.send primitive unavailable");
+  const sent = await tg.handler({ text: digest, chatId });
+  push(sent?.ok ? `Posted the digest to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
+  return { kind: "africa-ai-news", posted: !!sent?.ok, chatId, answer: digest, error: sent?.ok ? undefined : sent?.error };
+}
+
 async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: string) => void, _progress?: (p: Record<string, unknown>) => void) {
   const sender = String(inputs.sender ?? "").trim();
   const days = Number(inputs.days ?? 3);
@@ -1101,6 +1160,15 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
   const reviewEmail = String(inputs.reviewEmail ?? "").trim();
   const slot = String(inputs.slot ?? "").trim(); // "morning" | "midday" | "evening" — for 3×/day variety
   const stamp = new Date().toISOString().slice(0, 16).replace(":", "");
+
+  // Brand scoping — default "work" (AIIA) since that's the brand with existing
+  // schedules/history. brandDir is the isolation boundary: drafts, dedupe
+  // history, and the strategy note all live under a brand-specific subfolder
+  // of SOCIAL_DIR so one brand's content/history can never leak into another's.
+  const brandId = String(inputs.brandId ?? "work").trim() || "work";
+  const brandRecord = getBrand(brandId);
+  const brandDir = `${SOCIAL_DIR}/${brandId}`;
+  const connectionLabel = brandRecord?.channels[0]?.connectionLabel;
 
   push(`Scanning email from ${sender} (last ${days}d) for stories to post${slot ? ` (${slot} slot)` : ""}.`);
   const emails = await gatherSenderEmails(sender, days, push);
@@ -1113,19 +1181,22 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
   // ignoreRecent bypasses this (manual "post anyway" / testing).
   let recentBlock = "";
   if (inputs.ignoreRecent !== true) try {
-    const recent = gatherRecentNotesUnder([`${SOCIAL_DIR}/drafts`], Date.now() - 3 * 86400_000, 12);
+    const recent = gatherRecentNotesUnder([`${brandDir}/drafts`], Date.now() - 3 * 86400_000, 12);
     const priorPosts = recent
       .map(n => { const m = n.text.match(/##\s*Post\s*\n+([\s\S]*?)\n+##/i); return (m?.[1] ?? "").trim().replace(/\s+/g, " ").slice(0, 160); })
       .filter(Boolean);
     if (priorPosts.length) recentBlock = `\n\nALREADY POSTED in the last 3 days — do NOT repeat any of these stories; choose a DIFFERENT one:\n` + priorPosts.map((p, i) => `${i + 1}. ${p}`).join("\n");
   } catch { /* non-fatal */ }
 
-  const strategy = readVaultText(SOCIAL_STRATEGY_REL);
-  const brand = await gatherBrandContext(push);
+  const strategy = readVaultText(`${brandDir}/strategy.md`);
+  const brandContext = await gatherBrandContext(push, brandId);
   const targetsLabel = channels || "all connected channels (twitter, linkedin, tiktok)";
+  const editorIntro = brandRecord && brandId !== "work"
+    ? `You are the social-media editor for ${brandRecord.name}${brandRecord.tagline ? ` (${brandRecord.tagline})` : ""}.`
+    : "You are the social-media editor for Aiia — Artificial Intelligence Institute Africa, an NGO whose vision is \"AI for a better Africa\".";
   const system =
-    "You are the social-media editor for Aiia — Artificial Intelligence Institute Africa, an NGO whose vision is \"AI for a better Africa\". You turn source material into ONE accurate, platform-native social post PLUS a short avatar-video script. You summarise the actual substance of a story (what happened, who, why it matters for Africa) — never clickbait, never hype, never invented facts. Warm, credible, grounded; inclusive; British/African English.\n\n" +
-    AIIA_VALUES + brand;
+    `${editorIntro} You turn source material into ONE accurate, platform-native social post PLUS a short avatar-video script. You summarise the actual substance of a story (what happened, who, why it matters) — never clickbait, never hype, never invented facts. Warm, credible, grounded; British English.\n\n` +
+    buildBrandValues(brandRecord) + brandContext;
 
   // Draft source priority: (1) a fresh email story; (2) any unused email story;
   // (3) innovation-scan leads + a live web sweep — so there is ALWAYS a story.
@@ -1165,6 +1236,7 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
   if (bufferPrim) buffer = await bufferPrim.handler({
     text: postText,
     ...(channels ? { channels } : {}), // blank = ALL connected channels (same post everywhere)
+    ...(connectionLabel ? { connectionLabel } : {}), // brand-scoped Buffer connection, when the brand has one bound
     draft: !autoQueue,
   });
   const posted = (buffer?.posted ?? []) as any[];
@@ -1184,7 +1256,8 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
   if (reviewTelegram) {
     try {
       const tg = findPrimitive("telegram.send");
-      if (tg) { review.telegram = await tg.handler({ text: reviewText }); push(review.telegram?.ok ? "Sent the post to the Telegram group for review." : `Telegram review skipped: ${review.telegram?.error ?? "unknown"}`); }
+      const reviewChatId = (process.env.NEUROWORKS_TELEGRAM_GROUP_CHAT ?? "").trim() || undefined;
+      if (tg) { review.telegram = await tg.handler({ text: reviewText, ...(reviewChatId ? { chatId: reviewChatId } : {}) }); push(review.telegram?.ok ? "Sent the post to the Telegram group for review." : `Telegram review skipped: ${review.telegram?.error ?? "unknown"}`); }
     } catch (e: any) { review.telegram = { error: String(e?.message ?? e).slice(0, 120) }; push(`Telegram review failed: ${review.telegram.error}`); }
   }
   if (reviewEmail) {
@@ -1202,7 +1275,7 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
   const journal =
     `---\ntype: social-draft\ngenerated: ${new Date().toISOString()}\nsource: ${sourceUsed}\ndisposition: ${buffer?.scheduled ?? "unknown"}\nchannels: ${(posted.map(p => p.service).join(", ")) || targetsLabel}\nbufferPostIds: ${posted.map(p => p.postId).filter(Boolean).join(", ")}\n---\n\n` +
     `# Social draft — ${stamp}\n\n## Post\n\n${postText}\n\n## Story chosen\n\n${story || "(not stated)"}\n\n## Buffer result\n\n\`\`\`json\n${JSON.stringify(buffer, null, 2)}\n\`\`\`\n\n## Review\n\ntelegram: ${review.telegram?.ok ? "sent" : (review.telegram?.error ?? "skipped")} · email: ${review.email?.ok ? `sent → ${reviewEmail}` : (review.email?.error ?? "skipped")}\n`;
-  try { writeVaultFile(`${SOCIAL_DIR}/drafts/${stamp}.md`, journal); } catch (e: any) { push(`Draft journal write skipped: ${String(e?.message ?? e).slice(0, 80)}`); }
+  try { writeVaultFile(`${brandDir}/drafts/${stamp}.md`, journal); } catch (e: any) { push(`Draft journal write skipped: ${String(e?.message ?? e).slice(0, 80)}`); }
 
   const okCount = posted.length;
   const disposition = autoQueue ? "added to the Buffer queue" : "saved as a Buffer draft (review & schedule it in Buffer)";
@@ -1217,27 +1290,32 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
 
 async function socialOptimizeRunner(inputs: Record<string, unknown>, push: (m: string) => void, _progress?: (p: Record<string, unknown>) => void) {
   const days = Number(inputs.days ?? 30);
-  push(`Reviewing social performance over the last ${days} days.`);
+  const brandId = String(inputs.brandId ?? "work").trim() || "work";
+  const brandRecord = getBrand(brandId);
+  const brandDir = `${SOCIAL_DIR}/${brandId}`;
+  const strategyPath = `${brandDir}/strategy.md`;
+  const connectionLabel = brandRecord?.channels[0]?.connectionLabel;
+  push(`Reviewing ${brandRecord?.name ?? brandId} social performance over the last ${days} days.`);
 
   // Real post record (Buffer posts:read).
   let posts: any[] = []; let byStatus: Record<string, number> = {};
   try {
     const prim = findPrimitive("buffer.history");
-    if (prim) { const r: any = await prim.handler({ limit: 100 }); posts = r?.posts ?? []; byStatus = r?.byStatus ?? {}; }
+    if (prim) { const r: any = await prim.handler({ limit: 100, ...(connectionLabel ? { connectionLabel } : {}) }); posts = r?.posts ?? []; byStatus = r?.byStatus ?? {}; }
   } catch (e: any) { push(`Buffer history read failed: ${String(e?.message ?? e).slice(0, 100)}`); }
 
   // Engagement (Buffer insights:read — may be scope-gated).
   let analytics: any = null;
   try {
     const prim = findPrimitive("buffer.analytics");
-    if (prim) analytics = await prim.handler({ days });
+    if (prim) analytics = await prim.handler({ days, ...(connectionLabel ? { connectionLabel } : {}) });
   } catch (e: any) { push(`Buffer analytics read failed: ${String(e?.message ?? e).slice(0, 100)}`); }
   const engagementAvailable = analytics && analytics.ok === true;
   if (!engagementAvailable && analytics?.needsScope) {
     push(`Engagement metrics need the '${analytics.needsScope}' Buffer scope — optimising on the post record + cadence instead.`);
   }
 
-  const strategy = readVaultText(SOCIAL_STRATEGY_REL) ?? "(no strategy note yet — this run creates the first one.)";
+  const strategy = readVaultText(strategyPath) ?? "(no strategy note yet — this run creates the first one.)";
   const sentOrScheduled = posts.filter(p => p.status === "sent" || p.status === "scheduled");
   const channelMix = sentOrScheduled.reduce((acc: Record<string, number>, p) => { acc[p.service] = (acc[p.service] ?? 0) + 1; return acc; }, {});
   const recentTexts = sentOrScheduled.slice(0, 20).map((p: any) => `- [${p.status}·${p.service}] ${(p.text ?? "").slice(0, 140)}`).join("\n");
@@ -1253,7 +1331,7 @@ async function socialOptimizeRunner(inputs: Record<string, unknown>, push: (m: s
     `CURRENT STRATEGY NOTE:\n${strategy.slice(0, 3000)}`;
 
   const system =
-    "You are a social-media strategist for AI Institute Africa. You turn a post record (and engagement when available) into a concrete, actionable posting strategy that another agent will follow verbatim when drafting posts. Be specific and directive, not generic. No fluff.";
+    `You are a social-media strategist for ${brandRecord?.name ?? "AI Institute Africa"}. You turn a post record (and engagement when available) into a concrete, actionable posting strategy that another agent will follow verbatim when drafting posts. Be specific and directive, not generic. No fluff.`;
   const prompt =
     `Using the evidence below, REWRITE our posting strategy note. Output a clean markdown document with these sections:\n` +
     `## Summary — 2-3 sentences: the single biggest adjustment to make now.\n` +
@@ -1273,8 +1351,8 @@ async function socialOptimizeRunner(inputs: Record<string, unknown>, push: (m: s
 
   const doc = `---\ntype: social-strategy\nupdated: ${new Date().toISOString()}\nwindowDays: ${days}\npostsReviewed: ${posts.length}\nengagementAvailable: ${engagementAvailable}\n---\n\n# Social posting strategy\n\n${strategyDoc}\n`;
   try {
-    writeVaultFile(SOCIAL_STRATEGY_REL, doc);
-    push(`Updated the posting strategy note (${SOCIAL_STRATEGY_REL}).`);
+    writeVaultFile(strategyPath, doc);
+    push(`Updated the posting strategy note (${strategyPath}).`);
     try { await commitAndPush("clawbot: update social posting strategy"); } catch { /* non-fatal */ }
   } catch (e: any) { push(`Strategy write failed: ${String(e?.message ?? e).slice(0, 120)}`); }
 
