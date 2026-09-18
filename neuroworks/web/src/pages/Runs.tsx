@@ -222,7 +222,7 @@ export function Runs() {
       {waiting.length > 0 && <WaitingOnYouPanel waiting={waiting} onResumed={(newJobId) => { loadWaiting(); load(); openInBoard(newJobId); }} />}
 
       {/* Live activity strip — only when something's actively running. The
-          row shows the customer's view of WHAT is happening, in plain English. */}
+          row shows the operator's view of WHAT is happening, in plain English. */}
       {runningJobs.length > 0 && <LiveActivityStrip jobs={runningJobs} eta={eta} now={now} onOpenActivity={setActivityJobId} onOpenJob={openInBoard} onCancel={async (id) => { try { await api.cancelJob(id); } catch {} await load(); }} />}
 
       {/* Full-screen step-by-step activity view for one running task, driven by
@@ -485,7 +485,7 @@ function computeEta(job: any, eta: EtaStats | null, now: number, stepPct: number
 }
 
 // Plain-English phase label. Translates the agent's internal phase/state
-// into something a customer would say if they were doing the work themselves.
+// into something the operator would say if they were doing the work themselves.
 function friendlyPhase(job: any): string {
   if (job.status === "succeeded") return "Done";
   if (job.status === "failed") {
@@ -550,8 +550,8 @@ function friendlyTitle(job: any): string {
   return t || friendlyKind(job);
 }
 
-// Customer-friendly relative time. "2 minutes ago" reads better than a full
-// ISO timestamp on a card the customer just opened.
+// Operator-friendly relative time. "2 minutes ago" reads better than a full
+// ISO timestamp on a card the operator just opened.
 function friendlyTimeAgo(d: Date): string {
   const ms = Date.now() - d.getTime();
   const s = Math.floor(ms / 1000);
@@ -566,7 +566,7 @@ function friendlyTimeAgo(d: Date): string {
 }
 
 // Compact horizontal strip at the top of the page showing every running
-// task with its live phase + step count. Lets a customer glance at the page
+// task with its live phase + step count. Lets the operator glance at the page
 // and immediately know "the workforce is doing X right now". Each card
 // opens the Board view focused on that job.
 function LiveActivityStrip({ jobs, eta, now, onOpenActivity, onOpenJob, onCancel }: { jobs: any[]; eta: EtaStats | null; now: number; onOpenActivity: (jobId: string) => void; onOpenJob: (jobId: string) => void; onCancel: (jobId: string) => void }) {
@@ -829,7 +829,7 @@ export function RunDetail() {
           <Sources runs={r.runs ?? []} />
           <QASummary review={r.review} quality={r.quality} security={r.security} curation={r.curation} />
           {/* Technical detail — hidden behind a single expand so the
-              customer-facing view is the answer + outcomes + sources, not
+              operator-facing view is the answer + outcomes + sources, not
               a wall of timing bars and tool names. Power users still get
               everything one click away. */}
           <HowThisWasDone job={job} />
@@ -1419,9 +1419,9 @@ function extractOutcomes(runs: any[], curation?: any): Outcome[] {
 function Meta({ job, personaName, durationSec, startedAt }: { job: any; personaName: string; durationSec: number | null; startedAt: Date | null }) {
   const r = job.result ?? {};
   const peerName = r.peer?.name;
-  // Customer-friendly one-liner: "By Maya · Took 2 minutes · 3 hours ago".
+  // Operator-friendly one-liner: "By Maya · Took 2 minutes · 3 hours ago".
   // Beats a 4-column grid of "Persona / Run on peer / Started / Duration"
-  // with mono timestamps — that's an engineer's view, not a customer's.
+  // with mono timestamps — that's an engineer's view, not the operator's.
   const bits: string[] = [];
   bits.push(`By **${personaName}**`);
   if (peerName && peerName !== personaName) bits.push(`on **${peerName}**`);
@@ -1475,7 +1475,7 @@ function EmptyAnswer({ job }: { job: any }) {
 }
 
 // Collapsible "How this was done" section. Wraps the technical sub-agent
-// timings + the full process trace. Closed by default — customers come for
+// timings + the full process trace. Closed by default — the operator comes for
 // the answer, not the plumbing. Power users get one click to expand.
 function HowThisWasDone({ job }: { job: any }) {
   const [open, setOpen] = useState(false);
