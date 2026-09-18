@@ -2,6 +2,7 @@ import { Router } from "express";
 import { listBrands, getBrand, createBrand, updateBrand, deleteBrand, addBrandChannel } from "../lib/brands.js";
 import { requireLayer, callerOf } from "../lib/access.js";
 import { logAudit } from "../lib/audit-log.js";
+import { listConnections } from "../lib/integrations.js";
 
 // Brand registry API — CRUD for the operator's marketing identities (personal
 // / work / business by default, seeded in lib/brands.ts's seedDefaultBrands).
@@ -56,6 +57,18 @@ brandsRouter.post("/:id/channels", requireLayer("admin"), (req, res) => {
   const provider = String(b.provider ?? "").trim();
   const connectionLabel = String(b.connectionLabel ?? "").trim();
   if (!provider || !connectionLabel) return res.status(400).json({ error: "provider and connectionLabel are required" });
+  // Catch a typo'd/stale label HERE, at bind time — not later, silently, at
+  // posting time (getConnectionByLabel now errors rather than falling back to
+  // a different connection, but confirming the label exists up front is a
+  // clearer failure mode before real accounts are wired up).
+  const matches = listConnections().some(c => c.providerId === provider && c.label === connectionLabel);
+  if (!matches) {
+    const sameProvider = listConnections().filter(c => c.providerId === provider).map(c => c.label);
+    return res.status(400).json({
+      error: `no "${provider}" connection labelled "${connectionLabel}" on the Integrations page.` +
+        (sameProvider.length ? ` Existing ${provider} connections: ${sameProvider.join(", ")}.` : ` No ${provider} connections exist yet — add one first.`),
+    });
+  }
   const platforms = Array.isArray(b.platforms) ? b.platforms.map(String) : undefined;
   const brand = addBrandChannel(req.params.id, { provider, connectionLabel, platforms });
   if (!brand) return res.status(404).json({ error: "brand not found" });

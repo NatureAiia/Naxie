@@ -144,7 +144,11 @@ function EditBrandModal({ brand, onClose, onSaved }: { brand: Brand; onClose: ()
 }
 
 function ChannelsModal({ brand, onClose, onSaved }: { brand: Brand; onClose: () => void; onSaved: () => void }) {
-  const [provider, setProvider] = useState<"buffer" | "social">("buffer");
+  // "buffer" only for now — social.ts (Ayrshare) reads a single global
+  // AYRSHARE_API_KEY env var and has no per-connection lookup at all, so
+  // there's genuinely nothing to bind per-brand there yet. Don't offer a
+  // choice that silently does nothing.
+  const [provider] = useState<"buffer">("buffer");
   const [connectionLabel, setConnectionLabel] = useState("");
   const [platforms, setPlatforms] = useState("");
   const [saving, setSaving] = useState(false);
@@ -190,10 +194,10 @@ function ChannelsModal({ brand, onClose, onSaved }: { brand: Brand; onClose: () 
           </div>
           <div>
             <label className="block text-[11px] text-cream-300/70 mb-1">Provider</label>
-            <select value={provider} onChange={e => setProvider(e.target.value as "buffer" | "social")} className={FIELD}>
-              <option value="buffer">Buffer</option>
-              <option value="social">Social (Ayrshare)</option>
-            </select>
+            <input value="Buffer" disabled className={`${FIELD} opacity-60 cursor-not-allowed`} />
+            <div className="text-[10px] text-cream-300/40 mt-1">
+              Ayrshare/Social isn't multi-account yet — it's one shared key for the whole server (AYRSHARE_API_KEY), not per-connection like Buffer.
+            </div>
           </div>
           <div>
             <label className="block text-[11px] text-cream-300/70 mb-1">Connection label</label>
