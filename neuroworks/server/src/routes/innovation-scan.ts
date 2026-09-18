@@ -2,7 +2,7 @@ import { Router } from "express";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../config.js";
-import { runInnovationScan, lastInnovationScan } from "../lib/innovation-scan.js";
+import { runInnovationScan, lastInnovationScan, innovationScanStatus } from "../lib/innovation-scan.js";
 import { requireLayer } from "../lib/access.js";
 
 export const innovationScanRouter = Router();
@@ -12,10 +12,11 @@ const SCAN_DIR_REL = "_neuroworks/innovation-scans";
 // List past scans found in the vault. Mirrors routes/reflection.ts's list
 // endpoint: date + path + a short preview pulled from the body, plus the
 // frontmatter as lightweight stats for the list UI.
-innovationScanRouter.get("/", (_req, res) => {
+innovationScanRouter.get("/", async (_req, res) => {
   try {
+    const { nextFireAt } = await innovationScanStatus();
     const root = resolve(config.vaultPath, SCAN_DIR_REL);
-    if (!existsSync(root)) return res.json({ scans: [] });
+    if (!existsSync(root)) return res.json({ scans: [], nextFireAt });
     const files = readdirSync(root).filter(f => f.endsWith(".md")).sort().reverse();
     const scans = files.slice(0, 30).map(f => {
       const date = f.replace(/\.md$/, "");
@@ -38,7 +39,7 @@ innovationScanRouter.get("/", (_req, res) => {
       } catch { /* tolerate */ }
       return { date, path: `${SCAN_DIR_REL}/${f}`, preview, stats };
     });
-    res.json({ scans, last: lastInnovationScan() });
+    res.json({ scans, last: lastInnovationScan(), nextFireAt });
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? String(e) });
   }

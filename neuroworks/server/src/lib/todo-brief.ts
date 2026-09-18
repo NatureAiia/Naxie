@@ -49,6 +49,15 @@ export function lastTodoBrief(): TodoBriefResult | null {
   return lastResult;
 }
 
+// Bundles the last result with a computed next-fire time (same env var/default
+// as the scheduler below) so the Daily Rhythm view can show this daemon
+// alongside user Schedules without duplicating the scheduler itself.
+export async function todoBriefStatus(): Promise<{ last: TodoBriefResult | null; nextFireAt: number | null }> {
+  const { nextFireAt } = await import("./schedules.js");
+  const TODO_HOUR = Number(process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6");
+  return { last: lastTodoBrief(), nextFireAt: nextFireAt({ daysOfWeek: [], hour: TODO_HOUR, minute: 0 }) };
+}
+
 // ─── AI Priority Scoring ───
 // Rank = proximity + importance + overdue triage. Higher = do first.
 // Overdue > Today/MyDay > This-week > Backlog > Distant future. Important = +15, overdue extra +5 if >3 days late.

@@ -220,6 +220,8 @@ function ChannelsModal({ brand, onClose, onSaved }: { brand: Brand; onClose: () 
 // way to act on drafts without leaving the Brands page.
 function SignalsModal({ brand, onClose, onBrandSaved }: { brand: Brand; onClose: () => void; onBrandSaved: () => void }) {
   const [watchTermsText, setWatchTermsText] = useState((brand.watchTerms ?? []).join(", "));
+  const [riskTermsText, setRiskTermsText] = useState((brand.riskTerms ?? []).join(", "));
+  const [ownDomainsText, setOwnDomainsText] = useState((brand.ownDomains ?? []).join(", "));
   const [savingTerms, setSavingTerms] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [signals, setSignals] = useState<BrandSignal[]>([]);
@@ -238,8 +240,10 @@ function SignalsModal({ brand, onClose, onBrandSaved }: { brand: Brand; onClose:
     setSavingTerms(true);
     try {
       const watchTerms = watchTermsText.split(",").map(t => t.trim()).filter(Boolean);
-      await api.updateBrand(brand.id, { watchTerms });
-      showToast("Watch list updated", "success");
+      const riskTerms = riskTermsText.split(",").map(t => t.trim()).filter(Boolean);
+      const ownDomains = ownDomainsText.split(",").map(t => t.trim()).filter(Boolean);
+      await api.updateBrand(brand.id, { watchTerms, riskTerms, ownDomains });
+      showToast("Monitoring settings updated", "success");
       onBrandSaved();
     } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
     finally { setSavingTerms(false); }
@@ -272,16 +276,27 @@ function SignalsModal({ brand, onClose, onBrandSaved }: { brand: Brand; onClose:
         </div>
 
         <div className="space-y-2">
-          <label className="block text-[11px] text-cream-300/70">Watch list (comma-separated terms this brand monitors for)</label>
-          <div className="flex gap-2">
+          <div>
+            <label className="block text-[11px] text-cream-300/70 mb-1">Watch list (comma-separated terms this brand monitors for)</label>
             <input value={watchTermsText} onChange={e => setWatchTermsText(e.target.value)} placeholder="e.g. Variety Vault, @varietyvault" className={FIELD} />
-            <Button variant="subtle" onClick={saveTerms} disabled={savingTerms}>{savingTerms ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}</Button>
           </div>
-          <Button onClick={scan} disabled={scanning || !watchTermsText.trim()}>
-            {scanning ? <Loader2 size={14} className="animate-spin" /> : <Radar size={14} />} Scan now
-          </Button>
+          <div>
+            <label className="block text-[11px] text-cream-300/70 mb-1">Own domains/handles (optional — scores a hit as "primary" provenance)</label>
+            <input value={ownDomainsText} onChange={e => setOwnDomainsText(e.target.value)} placeholder="e.g. varietyvault.com" className={FIELD} />
+          </div>
+          <div>
+            <label className="block text-[11px] text-cream-300/70 mb-1">Reputation-risk terms (optional — overrides the shared default list for the "critical" alert)</label>
+            <input value={riskTermsText} onChange={e => setRiskTermsText(e.target.value)} placeholder="e.g. recall, lawsuit — leave blank to use the shared default list" className={FIELD} />
+          </div>
+          <div className="flex gap-2">
+            <Button variant="subtle" className="flex-1" onClick={saveTerms} disabled={savingTerms}>{savingTerms ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save</Button>
+            <Button className="flex-1" onClick={scan} disabled={scanning || !watchTermsText.trim()}>
+              {scanning ? <Loader2 size={14} className="animate-spin" /> : <Radar size={14} />} Scan now
+            </Button>
+          </div>
           <div className="text-[10px] text-cream-300/40">
             Alerts (critical reputation-risk hits, and the first-ever signal of a new kind) go to Telegram/email — this list is drafts still awaiting your decision.
+            Pair with a recurring Schedule (template: "Scan for brand signals") to run this automatically.
           </div>
         </div>
 

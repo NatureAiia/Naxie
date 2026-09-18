@@ -57,6 +57,16 @@ let inFlight: Promise<WeeklyRollupResult>|null=null;
 
 export function lastWeeklyRollup(): WeeklyRollupResult|null { return lastResult; }
 
+// Bundles the last result with a computed next-fire time (same env vars/defaults
+// as the scheduler below) so the Daily Rhythm view can show this daemon
+// alongside user Schedules without duplicating the scheduler itself.
+export async function weeklyRollupStatus(): Promise<{ last: WeeklyRollupResult | null; nextFireAt: number | null }> {
+  const { nextFireAt } = await import("./schedules.js");
+  const HOUR = Number(process.env.NEUROWORKS_WEEKLY_ROLLUP_HOUR ?? "9");
+  const DOW = Number(process.env.NEUROWORKS_WEEKLY_ROLLUP_DOW ?? "0");
+  return { last: lastWeeklyRollup(), nextFireAt: nextFireAt({ daysOfWeek: [DOW], hour: HOUR, minute: 0 }) };
+}
+
 export async function runWeeklyRollup(): Promise<WeeklyRollupResult> {
   if (inFlight) return inFlight;
   inFlight = (async () => {

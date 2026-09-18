@@ -186,6 +186,19 @@ export const templates: Template[] = [
     estimateSeconds: 90,
   },
   {
+    id: "brand-signal-scan",
+    role: "Operations",
+    title: "Scan for brand signals",
+    description: "Searches the web for a brand's own-mention watch terms, gates candidates (on watch list, real source, has a finding), and files anything that passes as a draft signal for human review — plus Telegram/email alerts on anything critical or a first-of-its-kind. Pair with a daily/weekly Schedule per brand. Set the brand's watch list first on the Brands page.",
+    icon: "broadcast",
+    agent: "clawbot",
+    inputs: [
+      { name: "brandId", label: "Brand", type: "text", required: true, default: "work", placeholder: "personal | work | business (see the Brands page)" },
+    ],
+    requiresApproval: false,
+    estimateSeconds: 60,
+  },
+  {
     id: "sync-downloads",
     role: "Knowledge",
     title: "Sync downloads to vault",

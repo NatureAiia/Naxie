@@ -87,6 +87,8 @@ export function Schedules() {
         />
       )}
 
+      <DailyRhythmCard schedules={schedules} />
+
       <Card title={`Active schedules (${schedules.length})`}>
         {schedules.length === 0 ? (
           <p className="text-sm text-cream-300/60">
@@ -157,6 +159,112 @@ export function Schedules() {
         )}
       </Card>
     </div>
+  );
+}
+
+// ── Daily Rhythm ──────────────────────────────────────────────────────────
+// Naxie's actual daily cadence splits into two invisible systems: 4 hardwired
+// background daemons (todo-brief/innovation-scan/weekly-rollup/reflection —
+// setInterval ticks with no other HTTP surface) and user Schedules below.
+// This unifies both into one list + a 24h tick strip so "what ran today"
+// doesn't require checking four different places.
+type RhythmRow = {
+  id: string;
+  name: string;
+  kind: "system" | "custom";
+  nextFireAt: number | null;
+  lastLabel: string;
+  error?: string;
+};
+
+function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
+  const [rows, setRows] = useState<RhythmRow[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const [refl, scan, todo, rollup] = await Promise.all([
+        api.listReflections().catch(() => null),
+        api.listInnovationScans().catch(() => null),
+        api.getTodoBriefStatus().catch(() => null),
+        api.getWeeklyRollupStatus().catch(() => null),
+      ]);
+      if (cancelled) return;
+      const daemons: RhythmRow[] = [
+        { id: "reflection", name: "Reflection journal", kind: "system", nextFireAt: refl?.nextFireAt ?? null, lastLabel: refl?.last?.date ? `Last ${refl.last.date}` : "Never run yet" },
+        { id: "innovation-scan", name: "Innovation scan", kind: "system", nextFireAt: scan?.nextFireAt ?? null, lastLabel: scan?.last?.date ? `Last ${scan.last.date}` : "Never run yet" },
+        { id: "todo-brief", name: "Todo brief", kind: "system", nextFireAt: todo?.nextFireAt ?? null, lastLabel: todo?.last?.date ? `Last ${todo.last.date}` : "Never run yet" },
+        { id: "weekly-rollup", name: "Weekly rollup", kind: "system", nextFireAt: rollup?.nextFireAt ?? null, lastLabel: rollup?.last?.date ? `Last ${rollup.last.date}` : "Never run yet" },
+      ];
+      setRows(daemons);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const customRows: RhythmRow[] = schedules.filter(s => s.enabled).map(s => ({
+    id: s.id,
+    name: s.name,
+    kind: "custom",
+    nextFireAt: s.nextFireAt ?? null,
+    lastLabel: s.lastFiredAt ? `Last ${new Date(s.lastFiredAt).toLocaleDateString()}` : "Never fired yet",
+    error: s.lastError,
+  }));
+
+  const all = [...(rows ?? []), ...customRows];
+  const tickHours = new Map<number, RhythmRow[]>();
+  for (const r of all) {
+    if (!r.nextFireAt) continue;
+    const h = new Date(r.nextFireAt).getHours();
+    if (!tickHours.has(h)) tickHours.set(h, []);
+    tickHours.get(h)!.push(r);
+  }
+
+  return (
+    <Card title="Daily Rhythm">
+      <p className="text-xs text-cream-300/60 -mt-2 mb-3">
+        Everything that runs on a cadence, in one place — the 4 always-on background daemons plus your custom schedules below.
+      </p>
+
+      <div className="flex items-end gap-px mb-4" role="img" aria-label="24-hour cadence strip">
+        {Array.from({ length: 24 }, (_, h) => {
+          const hits = tickHours.get(h) ?? [];
+          const hasError = hits.some(r => r.error);
+          return (
+            <div key={h} className="flex-1 flex flex-col items-center gap-1" title={hits.length ? `${h}:00 — ${hits.map(r => r.name).join(", ")}` : `${h}:00`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${hasError ? "bg-coral-400" : hits.length ? "bg-violet-400" : "bg-ink-800"}`} />
+              {h % 6 === 0 && <span className="text-[9px] text-cream-300/40">{h}</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      {rows === null ? (
+        <p className="text-xs text-cream-300/60">Loading daily rhythm…</p>
+      ) : (
+        <div className="divide-y divide-ink-800">
+          {all.map(r => (
+            <div key={r.id} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-cream-100 truncate">{r.name}</span>
+                  <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 ${r.kind === "system" ? "bg-ink-850 border border-ink-700 text-cream-300/60" : "bg-violet-500/15 text-violet-300"}`}>
+                    {r.kind === "system" ? "System" : "Custom"}
+                  </span>
+                </div>
+                <div className="text-[11px] text-cream-300/60 mt-0.5">{r.lastLabel}</div>
+                {r.error && (
+                  <div className="text-[10px] text-coral-400 mt-0.5 flex items-start gap-1">
+                    <AlertTriangle size={10} className="mt-0.5" /> {r.error}
+                  </div>
+                )}
+              </div>
+              <div className="text-[11px] text-cream-300/70 shrink-0">Next: {formatNext(r.nextFireAt)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 

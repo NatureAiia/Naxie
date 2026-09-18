@@ -2,7 +2,7 @@ import { Router } from "express";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../config.js";
-import { runReflection, lastReflection } from "../lib/reflection.js";
+import { runReflection, lastReflection, reflectionStatus } from "../lib/reflection.js";
 import { listBottlenecks } from "../lib/reflection-bottlenecks.js";
 import { learnedQualitySignals } from "../lib/quality.js";
 import { requireLayer } from "../lib/access.js";
@@ -14,10 +14,11 @@ const REFLECTION_DIR_REL = "_neuroworks/reflections";
 // List past reflections found in the vault. Each entry has the date + path,
 // and we pull the first 240 chars of the body as a preview so the UI can
 // render a card list without fetching each file.
-reflectionRouter.get("/", (_req, res) => {
+reflectionRouter.get("/", async (_req, res) => {
   try {
+    const { nextFireAt } = await reflectionStatus();
     const root = resolve(config.vaultPath, REFLECTION_DIR_REL);
-    if (!existsSync(root)) return res.json({ reflections: [] });
+    if (!existsSync(root)) return res.json({ reflections: [], nextFireAt });
     const files = readdirSync(root).filter(f => f.endsWith(".md")).sort().reverse();
     const reflections = files.slice(0, 30).map(f => {
       const date = f.replace(/\.md$/, "");
@@ -42,7 +43,7 @@ reflectionRouter.get("/", (_req, res) => {
       } catch { /* tolerate */ }
       return { date, path: `${REFLECTION_DIR_REL}/${f}`, preview, stats };
     });
-    res.json({ reflections, last: lastReflection() });
+    res.json({ reflections, last: lastReflection(), nextFireAt });
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? String(e) });
   }

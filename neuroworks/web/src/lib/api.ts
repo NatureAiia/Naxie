@@ -282,12 +282,15 @@ export const api = {
   }>("/api/status/llm"),
   vaultRetryPush: () => req<{ pushed: boolean; error?: string; aheadBy?: number }>("/api/status/vault/retry-push", { method: "POST" }),
   vaultClearLock: (force = false) => req<{ cleared: boolean; reason?: string; ageMs?: number; forced?: boolean }>(`/api/status/vault/clear-lock${force ? "?force=1" : ""}`, { method: "POST" }),
-  listReflections: () => req<{ reflections: { date: string; path: string; preview: string; stats?: any }[]; last?: any }>("/api/reflection"),
+  listReflections: () => req<{ reflections: { date: string; path: string; preview: string; stats?: any }[]; last?: any; nextFireAt?: number | null }>("/api/reflection"),
   runReflection: (windowHours = 24) => req<{ date: string; path: string; stats: any; reflection: string; generatedAt: string; modelUsed?: string }>("/api/reflection/run", { method: "POST", body: JSON.stringify({ windowHours }) }),
   getReflection: (date: string) => req<{ date: string; path: string; body: string }>(`/api/reflection/${encodeURIComponent(date)}`),
-  listInnovationScans: () => req<{ scans: { date: string; path: string; preview: string; stats?: any }[]; last?: any }>("/api/innovation-scan"),
+  listInnovationScans: () => req<{ scans: { date: string; path: string; preview: string; stats?: any }[]; last?: any; nextFireAt?: number | null }>("/api/innovation-scan"),
   runInnovationScan: (force = false) => req<{ date: string; path: string; targeted: any; broad: any; digest: string; generatedAt: string; modelUsed?: string }>("/api/innovation-scan/run", { method: "POST", body: JSON.stringify({ force }) }),
   getInnovationScan: (date: string) => req<{ date: string; path: string; body: string }>(`/api/innovation-scan/${encodeURIComponent(date)}`),
+  // Daily Rhythm — the two daemons with no other HTTP surface of their own.
+  getTodoBriefStatus: () => req<{ last: any; nextFireAt: number | null }>("/api/todo-brief"),
+  getWeeklyRollupStatus: () => req<{ last: any; nextFireAt: number | null }>("/api/weekly-rollup"),
   listSystemAudits: () => req<{ audits: { date: string; path: string; preview: string; stats?: any }[]; last?: any; inventory: any }>("/api/system-audit"),
   runSystemAudit: () => req<{ date: string; path: string; stats: any; report: string; generatedAt: string; modelUsed?: string }>("/api/system-audit/run", { method: "POST", body: JSON.stringify({}) }),
   getSystemAudit: (date: string) => req<{ date: string; path: string; body: string }>(`/api/system-audit/${encodeURIComponent(date)}`),
@@ -956,6 +959,8 @@ export type Brand = {
   icon: string;
   createdAt: string;
   watchTerms?: string[];
+  riskTerms?: string[];
+  ownDomains?: string[];
 };
 
 export type BrandSignal = {

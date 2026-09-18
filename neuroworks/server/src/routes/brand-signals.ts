@@ -40,9 +40,13 @@ brandSignalsRouter.post("/:id/validate", requireLayer("admin"), (req, res) => {
   if (decision !== "validated" && decision !== "rejected") {
     return res.status(400).json({ error: 'decision must be "validated" or "rejected"' });
   }
-  const s = validateSignal(req.params.id, decision);
-  if (!s) return res.status(404).json({ error: "signal not found" });
-  res.json({ signal: s });
+  try {
+    const s = validateSignal(req.params.id, decision);
+    if (!s) return res.status(404).json({ error: "signal not found" });
+    res.json({ signal: s });
+  } catch (e: any) {
+    res.status(409).json({ error: String(e?.message ?? e) });
+  }
 });
 
 // POST /api/brand-signals/scan — body: { brandId }. Manual trigger; pair with

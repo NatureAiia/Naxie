@@ -20,7 +20,8 @@ import { loadPersonas, getActivePersona, personaSystemSuffix } from "../lib/pers
 import { classifyCustomTemplate, type TemplateRole } from "../lib/template-classifier.js";
 import { findPrimitive } from "../lib/primitives.js";
 import { createBoardRun, executeBoardRun, failBoardRun, MIN_MEMBERS } from "../lib/board.js";
-import { getBrand, type Brand } from "../lib/brands.js";
+import { getBrand, channelFor, slug as slugBrandId, type Brand } from "../lib/brands.js";
+import { runBrandSignalScan } from "../lib/brand-signals.js";
 
 export const templatesRouter = Router();
 
@@ -453,6 +454,7 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
     case "buffer-story-post": return bufferStoryPostRunner(inputs, push, progress);
     case "africa-ai-news":   return africaAiNewsRunner(inputs, push);
     case "social-optimize": return socialOptimizeRunner(inputs, push, progress);
+    case "brand-signal-scan": return brandSignalScanRunner(inputs, push);
     case "general-task":   return generalTaskRunner(inputs, push, progress);
     case "board-meeting":  return boardMeetingRunner(inputs, push, progress, meta);
     default: throw new Error(`no runner for ${templateId}`);
@@ -1004,7 +1006,13 @@ type StorySource = { title: string; url?: string; text: string; links?: string[]
 async function draftSocialPost(system: string, o: {
   strategy: string | null; targetsLabel: string; slot: string;
   sources: StorySource[]; recentBlock: string; allowNoFresh: boolean;
+  // Brand-parameterized — defaults preserve AIIA's exact original wording so
+  // any caller that hasn't migrated to pass these still behaves identically.
+  brandName?: string; brandMission?: string; whyHeader?: string;
 }): Promise<{ postText: string; videoScript: string; story: string; nofresh: boolean; error?: string }> {
+  const brandName = o.brandName ?? "Aiia";
+  const brandMission = o.brandMission ?? `${brandName}'s mission of "AI for a better Africa"`;
+  const whyHeader = o.whyHeader ?? "Why it impacts Africa";
   if (!o.sources.length) return { postText: "", videoScript: "", story: "", nofresh: true };
   // Build a flat, numbered pool of the real links available across all sources,
   // so the model can reference a link by index and we resolve the real URL.
@@ -1019,16 +1027,16 @@ async function draftSocialPost(system: string, o: {
     `STEP 1 — pick the SINGLE most newsworthy, shareable STORY that appears in the sources (a newsletter/briefing source may contain several stories — pick the best ONE inside it).\n` +
     `STEP 2 — summarise THAT story in about 10 lines using ONLY facts from the source text.\n\n` +
     `HARD RULES:\n` +
-    `- Summarise ONLY the chosen story. Do NOT write about Aiia's own events, summits, or programmes from background knowledge — Aiia appears ONLY in the "why it impacts Africa" section as commentary.\n` +
+    `- Summarise ONLY the chosen story. Do NOT write about ${brandName}'s own events, summits, or programmes from background knowledge — ${brandName} appears ONLY in the "${whyHeader}" section as commentary.\n` +
     `- Never invent facts, names, statistics, or URLs. The link MUST be one of the numbered links (Ln) listed under the source; give its number, not a URL you typed.\n\n` +
     `Output EXACTLY these lines, in order, as PLAIN TEXT (no markdown, no angle brackets, do not echo these instructions or label words):\n` +
     `PICK: <source number>\n` +
     `LINKREF: <the Ln number of the story's link, or "none" if the source has no link>\n` +
     `CAPTION: <one engaging line, max ~120 chars, hooking the story itself — no "Incredible!/must-read" hype>\n` +
-    `SUMMARY: <about 10 lines summarising the chosen story's substance — what happened, who, the details, the implication. Aiia's brand VOICE, but factual and about the STORY, not about Aiia.>\n` +
-    `WHY_AFRICA: <2-4 sentences: why this story matters for Africa and how it connects to Aiia's mission of "AI for a better Africa" — THIS is the only place Aiia is mentioned.>\n` +
-    `HASHTAGS: <3-5 Aiia hashtags on one line, space-separated, e.g. "#AIforAfrica #Aiia #AI #Africa">\n` +
-    `VIDEO_SCRIPT: <20-35s of spoken narration that NARRATES THE SAME SUMMARY, first person "At Aiia…", in Aiia's voice (inclusion, ethics, innovation, AI for a better Africa). No URLs, no hashtags, no stage directions.>\n\n` +
+    `SUMMARY: <about 10 lines summarising the chosen story's substance — what happened, who, the details, the implication. ${brandName}'s brand VOICE, but factual and about the STORY, not about ${brandName}.>\n` +
+    `WHY_IT_MATTERS: <2-4 sentences: why this story matters and how it connects to ${brandMission} — THIS is the only place ${brandName} is mentioned.>\n` +
+    `HASHTAGS: <3-5 ${brandName} hashtags on one line, space-separated>\n` +
+    `VIDEO_SCRIPT: <20-35s of spoken narration that NARRATES THE SAME SUMMARY, first person "At ${brandName}…", in ${brandName}'s voice. No URLs, no hashtags, no stage directions.>\n\n` +
     (o.allowNoFresh
       ? `Prefer a story NOT in the ALREADY POSTED list. If all are already posted, still PICK the best unused one. Reply exactly "NOFRESH" ONLY if the sources contain no usable story at all.\n\n`
       : `You MUST pick a story — do NOT reply "NOFRESH".\n\n`) +
@@ -1040,7 +1048,7 @@ async function draftSocialPost(system: string, o: {
   catch (e: any) { return { postText: "", videoScript: "", story: "", nofresh: false, error: String(e?.message ?? e).slice(0, 160) }; }
   if (/^\s*NOFRESH\b/i.test(raw)) return { postText: "", videoScript: "", story: "", nofresh: true };
 
-  const LABELS = "PICK|LINKREF|CAPTION|SUMMARY|WHY[_ ]?AFRICA|HASHTAGS?|VIDEO[_ ]?SCRIPT|STORY|LINK";
+  const LABELS = "PICK|LINKREF|CAPTION|SUMMARY|WHY[_ ]?(?:IT[_ ]?MATTERS|AFRICA)|HASHTAGS?|VIDEO[_ ]?SCRIPT|STORY|LINK";
   const grab = (label: string) => {
     // Tolerate the model writing "WHY AFRICA"/"VIDEO SCRIPT" (space) where we
     // asked for underscores — otherwise that section silently drops out.
@@ -1057,21 +1065,23 @@ async function draftSocialPost(system: string, o: {
   // use the actual URL. Fall back to the chosen source's own url. Never a typed URL.
   const linkRef = parseInt((grab("LINKREF").match(/\d+/) ?? [""])[0], 10);
   const chosenLink = (Number.isInteger(linkRef) && linkPool[linkRef - 1]) ? linkPool[linkRef - 1] : (chosen.url ?? "");
-  const demeta = (s: string) => s.replace(/^\s*(aiia'?s?\s+)?(angle|caption|summary|hook|story)\s*(on|:|-)?\s*/i, "").trim();
+  const demeta = (s: string) => s.replace(new RegExp(`^\\s*(${brandName}'?s?\\s+)?(angle|caption|summary|hook|story)\\s*(on|:|-)?\\s*`, "i"), "").trim();
   const caption = demeta(grab("CAPTION").split("\n")[0]).replace(/^["']|["']$/g, "").trim();
   const summary = grab("SUMMARY").replace(/\n{3,}/g, "\n\n").trim();
-  const whyAfrica = grab("WHY_AFRICA").replace(/\n{2,}/g, " ").trim();
+  // WHY_IT_MATTERS is the current label; WHY_AFRICA tolerated for a model that
+  // drifts back to the older wording (both are matched by LABELS above).
+  const whyItMatters = (grab("WHY_IT_MATTERS") || grab("WHY_AFRICA")).replace(/\n{2,}/g, " ").trim();
   let hashtags = grab("HASHTAGS").split("\n")[0].replace(/[,;]/g, " ").replace(/\s+/g, " ").trim();
   if (hashtags && !/#/.test(hashtags)) hashtags = hashtags.split(/\s+/).filter(Boolean).map(h => `#${h.replace(/^#/, "")}`).join(" ");
   const videoScript = grab("VIDEO_SCRIPT").replace(/https?:\/\/\S+/g, "").replace(/#[\w-]+/g, "").trim();
   if (!caption && !summary) return { postText: "", videoScript: "", story: "", nofresh: false, error: "unparseable draft" };
-  // Assemble: caption -> ~10-line summary -> real link -> "Why it impacts Africa"
-  // (the Aiia section) -> hashtags. The video narrates the same summary.
+  // Assemble: caption -> ~10-line summary -> real link -> the brand-mission
+  // section (whyHeader) -> hashtags. The video narrates the same summary.
   const postText = [
     caption,
     summary,
     chosenLink || "",
-    whyAfrica ? `Why it impacts Africa\n${whyAfrica}` : "",
+    whyItMatters ? `${whyHeader}\n${whyItMatters}` : "",
     hashtags,
   ].filter(Boolean).join("\n\n").trim();
   const story = `${chosen.title}${chosenLink ? ` — ${chosenLink}` : ""}`.replace(/\s+/g, " ").slice(0, 220);
@@ -1167,8 +1177,11 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
   // of SOCIAL_DIR so one brand's content/history can never leak into another's.
   const brandId = String(inputs.brandId ?? "work").trim() || "work";
   const brandRecord = getBrand(brandId);
-  const brandDir = `${SOCIAL_DIR}/${brandId}`;
-  const connectionLabel = brandRecord?.channels[0]?.connectionLabel;
+  // Sanitized for the path, not the lookup above — brandId can be free-typed
+  // (a Schedule's stored inputs), so it must never be trusted as a raw path
+  // segment (no "../" traversal out of _neuroworks/social/).
+  const brandDir = `${SOCIAL_DIR}/${slugBrandId(brandId)}`;
+  const connectionLabel = channelFor(brandRecord, "buffer")?.connectionLabel;
 
   push(`Scanning email from ${sender} (last ${days}d) for stories to post${slot ? ` (${slot} slot)` : ""}.`);
   const emails = await gatherSenderEmails(sender, days, push);
@@ -1191,7 +1204,17 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
   const strategy = readVaultText(`${brandDir}/strategy.md`);
   const brandContext = await gatherBrandContext(push, brandId);
   const targetsLabel = channels || "all connected channels (twitter, linkedin, tiktok)";
-  const editorIntro = brandRecord && brandId !== "work"
+  const isAiia = brandId === "work";
+  const brandName = brandRecord && !isAiia ? brandRecord.name : "Aiia";
+  // AIIA keeps its exact original framing verbatim; any other brand gets a
+  // generic mission line built from its own audience/values instead of the
+  // hardcoded "AI for a better Africa" — that framing belongs to AIIA only
+  // (see the cross-brand-isolation skill).
+  const brandMission = isAiia
+    ? `Aiia's mission of "AI for a better Africa"`
+    : `${brandName}'s mission${brandRecord?.audience ? ` of serving ${brandRecord.audience}` : ""}`;
+  const whyHeader = isAiia ? "Why it impacts Africa" : "Why it matters";
+  const editorIntro = brandRecord && !isAiia
     ? `You are the social-media editor for ${brandRecord.name}${brandRecord.tagline ? ` (${brandRecord.tagline})` : ""}.`
     : "You are the social-media editor for Aiia — Artificial Intelligence Institute Africa, an NGO whose vision is \"AI for a better Africa\".";
   const system =
@@ -1209,7 +1232,7 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
       links: e.links ?? [],
     }));
     push("Drafting the post + video script from email.");
-    d = await draftSocialPost(system, { strategy, targetsLabel, slot, sources: emailSources, recentBlock, allowNoFresh: true });
+    d = await draftSocialPost(system, { strategy, targetsLabel, slot, sources: emailSources, recentBlock, allowNoFresh: true, brandName, brandMission, whyHeader });
   }
   if (!d || d.nofresh || !d.postText) {
     push("No fresh email story — pulling web search + innovation-scan leads as fallback.");
@@ -1217,7 +1240,7 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
     if (fb.length) {
       sourceUsed = "web + innovation leads";
       push("Drafting the post + video script from fallback stories.");
-      d = await draftSocialPost(system, { strategy, targetsLabel, slot, sources: fb, recentBlock, allowNoFresh: false });
+      d = await draftSocialPost(system, { strategy, targetsLabel, slot, sources: fb, recentBlock, allowNoFresh: false, brandName, brandMission, whyHeader });
     }
   }
   if (!d || !d.postText) {
@@ -1292,9 +1315,9 @@ async function socialOptimizeRunner(inputs: Record<string, unknown>, push: (m: s
   const days = Number(inputs.days ?? 30);
   const brandId = String(inputs.brandId ?? "work").trim() || "work";
   const brandRecord = getBrand(brandId);
-  const brandDir = `${SOCIAL_DIR}/${brandId}`;
+  const brandDir = `${SOCIAL_DIR}/${slugBrandId(brandId)}`;
   const strategyPath = `${brandDir}/strategy.md`;
-  const connectionLabel = brandRecord?.channels[0]?.connectionLabel;
+  const connectionLabel = channelFor(brandRecord, "buffer")?.connectionLabel;
   push(`Reviewing ${brandRecord?.name ?? brandId} social performance over the last ${days} days.`);
 
   // Real post record (Buffer posts:read).
@@ -1359,6 +1382,20 @@ async function socialOptimizeRunner(inputs: Record<string, unknown>, push: (m: s
   const answer =
     `Reviewed ${posts.length} Buffer post${posts.length === 1 ? "" : "s"} (${JSON.stringify(byStatus)}) and ${engagementAvailable ? "their engagement metrics" : "their record (engagement not yet available — Buffer insights:read scope needed)"}, then updated the posting strategy the drafter follows.\n\n${strategyDoc}`;
   return { answer, updated: true, postsReviewed: posts.length, engagementAvailable };
+}
+
+// Thin wrapper so brand-signal scanning (lib/brand-signals.ts) is reachable
+// through the normal template/schedule pipeline — schedule.create can point a
+// recurring cadence at this the same way it already does for buffer-story-post.
+async function brandSignalScanRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
+  const brandId = String(inputs.brandId ?? "").trim();
+  if (!brandId) return { answer: "brandId is required", ok: false };
+  push(`Scanning brand signals for "${brandId}"…`);
+  const run = await runBrandSignalScan(brandId);
+  if (run.error) { push(`Scan refused: ${run.error}`); return { answer: run.error, ok: false, run }; }
+  const answer = `Scanned ${run.candidateCount} candidate${run.candidateCount === 1 ? "" : "s"} for "${brandId}" — ${run.signalCount} new draft signal${run.signalCount === 1 ? "" : "s"} filed, ${run.refusedCount} refused. Review with GET /api/brand-signals?brandId=${brandId}&status=draft or the Signals panel on the Brands page.`;
+  push(answer);
+  return { answer, ok: true, run };
 }
 
 // Daily briefing — a thin wrapper over the general-task agent with a fixed,

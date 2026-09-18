@@ -36,6 +36,8 @@ import { ensureAgentsMdExists } from "./lib/agents-routing.js";
 import { abortInflightJobs } from "./lib/jobs.js";
 import { reflectionRouter } from "./routes/reflection.js";
 import { innovationScanRouter } from "./routes/innovation-scan.js";
+import { todoBriefRouter } from "./routes/todo-brief.js";
+import { weeklyRollupRouter } from "./routes/weekly-rollup.js";
 import { systemAuditRouter } from "./routes/system-audit.js";
 import { wikiCompileRouter } from "./routes/wiki-compile.js";
 import { skillsRouter } from "./routes/skills.js";
@@ -230,6 +232,8 @@ app.use("/api/peers", peersRouter);
 app.use("/api/models", modelsRouter); // provider API keys
 app.use("/api/reflection", reflectionRouter);
 app.use("/api/innovation-scan", innovationScanRouter);
+app.use("/api/todo-brief", todoBriefRouter);
+app.use("/api/weekly-rollup", weeklyRollupRouter);
 app.use("/api/system-audit", systemAuditRouter);
 app.use("/api/wiki-compile", wikiCompileRouter);
 app.use("/api/skills", skillsRouter);

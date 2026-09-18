@@ -578,6 +578,15 @@ export function lastInnovationScan(): InnovationScanResult | null {
   return lastResult;
 }
 
+// Bundles the last result with a computed next-fire time (same env var/default
+// as the scheduler below) so the Daily Rhythm view can show this daemon
+// alongside user Schedules without duplicating the scheduler itself.
+export async function innovationScanStatus(): Promise<{ last: InnovationScanResult | null; nextFireAt: number | null }> {
+  const { nextFireAt } = await import("./schedules.js");
+  const SCAN_HOUR = Number(process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8");
+  return { last: lastInnovationScan(), nextFireAt: nextFireAt({ daysOfWeek: [], hour: SCAN_HOUR, minute: 0 }) };
+}
+
 // ─── Hourly scheduler — mirrors reflection.ts's exactly, offset by a few
 // hours so the two nightly jobs don't compete for the LLM backend at once. ───
 let scheduler: NodeJS.Timeout | null = null;

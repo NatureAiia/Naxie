@@ -338,12 +338,14 @@ export function getConnectionByProvider(providerId: string): { id: string; confi
 
 // Same as getConnectionByProvider, but filtered by connection label when one
 // is given (brand-scoped channels — e.g. 3 separate Buffer connections, one
-// per brand, disambiguated by their user-facing label). Falls back to "first
-// match" when label is omitted or doesn't match anything, so every existing
-// caller (single-brand, pre-Brands) is unaffected.
+// per brand, disambiguated by their user-facing label). Label OMITTED falls
+// back to "first match", so every pre-Brands caller is unaffected. Label
+// GIVEN but not found returns null rather than silently falling back to the
+// first connection — a mistyped or since-renamed/deleted label must surface
+// as a clear error, never silently post through a DIFFERENT brand's account.
 export function getConnectionByLabel(providerId: string, label?: string): { id: string; config: Record<string, string>; secrets: Record<string, string> } | null {
   const all = load().filter(x => x.providerId === providerId);
-  const c = label ? (all.find(x => x.label === label) ?? all[0]) : all[0];
+  const c = label ? all.find(x => x.label === label) : all[0];
   if (!c) return null;
   const full = getConnectionSecrets(c.id);
   return full ? { id: c.id, config: full.config, secrets: full.secrets } : null;

@@ -175,6 +175,26 @@ function noSourceError(label: string): string {
   return `Data source "${label}" not found — use db.list_sources to see available sources`;
 }
 
+// Resolves a Buffer access token, optionally scoped to a specific connection
+// label (brand channels). Distinguishes "no Buffer connection at all" from
+// "that label doesn't match any connection" — the latter must be a clear
+// error, never a silent fall-through to a DIFFERENT connection's token (that
+// would post as the wrong brand with no warning).
+async function resolveBufferToken(connectionLabel?: unknown): Promise<{ token: string; error?: string }> {
+  const { getConnectionByLabel } = await import("./integrations.js");
+  const label = connectionLabel ? String(connectionLabel) : undefined;
+  const conn = getConnectionByLabel("buffer", label);
+  if (!conn) {
+    return {
+      token: "",
+      error: label
+        ? `no Buffer connection labelled "${label}" — check the label on the Integrations page (or the brand's Channels binding) for a typo or a since-removed connection.`
+        : "no Buffer connection — add one on the Integrations page",
+    };
+  }
+  return { token: (conn.secrets?.accessToken ?? "").trim() };
+}
+
 export const primitives: Primitive[] = [
   {
     name: "vault.search",
@@ -3096,9 +3116,8 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "connectionLabel", type: "string", required: false, description: "Brand-scoped: use the Buffer connection with this label instead of the first one connected." },
     ],
     handler: async (args) => {
-      const { getConnectionByLabel } = await import("./integrations.js");
-      const token = (getConnectionByLabel("buffer", args.connectionLabel ? String(args.connectionLabel) : undefined)?.secrets?.accessToken ?? "").trim();
-      if (!token) return { error: "no Buffer connection — add one on the Integrations page" };
+      const { token, error } = await resolveBufferToken(args.connectionLabel);
+      if (!token) return { error };
       const { bufferSentPosts } = await import("./buffer.js");
       const posts = await bufferSentPosts(token, { first: Number(args.limit ?? 30) });
       const byStatus = posts.reduce((acc: Record<string, number>, p) => { acc[p.status] = (acc[p.status] ?? 0) + 1; return acc; }, {});
@@ -3115,9 +3134,8 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "connectionLabel", type: "string", required: false, description: "Brand-scoped: use the Buffer connection with this label instead of the first one connected." },
     ],
     handler: async (args) => {
-      const { getConnectionByLabel } = await import("./integrations.js");
-      const token = (getConnectionByLabel("buffer", args.connectionLabel ? String(args.connectionLabel) : undefined)?.secrets?.accessToken ?? "").trim();
-      if (!token) return { error: "no Buffer connection — add one on the Integrations page" };
+      const { token, error } = await resolveBufferToken(args.connectionLabel);
+      if (!token) return { error };
       const { bufferChannels, bufferAggregatedMetrics } = await import("./buffer.js");
       const all = await bufferChannels(token);
       if (!all.length) return { error: "no Buffer channels connected." };
@@ -3153,9 +3171,8 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "connectionLabel", type: "string", required: false, description: "Brand-scoped: use the Buffer connection with this label instead of the first one connected." },
     ],
     handler: async (args) => {
-      const { getConnectionByLabel } = await import("./integrations.js");
-      const token = (getConnectionByLabel("buffer", args.connectionLabel ? String(args.connectionLabel) : undefined)?.secrets?.accessToken ?? "").trim();
-      if (!token) return { error: "no Buffer connection — add one on the Integrations page" };
+      const { token, error } = await resolveBufferToken(args.connectionLabel);
+      if (!token) return { error };
       const text = String(args.text ?? "").trim();
       if (!text) return { error: "text is required" };
       const { bufferChannels, bufferCreatePost } = await import("./buffer.js");

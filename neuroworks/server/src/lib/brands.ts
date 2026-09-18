@@ -46,6 +46,13 @@ export type Brand = {
   // runBrandSignalScan refuses to run with an empty watch list (mirrors
   // MAIA's "refuses if the watch list is empty" design).
   watchTerms?: string[];
+  // Phase 2 — per-brand reputation-risk terms for the "critical" alert rule.
+  // Absent/empty = falls back to brand-signals.ts's shared generic list, so a
+  // brand doesn't have to configure this before monitoring is useful.
+  riskTerms?: string[];
+  // Phase 2 — this brand's own domain(s)/handle(s), used to score a hit as
+  // "primary" (0.6) provenance instead of guessing from the brand's name.
+  ownDomains?: string[];
 };
 
 function load(): Brand[] {
@@ -58,7 +65,12 @@ function save(list: Brand[]): void {
   writeFileSync(STORE, JSON.stringify(list, null, 2), { encoding: "utf8", mode: 0o600 });
 }
 
-const slug = (s: string) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+// Exported so any caller that builds a vault path from a brandId (e.g. the
+// buffer-story-post/social-optimize runners' per-brand subfolder) sanitizes
+// it the same way — a brandId is sometimes free-typed (a Schedule's stored
+// inputs, a template run) rather than looked up, so it must never be trusted
+// as a raw path segment (no "../" traversal out of _neuroworks/social/).
+export const slug = (s: string) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
 
 export function listBrands(): Brand[] {
   return load();
@@ -112,6 +124,13 @@ export function deleteBrand(id: string): boolean {
   if (next.length === list.length) return false;
   save(next);
   return true;
+}
+
+// Pick a brand's channel binding for a specific provider (e.g. "buffer") —
+// NOT just channels[0], which silently ignores every channel but the first
+// one bound (a real bug when a brand has both a Buffer and a Social channel).
+export function channelFor(brand: Brand | undefined, provider: string): BrandChannel | undefined {
+  return brand?.channels.find(c => c.provider === provider);
 }
 
 export function addBrandChannel(id: string, channel: BrandChannel): Brand | null {

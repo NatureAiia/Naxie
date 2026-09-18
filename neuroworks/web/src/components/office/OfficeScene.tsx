@@ -84,6 +84,31 @@ function layoutRooms(rooms: OfficeRoom[]): Placed[] {
   return placed;
 }
 
+// Where a ray from the origin toward (dirX,dirZ) first enters the axis-aligned
+// box [xmin,xmax]x[zmin,zmax], as a fraction of the full (0,0)→(dirX,dirZ)
+// segment. Standard 2D slab test. Falls back to 1 (don't clip) if the box
+// doesn't actually lie on the segment, so a malformed room never deletes its
+// own connector.
+function segmentBoxEntryT(dirX: number, dirZ: number, xmin: number, xmax: number, zmin: number, zmax: number): number {
+  let tMin = 0, tMax = 1;
+  if (Math.abs(dirX) < 1e-6) {
+    if (xmin > 0 || xmax < 0) return 1;
+  } else {
+    let t1 = (xmin - 0) / dirX, t2 = (xmax - 0) / dirX;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tMin = Math.max(tMin, t1); tMax = Math.min(tMax, t2);
+  }
+  if (Math.abs(dirZ) < 1e-6) {
+    if (zmin > 0 || zmax < 0) return 1;
+  } else {
+    let t1 = (zmin - 0) / dirZ, t2 = (zmax - 0) / dirZ;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tMin = Math.max(tMin, t1); tMax = Math.min(tMax, t2);
+  }
+  if (tMin > tMax) return 1;
+  return Math.max(0, Math.min(1, tMin));
+}
+
 type WanderBounds = { minX: number; maxX: number; minZ: number; maxZ: number };
 
 function pickWanderTarget(bounds: WanderBounds, deskPositions: Vector3[]): Vector3 {
@@ -446,15 +471,20 @@ export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPerso
       // disc geometry rather than a THREE.Line: WebGL caps line width at 1px
       // on effectively every browser regardless of `linewidth`, so a GL line
       // can never actually read as "bold" — small studs can.
-      const connectorLen = Math.hypot(cx, cz);
-      const studCount = Math.max(3, Math.round(connectorLen / 0.32));
+      // Clipped to stop just outside the room's own wall (segmentBoxEntryT
+      // below) instead of running all the way to the room's center, where it
+      // used to cut straight across desks and avatars.
+      const entryT = segmentBoxEntryT(cx, cz, x, x + rw, z, z + rd);
+      const clipT = Math.max(0, entryT - 0.06);
+      const connectorLen = Math.hypot(cx, cz) * clipT;
+      const studCount = Math.max(2, Math.round(connectorLen / 0.32));
       // 2x radius, fully opaque (was 0.8) — still dotted/spaced, just bold
       // and solid instead of faint.
       const studMat = new MeshBasicMaterial({ color: color.clone().offsetHSL(0, 0, 0.1) });
       const studGeo = new CylinderGeometry(0.09, 0.09, 0.05, 12);
       disposables.push(studGeo, studMat);
       for (let i = 1; i <= studCount; i++) {
-        const t = i / (studCount + 1);
+        const t = (i / (studCount + 1)) * clipT;
         const sx = cx * t, sz = cz * t;
         // Skip any dot that would land inside the boardroom's footprint —
         // near-coplanar geometry there was z-fighting with the boardroom

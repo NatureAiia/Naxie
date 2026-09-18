@@ -592,6 +592,15 @@ export function lastReflection(): ReflectionResult | null {
   return lastResult;
 }
 
+// Bundles the last result with a computed next-fire time (same env var/default
+// as the scheduler below) so the Daily Rhythm view can show this daemon
+// alongside user Schedules without duplicating the scheduler itself.
+export async function reflectionStatus(): Promise<{ last: ReflectionResult | null; nextFireAt: number | null }> {
+  const { nextFireAt } = await import("./schedules.js");
+  const REFLECTION_HOUR = Number(process.env.NEUROWORKS_REFLECTION_HOUR ?? "20");
+  return { last: lastReflection(), nextFireAt: nextFireAt({ daysOfWeek: [], hour: REFLECTION_HOUR, minute: 0 }) };
+}
+
 // Hourly tick. Fires the reflection once a day at REFLECTION_HOUR (default 2
 // AM local). We use setInterval (1h) plus a "have we run today?" guard so a
 // long-running server only runs the reflection once per day even if the

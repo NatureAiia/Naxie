@@ -111,23 +111,31 @@ export function upsertSignal(input: {
 }
 
 // A refused candidate — kept for audit (never silently discarded), but never
-// becomes a real signal a human is asked to review.
-function recordRefusal(brandId: string, text: string, sourceUrl: string | undefined, sourceType: BrandSignal["sourceType"], reason: string): void {
+// becomes a real signal a human is asked to review. Returns whether a new row
+// was actually recorded (false = already recorded on an earlier run), so the
+// caller's refusedCount reflects genuinely new refusals, not repeat sightings
+// of the same already-logged one.
+function recordRefusal(brandId: string, text: string, sourceUrl: string | undefined, sourceType: BrandSignal["sourceType"], reason: string): boolean {
   const store = load();
   const dedupeKey = makeDedupeKey(brandId, sourceUrl || text);
-  if (store.signals.some(s => s.dedupeKey === dedupeKey)) return; // already recorded once
+  if (store.signals.some(s => s.dedupeKey === dedupeKey)) return false; // already recorded once
   store.signals.push({
     id: randomUUID(), dedupeKey, brandId, kind: "mention", text: text.slice(0, 500), sourceUrl,
     sourceType, provenance: 0, seenCount: 1, status: "rejected", refusedReason: reason, createdAt: new Date().toISOString(),
   });
   save(store);
+  return true;
 }
 
 // The only way out of "draft" — a human decision. No auto-validate path.
+// Throws (rather than silently re-deciding) if the signal isn't currently
+// "draft" — a decision, once made, is final; re-calling this shouldn't be
+// able to flip a validated signal back to rejected or vice versa.
 export function validateSignal(id: string, decision: "validated" | "rejected"): BrandSignal | null {
   const store = load();
   const s = store.signals.find(x => x.id === id);
   if (!s) return null;
+  if (s.status !== "draft") throw new Error(`signal ${id} was already ${s.status} at ${s.validatedAt ?? "an earlier time"} — decisions are final`);
   s.status = decision;
   s.validatedAt = new Date().toISOString();
   save(store);
@@ -154,15 +162,15 @@ function recordRun(run: BrandSignalRun): void {
   save(store);
 }
 
-// Generic, non-per-brand reputation-risk terms for the "critical" alert rule.
-// Deliberately simple/fixed — a scored alert nobody can explain is how alert
-// fatigue starts. Override candidate for a future per-brand list; v1 ships one
-// shared list, same "dumb, explainable" posture as the rest of this pipeline.
-const RISK_TERMS = ["lawsuit", "scam", "fraud", "boycott", "recall", "data breach", "hacked", "scandal", "sued", "class action"];
+// Generic reputation-risk terms for the "critical" alert rule — the fallback
+// used when a brand hasn't set its own riskTerms. Deliberately simple/fixed —
+// a scored alert nobody can explain is how alert fatigue starts.
+const DEFAULT_RISK_TERMS = ["lawsuit", "scam", "fraud", "boycott", "recall", "data breach", "hacked", "scandal", "sued", "class action"];
 
-function isReputationRisk(text: string): boolean {
+function isReputationRisk(brand: Brand, text: string): boolean {
+  const terms = brand.riskTerms?.length ? brand.riskTerms : DEFAULT_RISK_TERMS;
   const lower = text.toLowerCase();
-  return RISK_TERMS.some(t => lower.includes(t));
+  return terms.some(t => lower.includes(t.toLowerCase()));
 }
 
 async function sendAlert(brand: Brand, text: string): Promise<void> {
@@ -201,11 +209,15 @@ function gateCandidate(brand: Brand, record: OmniRecord): { pass: true; text: st
 }
 
 // Primary/third-party provenance — "how directly sourced," never a truth
-// score. A hit on the brand's own domain/handle (best-effort: the brand's
-// slug appears in the URL host) counts as primary; everything else third-party.
+// score. A hit on the brand's own domain (Brand.ownDomains, when set) counts
+// as primary. Falls back to a cruder heuristic — the brand's slug/name
+// appears in the URL host — only when ownDomains hasn't been configured yet.
 function provenanceFor(brand: Brand, url: string): number {
   try {
-    const host = new URL(url).hostname.toLowerCase();
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    if (brand.ownDomains?.length) {
+      return brand.ownDomains.some(d => host === d.toLowerCase().replace(/^www\./, "") || host.endsWith(`.${d.toLowerCase().replace(/^www\./, "")}`)) ? 0.6 : 0.4;
+    }
     const brandTokens = [brand.id, ...brand.name.toLowerCase().split(/\s+/)].filter(t => t.length > 2);
     return brandTokens.some(t => host.includes(t)) ? 0.6 : 0.4;
   } catch { return 0.4; }
@@ -238,7 +250,7 @@ export async function runBrandSignalScan(brandId: string): Promise<BrandSignalRu
   for (const record of acquisition.records) {
     const gate = gateCandidate(brand, record);
     if (!gate.pass) {
-      if (gate.onWatchList) { recordRefusal(brand.id, gate.text, gate.url, "web_search", gate.reason); refusedCount++; }
+      if (gate.onWatchList && recordRefusal(brand.id, gate.text, gate.url, "web_search", gate.reason)) refusedCount++;
       continue;
     }
     const kind: BrandSignal["kind"] = "mention";
@@ -248,7 +260,7 @@ export async function runBrandSignalScan(brandId: string): Promise<BrandSignalRu
     if (signal.seenCount === 1) {
       signalCount++;
       // Alert rule 1 — critical: reputation-risk terms, immediate.
-      if (isReputationRisk(signal.text)) {
+      if (isReputationRisk(brand, signal.text)) {
         await sendAlert(brand, `🚨 Critical brand signal for ${brand.name}\n\n${signal.text.slice(0, 300)}\n\nSource: ${signal.sourceUrl}\n\nValidate/reject: POST /api/brand-signals/${signal.id}/validate`);
       }
       // Alert rule 2 — notable: first-ever signal of this kind for this brand.
