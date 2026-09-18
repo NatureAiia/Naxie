@@ -1,0 +1,3 @@
+[submodule "mailjet-mcp-server"]
+	path = mailjet-mcp-server
+	url = https://github.com/mailgun/mailjet-mcp-server.git
