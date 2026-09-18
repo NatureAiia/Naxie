@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, MicOff, Loader2, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign, Phone, PhoneOff, Share2, MessageSquare, TerminalSquare } from "lucide-react";
+import { Mic, MicOff, Loader2, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign, Phone, PhoneOff, Share2, MessageSquare, TerminalSquare, BrainCircuit } from "lucide-react";
 import { AgentStepFeed } from "../components/AgentStepFeed";
 import { Button } from "../components/Card";
 import { KnowledgeGraph } from "../components/KnowledgeGraph";
@@ -154,23 +154,15 @@ export function Naxie() {
                 <MessageSquare size={12} /> Chat
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setView(v => v === "graph" ? "chat" : "graph")}
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-full border transition-colors ${view === "graph" ? "bg-violet-500/15 border-violet-500/30 text-violet-300" : "bg-ink-800 border-ink-700 text-cream-300 hover:bg-ink-700 hover:border-ink-600"}`}
-            >
-              <Share2 size={12} /> Knowledge graph
-            </button>
-            <button
-              type="button"
-              onClick={() => setView(v => v === "workbench" ? "chat" : "workbench")}
-              title="Watch Naxie's live tool calls and recent delegated tasks"
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-full border transition-colors ${view === "workbench" ? "bg-violet-500/15 border-violet-500/30 text-violet-300" : "bg-ink-800 border-ink-700 text-cream-300 hover:bg-ink-700 hover:border-ink-600"}`}
-            >
-              <TerminalSquare size={12} /> Workbench
-              {activeJobId && view !== "workbench" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-            </button>
-            <Link to="/naxie/memory" className="text-[11px] px-2.5 py-1.5 rounded-full bg-ink-800 border border-ink-700 text-cream-300 hover:bg-ink-700">Memory</Link>
+            {view !== "graph" && (
+              <button
+                type="button"
+                onClick={() => setView("graph")}
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-full border bg-ink-800 border-ink-700 text-cream-300 hover:bg-ink-700 hover:border-ink-600 transition-colors"
+              >
+                <Share2 size={12} /> Knowledge graph
+              </button>
+            )}
           </div>
         </div>
 
@@ -288,6 +280,18 @@ export function Naxie() {
                   <div className="pt-2 border-t border-ink-800/40">
                     <CapabilityToggles />
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => { setView("workbench"); setControlsOpen(false); }}
+                    title="Watch Naxie's live tool calls and recent delegated tasks"
+                    className="flex items-center justify-between text-xs text-cream-200 hover:text-cream-50 pt-2 mt-1 border-t border-ink-800/40 -mx-3 px-3"
+                  >
+                    <span className="flex items-center gap-1.5"><TerminalSquare size={13} className="text-violet-400" /> Workbench</span>
+                    {activeJobId && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                  </button>
+                  <Link to="/naxie/memory" onClick={() => setControlsOpen(false)} className="flex items-center gap-1.5 text-xs text-cream-200 hover:text-cream-50">
+                    <BrainCircuit size={13} className="text-violet-400" /> Memory
+                  </Link>
                   <Link to="/onboarding" className="text-xs text-violet-300 hover:text-violet-200 pt-1">Edit your profile →</Link>
                 </div>
               )}
