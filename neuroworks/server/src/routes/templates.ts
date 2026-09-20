@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { existsSync, readdirSync, statSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, basename, join } from "node:path";
 import { simpleGit } from "simple-git";
 import { templates, roles, type Template } from "../lib/templates.js";
@@ -22,10 +22,71 @@ import { findPrimitive } from "../lib/primitives.js";
 import { createBoardRun, executeBoardRun, failBoardRun, MIN_MEMBERS } from "../lib/board.js";
 import { getBrand, channelFor, slug as slugBrandId, type Brand } from "../lib/brands.js";
 import { runBrandSignalScan } from "../lib/brand-signals.js";
+import { logAudit } from "../lib/audit-log.js";
 
 export const templatesRouter = Router();
 
 const NEEDS_GITHUB = new Set(["summarize-repo", "run-digest", "publish-folder"]);
+
+// ── News config API (per-feed tuning, history, threshold) ───────────────
+// GET /api/templates/news/config — effective config (env + file + defaults)
+// PATCH /api/templates/news/config — admin UI writes .neuroworks/news-config.json
+templatesRouter.get("/news/config", (req, res) => {
+  const file = loadNewsFileConfig();
+  res.json({
+    effective: {
+      africaQueries: effectiveAfricaQueries(),
+      worldQueries: effectiveWorldQueries(),
+      authorityDomains: [...effectiveAuthorityDomains()],
+      breakingThreshold: effectiveBreakingThreshold(),
+      historyDays: effectiveHistoryDays(),
+    },
+    file, // what's persisted (null fields = using env/default)
+    env: {
+      NEWS_AFRICA_QUERIES: process.env.NEWS_AFRICA_QUERIES ?? null,
+      NEWS_WORLD_QUERIES: process.env.NEWS_WORLD_QUERIES ?? null,
+      NEWS_AUTHORITY_DOMAINS: process.env.NEWS_AUTHORITY_DOMAINS ?? null,
+      NEWS_BREAKING_THRESHOLD: process.env.NEWS_BREAKING_THRESHOLD ?? null,
+      NEWS_HISTORY_DAYS: process.env.NEWS_HISTORY_DAYS ?? null,
+    },
+    defaults: { africaQueries: DEFAULT_AFRICA_QUERIES, worldQueries: DEFAULT_WORLD_QUERIES, authorityDomains: DEFAULT_HIGH_AUTHORITY, breakingThreshold: 8, historyDays: 7 },
+    feeds: { curated: 22, africaHints: AFRICA_TECH_RSS_HINTS }, // 17 global + 5 Africa
+  });
+});
+templatesRouter.patch("/news/config", requireLayer("admin"), (req, res) => {
+  const body = req.body ?? {};
+  const patch: any = {};
+  if (Array.isArray(body.africaQueries)) patch.africaQueries = body.africaQueries.map((s:any)=>String(s).trim()).filter(Boolean).slice(0,20);
+  if (Array.isArray(body.worldQueries)) patch.worldQueries = body.worldQueries.map((s:any)=>String(s).trim()).filter(Boolean).slice(0,20);
+  if (Array.isArray(body.authorityDomains)) patch.authorityDomains = body.authorityDomains.map((s:any)=>String(s).trim().toLowerCase()).filter(Boolean).slice(0,50);
+  if (body.breakingThreshold !== undefined) { const n=Number(body.breakingThreshold); if (Number.isFinite(n)) patch.breakingThreshold = Math.max(0, Math.min(10, n)); }
+  if (body.historyDays !== undefined) { const n=Number(body.historyDays); if (Number.isFinite(n)) patch.historyDays = Math.max(1, Math.min(30, Math.round(n))); }
+  // merge with existing file so PATCH is partial
+  const existing = loadNewsFileConfig();
+  const merged = { ...existing, ...patch };
+  // allow clearing a field by sending null
+  if (body.africaQueries === null) delete (merged as any).africaQueries;
+  if (body.worldQueries === null) delete (merged as any).worldQueries;
+  if (body.authorityDomains === null) delete (merged as any).authorityDomains;
+  try {
+    const p = NEWS_CONFIG_FILE;
+    _mks(resolve(p, ".."), { recursive: true } as any);
+    _wfs(p, JSON.stringify(merged, null, 2));
+    // also clear alt path if exists to avoid divergence
+    try { if (_exs(NEWS_CONFIG_FILE_ALT) && NEWS_CONFIG_FILE_ALT !== p) _wfs(NEWS_CONFIG_FILE_ALT, JSON.stringify(merged, null, 2)); } catch {}
+  } catch (e:any) { return res.status(500).json({ error: String(e?.message ?? e) }); }
+  res.json({ ok: true, config: merged, effective: { africaQueries: effectiveAfricaQueries(), worldQueries: effectiveWorldQueries(), authorityDomains: [...effectiveAuthorityDomains()], breakingThreshold: effectiveBreakingThreshold(), historyDays: effectiveHistoryDays() } });
+});
+templatesRouter.get("/news/metrics", (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 50)));
+    const metricsPath = resolve(config.vaultPath, "_neuroworks/news/metrics.jsonl");
+    if (!_exs(metricsPath)) return res.json({ metrics: [], total: 0 });
+    const lines = _rfs(metricsPath, "utf8").trim().split("\n").filter(Boolean).slice(-limit).reverse();
+    const metrics = lines.map(l=>{ try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    res.json({ metrics, total: metrics.length });
+  } catch (e:any) { res.status(500).json({ error: String(e?.message ?? e) }); }
+});
 
 templatesRouter.get("/", (req, res) => {
   // Custom templates persist with role: "Custom" because save-time didn't
@@ -453,6 +514,7 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
     case "innovation-scan": return innovationScanRunner(inputs, push, progress);
     case "buffer-story-post": return bufferStoryPostRunner(inputs, push, progress);
     case "africa-ai-news":   return africaAiNewsRunner(inputs, push);
+    case "world-ai-news":    return worldAiNewsRunner(inputs, push);
     case "social-optimize": return socialOptimizeRunner(inputs, push, progress);
     case "brand-signal-scan": return brandSignalScanRunner(inputs, push);
     case "general-task":   return generalTaskRunner(inputs, push, progress);
@@ -995,7 +1057,7 @@ function toVideoScript(postText: string): string {
     .slice(0, 500);
 }
 
-type StorySource = { title: string; url?: string; text: string; links?: string[] };
+type StorySource = { title: string; url?: string; text: string; links?: string[]; score?: number; reason?: string; publishedAt?: string };
 
 // Draft ONE polished post + AIIA-values video script from a NUMBERED list of
 // real stories (emails carry the full body + a pool of real links). The model
@@ -1088,77 +1150,550 @@ async function draftSocialPost(system: string, o: {
   return { postText, videoScript, story, nofresh: false };
 }
 
-// Fallback story material when the source mailbox has nothing fresh: a live web
-// sweep for African-AI news (each result carries a REAL url), plus any story
-// leads saved by the innovation scan. Returns real stories so the draft always
-// has a genuine link to reference. Guarantees there's always something to post.
-async function gatherFallbackStories(push: (m: string) => void): Promise<StorySource[]> {
+// ─────────────────────────────────────────────────────────────────────────────
+// News scraping config — QUALITY-FIRST pipeline for daily AI/Tech news
+//
+// Design: multi-tier sourcing + dedupe + enrichment + LLM quality scoring
+// Tiers:  (1) Curated RSS (high-authority, ≤48h, never hallucinated)
+//         (2) Live web search (Tavily/Firecrawl → DDG/Bing fallback, quality queries)
+//         (3) Innovation-scan leads (vault, Africa only)
+// All tiers carry a REAL url; LLM never invents one.
+// ─────────────────────────────────────────────────────────────────────────────
+const DEFAULT_AFRICA_QUERIES = [
+  "Africa artificial intelligence breakthrough funding 2025",
+  "African tech startup AI innovation Nairobi Lagos Cape Town",
+  "Africa AI policy regulation Africa Tech Summit",
+  "Zimbabwe AI technology deployment",
+  "African machine learning research healthcare agriculture fintech",
+];
+const DEFAULT_WORLD_QUERIES = [
+  "AI breakthrough model release 2025",
+  "generative AI funding acquisition startup",
+  "AI infrastructure chip hardware NVIDIA OpenAI",
+  "artificial intelligence research paper arXiv",
+  "global AI regulation policy",
+  "tech AI product launch enterprise",
+];
+const AFRICA_TECH_RSS_HINTS = ["africa", "african", "zimbabwe", "nairobi", "lagos", "kenya", "nigeria", "south africa", "rwanda", "ethiopia"];
+const DEFAULT_HIGH_AUTHORITY = [
+  "arxiv.org","openai.com","deepmind.google","ai.google","blog.google","huggingface.co",
+  "microsoft.com","research.microsoft.com","nvidia.com","blogs.nvidia.com","aws.amazon.com",
+  "github.blog","github.com","techcrunch.com","theverge.com","wired.com","arstechnica.com",
+  "technologyreview.com","reuters.com","bloomberg.com","nature.com","science.org",
+  "simonwillison.net","techzim.co.zw","disrupt-africa.com","ventureburn.com","techcabal.com","techinafrica.com"
+];
+const SPAM_HINTS = ["seo","content farm","sponsored","clickbait","/tag/","/category/"];
+
+// ── Per-feed tuning via env + file (admin UI) ──────────────────────────────
+// Env overrides (deployment-level):
+//   NEWS_AFRICA_QUERIES="q1|q2|q3"  (pipe-separated, or JSON array)
+//   NEWS_WORLD_QUERIES="q1|q2"
+//   NEWS_AUTHORITY_DOMAINS="arxiv.org,openai.com,..." (comma or |)
+//   NEWS_BREAKING_THRESHOLD=8
+//   NEWS_HISTORY_DAYS=7
+// File override (admin UI persistence): .neuroworks/news-config.json
+//   { africaQueries:[], worldQueries:[], authorityDomains:[], breakingThreshold:8, historyDays:7 }
+// Effective = file > env > default
+const _rfs = readFileSync; const _wfs = writeFileSync; const _exs = existsSync; const _mks = mkdirSync;
+const NEWS_CONFIG_FILE = resolve(process.cwd(), ".neuroworks/news-config.json");
+// also try server-local .neuroworks when running from server dir
+const NEWS_CONFIG_FILE_ALT = resolve(resolve(config.vaultPath, ".."), ".neuroworks/news-config.json");
+function envList(name: string): string[] | null {
+  const v = process.env[name]?.trim();
+  if (!v) return null;
+  if (v.startsWith("[")) { try { const arr = JSON.parse(v); if (Array.isArray(arr)) return arr.map(String).map(s=>s.trim()).filter(Boolean); } catch {} }
+  return v.split(/[|,]/).map(s=>s.trim()).filter(Boolean);
+}
+function loadNewsFileConfig(): { africaQueries?: string[]; worldQueries?: string[]; authorityDomains?: string[]; breakingThreshold?: number; historyDays?: number } {
+  for (const p of [NEWS_CONFIG_FILE, NEWS_CONFIG_FILE_ALT]) {
+    try { if (_exs(p)) return JSON.parse(_rfs(p, "utf8")); } catch {}
+  }
+  return {};
+}
+function effectiveAfricaQueries(): string[] {
+  const f = loadNewsFileConfig();
+  if (f.africaQueries?.length) return f.africaQueries;
+  const e = envList("NEWS_AFRICA_QUERIES"); if (e?.length) return e;
+  return DEFAULT_AFRICA_QUERIES;
+}
+function effectiveWorldQueries(): string[] {
+  const f = loadNewsFileConfig();
+  if (f.worldQueries?.length) return f.worldQueries;
+  const e = envList("NEWS_WORLD_QUERIES"); if (e?.length) return e;
+  return DEFAULT_WORLD_QUERIES;
+}
+function effectiveAuthorityDomains(): Set<string> {
+  const f = loadNewsFileConfig();
+  if (f.authorityDomains?.length) return new Set(f.authorityDomains.map(s=>s.toLowerCase()));
+  const e = envList("NEWS_AUTHORITY_DOMAINS"); if (e?.length) return new Set(e.map(s=>s.toLowerCase()));
+  return new Set(DEFAULT_HIGH_AUTHORITY);
+}
+function effectiveBreakingThreshold(): number {
+  const f = loadNewsFileConfig();
+  if (typeof f.breakingThreshold === "number") return f.breakingThreshold;
+  const e = Number(process.env.NEWS_BREAKING_THRESHOLD); if (Number.isFinite(e)) return e;
+  return 8;
+}
+function effectiveHistoryDays(): number {
+  const f = loadNewsFileConfig();
+  if (typeof f.historyDays === "number") return f.historyDays;
+  const e = Number(process.env.NEWS_HISTORY_DAYS); if (Number.isFinite(e)) return Math.max(1, Math.min(30, e));
+  return 7;
+}
+// Thin wrappers so existing call-sites keep reading the same names (now functions)
+const AFRICA_NEWS_QUERIES = effectiveAfricaQueries();
+const WORLD_NEWS_QUERIES = effectiveWorldQueries();
+const HIGH_AUTHORITY_DOMAINS = effectiveAuthorityDomains();
+
+const AIIA_READ_MORE_BASE = "https://aiinstituteafrica.com/ai-breaking-news";
+const WORLD_READ_MORE_BASE = "https://aiinstituteafrica.com/world-breaking-news";
+const AIIA_WHATSAPP_CHANNEL = "https://whatsapp.com/channel/120363427110783700@newsletter";
+
+function utmContent(): string { return Math.random().toString(36).slice(2, 10); }
+function readMoreUrl(base: string): string { return `${base}?utm_source=aiia-social&utm_medium=social&utm_content=${utmContent()}`; }
+
+function normalizeUrlForDedup(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    const u = new URL(url);
+    u.hash = ""; u.searchParams.delete("utm_source"); u.searchParams.delete("utm_medium");
+    u.searchParams.delete("utm_campaign"); u.searchParams.delete("utm_content");
+    // strip trailing slash, lowercase host
+    return `${u.hostname.toLowerCase()}${u.pathname.replace(/\/$/, "")}${u.search}`.toLowerCase();
+  } catch { return url.toLowerCase().replace(/\/$/, ""); }
+}
+function domainOf(url: string | undefined): string {
+  if (!url) return "";
+  try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ""); } catch { return ""; }
+}
+function authorityBoost(url: string | undefined): number {
+  const d = domainOf(url);
+  if (!d) return 0;
+  const auth = effectiveAuthorityDomains();
+  for (const h of auth) if (d === h || d.endsWith("."+h)) return 2;
+  return 0;
+}
+function isSpammy(s: StorySource): boolean {
+  const hay = `${s.title} ${s.text} ${s.url}`.toLowerCase();
+  if (SPAM_HINTS.some(h => hay.includes(h))) return true;
+  if (s.title.length < 15) return true;
+  // RSS items have short initial text (source+date+title) but get enriched later — allow down to 25 chars
+  if (s.text.length < 25) return true;
+  return false;
+}
+
+// Low-level web sweep for a given query set. Returns real-URL stories, deduped.
+async function scrapeStoriesForQueries(queries: string[], push: (m: string) => void, label: string): Promise<StorySource[]> {
   const out: StorySource[] = []; const seen = new Set<string>();
   try {
     const prim = findPrimitive("web.search");
     if (prim) {
-      for (const q of ["African AI news", "artificial intelligence Africa innovation", "AI policy Africa", "Zimbabwe AI technology", "AI Africa startup funding"]) {
+      for (const q of queries) {
         const r: any = await prim.handler({ query: q, limit: 5 });
         for (const it of (r?.results ?? [])) {
           const url = it?.url ? String(it.url).replace(/[.,]$/, "") : "";
-          if (!url || seen.has(url)) continue; seen.add(url);
-          out.push({ title: String(it.title ?? "Untitled").slice(0, 160), url, text: String(it.snippet ?? "").slice(0, 400) });
+          if (!url || seen.has(normalizeUrlForDedup(url))) continue; seen.add(normalizeUrlForDedup(url));
+          const title = String(it.title ?? "Untitled").slice(0, 160);
+          const text = String(it.snippet ?? it.content ?? "").slice(0, 600);
+          if (!title || isSpammy({ title, url, text })) continue;
+          // Prefer items with a publish hint in snippet or those that will be enriched later
+          out.push({ title, url, text });
+          // also store soft authority hint in text tail for the scorer (stripped before display)
         }
-        if (out.length >= 12) break;
+        if (out.length >= 14) break;
       }
-      if (out.length) push(`Web-search fallback gathered ${out.length} real candidate stories.`);
+      if (out.length) push(`[${label}] web search gathered ${out.length} candidates (quality-filtered).`);
     }
-  } catch (e: any) { push(`Web-search fallback skipped: ${String(e?.message ?? e).slice(0, 80)}`); }
+  } catch (e: any) { push(`[${label}] web search skipped: ${String(e?.message ?? e).slice(0, 80)}`); }
+  return out;
+}
+
+async function fetchRssTier(push: (m: string) => void, forAfrica: boolean): Promise<StorySource[]> {
+  try {
+    const { fetchCuratedRss } = await import("../lib/rss-client.js");
+    const items = await fetchCuratedRss(); // already ≤48h, sorted newest-first
+    const filtered = forAfrica
+      ? items.filter(it => {
+          // Keep all high-quality AI/tech, but boost African items to the top
+          const hay = `${it.title} ${it.source}`.toLowerCase();
+          const isAfrica = AFRICA_TECH_RSS_HINTS.some(k => hay.includes(k));
+          return true; // keep all; scorer will rank Africa higher for Africa feed
+        }).map(it => ({ title: it.title.slice(0,160), url: it.url, text: `[${it.source} · ${it.publishedAt.slice(0,10)}] ${it.title}` }))
+      : items.map(it => ({ title: it.title.slice(0,160), url: it.url, text: `[${it.source} · ${it.publishedAt.slice(0,10)}] ${it.title}` }));
+    // Africa feed: bubble Africa-tagged RSS to front
+    if (forAfrica) {
+      filtered.sort((a,b) => {
+        const aAfrica = AFRICA_TECH_RSS_HINTS.some(k => a.text.toLowerCase().includes(k)) ? 1 : 0;
+        const bAfrica = AFRICA_TECH_RSS_HINTS.some(k => b.text.toLowerCase().includes(k)) ? 1 : 0;
+        return bAfrica - aAfrica;
+      });
+    }
+    const slice = filtered.slice(0, 8);
+    if (slice.length) push(`[rss/${forAfrica?"africa":"world"}] curated feeds: ${slice.length} fresh items (≤48h).`);
+    return slice;
+  } catch (e:any) { push(`[rss] skipped: ${String(e?.message??e).slice(0,80)}`); return []; }
+}
+
+async function enrichTopStories(stories: StorySource[], push: (m:string)=>void, topN=6): Promise<StorySource[]> {
+  // Enrich the most promising N with full-page text so the quality scorer has substance, not just snippets
+  try {
+    const { smartFetch } = await import("../lib/web-client.js");
+    const toEnrich = stories.slice(0, topN).filter(s => !!s.url && /^https?:\/\//i.test(s.url!));
+    await Promise.all(toEnrich.map(async (s) => {
+      try {
+        const r = await smartFetch(s.url!, { maxBytes: 8000, timeoutMs: 8000 });
+        const clean = r.text.replace(/\s+/g," ").trim().slice(0, 900);
+        if (clean.length > 80 && clean.length > s.text.length * 0.3) {
+          const before = s.text.length;
+          s.text = `${s.text}\n${clean}`.slice(0, 1100);
+          push(`[enrich] ${domainOf(s.url)} ${before} → ${s.text.length} chars`);
+        }
+      } catch { /* keep snippet */ }
+    }));
+  } catch {}
+  return stories;
+}
+
+function loadRecentPostedUrls(days: number, push?: (m:string)=>void): Set<string> {
+  const cutoff = Date.now() - days*24*3600_000;
+  const urls = new Set<string>();
+  const roots = [
+    resolve(config.vaultPath, "_neuroworks/news"),
+    resolve(config.vaultPath, "_neuroworks/social"),
+    resolve(config.vaultPath, "_neuroworks/news/drafts"),
+  ];
+  const urlRe = /https?:\/\/[^\s"')\]]+/gi;
+  for (const root of roots) {
+    try {
+      const walk = (dir: string) => {
+        let ents: any[] = [];
+        try { ents = readdirSync(dir, { withFileTypes: true }) as any[]; } catch { return; }
+        for (const e of ents) {
+          const p = join(dir, e.name);
+          if (e.isDirectory()) { walk(p); continue; }
+          if (!/\.(md|json|jsonl)$/i.test(e.name)) continue;
+          try {
+            const st = statSync(p);
+            if (st.mtimeMs < cutoff) continue;
+            const txt = readFileSync(p, "utf8");
+            for (const m of txt.matchAll(urlRe)) urls.add(normalizeUrlForDedup(m[0].replace(/[.,;]+$/, "")));
+          } catch {}
+        }
+      };
+      walk(root);
+    } catch {}
+  }
+  if (push && urls.size) push(`[history] ${urls.size} URLs posted in last ${days}d`);
+  return urls;
+}
+
+async function dedupeAndFilter(stories: StorySource[], push: (m:string)=>void): Promise<StorySource[]> {
+  const history = loadRecentPostedUrls(effectiveHistoryDays(), push);
+  const seen = new Set<string>(); const out: StorySource[] = [];
+  for (const s of stories) {
+    const key = normalizeUrlForDedup(s.url);
+    if (!key) continue;
+    if (seen.has(key)) continue; seen.add(key);
+    if (history.has(key)) { push(`[history] skip already-posted ${domainOf(s.url)}`); continue; }
+    if (isSpammy(s)) continue;
+    out.push(s);
+  }
+  // Keep most authoritative + longest text first before scoring
+  out.sort((a,b) => (authorityBoost(b.url) - authorityBoost(a.url)) || (b.text.length - a.text.length));
+  if (stories.length !== out.length) push(`[filter] deduped ${stories.length} → ${out.length} (spam/history removed)`);
+  return out;
+}
+
+async function scoreStoriesQuality(stories: StorySource[], push: (m:string)=>void, forAfrica: boolean): Promise<StorySource[]> {
+  if (stories.length <= 1) {
+    // still attach a score so urgency gate can read it
+    for (const s of stories) s.score = 5 + authorityBoost(s.url);
+    return stories;
+  }
+  // Single LLM triage call scores every candidate 0-10 on quality dimensions
+  const numbered = stories.slice(0, 12).map((s,i) => `[${i+1}] ${s.title} (${domainOf(s.url)}) — ${s.text.slice(0,400)} [authority:${authorityBoost(s.url)}]`).join("\n\n");
+  const rubric = forAfrica
+    ? "Africa AI/Tech relevance (Africa angle = high), AI/Tech core vs tangential, recency ≤48h > ≤7d > older, source credibility, factual substance (names/numbers specifics), impact/novelty"
+    : "Global AI/Tech relevance, recency ≤48h, source credibility (lab/tier1 press), factual substance, impact/novelty";
+  try {
+    const raw = (await llmGenerate(
+      `Score each candidate 0-10 for QUALITY AI/Tech news. Rubric: ${rubric}. Return ONLY JSON array [{"idx":1,"score":8,"reason":"one line"}] ordered by idx. Candidates:\n\n${numbered.slice(0,6500)}`,
+      "You are a strict quality ranker for AI/Tech news. No hype, no invented facts, JSON only.",
+      { maxTokens: 700 }
+    )).trim().replace(/```json?\s*/gi,"").replace(/```/g,"").trim();
+    const scores: {idx:number;score:number;reason:string}[] = JSON.parse(raw.match(/\[[\s\S]*\]/)?.[0] ?? "[]");
+    const map = new Map(scores.map(s=>[s.idx, s.score]));
+    const reasonMap = new Map(scores.map(s=>[s.idx, s.reason]));
+    const scored = stories.map((s,i)=>{
+      const sc = map.get(i+1) ?? 5 + authorityBoost(s.url);
+      s.score = sc; s.reason = reasonMap.get(i+1) ?? "";
+      return {s, score: sc};
+    });
+    scored.sort((a,b)=> b.score - a.score);
+    push(`[quality] scored ${scores.length} candidates — top: ${scored.slice(0,3).map(x=>`#${stories.indexOf(x.s)+1}:${x.score} ${x.s.reason?.slice(0,40)??""}`).join(" | ")}`);
+    return scored.map(x=>x.s);
+  } catch (e:any) {
+    push(`[quality] scoring skipped: ${String(e?.message??e).slice(0,80)} — keeping authority-sorted order`);
+    for (const s of stories) if (s.score === undefined) s.score = 5 + authorityBoost(s.url);
+    return stories;
+  }
+}
+
+function logNewsMetrics(feed: "africa"|"world", candidates: StorySource[], picked: StorySource | null, push?: (m:string)=>void) {
+  const breakdown = candidates.slice(0, 8).map((c,i)=> ({ idx:i+1, domain: domainOf(c.url), score: c.score, title: c.title.slice(0,60) }));
+  const detail = `${feed} candidates=${candidates.length} picked=${picked?.url ?? "none"} score=${picked?.score ?? "?"} domains=${breakdown.map(b=>b.domain).join(",")}`;
+  try { logAudit({ level: "info", actor: "news", action: `${feed}.pick`, target: picked?.url ?? "none", detail, result: picked ? "success" : "failure" }); } catch {}
+  // vault metrics line for dashboard (_neuroworks/news/metrics.jsonl)
+  try {
+    const metricsPath = resolve(config.vaultPath, "_neuroworks/news/metrics.jsonl");
+    _mks(resolve(metricsPath, ".."), { recursive: true } as any);
+    const rec = JSON.stringify({ ts: new Date().toISOString(), feed, candidates: candidates.length, picked: picked ? { url: picked.url, domain: domainOf(picked.url), score: picked.score, title: picked.title } : null, breakdown }) + "\n";
+    _wfs(metricsPath, rec, { flag: "a" } as any);
+  } catch {}
+  if (push) push(`[metrics] ${detail}`);
+}
+
+function writeNewsVault(feed: "africa"|"world", card: { postText: string; story: string }, picked: StorySource) {
+  try {
+    const date = new Date().toISOString().slice(0, 10);
+    const stamp = new Date().toISOString().slice(0, 16).replace(/:/, "");
+    const dir = `_neuroworks/news`;
+    const path = `${dir}/${date}-${feed}.md`;
+    const body = `---\nfeed: ${feed}\ndate: ${date}\nurl: ${picked.url ?? ""}\nscore: ${picked.score ?? ""}\ndomain: ${domainOf(picked.url)}\n---\n\n${card.postText}\n`;
+    writeVaultFile(path, body);
+    // also append to drafts history for dedupe already covers this path
+  } catch (e:any) { console.warn(`[news] vault write failed: ${e?.message}`); }
+}
+function writeNewsDraft(feed: "africa"|"world", candidates: StorySource[], reason: string) {
+  try {
+    const stamp = new Date().toISOString().slice(0, 16).replace(/:/, "");
+    const path = `_neuroworks/news/drafts/${stamp}-${feed}-below-threshold.md`;
+    const body = `---\nfeed: ${feed}\ndraft: true\nreason: ${reason}\n---\n\n# Draft — ${feed} ${stamp} (below threshold)\n\nTop candidates were below BREAKING threshold (${effectiveBreakingThreshold()}).\n\n${candidates.slice(0,5).map((c,i)=>`${i+1}. [${c.score}] ${c.title} — ${c.url} — ${c.reason??""}`).join("\n")}\n`;
+    writeVaultFile(path, body);
+  } catch {}
+}
+
+// Fallback story material when the source mailbox has nothing fresh: a live web
+// sweep for African-AI news (each result carries a REAL url), plus any story
+// leads saved by the innovation scan. Returns real stories so the draft always
+// has a genuine link to reference. Guarantees there's always something to post.
+// Kept as the public name for backwards-compat (buffer-story-post calls it).
+async function gatherFallbackStories(push: (m: string) => void): Promise<StorySource[]> {
+  return gatherAfricaStories(push);
+}
+async function gatherAfricaStories(push: (m: string) => void): Promise<StorySource[]> {
+  push("[africa] quality pipeline: RSS (≤48h) + web search + innovation leads → dedupe → enrich → quality rank");
+  const [rss, web] = await Promise.all([
+    fetchRssTier(push, true),
+    scrapeStoriesForQueries(effectiveAfricaQueries(), push, "africa"),
+  ]);
+  let merged: StorySource[] = [...rss, ...web];
   // Innovation-scan leads as extra candidates (bullet lines → title + optional url).
   const leads = readVaultText(`${SOCIAL_DIR}/story-leads.md`);
   if (leads && leads.trim().length > 80) {
+    let added = 0;
+    const seen = new Set(merged.map(s=>normalizeUrlForDedup(s.url)));
     for (const line of leads.split("\n")) {
       const t = line.replace(/^\s*[-*]\s*/, "").trim();
       if (t.length < 25 || /^#/.test(line)) continue;
       const url = (t.match(/https?:\/\/[^\s)>\]]+/) ?? [""])[0].replace(/[.,]$/, "");
-      if (url && seen.has(url)) continue; if (url) seen.add(url);
-      out.push({ title: t.replace(/https?:\/\/\S+/g, "").replace(/[()]/g, "").slice(0, 160).trim(), url: url || undefined, text: t.slice(0, 400) });
-      if (out.length >= 16) break;
+      if (url && seen.has(normalizeUrlForDedup(url))) continue; if (url) seen.add(normalizeUrlForDedup(url));
+      merged.push({ title: t.replace(/https?:\/\/\S+/g, "").replace(/[()]/g, "").slice(0, 160).trim(), url: url || `lead:${added}`, text: t.slice(0, 500) });
+      added++;
+      if (merged.length >= 20) break;
     }
-    push("Added innovation-scan story leads to the candidate pool.");
+    if (added) push(`[africa] +${added} innovation-scan leads`);
   }
-  return out;
+  merged = await dedupeAndFilter(merged, push);
+  merged = await enrichTopStories(merged, push, 6);
+  merged = await scoreStoriesQuality(merged, push, true);
+  return merged.slice(0, 12);
+}
+async function gatherWorldStories(push: (m: string) => void): Promise<StorySource[]> {
+  push("[world] quality pipeline: RSS (≤48h) + web search → dedupe → enrich → quality rank");
+  const [rss, web] = await Promise.all([
+    fetchRssTier(push, false),
+    scrapeStoriesForQueries(effectiveWorldQueries(), push, "world"),
+  ]);
+  let merged: StorySource[] = [...rss, ...web];
+  merged = await dedupeAndFilter(merged, push);
+  merged = await enrichTopStories(merged, push, 6);
+  merged = await scoreStoriesQuality(merged, push, false);
+  return merged.slice(0, 12);
 }
 
-// Daily digest of Africa/AI news, posted straight into a Telegram group —
-// reuses gatherFallbackStories' web sweep (same real-URL story pool the
-// social-post drafter falls back to) rather than duplicating the search.
+// Build a single BREAKING NEWS card from a pool of real stories. The model
+// picks the single most newsworthy story and returns structured fields; we
+// assemble the exact user-requested format so the link is always real.
+async function buildBreakingNewsCard(opts: {
+  stories: StorySource[];
+  header: string;            // e.g. "🚨 BREAKING NEWS - AI Institute Africa 🚨"
+  readMoreBase: string;
+  whatsappUrl: string;
+  whyHeader: string;         // e.g. "Why it matters for Africa"
+  defaultHashtags: string;   // e.g. "#AIforAfrica #Aiia #Africa"
+  sourceLabel: string;       // e.g. "web + innovation leads"
+  videoUrl?: string;
+  push: (m: string) => void;
+  systemPrompt: string;
+}): Promise<{ postText: string; story: string; videoScript: string; raw: any }> {
+  if (!opts.stories.length) throw new Error("no stories to build from");
+  // Candidates are already quality-ranked (RSS ≤48h + enriched + LLM-scored), so #1 is best by default
+  const numbered = opts.stories.slice(0, 10).map((s, i) => `[${i + 1}] ${s.title}${s.url ? ` (${s.url})` : ""}\n${(s.text ?? "").slice(0, 650)}`).join("\n\n---\n\n");
+  const prompt =
+    `Candidates below are PRE-RANKED by quality (1 = highest quality: fresh ≤48h, high-authority source, strong AI/Tech substance). Prefer #1 unless another is clearly more newsworthy/impactful.\n` +
+    `Pick the SINGLE best story for a BREAKING NEWS card. Summarise ONLY that story using facts from its text — do not invent, do not hallucinate names/numbers/URLs.\n\n` +
+    `Quality bar: reject candidates with vague titles, <80-char substance, or no concrete detail — pick the next one instead.\n\n` +
+    `Output EXACTLY these labelled lines (plain text, no markdown, no angle brackets):\n` +
+    `PICK: <source number 1..N>\n` +
+    `TITLE: <short title, max 80 chars, factual>\n` +
+    `SUMMARY: <3-5 sentences, factual, what happened / who / key details / implication - use enriched text>\n` +
+    `WHY_IT_MATTERS: <2-3 sentences: why this matters for the audience — grounded, no hype>\n` +
+    `HASHTAGS: <4-6 hashtags space-separated, include the defaults plus story-specific ones>\n` +
+    `VIDEO_SCRIPT: <20-35s spoken narration, first person "At Aiia...", no URLs/hashtags, narrates the summary>\n\n` +
+    `Defaults to weave in: ${opts.defaultHashtags}\n` +
+    `WHY header is "${opts.whyHeader}" — use that framing.\n\n` +
+    `CANDIDATES (pre-ranked):\n\n${numbered.slice(0, 6500)}`;
+  const raw = (await llmGenerate(prompt, opts.systemPrompt, { maxTokens: 900 })).trim();
+  const grab = (label: string) => {
+    const m = raw.match(new RegExp(`^[\\s>*#-]*${label}\\s*:?\\s*([\\s\\S]*?)(?=\\n[\\s>*#-]*(?:PICK|TITLE|SUMMARY|WHY_IT_MATTERS|HASHTAGS|VIDEO_SCRIPT)\\s*:|$)`, "im"));
+    return (m?.[1] ?? "").replace(/```[a-z]*\n?/gi, "").replace(/\*\*/g, "").trim().replace(/^["']|["']$/g, "").trim();
+  };
+  const pickN = parseInt((grab("PICK").match(/\d+/) ?? ["1"])[0], 10);
+  const chosen = opts.stories[Math.min(Math.max(1, pickN), opts.stories.length) - 1] ?? opts.stories[0];
+  const title = grab("TITLE") || chosen.title;
+  const summary = grab("SUMMARY") || (chosen.text ?? "").slice(0, 400);
+  const why = grab("WHY_IT_MATTERS") || "";
+  let hashtags = grab("HASHTAGS") || opts.defaultHashtags;
+  if (hashtags && !hashtags.includes("#")) hashtags = hashtags.split(/\s+/).filter(Boolean).map(h => `#${h.replace(/^#/, "")}`).join(" ");
+  const videoScript = grab("VIDEO_SCRIPT") || toVideoScript(summary);
+  const readMore = readMoreUrl(opts.readMoreBase);
+  const lines: string[] = [];
+  lines.push(opts.header);
+  lines.push("");
+  lines.push(title);
+  lines.push("");
+  lines.push(summary);
+  lines.push("");
+  lines.push(opts.whyHeader);
+  lines.push(why);
+  lines.push("");
+  lines.push(`\uD83D\uDCF0 Read more: ${readMore}`);
+  lines.push(`\uD83D\uDCF2 Follow our channel: ${opts.whatsappUrl}`);
+  lines.push("");
+  lines.push(hashtags);
+  if (opts.videoUrl) { lines.push(""); lines.push(`\uD83C\uDFAC Video: ${opts.videoUrl}`); }
+  lines.push("");
+  lines.push(`Source: ${opts.sourceLabel}`);
+  const storyLine = `**${title}:** ${(chosen.text ?? summary).slice(0, 160).replace(/\s+/g, " ").trim()} — ${chosen.url ?? readMore}`;
+  lines.push(`Story: ${storyLine}`);
+  const postText = lines.join("\n");
+  const story = `${title} — ${chosen.url ?? readMore}`.slice(0, 220);
+  return { postText, story, videoScript, raw: { pickN, title, summary, why, hashtags, chosenUrl: chosen.url } };
+}
+
+// Africa news — BREAKING NEWS card for AI Institute Africa (with urgency gate + metrics + vault)
 async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
   const chatId = String(inputs.chatId ?? "").trim();
   if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
+  const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
 
-  push("Sweeping for today's Africa/AI news.");
-  const stories = await gatherFallbackStories(push);
+  push("Sweeping for today's Africa/AI news (web + innovation leads).");
+  const stories = await gatherAfricaStories(push);
   if (!stories.length) {
     const skip = "No fresh Africa/AI news found today — skipping the post.";
     push(skip);
+    logNewsMetrics("africa", stories, null, push);
     return { kind: "africa-ai-news", posted: false, note: skip };
   }
 
-  const material = stories.slice(0, 10)
-    .map((s, i) => `[${i + 1}] ${s.title}${s.url ? ` (${s.url})` : ""}\n${s.text ?? ""}`)
-    .join("\n\n");
-  const digest = (await llmGenerate(
-    `From the Africa/AI news candidates below, pick the 4-6 most newsworthy and write a short daily digest for a Telegram group. For each: one punchy line on the substance (what happened, who, why it matters), then its real URL on the next line — never invent or alter a URL, only use ones given. Open with a one-line "📰 Africa AI Daily" header (with today's date). Plain text only (no markdown headings/bold), keep it skimmable.\n\nCANDIDATES:\n\n${material.slice(0, 6000)}`,
-    "You write a factual, skimmable daily AI-in-Africa news digest for a Telegram channel. No hype, no invented facts or links.",
-    { maxTokens: 700 },
-  )).trim();
-
-  if (!digest) {
-    push("Digest came back empty — skipping the post.");
-    return { kind: "africa-ai-news", posted: false, note: "empty digest" };
+  // Urgency gate: only BREAKING if top score ≥ threshold
+  const threshold = effectiveBreakingThreshold();
+  const topScore = stories[0]?.score ?? 5;
+  if (topScore < threshold) {
+    const reason = `top score ${topScore} < threshold ${threshold} — not breaking enough`;
+    push(`[gate] ${reason} — queuing as draft, not posting to Telegram`);
+    writeNewsDraft("africa", stories, reason);
+    logNewsMetrics("africa", stories, stories[0] ?? null, push);
+    return { kind: "africa-ai-news", posted: false, draft: true, note: reason, topScore, threshold };
   }
+
+  push(`Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
+  const card = await buildBreakingNewsCard({
+    stories,
+    header: "\uD83D\uDEA8 BREAKING NEWS - AI Institute Africa \uD83D\uDEA8",
+    readMoreBase: AIIA_READ_MORE_BASE,
+    whatsappUrl: AIIA_WHATSAPP_CHANNEL,
+    whyHeader: "Why it matters for Africa",
+    defaultHashtags: "#AIforAfrica #Aiia #Africa",
+    sourceLabel: "web + innovation leads (RSS ≤48h + web + leads)",
+    videoUrl,
+    push,
+    systemPrompt: "You are the editor for AI Institute Africa. You pick the most newsworthy Africa/AI story and write a factual BREAKING NEWS card. No hype, no invented facts or links, warm and credible.",
+  });
+
+  // Resolve picked story for metrics/vault (card.raw picks idx)
+  const pickedIdx = (card.raw?.pickN ?? 1) - 1;
+  const picked = stories[Math.min(Math.max(0, pickedIdx), stories.length-1)] ?? stories[0];
+  logNewsMetrics("africa", stories, picked, push);
+  writeNewsVault("africa", card, picked);
 
   const tg = findPrimitive("telegram.send");
   if (!tg) throw new Error("telegram.send primitive unavailable");
-  const sent = await tg.handler({ text: digest, chatId });
-  push(sent?.ok ? `Posted the digest to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
-  return { kind: "africa-ai-news", posted: !!sent?.ok, chatId, answer: digest, error: sent?.ok ? undefined : sent?.error };
+  const sent = await tg.handler({ text: card.postText, chatId });
+  push(sent?.ok ? `Posted Africa BREAKING NEWS to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
+  return { kind: "africa-ai-news", posted: !!sent?.ok, chatId, answer: card.postText, story: card.story, videoScript: card.videoScript, topScore, threshold, error: sent?.ok ? undefined : sent?.error };
+}
+
+// World news — BREAKING NEWS card for global AI/world stories (with urgency gate + metrics + vault)
+async function worldAiNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
+  const chatId = String(inputs.chatId ?? "").trim();
+  if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
+  const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
+
+  push("Sweeping for today's World AI news (RSS + web search).");
+  const stories = await gatherWorldStories(push);
+  if (!stories.length) {
+    const skip = "No fresh World news found today — skipping the post.";
+    push(skip);
+    logNewsMetrics("world", stories, null, push);
+    return { kind: "world-ai-news", posted: false, note: skip };
+  }
+
+  const threshold = effectiveBreakingThreshold();
+  const topScore = stories[0]?.score ?? 5;
+  if (topScore < threshold) {
+    const reason = `top score ${topScore} < threshold ${threshold} — not breaking enough`;
+    push(`[gate] ${reason} — queuing as draft, not posting to Telegram`);
+    writeNewsDraft("world", stories, reason);
+    logNewsMetrics("world", stories, stories[0] ?? null, push);
+    return { kind: "world-ai-news", posted: false, draft: true, note: reason, topScore, threshold };
+  }
+
+  push(`Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
+  const card = await buildBreakingNewsCard({
+    stories,
+    header: "\uD83D\uDEA8 BREAKING NEWS - World News \uD83D\uDEA8",
+    readMoreBase: WORLD_READ_MORE_BASE,
+    whatsappUrl: AIIA_WHATSAPP_CHANNEL,
+    whyHeader: "Why it matters",
+    defaultHashtags: "#WorldNews #AI #BreakingNews",
+    sourceLabel: "RSS ≤48h + web search",
+    videoUrl,
+    push,
+    systemPrompt: "You are a world news editor covering AI and technology. You pick the most newsworthy global story and write a factual BREAKING NEWS card. No hype, no invented facts or links, concise and credible.",
+  });
+
+  const pickedIdx = (card.raw?.pickN ?? 1) - 1;
+  const picked = stories[Math.min(Math.max(0, pickedIdx), stories.length-1)] ?? stories[0];
+  logNewsMetrics("world", stories, picked, push);
+  writeNewsVault("world", card, picked);
+
+  const tg = findPrimitive("telegram.send");
+  if (!tg) throw new Error("telegram.send primitive unavailable");
+  const sent = await tg.handler({ text: card.postText, chatId });
+  push(sent?.ok ? `Posted World BREAKING NEWS to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
+  return { kind: "world-ai-news", posted: !!sent?.ok, chatId, answer: card.postText, story: card.story, videoScript: card.videoScript, topScore, threshold, error: sent?.ok ? undefined : sent?.error };
 }
 
 async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: string) => void, _progress?: (p: Record<string, unknown>) => void) {

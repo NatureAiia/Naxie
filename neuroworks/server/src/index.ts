@@ -115,6 +115,16 @@ validateConfig();
 applyRagOverrides();
 
 const app = express();
+// Trust proxy — required so req.ip reflects the real client behind a reverse
+// proxy / ingress (security-watch flood/auth scoring would otherwise score the
+// proxy IP). Enabled when enterprise-mode or an explicit trust-proxy env is set;
+// loopback-only dev needs no proxy and stays 0 for least surprise.
+if (config.enterpriseMode || process.env.NEUROWORKS_TRUST_PROXY === "1" || process.env.NEUROWORKS_BEHIND_PROXY === "1") {
+  app.set("trust proxy", 1);
+}
+if (process.env.NEUROWORKS_ALLOW_INSECURE_BIND === "1" && config.bindHost !== "127.0.0.1" && config.bindHost !== "localhost") {
+  console.warn(`\n⚠  [security] NEUROWORKS_ALLOW_INSECURE_BIND=1 with bind ${config.bindHost} — API is reachable off-host with no Host/Origin defense beyond what originGuard provides. Only use behind a trusted authenticating reverse proxy.\n`);
+}
 // CSP + Permissions-Policy (absent before now — see lib/security-headers.ts)
 // applied first so every response carries them, including an early error.
 app.use(securityHeaders);

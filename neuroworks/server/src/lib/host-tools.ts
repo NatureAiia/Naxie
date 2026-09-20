@@ -97,10 +97,10 @@ export function updateHostToolsSettings(patch: Partial<HostToolsSettings>): Host
 
 // Fails CLOSED on any error — the naxionai original's fail-open bug
 // (docs §2.2) is deliberately not carried over.
-function isSystemControlAllowed(): boolean {
+export function isSystemControlAllowed(): boolean {
   try { return load().allowSystemControl === true; } catch { return false; }
 }
-function isClipboardAllowed(): boolean {
+export function isClipboardAllowed(): boolean {
   try { return load().allowClipboardAccess === true; } catch { return false; }
 }
 // Unlike the two checks above, notifications default ON — but still fail

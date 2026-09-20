@@ -82,6 +82,16 @@ async function pgvectorSearch(query: string, limit: number): Promise<RagHit[]> {
   }
 }
 
+// Per-query short TTL cache — same Naxie turn often re-queries similar text
+// within seconds (retry, follow-up), and buildNaxieContext + planner both call
+// ragSearch for the same query. 10s window avoids repeated vault walks.
+const RAG_CACHE_TTL_MS = 10_000;
+const ragCache = new Map<string, { at: number; hits: RagHit[] }>();
+
+function ragCacheKey(query: string, limit: number): string {
+  return `${query.trim().toLowerCase()}::${limit}`;
+}
+
 // Hybrid search: vault-index (MiniSearch) first, then memory, then fallback
 // walk, then (when configured) pgvector semantic search. Async because the
 // pgvector step is a network call (embed the query, then a Postgres round
@@ -89,6 +99,9 @@ async function pgvectorSearch(query: string, limit: number): Promise<RagHit[]> {
 export async function ragSearch(query: string, limit = 8): Promise<RagHit[]> {
   const q = query.trim();
   if (!q) return [];
+  const ck = ragCacheKey(q, limit);
+  const cached = ragCache.get(ck);
+  if (cached && Date.now() - cached.at < RAG_CACHE_TTL_MS) return cached.hits;
   const hits: RagHit[] = [];
   const seen = new Set<string>();
 
@@ -146,10 +159,14 @@ export async function ragSearch(query: string, limit = 8): Promise<RagHit[]> {
   // Sort vault hits by score desc, memory after
   hits.sort((a, b) => b.score - a.score);
   const top = hits.slice(0, limit);
-  // Graph-augmented retrieval (item 3b) — annotate vault-sourced hits with
-  // their 1-hop wikilink neighbors. Runs only on the final top-N slice, not
-  // every candidate, since graphNeighbors() does a graph walk per call.
-  return withRelatedNotes(top);
+  const noted = withRelatedNotes(top);
+  ragCache.set(ck, { at: Date.now(), hits: noted });
+  // Bound cache size (avoid unbounded growth on long uptime)
+  if (ragCache.size > 200) {
+    const oldestKey = ragCache.keys().next().value as string;
+    ragCache.delete(oldestKey);
+  }
+  return noted;
 }
 
 // Format hits as injection block for the prompt (keeps citations)

@@ -161,15 +161,30 @@ export const templates: Template[] = [
   {
     id: "africa-ai-news",
     role: "Operations",
-    title: "Africa AI news digest",
-    description: "Sweeps for the day's Africa/AI news (web search + saved story leads) and posts a short factual digest into a Telegram group. Pair with a daily Schedule.",
+    title: "Africa AI news — BREAKING",
+    description: "Picks the single most newsworthy Africa/AI story (web search + innovation leads), then posts a BREAKING NEWS card to Telegram: title, summary, Why it matters for Africa, Read more link, hashtags, video, and source. Pair with a daily Schedule.",
     icon: "broadcast",
     agent: "clawbot",
     inputs: [
       { name: "chatId", label: "Telegram group chat ID to post into", type: "text", required: true, placeholder: "-1004307136262" },
+      { name: "videoUrl", label: "HeyGen video URL (optional)", type: "text", placeholder: "https://files2.heygen.ai/... .mp4" },
     ],
     requiresApproval: false,
-    estimateSeconds: 60,
+    estimateSeconds: 90,
+  },
+  {
+    id: "world-ai-news",
+    role: "Operations",
+    title: "World AI news — BREAKING",
+    description: "Picks the single most newsworthy global AI/world story (web search), then posts a BREAKING NEWS card to Telegram: title, summary, Why it matters, Read more, hashtags, video, and source. Pair with a daily Schedule.",
+    icon: "broadcast",
+    agent: "clawbot",
+    inputs: [
+      { name: "chatId", label: "Telegram group chat ID to post into", type: "text", required: true, placeholder: "-1001234567890" },
+      { name: "videoUrl", label: "HeyGen video URL (optional)", type: "text", placeholder: "https://files2.heygen.ai/... .mp4" },
+    ],
+    requiresApproval: false,
+    estimateSeconds: 90,
   },
   {
     id: "social-optimize",

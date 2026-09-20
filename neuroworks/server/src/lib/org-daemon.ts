@@ -408,22 +408,27 @@ export function maybeEscalateBlockedSLA(now = Date.now()): number {
   return escalated;
 }
 
-function tick(): void {
+async function tick(): Promise<void> {
+  // Sync phases — cheap, keep sequential
   try { sweepStaleOrgApprovals(); } catch (e) { console.warn(`[org-daemon] sweepStaleOrgApprovals failed: ${(e as Error).message}`); }
   try { reconcileOrphanedActiveTasks(); } catch (e) { console.warn(`[org-daemon] reconcileOrphanedActiveTasks failed: ${(e as Error).message}`); }
   try { maybeEscalateBlockedSLA(); } catch (e) { console.warn(`[org-daemon] maybeEscalateBlockedSLA failed: ${(e as Error).message}`); }
   try { maybeNudgePendingApprovals(); } catch (e) { console.warn(`[org-daemon] maybeNudgePendingApprovals failed: ${(e as Error).message}`); }
   try { maybeBackupVault(); } catch (e) { console.warn(`[org-daemon] maybeBackupVault failed: ${(e as Error).message}`); }
-  try { void maybeRunArchitectReview(); } catch (e) { console.warn(`[org-daemon] maybeRunArchitectReview failed: ${(e as Error).message}`); }
-  try { void maybeGenerateBriefing(); } catch (e) { console.warn(`[org-daemon] maybeGenerateBriefing failed: ${(e as Error).message}`); }
   try { maybeNudgeStaleExecutorTasks(); } catch (e) { console.warn(`[org-daemon] maybeNudgeStaleExecutorTasks failed: ${(e as Error).message}`); }
   try { maybeReportIdleActivity(); } catch (e) { console.warn(`[org-daemon] maybeReportIdleActivity failed: ${(e as Error).message}`); }
-  try { void maybeNudgeChatInactivity(); } catch (e) { console.warn(`[org-daemon] maybeNudgeChatInactivity failed: ${(e as Error).message}`); }
-  try { void maybeRunProactiveResearch(); } catch (e) { console.warn(`[org-daemon] maybeRunProactiveResearch failed: ${(e as Error).message}`); }
-  // Telegram news monitor — batch-score pending posts for relevance, notify via DM
-  try { void maybeScoreTelegramNews(); } catch (e) { console.warn(`[org-daemon] maybeScoreTelegramNews failed: ${(e as Error).message}`); }
-  // Compliance/renewal reminders — due-date reminders + overdue escalation
-  try { void maybeProcessComplianceReminders(); } catch (e) { console.warn(`[org-daemon] maybeProcessComplianceReminders failed: ${(e as Error).message}`); }
+
+  // Async phases — run concurrently so a slow LLM call (chat nudge, research)
+  // or git push (backup) never head-blocks the next inexpensive phase.
+  await Promise.allSettled([
+    maybeRunArchitectReview().catch(e => { console.warn(`[org-daemon] maybeRunArchitectReview failed: ${(e as Error).message}`); }),
+    maybeGenerateBriefing().catch(e => { console.warn(`[org-daemon] maybeGenerateBriefing failed: ${(e as Error).message}`); }),
+    maybeNudgeChatInactivity().catch(e => { console.warn(`[org-daemon] maybeNudgeChatInactivity failed: ${(e as Error).message}`); }),
+    maybeRunProactiveResearch().catch(e => { console.warn(`[org-daemon] maybeRunProactiveResearch failed: ${(e as Error).message}`); }),
+    maybeScoreTelegramNews().catch(e => { console.warn(`[org-daemon] maybeScoreTelegramNews failed: ${(e as Error).message}`); }),
+    maybeProcessComplianceReminders().catch(e => { console.warn(`[org-daemon] maybeProcessComplianceReminders failed: ${(e as Error).message}`); }),
+  ]);
+
   // MD voice briefing — 5 min after audit (07:05) — best-effort, once per day
   try {
     const now = new Date();

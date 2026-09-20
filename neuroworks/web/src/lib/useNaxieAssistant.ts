@@ -73,14 +73,24 @@ const WAKE_PHRASE_RE = /\bhey,?\s+naxie\b/i;
 
 function loadTurns(): Turn[] {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  // One-time migration: prior versions used sessionStorage — pick it up once
+  try {
+    const legacy = sessionStorage.getItem(STORAGE_KEY);
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as Turn[];
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed.slice(-40))); } catch { /* ignore */ }
+      try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+      return parsed;
+    }
   } catch { /* ignore */ }
   return [];
 }
 
 function saveTurns(turns: Turn[]) {
-  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(turns.slice(-40))); } catch { /* ignore */ }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(turns.slice(-40))); } catch { /* ignore */ }
 }
 
 function loadAlwaysListening(): boolean {
@@ -164,7 +174,7 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
 
   useEffect(() => { saveTurns(turns); }, [turns]);
 
-  // Cross-tab / page<->widget sync — both read the same sessionStorage key.
+  // Cross-tab / page<->widget sync — now localStorage so StorageEvent fires across tabs.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY) setTurns(loadTurns());
@@ -379,7 +389,15 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
           try {
             const job: any = await api.getJob(jobId);
             if (Array.isArray(job?.result?.runs)) setWorkbenchSteps(job.result.runs);
-            if (job?.status && job.status !== "running" && job.status !== "queued") { void finish(); return; }
+            // awaiting-approval is NOT terminal — show approval card, don't fake-fail
+            if (job?.status && job.status !== "running" && job.status !== "queued" && job.status !== "awaiting-approval" && job.status !== "waiting_on_human") { void finish(); return; }
+            // If parked for approval, exit polling and let waitingTasks poll surface the card
+            if (job?.status === "awaiting-approval" || job?.status === "waiting_on_human") {
+              setBusy(false);
+              setActiveJobId(null);
+              resolve();
+              return;
+            }
           } catch { /* transient — keep polling */ }
           await new Promise(r => setTimeout(r, 1500));
         }
@@ -421,6 +439,8 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
       setActiveJobId(r.jobId);
       await watchJob(r.jobId);
     } catch (e: any) {
+      // Rollback optimistic user turn — don't pollute next context with failed input
+      setTurns(prev => prev.slice(0, -1));
       showToast(e?.message ?? String(e), "error");
       setBusy(false);
     }
@@ -439,6 +459,20 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     } catch (e: any) {
       showToast(e?.message ?? String(e), "error");
     }
+  }
+
+  function clearHistory() {
+    stopSpeaking();
+    clearFinalizeTimer();
+    micTextRef.current = "";
+    setLiveCaption("");
+    setTurns([]);
+    setWorkbenchSteps([]);
+    setWorkbenchPhase(undefined);
+    setActiveJobId(null);
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* ignore — legacy */ }
+    showToast("Chat history cleared", "success");
   }
 
   // File a raw ask to Naxie's org backlog — she classifies + queues it —
@@ -530,7 +564,7 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     requireWakeWord, setRequireWakeWord,
     pendingApprovals, waitingTasks, resolveWaitingTask, briefing: briefingVisible, dismissBriefing,
     onboardingNudge: onboardingNudgeVisible, dismissOnboardingNudge,
-    ask, speak, stopSpeaking, micToggle, delegate,
+    ask, speak, stopSpeaking, micToggle, delegate, clearHistory,
     activeJobId, workbenchSteps, workbenchPhase,
   };
 }

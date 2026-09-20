@@ -41,31 +41,31 @@ export async function buildNaxieContext(query: string, opts: { ragLimit?: number
   // slightly fresher mag slice for recency; dedupe is fine, LLM handles it.
   const mag = buildMagContext({ maxFacts: 8, includeDated: opts.includeDated });
 
-  const hits = await ragSearch(query, opts.ragLimit ?? 6);
+  // Kick ragSearch early so vault walks + pgvector embed run concurrently with
+  // the synchronous mission-log / CRM / audit file reads below.
+  const hitsPromise = ragSearch(query, opts.ragLimit ?? 6);
+  // Gather sync context slices while ragSearch is in flight
+  const syncSlices = (() => {
+    let missionLog = "";
+    try {
+      const scope = opts.scopeId ?? mostRecentScopeId() ?? dailyScopeId();
+      const notes = readRecentMissionNotes(scope);
+      if (notes) missionLog = `[Recent working notes for this task]\n${notes}`;
+    } catch { /* best-effort */ }
+    let crm = "";
+    try {
+      const summary = crmContextSummary();
+      if (summary) crm = `[CRM snapshot]\n${summary}`;
+    } catch { /* best-effort */ }
+    return { missionLog, crm };
+  })();
+
+  const hits = await hitsPromise;
   const rag = formatRagBlock(hits);
   // hits is already sorted score-desc (rag.ts) — first vault/vault-semantic
   // hit is the note the answer most likely drew from.
   const sourceNoteId = hits.find(h => h.source === "vault" || h.source === "vault-semantic")?.path ?? null;
-
-  // Mission-log tail — the agent's own working notes for the active task
-  // (or, when no explicit scope is passed, whichever scope was most recently
-  // written to, falling back to today's bucket). See mission-log.ts: this is
-  // ephemeral per-task narrative, distinct from MAG's permanent facts.
-  let missionLog = "";
-  try {
-    const scope = opts.scopeId ?? mostRecentScopeId() ?? dailyScopeId();
-    const notes = readRecentMissionNotes(scope);
-    if (notes) missionLog = `[Recent working notes for this task]\n${notes}`;
-  } catch { /* mission-log is best-effort — never break context on a read hiccup */ }
-
-  // CRM snapshot (lib/crm.ts) — ambient contacts/pipeline awareness so "how's
-  // the pipeline looking" doesn't need a dedicated tool call for the common
-  // case. Best-effort like mission-log: never break context on a read hiccup.
-  let crm = "";
-  try {
-    const summary = crmContextSummary();
-    if (summary) crm = `[CRM snapshot]\n${summary}`;
-  } catch { /* best-effort */ }
+  const { missionLog, crm } = syncSlices;
 
   // MD system audit snapshot — Naxie as managing director of every inch.
   // Best-effort: read the latest _neuroworks/system-audits/*.md frontmatter +

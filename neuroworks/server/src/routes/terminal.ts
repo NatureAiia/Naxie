@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { isSystemControlAllowed } from "../lib/host-tools.js";
 
 // Terminal command runner. Powers the UI Terminal page. NON-interactive:
 // each request runs one command (which may itself chain with && / ; / |) in a
@@ -50,9 +51,20 @@ terminalRouter.get("/status", (_req, res) => {
   });
 });
 
+function isLoopbackReq(req: any): boolean {
+  const ip = String(req.ip ?? req.socket?.remoteAddress ?? "");
+  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1" || ip.startsWith("127.");
+}
+
 terminalRouter.post("/exec", async (req, res) => {
   if (!ENABLED()) {
     return res.status(400).json({ error: "terminal disabled", hint: "set NEUROWORKS_TERMINAL=1 in clawbot/.env and restart to enable. It runs arbitrary shell commands on the host." });
+  }
+  // Non-loopback callers must also have System Control explicitly enabled in
+  // Settings > System Access — prevents network-exposed terminal from being
+  // reachable without the operator's deliberate opt-in (P0 #3 hardening).
+  if (!isLoopbackReq(req) && !isSystemControlAllowed()) {
+    return res.status(403).json({ error: "system control disabled", hint: "Enable System Control in Settings > System Access to allow off-host terminal access." });
   }
   const command = typeof req.body?.command === "string" ? req.body.command : "";
   if (!command.trim()) return res.status(400).json({ error: "command is required" });

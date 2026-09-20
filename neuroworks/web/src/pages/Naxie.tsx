@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, MicOff, Loader2, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign, Phone, PhoneOff, Share2, MessageSquare, TerminalSquare, BrainCircuit } from "lucide-react";
+import { Mic, MicOff, Loader2, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign, Phone, PhoneOff, Share2, MessageSquare, TerminalSquare, BrainCircuit, Trash2 } from "lucide-react";
 import { AgentStepFeed } from "../components/AgentStepFeed";
 import { Button } from "../components/Card";
 import { KnowledgeGraph } from "../components/KnowledgeGraph";
@@ -74,7 +74,7 @@ export function Naxie() {
     requireWakeWord, setRequireWakeWord, voice,
     waitingTasks, resolveWaitingTask, briefing, dismissBriefing,
     onboardingNudge, dismissOnboardingNudge,
-    ask, speak, stopSpeaking, micToggle,
+    ask, speak, stopSpeaking, micToggle, clearHistory,
     activeJobId, workbenchSteps, workbenchPhase,
   } = useNaxieAssistant();
   const [input, setInput] = useState("");
@@ -105,13 +105,13 @@ export function Naxie() {
     idle: "Standing by",
     listening: "Listening…",
     thinking: "Thinking…",
-    speaking: "Peaking…",
+    speaking: "Speaking…",
   }[orbState];
   const orbDescription = {
     idle: alwaysListening ? "Always listening — just start talking, or type below." : "Tap the mic and say something, or type a message below.",
     listening: alwaysListening ? "Listening — tap the mic to mute." : "Listening — speak now, tap the mic again to send.",
     thinking: "Thinking — your question is with the assistant.",
-    speaking: "Peaking the response with a live voice output.",
+    speaking: "Speaking the response with live voice output.",
   }[orbState];
 
   const waitingCards: Turn[] = waitingTasks.map(t => ({
@@ -145,6 +145,17 @@ export function Naxie() {
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            {turns.length > 0 && (
+              <button
+                type="button"
+                onClick={() => { if (window.confirm("Clear all chat history? This cannot be undone.")) clearHistory(); }}
+                title="Clear chat history"
+                aria-label="Clear chat history"
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-full border bg-ink-800 border-ink-700 text-cream-300 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-300 transition-colors"
+              >
+                <Trash2 size={12} /> Clear
+              </button>
+            )}
             {view !== "chat" && (
               <button
                 type="button"
@@ -240,6 +251,8 @@ export function Naxie() {
                     type="button"
                     onClick={() => startLiveCall()}
                     disabled={liveCallBlocked}
+                    title={liveCallBlocked ? "Turn off Always listening in Controls to start a live call" : "Start live call"}
+                    aria-describedby={liveCallBlocked ? "live-call-blocked-tip" : undefined}
                     className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/15 disabled:opacity-40 text-xs font-medium transition-colors"
                   >
                     <Phone size={13} /> Start live call
@@ -258,6 +271,9 @@ export function Naxie() {
                       <div className="text-[11px] leading-relaxed text-cream-200 bg-ink-900 border border-violet-500/20 rounded-xl px-3 py-2 text-center">{liveCallCaption}</div>
                     )}
                   </div>
+                )}
+                {liveCallBlocked && callLive === "off" && (
+                  <div id="live-call-blocked-tip" className="text-[10px] text-cream-300/50 text-center mt-1.5">Turn off Always listening in Controls to start a call</div>
                 )}
               </div>
             )}
@@ -321,7 +337,7 @@ export function Naxie() {
                 </div>
               </div>
             )}
-            <ChatDayPill />
+            {recentChat.length > 0 && <ChatDayPill />}
             {onboardingNudge && (
               <NaxieResultCard turn={{ role: "assistant", text: t("onboarding.nudge.text"), kind: "onboarding" }} onDismiss={dismissOnboardingNudge} />
             )}
@@ -338,6 +354,17 @@ export function Naxie() {
                 {recentChat.map((t, i) => (
                   <NaxieResultCard key={i} turn={t} onReplay={speak} />
                 ))}
+              </div>
+            )}
+            {turns.length > 0 && (
+              <div className="flex justify-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => { if (window.confirm("Clear all chat history? This cannot be undone.")) clearHistory(); }}
+                  className="inline-flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-full border border-ink-800 bg-ink-900/40 text-cream-300/60 hover:bg-red-500/10 hover:border-red-500/20 hover:text-red-300 transition-colors"
+                >
+                  <Trash2 size={11} /> Clear chat history
+                </button>
               </div>
             )}
             {recentChat.length > 5 && (

@@ -21,7 +21,7 @@
 // field can override.)
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getFallbackChain } from "./model-providers.js";
@@ -165,12 +165,38 @@ export function ttsCacheLoad(key: string): { audio: Buffer; contentType: string 
   return null;
 }
 
+const TTS_CACHE_MAX_FILES = Number(process.env.NEUROWORKS_TTS_CACHE_MAX_FILES ?? 500);
+const TTS_CACHE_MAX_BYTES = Number(process.env.NEUROWORKS_TTS_CACHE_MAX_BYTES ?? 200 * 1024 * 1024);
+
+function pruneTtsCacheIfNeeded(): void {
+  try {
+    const files = readdirSync(TTS_CACHE_DIR)
+      .map((name: string) => {
+        const p = join(TTS_CACHE_DIR, name);
+        try {
+          const s = statSync(p);
+          return { path: p, mtimeMs: s.mtimeMs, size: s.size };
+        } catch { return null; }
+      })
+      .filter(Boolean) as { path: string; mtimeMs: number; size: number }[];
+    if (files.length <= TTS_CACHE_MAX_FILES && files.reduce((a, f) => a + f.size, 0) <= TTS_CACHE_MAX_BYTES) return;
+    files.sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
+    let total = files.reduce((a, f) => a + f.size, 0);
+    let count = files.length;
+    for (const f of files) {
+      if (count <= TTS_CACHE_MAX_FILES && total <= TTS_CACHE_MAX_BYTES) break;
+      try { unlinkSync(f.path); total -= f.size; count -= 1; } catch { /* ignore */ }
+    }
+  } catch { /* ignore — cache dir missing or unreadable */ }
+}
+
 export function ttsCacheStore(key: string, audio: Buffer, contentType: string): void {
   const ext = TTS_CACHE_EXT_BY_CONTENT_TYPE[contentType];
   if (!ext) return;
   try {
     mkdirSync(TTS_CACHE_DIR, { recursive: true });
     writeFileSync(join(TTS_CACHE_DIR, `${key}.${ext}`), audio);
+    pruneTtsCacheIfNeeded();
   } catch (e) {
     console.warn(`[voice] Failed to write TTS cache entry: ${String((e as any)?.message ?? e).slice(0, 120)}`);
   }
