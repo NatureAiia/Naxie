@@ -1578,8 +1578,9 @@ async function buildBreakingNewsCard(opts: {
   lines.push(opts.whyHeader);
   lines.push(why);
   lines.push("");
-  lines.push(`\uD83D\uDCF0 Read more: ${readMore}`);
-  lines.push(`\uD83D\uDCF2 Follow our channel: ${opts.whatsappUrl}`);
+  lines.push(`📰 Read more: https://aiinstituteafrica.com/ai-breaking-news`);
+  lines.push(`💬 Aiia WhatsApp Channel: https://whatsapp.com/channel/0029VbCnGOZ17Emxkedqz52g`);
+  lines.push(`🧐Breaking News Channel: https://whatsapp.com/channel/0029VbCzaXQ2kNFn6dCcdp28`);
   lines.push("");
   lines.push(hashtags);
   if (opts.videoUrl) { lines.push(""); lines.push(`\uD83C\uDFAC Video: ${opts.videoUrl}`); }
