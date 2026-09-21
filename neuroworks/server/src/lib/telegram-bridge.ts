@@ -296,6 +296,123 @@ function appendHistory(chatId: string, role: "user" | "assistant", content: stri
   chatHistory.set(chatId, h);
 }
 
+async function handleEmailCallback(token: string, allow: Set<string>, cb: any): Promise<void> {
+  try {
+    const data: string = String(cb.data ?? "");
+    const chatId = String(cb.message?.chat?.id ?? cb.from?.id ?? "");
+    if (!allow.has(chatId)) return;
+    const cbId = String(cb.id ?? "");
+
+    void tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Processing email..." }).catch(() => {});
+
+    const m = data.match(/^email:(respond|snooze|ignore|confirm_send|edit|handle_all):?(.*)$/);
+    if (!m) return;
+
+    const [, action, triageId] = m;
+    const { loadTriageStore, saveTriageStore } = await import("./email.js");
+    const store = loadTriageStore();
+
+    if (action === "handle_all") {
+      const pending = Object.entries(store).filter(([, e]) => e.status !== "resolved");
+      const list = pending.length
+        ? pending.map(([id, e]) => `• ${e.sender} (${e.subject}) [${id}]`).join("\n")
+        : "Triage queue is empty.";
+      await tg(token, "sendMessage", { chat_id: chatId, text: `📧 Triage queue (${pending.length}):\n\n${list}`, parse_mode: "HTML" });
+      return;
+    }
+
+    const entry = store[triageId];
+
+    if (!entry) {
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Email not found in triage store" });
+      return;
+    }
+
+    if (action === "ignore") {
+      delete store[triageId];
+      saveTriageStore(store);
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Ignored" });
+      void tg(token, "sendMessage", { chat_id: chatId, text: `🗑️ Ignored email from ${entry.sender}`, parse_mode: "HTML" }).catch(() => {});
+    } else if (action === "snooze") {
+      entry.status = "snoozed";
+      saveTriageStore(store);
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Snoozed" });
+      void tg(token, "sendMessage", { chat_id: chatId, text: `⏰ Snoozed email from ${entry.sender}`, parse_mode: "HTML" }).catch(() => {});
+    } else if (action === "edit") {
+      entry.status = "awaiting_edit";
+      (entry as any).awaitingEditChatId = chatId;
+      saveTriageStore(store);
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Send your edited version" });
+      void tg(token, "sendMessage", { chat_id: chatId, text: `✏️ Send your edited version for <b>${escapeHtml(entry.sender)}</b> as your next message here, and I'll stage it for sending.`, parse_mode: "HTML" }).catch(() => {});
+    } else if (action === "confirm_send") {
+      // Actually send the email using the stored draft
+      if (!entry.draftBody) {
+        await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "No draft found" });
+        return;
+      }
+
+      const { sendEmailFromAccount } = await import("./email.js");
+      try {
+        const res = await sendEmailFromAccount(entry.accountId, {
+          to: [entry.sender],
+          subject: `Re: ${entry.subject}`,
+          body: entry.draftBody,
+        });
+
+        if (res.sent) {
+          delete store[triageId];
+          saveTriageStore(store);
+          await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Sent!" });
+          void tg(token, "sendMessage", { chat_id: chatId, text: `✅ Email sent to ${entry.sender}`, parse_mode: "HTML" }).catch(() => {});
+        } else {
+          await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Failed to send" });
+        }
+      } catch (e: any) {
+        await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: `Send failed: ${String(e?.message ?? e).slice(0, 60)}` });
+      }
+    } else if (action === "respond") {
+      // Trigger agent to draft a response
+      const BASE = `http://127.0.0.1:${config.port}`;
+      const r = await fetch(`${BASE}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: "You are Naxie. Draft a professional response to this email. Use the user's vault for context." },
+            { role: "user", content: `Draft a response to this email:\nFrom: ${entry.sender}\nSubject: ${entry.subject}\nBody: ${entry.body}` }
+          ],
+          persona: "naxie"
+        })
+      });
+      const res = await r.json();
+      const draft = res.text ?? "I couldn't generate a draft.";
+
+      // SAVE THE DRAFT TO STORE
+      const { loadTriageStore: loadT, saveTriageStore: saveT } = await import("./email.js");
+      const currentStore = loadT();
+      if (currentStore[triageId]) {
+        currentStore[triageId].draftBody = draft;
+        saveT(currentStore);
+      }
+
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Draft generated" });
+      await tg(token, "sendMessage", { 
+        chat_id: chatId, 
+        text: `📝 *Draft Response to ${entry.sender}:*\n\n${draft}\n\nShall I send this?`,
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "✅ Send", callback_data: `email:confirm_send:${triageId}` },
+            { text: "❌ Edit", callback_data: `email:edit:${triageId}` }
+          ]]
+        }
+      });
+    }
+  } catch (e: any) {
+    console.warn(`[telegram] email callback failed: ${e?.message ?? e}`);
+  }
+}
+
 async function handleTodoCallback(token: string, allow: Set<string>, cb: any): Promise<void> {
   try {
     const data: string = String(cb.data ?? "");
@@ -347,6 +464,10 @@ async function handleTodoCallback(token: string, allow: Set<string>, cb: any): P
 
 async function processUpdate(token: string, allow: Set<string>, update: any): Promise<void> {
   if (update.callback_query) {
+    const data = String(update.callback_query.data ?? "");
+    if (data.startsWith("email:")) {
+      return handleEmailCallback(token, allow, update.callback_query);
+    }
     return handleTodoCallback(token, allow, update.callback_query);
   }
   const msg = update.message ?? update.channel_post;
@@ -384,6 +505,40 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
   }
 
   let text = msg.text.trim();
+
+  // ── Email triage edit capture ──
+  // If this DM chat has an email awaiting an edited draft, treat the next
+  // text message as the edited version (unless it looks like a new command).
+  // Groups are excluded — too ambiguous there.
+  if (!isGroup && text.length > 0 && !text.startsWith("/")) {
+    try {
+      const { loadTriageStore, saveTriageStore } = await import("./email.js");
+      const triageStore = loadTriageStore();
+      const awaiting = Object.entries(triageStore).find(
+        ([, e]) => (e as any).status === "awaiting_edit" && ((e as any).awaitingEditChatId ?? chatId) === chatId,
+      );
+      if (awaiting) {
+        const [triageId, tEntry] = awaiting as [string, any];
+        tEntry.draftBody = text;
+        tEntry.status = "pending";
+        delete tEntry.awaitingEditChatId;
+        saveTriageStore(triageStore);
+        await tg(token, "sendMessage", {
+          chat_id: chatId,
+          text: `📝 <b>Staged edited reply to ${escapeHtml(tEntry.sender)}:</b>\n\n${escapeHtml(text.slice(0, 1500))}${text.length > 1500 ? "…" : ""}\n\nShall I send this?`,
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "✅ Send", callback_data: `email:confirm_send:${triageId}` },
+              { text: "✏️ Edit again", callback_data: `email:edit:${triageId}` },
+            ]],
+          },
+        });
+        state.processed += 1;
+        return;
+      }
+    } catch (e: any) { console.warn(`[telegram] edit-capture failed: ${e?.message ?? e}`); }
+  }
 
   // In a group, only act when the bot is @mentioned or the message replies to
   // the bot — otherwise it's not for us. Strip the mention before the agent.

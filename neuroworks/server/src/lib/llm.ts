@@ -32,7 +32,7 @@ export type LLMCallOptions = {
   onRoutingDecision?: (info: { backend: Backend; model: string; reason?: string; tokenEstimate: number }) => void;
 };
 
-export type Backend = "ollama" | "openrouter" | "little-coder";
+export type Backend = "ollama" | "openrouter" | "little-coder" | "ollama_cloud";
 
 const PROFILE_ENV_KEYS: Record<NonNullable<LLMCallOptions["profile"]>, string> = {
   planning:   "OPENROUTER_PLAN_MODEL",
@@ -294,7 +294,7 @@ export async function llmGenerateWithMeta(prompt: string, system?: string, opts:
     // rethrow unchanged — this is purely an observability hook.
     try {
       const { backend, model } = await chooseBackendAndModel(opts, prompt, system);
-      recordLlmFailure(model, backend === "little-coder" ? "ollama" : backend, opts.profile ?? "none", e?.message ?? String(e), "adhoc");
+      recordLlmFailure(model, backend, opts.profile ?? "none", e?.message ?? String(e), "adhoc");
     } catch { /* best-effort */ }
     throw e;
   }

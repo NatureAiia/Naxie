@@ -15,20 +15,11 @@
 // inbound bridge would let anyone email-trigger jobs against the user's machine
 // and vault. The allow-list gates WHO may drive clawbot.
 //
-// Config (all via env — see clawbot/.env.example):
-//   NEUROWORKS_EMAIL_USER             clawbot's gmail address (IMAP+SMTP login)
-//   NEUROWORKS_EMAIL_APP_PASSWORD     gmail APP password (not the account password)
-//   NEUROWORKS_EMAIL_FROM             From: header (defaults to USER)
-//   NEUROWORKS_EMAIL_ALLOWED_SENDERS  comma list of addresses allowed to drive clawbot
-//   NEUROWORKS_EMAIL_POLL_MS          inbox poll interval (default 30000, min 10000)
-//   NEUROWORKS_EMAIL_IMAP_HOST/PORT   default imap.gmail.com:993
-//   NEUROWORKS_EMAIL_SMTP_HOST/PORT   default smtp.gmail.com:465
-//   NEUROWORKS_EMAIL=0                hard-disable the bridge even if creds present
-
 import nodemailer, { type Transporter } from "nodemailer";
 import { existsSync, readFileSync, statSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { basename, extname, join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { ImapFlow } from "imapflow";
 import { simpleParser, type ParsedMail } from "mailparser";
 import { marked } from "marked";
@@ -40,54 +31,82 @@ import { importBinaryIntoVault, writeVaultFile } from "./vault.js";
 import { extractDocText } from "./doc-extractor.js";
 import { enqueueVaultCommit } from "./commit-queue.js";
 
-// How inbound email requests reach clawbot:
-//   "webhook" — Mailjet Parse API POSTs to our token-gated webhook (no Gmail).
-//   "imap"    — legacy: poll a Gmail mailbox over IMAP.
-//   "off"     — outbound only.
-// Defaults to "imap" for back-compat unless NEUROWORKS_EMAIL_INBOUND_MODE is set.
-type InboundMode = "webhook" | "imap" | "off";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
 
-type EmailEnv = {
+type EmailAccount = {
+  id: string;
   user: string;
   pass: string;
   from: string;
-  allowedSenders: string[];
-  pollMs: number;
   imapHost: string;
   imapPort: number;
   smtpHost: string;
   smtpPort: number;
-  // Mailjet HTTPS API credentials — when both are present, outbound goes
-  // through api.mailjet.com/v3.1/send instead of the nodemailer SMTP
-  // transport. Inbound (IMAP) is unaffected; Mailjet is send-only.
+  enabled: boolean;
+};
+
+const EMAIL_CONFIG_PATH = resolve(CONFIG_DIR, "email-accounts.json");
+const EMAIL_TRIAGE_PATH = resolve(CONFIG_DIR, "email-triage.json");
+
+export type TriageEntry = {
+  accountId: string;
+  uid: number;
+  sender: string;
+  subject: string;
+  body: string;
+  draftBody?: string;
+  status: "pending" | "snoozed" | "resolved" | "awaiting_edit";
+  receivedAt: string;
+  awaitingEditChatId?: string;
+};
+
+export function loadTriageStore(): Record<string, TriageEntry> {
+  try {
+    if (!existsSync(EMAIL_TRIAGE_PATH)) return {};
+    return JSON.parse(readFileSync(EMAIL_TRIAGE_PATH, "utf8"));
+  } catch { return {}; }
+}
+
+export function saveTriageStore(store: Record<string, TriageEntry>) {
+  writeFileSync(EMAIL_TRIAGE_PATH, JSON.stringify(store, null, 2));
+}
+
+export function listTriage() {
+  return loadTriageStore();
+}
+
+export function loadEmailAccounts(): EmailAccount[] {
+  try {
+    if (!existsSync(EMAIL_CONFIG_PATH)) return [];
+    const parsed = JSON.parse(readFileSync(EMAIL_CONFIG_PATH, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+type InboundMode = "webhook" | "imap" | "off";
+
+type GlobalEmailConfig = {
+  allowedSenders: string[];
+  pollMs: number;
   mailjetApiKey: string;
   mailjetApiSecret: string;
   inboundMode: InboundMode;
-  // Reply-To address. Set to the Mailjet Parse inbound address
-  // (…@parse-in1.mailjet.com) so when a recipient hits "Reply", the message
-  // routes into the inbound webhook pipeline — even though From shows the
-  // friendly arthur@rubiem.com. Without this, replies go to the From mailbox
-  // and never reach Mailjet Parse, so they can't trigger a task.
   replyTo: string;
+  triageMode?: boolean;
 };
 
-function readEnv(): EmailEnv {
-  const user = (process.env.NEUROWORKS_EMAIL_USER ?? "").trim();
-  const pass = (process.env.NEUROWORKS_EMAIL_APP_PASSWORD ?? "").trim();
-  const from = (process.env.NEUROWORKS_EMAIL_FROM ?? "").trim() || user;
+export function readGlobalConfig(): GlobalEmailConfig {
   const allowedSenders = (process.env.NEUROWORKS_EMAIL_ALLOWED_SENDERS ?? "")
     .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
   const pollMs = Math.max(10_000, Number(process.env.NEUROWORKS_EMAIL_POLL_MS ?? "30000") || 30_000);
-  const imapHost = (process.env.NEUROWORKS_EMAIL_IMAP_HOST ?? "imap.gmail.com").trim();
-  const imapPort = Number(process.env.NEUROWORKS_EMAIL_IMAP_PORT ?? "993") || 993;
-  const smtpHost = (process.env.NEUROWORKS_EMAIL_SMTP_HOST ?? "smtp.gmail.com").trim();
-  const smtpPort = Number(process.env.NEUROWORKS_EMAIL_SMTP_PORT ?? "465") || 465;
   const mailjetApiKey = (process.env.NEUROWORKS_MAILJET_API_KEY ?? "").trim();
   const mailjetApiSecret = (process.env.NEUROWORKS_MAILJET_API_SECRET ?? "").trim();
   const rawMode = (process.env.NEUROWORKS_EMAIL_INBOUND_MODE ?? "").trim().toLowerCase();
   const inboundMode: InboundMode = rawMode === "webhook" || rawMode === "off" ? rawMode : "imap";
   const replyTo = (process.env.NEUROWORKS_EMAIL_REPLY_TO ?? "").trim();
-  return { user, pass, from, allowedSenders, pollMs, imapHost, imapPort, smtpHost, smtpPort, mailjetApiKey, mailjetApiSecret, inboundMode, replyTo };
+  const triageMode = (process.env.NEUROWORKS_EMAIL_TRIAGE_MODE ?? "").trim().toLowerCase() === "1";
+  return { allowedSenders, pollMs, mailjetApiKey, mailjetApiSecret, inboundMode, replyTo, triageMode };
 }
 
 // The inbound allow-list used to be ONLY the static NEUROWORKS_EMAIL_ALLOWED_
@@ -120,6 +139,119 @@ async function resolveAllowedSenders(envList: string[]): Promise<string[]> {
   } catch { /* users store optional at this call site — env list still applies */ }
   return [...merged];
 }
+
+/** List recent emails across all enabled accounts. Used by the AI agent to discover new messages. */
+export async function listRecentEmails(limit = 20): Promise<{ emails: any[] }> {
+  const accounts = loadEmailAccounts().filter(a => a.enabled);
+  const allEmails: any[] = [];
+  const perAccount = Math.max(5, Math.min(50, limit));
+  // Bound the UID scan so huge inboxes don't force a full-UID listing.
+  // Prefer mail from the last 90 days; fall back to the tail of the mailbox
+  // when the date filter yields nothing (e.g. quiet accounts).
+  const since = new Date(Date.now() - 90 * 86400_000);
+
+  for (const account of accounts) {
+    const client = new ImapFlow({
+      host: account.imapHost,
+      port: account.imapPort,
+      secure: true,
+      auth: { user: account.user, pass: account.pass },
+      logger: false,
+    });
+    await client.connect();
+    try {
+      const lock = await client.getMailboxLock("INBOX");
+      try {
+        const sinceRes: unknown = await client.search({ since }, { uid: true });
+        let uids: number[] = Array.isArray(sinceRes) ? sinceRes as number[] : [];
+        if (!uids.length) {
+          const allRes: unknown = await client.search({ all: true }, { uid: true });
+          uids = Array.isArray(allRes) ? allRes as number[] : [];
+        }
+        if (uids.length) {
+          const recentUids = uids.slice(-perAccount);
+          for await (const msg of client.fetch(recentUids, { envelope: true }, { uid: true })) {
+            const env = msg.envelope;
+            allEmails.push({
+              accountId: account.id,
+              uid: msg.uid,
+              sender: env?.from?.[0]?.address ?? "unknown",
+              subject: env?.subject ?? "(no subject)",
+              date: env?.date,
+            });
+          }
+        }
+      } finally {
+        lock.release();
+      }
+    } finally {
+      await client.logout().catch(() => {});
+    }
+  }
+  
+  allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  return { emails: allEmails.slice(0, limit) };
+}
+
+/** Read a specific email by UID and account ID. */
+export async function readEmail(accountId: string, uid: number): Promise<{ body: string; sender: string; subject: string; date: string }> {
+  const account = loadEmailAccounts().find(a => a.id === accountId);
+  if (!account) throw new Error(`Email account ${accountId} not found`);
+  
+  const client = new ImapFlow({
+    host: account.imapHost,
+    port: account.imapPort,
+    secure: true,
+    auth: { user: account.user, pass: account.pass },
+    logger: false,
+  });
+  await client.connect();
+  try {
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const msg = await client.fetchOne(String(uid), { source: true });
+      if (!msg || (msg as any) === false || !(msg as any).source) throw new Error(`Email uid=${uid} not found`);
+      const parsed = await simpleParser((msg as any).source as Buffer);
+      return {
+        body: parsed.text ?? "",
+        sender: parsed.from?.value?.[0]?.address ?? "unknown",
+        subject: parsed.subject ?? "(no subject)",
+        date: parsed.date ? new Date(parsed.date).toISOString() : "",
+      };
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => {});
+  }
+}
+
+/** General outbound email send from a specific account. Support markdown body and file attachments. */
+export async function sendEmailFromAccount(accountId: string, opts: {
+  to: string[];
+  subject: string;
+  body: string; // markdown
+  attachments?: string[];
+}): Promise<{ sent: boolean }> {
+  const account = loadEmailAccounts().find(a => a.id === accountId);
+  if (!account) throw new Error(`Email account ${accountId} not found`);
+  
+  const global = readGlobalConfig();
+  const attachments = opts.attachments ? loadAttachments(opts.attachments) : [];
+  const text = mdToPlainText(opts.body);
+  const html = await renderHtml(opts.body);
+  
+  await sendOutbound(account, global, {
+    to: opts.to,
+    subject: opts.subject,
+    text,
+    html,
+    attachments,
+  });
+  
+  return { sent: true };
+}
+
 
 // ── Attachments ──────────────────────────────────────────────────────
 // A loaded, ready-to-send file. Built by loadAttachments() from disk paths;
@@ -298,7 +430,7 @@ export async function fileAttachmentsToVault(attachments: InboundAttachment[] | 
 // Auth is HTTP Basic with API_KEY:SECRET. The From: address must be on a
 // domain verified in the Mailjet dashboard or the send is rejected with
 // a "sender_unverified" / domain_not_authorized style error.
-async function sendViaMailjet(env: EmailEnv, opts: {
+async function sendViaMailjet(env: GlobalEmailConfig & { from: string }, opts: {
   to: string[];
   subject: string;
   text: string;
@@ -381,7 +513,7 @@ async function sendViaMailjet(env: EmailEnv, opts: {
 // set, otherwise falls back to the existing nodemailer SMTP transport. Both
 // call sites (reply and test) route through here so the transport choice
 // lives in one place.
-async function sendOutbound(env: EmailEnv, opts: {
+async function sendOutbound(account: EmailAccount, global: GlobalEmailConfig, opts: {
   to: string[];
   subject: string;
   text: string;
@@ -390,13 +522,13 @@ async function sendOutbound(env: EmailEnv, opts: {
   references?: string[];
   attachments?: EmailAttachment[];
 }): Promise<void> {
-  if (env.mailjetApiKey && env.mailjetApiSecret) {
+  if (global.mailjetApiKey && global.mailjetApiSecret) {
     // One retry on TRANSIENT gateway failures (5xx / timeout) — observed live
     // 2026-07-19: a single Mailjet 502 failed an otherwise-correct send and
     // the agent reported "no email transmission mechanism". Validation errors
     // (4xx) and auth failures still throw immediately; a retry can't fix those.
     try {
-      return await sendViaMailjet(env, opts);
+      return await sendViaMailjet({ ...global, from: account.from }, opts);
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       // 5xx gateway, explicit send timeout, AND 408 Request Timeout — the 408
@@ -406,16 +538,17 @@ async function sendOutbound(env: EmailEnv, opts: {
       if (!transient) throw e;
       console.warn(`[email] transient mailjet failure (${msg.slice(0, 120)}) — retrying once in 3s`);
       await new Promise(r => setTimeout(r, 3000));
-      return await sendViaMailjet(env, opts);
+      return await sendViaMailjet({ ...global, from: account.from }, opts);
     }
   }
-  if (!transporter) throw new Error("email transport not initialised");
+  const transporter = transporters.get(account.id);
+  if (!transporter) throw new Error(`email transport not initialised for account ${account.user}`);
   await transporter.sendMail({
-    from: env.from,
+    from: account.from,
     to: opts.to.join(", "),  // nodemailer accepts a comma-separated address list natively
     subject: opts.subject,
     text: opts.text,
-    ...(env.replyTo ? { replyTo: env.replyTo } : {}),
+    ...(global.replyTo ? { replyTo: global.replyTo } : {}),
     ...(opts.html ? { html: opts.html } : {}),
     ...(opts.inReplyTo ? { inReplyTo: opts.inReplyTo } : {}),
     ...(opts.references?.length ? { references: opts.references } : {}),
@@ -430,7 +563,11 @@ async function sendOutbound(env: EmailEnv, opts: {
  *  without the IMAP creds, but sendTestEmail / sendReply work either way. */
 export function emailConfigured(): boolean {
   if (process.env.NEUROWORKS_EMAIL === "0") return false;
-  const { user, pass, mailjetApiKey, mailjetApiSecret } = readEnv();
+  const global = readGlobalConfig();
+  const accounts = loadEmailAccounts().filter(a => a.enabled);
+  const user = accounts[0]?.user ?? "";
+  const pass = accounts[0]?.pass ?? "";
+  const { mailjetApiKey, mailjetApiSecret } = global;
   // Outbound-only via Mailjet HTTPS: both halves of Mailjet auth + a From: user.
   if (mailjetApiKey.length > 0 && mailjetApiSecret.length > 0 && user.length > 0) return true;
   // Otherwise the legacy SMTP path needs full IMAP/SMTP creds.
@@ -438,9 +575,9 @@ export function emailConfigured(): boolean {
 }
 
 // ─── Runtime state ───
-let transporter: Transporter | null = null;
-let pollTimer: NodeJS.Timeout | null = null;
-let polling = false;          // guards overlapping poll ticks
+const transporters = new Map<string, Transporter>();
+const pollTimers = new Map<string, NodeJS.Timeout>();
+let pollingAccounts = new Set<string>();
 let started = false;
 const status = {
   lastPollAt: null as string | null,
@@ -451,7 +588,9 @@ const status = {
 };
 
 export async function getEmailStatus() {
-  const env = emailConfigured() ? readEnv() : null;
+  const env = emailConfigured() ? readGlobalConfig() : null;
+  const accounts = loadEmailAccounts().filter(a => a.enabled);
+  const first = accounts[0];
   const effectiveAllowedSenders = env ? await resolveAllowedSenders(env.allowedSenders) : [];
   return {
     configured: emailConfigured(),
@@ -466,12 +605,12 @@ export async function getEmailStatus() {
     inboundMode: env?.inboundMode ?? null,
     inboundEnabled: !!env && effectiveAllowedSenders.length > 0 && (
       env.inboundMode === "webhook" ? getInboundWebhookStatus().running
-      : env.inboundMode === "imap" ? env.user.length > 0 && env.pass.length > 0
+      : env.inboundMode === "imap" ? !!first?.user && !!first?.pass
       : false
     ),
     webhook: env?.inboundMode === "webhook" ? getInboundWebhookStatus() : null,
-    user: env?.user ?? null,
-    from: env?.from ?? null,
+    user: first?.user ?? null,
+    from: first?.from ?? null,
     replyTo: env?.replyTo || null,
     // The FULL effective list (env + every active registered user) so the
     // Settings/status view shows who can actually drive the bridge, not just
@@ -638,7 +777,7 @@ async function renderHtml(md: string): Promise<string> {
   return buildEmailHtml(inner);
 }
 
-async function sendReply(env: EmailEnv, opts: {
+async function sendReply(account: EmailAccount, global: GlobalEmailConfig, opts: {
   to: string;
   subject: string;
   body: string;            // markdown
@@ -648,13 +787,16 @@ async function sendReply(env: EmailEnv, opts: {
   // Mailjet HTTPS path doesn't need a nodemailer transport; only the
   // legacy SMTP path does. Guard accordingly so a Mailjet-only config
   // still sends replies.
-  const useMailjet = !!(env.mailjetApiKey && env.mailjetApiSecret);
-  if (!useMailjet && !transporter) return;
+  const useMailjet = !!(global.mailjetApiKey && global.mailjetApiSecret);
+  if (!useMailjet) {
+    const transporter = transporters.get(account.id);
+    if (!transporter) return;
+  }
   const subject = /^re:/i.test(opts.subject) ? opts.subject : `Re: ${opts.subject || "your message"}`;
   const text = mdToPlainText(opts.body);
   let html: string | undefined;
   try { html = await renderHtml(opts.body); } catch { html = undefined; }
-  await sendOutbound(env, {
+  await sendOutbound(account, global, {
     to: [opts.to],
     subject,
     text,
@@ -687,21 +829,20 @@ export type InboundMessage = {
 // configured outbound transport. Returns a status so the webhook can turn it
 // into an HTTP response. The allow-list is the trust gate for BOTH transports:
 // a forged webhook POST still has to claim an allow-listed From to do anything.
-export async function processInboundEmail(msg: InboundMessage): Promise<{ status: "processed" | "ignored" | "empty" | "error"; reason?: string; jobId?: string }> {
-  if (!emailConfigured()) return { status: "error", reason: "email not configured" };
-  const env = readEnv();
+export async function processInboundEmail(account: EmailAccount, global: GlobalEmailConfig, msg: InboundMessage): Promise<{ status: "processed" | "ignored" | "empty" | "error"; reason?: string; jobId?: string }> {
   const sender = (msg.sender ?? "").toLowerCase().trim();
   if (!sender) return { status: "ignored", reason: "no sender" };
   // ── Allow-list gate (the security boundary) ──
   // Effective list = env addresses UNION every active registered user — see
   // resolveAllowedSenders. A user needs no .env edit to use the bridge.
-  const effectiveAllowedSenders = await resolveAllowedSenders(env.allowedSenders);
+  const effectiveAllowedSenders = await resolveAllowedSenders(global.allowedSenders);
   if (!effectiveAllowedSenders.includes(sender)) {
     status.skippedUnauthorized += 1;
     console.warn(`[email] ignored message from non-allowlisted sender: ${sender}`);
-    return { status: "ignored", reason: "sender not allow-listed" }; // silent — no backscatter to a possibly-spoofed From
+    return { status: "ignored", reason: "sender not allow-listed" }; // silent — don't backscatter to a possibly-spoofed From
   }
-
+  
+  
   // Anti-spoofing: an allow-listed From is attacker-controlled until verified.
   // The IMAP path supplies a cryptographic DKIM/DMARC verdict; reject explicit
   // failures (a spoof), and unverifiable mail too when REQUIRE_AUTH=strict.
@@ -712,11 +853,11 @@ export async function processInboundEmail(msg: InboundMessage): Promise<{ status
     return { status: "ignored", reason: `email auth ${msg.authVerdict}` }; // silent — don't backscatter a spoof
   }
   if (msg.authVerdict === "unknown") console.warn(`[email] ${sender}: DKIM/DMARC UNVERIFIED — relying on allow-list`);
-
+  
   const subject = msg.subject ?? "";
   const { route, cleanSubject } = routeFromSubject(subject);
   const prompt = [cleanSubject, msg.body].filter(Boolean).join("\n\n").trim();
-
+  
   // CRM linkage — every inbound email becomes a contact + activity for free.
   // Best-effort: a CRM failure must never block the actual email reply.
   try {
@@ -739,12 +880,44 @@ export async function processInboundEmail(msg: InboundMessage): Promise<{ status
   const { threadKeyFor, getThreadHistory, appendThreadTurn } = await import("./email-threads.js");
   const threadKey = threadKeyFor({ references: msg.references, inReplyTo: msg.inReplyTo, messageId: msg.messageId, sender, subject });
   if (!prompt) {
-    await sendReply(env, { to: sender, subject, body: "I received an empty message — put a question or task in the subject or body and I'll get on it.\n\n— Neuro", inReplyTo: msg.messageId, references: msg.references });
+    await sendReply(account, global, { to: sender, subject, body: "I received an empty message — put a question or task in the subject or body and I'll get on it.\n\n— Neuro", inReplyTo: msg.messageId, references: msg.references });
     return { status: "empty" };
+  }
+
+  // ── Triage Mode Logic ──
+  if (global.triageMode) {
+    // In triage mode, we do NOT auto-reply. We notify via Telegram and store in the triage list.
+    const triageId = `${account.id}:${msg.messageId ?? Date.now()}`;
+    const store = loadTriageStore();
+    store[triageId] = {
+      accountId: account.id,
+      uid: (msg as any).uid ?? 0,
+      sender,
+      subject,
+      body: prompt,
+      status: "pending",
+      receivedAt: new Date().toISOString(),
+    };
+    saveTriageStore(store);
+
+    const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    await sendTelegramMessage(
+      `📧 *New Email Triage*\n\n*From:* ${sender}\n*Subject:* ${subject}\n\n${prompt.slice(0, 200)}${prompt.length > 200 ? "..." : ""}\n\nHow should I handle this?`,
+      undefined,
+      [
+        [
+          { text: "Respond", callback_data: `email:respond:${triageId}` },
+          { text: "Snooze", callback_data: `email:snooze:${triageId}` },
+          { text: "Ignore", callback_data: `email:ignore:${triageId}` },
+        ],
+      ],
+    );
+    return { status: "processed", reason: "notified_user_for_triage" };
   }
 
   status.inflight += 1;
   try {
+
     let answer = "";
     let jobId: string | undefined;
     if (route === "team") {
@@ -789,8 +962,7 @@ export async function processInboundEmail(msg: InboundMessage): Promise<{ status
         appendThreadTurn(threadKey, "assistant", answer);
       } catch (e: any) { console.warn(`[email] thread append failed: ${e?.message ?? e}`); }
     }
-
-    await sendReply(env, {
+    await sendReply(account, global, {
       to: sender,
       subject: cleanSubject || subject,
       body: `${answer}\n\n— Neuro`,
@@ -803,7 +975,7 @@ export async function processInboundEmail(msg: InboundMessage): Promise<{ status
   } catch (e: any) {
     console.error(`[email] processInboundEmail failed for ${sender}: ${e?.stack ?? e}`);
     try {
-      await sendReply(env, { to: sender, subject: cleanSubject || subject, body: `Sorry — I hit an error handling that: ${String(e?.message ?? e).slice(0, 200)}\n\n— Neuro`, inReplyTo: msg.messageId, references: msg.references });
+      await sendReply(account, global, { to: sender, subject: cleanSubject || subject, body: `Sorry — I hit an error handling that: ${String(e?.message ?? e).slice(0, 200)}\n\n— Neuro`, inReplyTo: msg.messageId, references: msg.references });
     } catch { /* tolerate */ }
     return { status: "error", reason: String(e?.message ?? e) };
   } finally {
@@ -811,17 +983,18 @@ export async function processInboundEmail(msg: InboundMessage): Promise<{ status
   }
 }
 
+
 // IMAP adapter — extract structured fields off a parsed message and hand to the
 // shared core. Fired async from the poll loop (the message is already \Seen) so
 // a multi-minute job doesn't block the inbox poll.
-async function processMessage(_env: EmailEnv, parsed: ParsedMail, rawSource: Buffer): Promise<void> {
+async function processMessage(account: EmailAccount, global: GlobalEmailConfig, parsed: ParsedMail, rawSource: Buffer): Promise<void> {
   const sender = parsed.from?.value?.[0]?.address ?? "";
   // Cryptographically verify DKIM/DMARC from the raw message before trusting the
   // From against the allow-list. mailauth fetches the signing key from DNS.
   let authVerdict: AuthVerdict = "unknown";
   try { authVerdict = await verifyInboundDkim(rawSource, sender); }
   catch { authVerdict = "unknown"; }
-  await processInboundEmail({
+  await processInboundEmail(account, global, {
     sender,
     subject: parsed.subject ?? "",
     body: extractNewBody(parsed),
@@ -856,14 +1029,14 @@ async function resolveImapHostIp(host: string): Promise<string | null> {
   }
 }
 
-async function pollOnce(env: EmailEnv): Promise<void> {
-  const ip = await resolveImapHostIp(env.imapHost);
+async function pollOnce(account: EmailAccount, global: GlobalEmailConfig): Promise<void> {
+  const ip = await resolveImapHostIp(account.imapHost);
   const client = new ImapFlow({
-    host: ip ?? env.imapHost,    // connect by cached IP — immune to a transient resolver miss
-    servername: env.imapHost,    // SNI + TLS cert hostname stay the real name
-    port: env.imapPort,
+    host: ip ?? account.imapHost,    // connect by cached IP — immune to a transient resolver miss
+    servername: account.imapHost,    // SNI + TLS cert hostname stay the real name
+    port: account.imapPort,
     secure: true,
-    auth: { user: env.user, pass: env.pass },
+    auth: { user: account.user, pass: account.pass },
     logger: false,
   });
   await client.connect();
@@ -892,7 +1065,7 @@ async function pollOnce(env: EmailEnv): Promise<void> {
       }
       // Process outside the mailbox lock — jobs take minutes; don't hold IMAP.
       for (const { parsed, raw } of pending) {
-        void processMessage(env, parsed, raw).catch(e =>
+        void processMessage(account, global, parsed, raw).catch(e =>
           console.error(`[email] processMessage rejected: ${e?.stack ?? e}`));
       }
     } finally {
@@ -903,89 +1076,108 @@ async function pollOnce(env: EmailEnv): Promise<void> {
   }
 }
 
+/** Checks triage store for snoozed emails and notifies user via Telegram. */
+export async function checkSnoozedEmails(): Promise<{ reminded: number }> {
+  const store = loadTriageStore();
+  const snoozed = Object.entries(store).filter(([, entry]) => entry.status === "snoozed");
+  if (!snoozed.length) return { reminded: 0 };
+
+  const { sendTelegramMessage } = await import("./telegram-bridge.js");
+  const list = snoozed.map(([id, e]) => `• ${e.sender} (${e.subject}) [${id}]`).join("\n");
+
+  await sendTelegramMessage(
+    `⏰ *Snoozed Email Reminder*\n\nYou have ${snoozed.length} emails waiting in triage:\n\n${list}\n\nUse \`email.list_triage\` to see details.`,
+    undefined,
+    [[{ text: "Handle Now", callback_data: "email:handle_all" }]],
+  );
+  return { reminded: snoozed.length };
+}
+
 /** Start the email bridge. No-op (with a log) when not configured. */
 export async function startEmailBridge(): Promise<void> {
   if (started) return;
-  if (!emailConfigured()) {
-    console.log("  ⓘ email bridge disabled (set NEUROWORKS_EMAIL_USER + NEUROWORKS_EMAIL_APP_PASSWORD to enable)");
+  const global = readGlobalConfig();
+  const accounts = loadEmailAccounts().filter(a => a.enabled);
+  if (!accounts.length) {
+    console.log("  ⓘ email bridge disabled (no enabled accounts in email-accounts.json)");
     return;
   }
-  const env = readEnv();
-  // Mailjet HTTPS API is preferred when both halves of its auth are set
-  // — skip the SMTP transport setup entirely so we don't try (and fail)
-  // to verify Gmail creds the operator may not have provided. The legacy
-  // SMTP path stays available as a fallback for installs without Mailjet.
-  if (env.mailjetApiKey && env.mailjetApiSecret) {
-    console.log(`  ✓ email outbound via Mailjet HTTPS API (${env.from})`);
-  } else if (env.user && env.pass) {
-    transporter = nodemailer.createTransport({
-      host: env.smtpHost,
-      port: env.smtpPort,
-      secure: env.smtpPort === 465,
-      auth: { user: env.user, pass: env.pass },
-    });
-    try {
-      await transporter.verify();
-      console.log(`  ✓ email SMTP ready (${env.from})`);
-    } catch (e: any) {
-      status.lastError = `SMTP verify failed: ${e?.message ?? e}`;
-      console.warn(`  ⚠ email SMTP verify failed: ${e?.message ?? e}`);
-    }
-  }
 
-  started = true;
-
-  // An allow-list is the trust boundary for BOTH inbound transports. The
-  // EFFECTIVE list is env addresses UNION every active registered user (see
-  // resolveAllowedSenders) — a fresh install with zero .env addresses but a
-  // real user roster (there's always at least the seeded admin) still gets
-  // inbound enabled, instead of requiring a manual .env edit per user.
-  const effectiveAllowedSenders = await resolveAllowedSenders(env.allowedSenders);
+  const effectiveAllowedSenders = await resolveAllowedSenders(global.allowedSenders);
   if (effectiveAllowedSenders.length === 0) {
     console.warn("  ⚠ email INBOUND disabled — no allowed senders (add users, or set NEUROWORKS_EMAIL_ALLOWED_SENDERS) (outbound send still works)");
     return; // fail safe — never accept inbound without an allow-list
   }
 
+  // ── Triage snooze reminders ──
+  // Runs in all inbound modes (imap + webhook). checkSnoozedEmails is a
+  // no-op when nothing is snoozed, so this is cheap when triage is empty.
+  const snoozeMs = Math.max(15 * 60_000, Number(process.env.NEUROWORKS_EMAIL_SNOOZE_REMIND_MS ?? String(4 * 3600_000)) || 4 * 3600_000);
+  const snoozeTick = () => {
+    void checkSnoozedEmails().catch(e =>
+      console.warn(`[email] snooze reminder failed: ${e?.message ?? e}`));
+  };
+  pollTimers.set("triage-reminder", setInterval(snoozeTick, snoozeMs));
+
   // ── Inbound transport: Mailjet Parse webhook ──
-  if (env.inboundMode === "webhook") {
+  if (global.inboundMode === "webhook") {
     startInboundWebhook(); // own port, token-gated; tunnel it to Mailjet
-    console.log(`  ⓘ email inbound via Mailjet Parse webhook · ${effectiveAllowedSenders.length} allowed sender(s)`);
+    started = true;
+    console.log(`  ⓘ email inbound via Mailjet Parse webhook · ${effectiveAllowedSenders.length} allowed sender(s) · snooze reminders every ${Math.round(snoozeMs / 60000)}m`);
     return; // webhook mode: no IMAP poll
   }
-  if (env.inboundMode === "off") {
-    console.log("  ⓘ email inbound OFF (NEUROWORKS_EMAIL_INBOUND_MODE=off) — outbound only");
+  if (global.inboundMode === "off") {
+    started = true;
+    console.log("  ⓘ email inbound OFF (NEUROWORKS_EMAIL_INBOUND_MODE=off) — outbound only · snooze reminders active");
     return;
   }
 
-  // ── Inbound transport: legacy Gmail IMAP poll ──
-  // The poll loop needs IMAP creds (user + pass). SMTP2GO is send-only.
-  if (!env.user || !env.pass) {
-    console.log("  ⓘ email INBOUND skipped — no IMAP credentials (SMTP2GO is send-only). Outbound still works.");
-    return;
-  }
-
-  console.log(`  ⓘ email inbound armed — polling ${env.user} every ${Math.round(env.pollMs / 1000)}s · ${effectiveAllowedSenders.length} allowed sender(s)`);
-  const tick = async () => {
-    if (polling) return;
-    polling = true;
+  // ── Inbound transport: multi-account IMAP poll ──
+  for (const account of accounts) {
+    // Initialize transporter for each account
+    const transporter = nodemailer.createTransport({
+      host: account.smtpHost,
+      port: account.smtpPort,
+      secure: account.smtpPort === 465,
+      auth: { user: account.user, pass: account.pass },
+    });
     try {
-      await pollOnce(env);
-      status.lastPollAt = new Date().toISOString();
-      status.lastError = null;
+      await transporter.verify();
+      transporters.set(account.id, transporter);
+      console.log(`  ✓ email SMTP ready (${account.from})`);
     } catch (e: any) {
-      status.lastError = String(e?.message ?? e);
-      console.warn(`[email] poll error: ${status.lastError}`);
-    } finally {
-      polling = false;
+      console.warn(`  ⚠ email SMTP verify failed for ${account.from}: ${e?.message ?? e}`);
     }
-  };
-  pollTimer = setInterval(() => void tick(), env.pollMs);
-  void tick(); // initial poll without waiting a full interval
+
+    const tick = async () => {
+      if (pollingAccounts.has(account.id)) return;
+      pollingAccounts.add(account.id);
+      try {
+        await pollOnce(account, global);
+        status.lastPollAt = new Date().toISOString();
+        status.lastError = null;
+      } catch (e: any) {
+        status.lastError = String(e?.message ?? e);
+        console.warn(`[email] poll error for ${account.from}: ${status.lastError}`);
+      } finally {
+        pollingAccounts.delete(account.id);
+      }
+    };
+    const timer = setInterval(() => void tick(), global.pollMs);
+    pollTimers.set(account.id, timer);
+    void tick();
+  }
+
+  started = true;
+  console.log(`  ⓘ email inbound armed — polling ${accounts.length} account(s) every ${Math.round(global.pollMs / 1000)}s · ${effectiveAllowedSenders.length} allowed sender(s) · snooze reminders every ${Math.round(snoozeMs / 60000)}m`);
 }
 
+
 export function stopEmailBridge(): void {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  if (transporter) { try { transporter.close(); } catch { /* tolerate */ } transporter = null; }
+  for (const timer of pollTimers.values()) clearInterval(timer);
+  pollTimers.clear();
+  for (const transporter of transporters.values()) transporter.close();
+  transporters.clear();
   stopInboundWebhook();
   started = false;
 }
@@ -1199,42 +1391,33 @@ export async function sendEmail(opts: {
   references?: string[];
   attachPaths?: string[];    // absolute file paths — loaded + base64'd here
 }): Promise<{ ok: true; transport: "mailjet" | "smtp"; from: string; to: string; recipients: string[]; subject: string; sentAt: string; attachments?: { filename: string; bytes: number }[] }> {
-  const env = readEnv();
-  if (!emailConfigured()) throw new Error("email not configured — set NEUROWORKS_MAILJET_API_KEY + _SECRET, or NEUROWORKS_EMAIL_USER + _APP_PASSWORD");
+  const global = readGlobalConfig();
+  const accounts = loadEmailAccounts().filter(a => a.enabled);
+  if (!emailConfigured()) throw new Error("email not configured — set NEUROWORKS_MAILJET_API_KEY + _SECRET, or provide enabled accounts in email-accounts.json");
+  
+  // Default to the first enabled account for general sends
+  const account = accounts[0];
+  if (!account) throw new Error("no enabled email accounts found for sendEmail");
+
   const recipients = normalizeRecipients(opts.to);
   if (recipients.length === 0) throw new Error(`email.send: invalid 'to' — no recipients resolved from "${opts.to}"`);
   if (recipients.length > MAX_RECIPIENTS) throw new Error(`email.send: ${recipients.length} recipients exceeds the ${MAX_RECIPIENTS}-address cap — this usually means a wildcard/list reference wasn't filtered. Narrow the recipient list.`);
   for (const addr of recipients) {
     if (!addr.includes("@")) throw new Error(`email.send: invalid 'to' address "${addr}"`);
-    // Reject obvious placeholder / example addresses. A planner that couldn't
-    // resolve a real recipient sometimes emits a fake one (name@example.com,
-    // "[project lead email]"); sending there is worse than failing. Fail LOUD
-    // with a corrective hint so the agent resolves the real address from the
-    // org directory (users.lookup) and retries.
     const badTo = placeholderAddressReason(addr);
     if (badTo) throw new Error(`email.send: "${addr}" looks like a placeholder (${badTo}). Resolve the recipient's real address from the org directory with users.lookup / users.list before sending — don't use example/placeholder addresses.`);
   }
   if (!opts.subject?.trim()) throw new Error("email.send: subject required");
-  // Safety net for EVERY caller (schedules, replies, the email.send primitive):
-  // never let a non-string body render as "[object Object]".
   const body = coerceEmailBody(opts.body);
   if (!body.trim()) throw new Error("email.send: body required");
   opts = { ...opts, body };
-
-  const useMailjet = !!(env.mailjetApiKey && env.mailjetApiSecret);
-  if (!useMailjet && !transporter) {
-    transporter = nodemailer.createTransport({
-      host: env.smtpHost, port: env.smtpPort, secure: env.smtpPort === 465,
-      auth: { user: env.user, pass: env.pass },
-    });
-  }
+  
+  const useMailjet = !!(global.mailjetApiKey && global.mailjetApiSecret);
   const text = mdToPlainText(opts.body);
   let html: string | undefined;
   try { html = await renderHtml(opts.body); } catch { html = undefined; }
-  // Load attachments BEFORE sending — a missing file must fail the send, not
-  // produce a "please find attached" email with nothing on it.
   const attachments = opts.attachPaths?.length ? loadAttachments(opts.attachPaths) : undefined;
-  await sendOutbound(env, {
+  await sendOutbound(account, global, {
     to: recipients,
     subject: opts.subject,
     text,
@@ -1246,7 +1429,7 @@ export async function sendEmail(opts: {
   return {
     ok: true,
     transport: useMailjet ? "mailjet" : "smtp",
-    from: env.from,
+    from: account.from,
     to: recipients.join(", "),
     recipients,
     subject: opts.subject,
@@ -1255,23 +1438,20 @@ export async function sendEmail(opts: {
   };
 }
 
+
 /** Send a one-off test email (used by the /api/email/test route). */
 export async function sendTestEmail(to: string): Promise<void> {
-  const env = readEnv();
+  const global = readGlobalConfig();
+  const accounts = loadEmailAccounts().filter(a => a.enabled);
   if (!emailConfigured()) throw new Error("email not configured");
-  // Mailjet path doesn't need a nodemailer transport; only initialise the
-  // SMTP transporter when we'd actually use it (Mailjet not configured).
-  const useMailjet = !!(env.mailjetApiKey && env.mailjetApiSecret);
-  if (!useMailjet && !transporter) {
-    transporter = nodemailer.createTransport({
-      host: env.smtpHost, port: env.smtpPort, secure: env.smtpPort === 465,
-      auth: { user: env.user, pass: env.pass },
-    });
-  }
+  if (!accounts.length) throw new Error("no enabled email accounts found for test email");
+  
+  const account = accounts[0];
+  const useMailjet = !!(global.mailjetApiKey && global.mailjetApiSecret);
   const testMd = `Your Neuro email bridge is **live**. Transport: ${useMailjet ? "Mailjet HTTPS API" : "SMTP"}.\n\nReply to any message from Neuro to assign a task — for example:\n\n- **\\[chat\\] what's on my plate today?**\n- **\\[team\\] draft our Q3 launch plan**\n\nNeuro will run it and email you back the result.\n\n— Neuro`;
   let testHtml: string | undefined;
   try { testHtml = await renderHtml(testMd); } catch { testHtml = undefined; }
-  await sendOutbound(env, {
+  await sendOutbound(account, global, {
     to: [to],
     subject: "Neuro email bridge — test",
     text: mdToPlainText(testMd),

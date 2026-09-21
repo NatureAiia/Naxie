@@ -17,6 +17,9 @@ import { searchWeb, smartFetch } from "./web-client.js";
 import { classifyDeliverable } from "./deliverable.js";
 import { checkContentAgainstGovernance } from "./governance.js";
 import {
+  listRecentEmails, readEmail, sendEmailFromAccount, listTriage, checkSnoozedEmails,
+} from "./email.js";
+import {
   getWeather, setReminder, systemControl, manageClipboard, gitCommand, browserOpen,
   getHostToolsSettings, updateHostToolsSettings,
   type SystemControlAction,
@@ -36,9 +39,9 @@ export type Primitive = {
 };
 
 // Resolve a fs.find_in-style folder shortcut ("downloads" | "desktop" |
-// "documents" | "vault" | "inbox" | "home" | "all" | an absolute path) to
+// "documents" | "vault" | "inbox" | "home" | "all" an absolute path) to
 // real root path(s). Exported so agent.ts's plan-repair step (converting a
-// malformed fs.find_in call with no `name` into a proper fs.list_external
+// malformed fs.list_external call with no `name` into a proper fs.list_external
 // listing) can resolve the same folder word without duplicating this table.
 export function resolveFsFolderRoots(folderArg: string): string[] {
   const home = homedir();
@@ -67,6 +70,7 @@ export function resolveFsFolderRoots(folderArg: string): string[] {
     ? [shortcuts.downloads, shortcuts.desktop, shortcuts.documents, shortcuts.music, shortcuts.pictures, shortcuts.videos, shortcuts.inbox]
     : [shortcuts[lowerArg] ?? resolve(folderArg)];
 }
+
 
 // Per-root listing cache for fs.find_in. Many tasks in a row hit the
 // same root (Downloads, Desktop, etc.); re-walking 10k+ files on every
@@ -196,6 +200,59 @@ async function resolveBufferToken(connectionLabel?: unknown): Promise<{ token: s
 }
 
 export const primitives: Primitive[] = [
+  {
+    name: "email.list",
+    description: "List recent emails across all enabled accounts. Returns { emails: [{ accountId, uid, sender, subject, date }] }.",
+    readonly: true,
+    args: [{ name: "limit", type: "number", required: false, description: "Max emails to return (default 20) " }],
+    handler: async (args) => await listRecentEmails(Number(args.limit ?? 20)),
+  },
+  {
+    name: "email.list_triage",
+    description: "List all emails currently in the triage queue (pending or snoozed).",
+    readonly: true,
+    args: [],
+    handler: async () => ({ triage: listTriage() }),
+  },
+  {
+    name: "email.read",
+    description: "Read a specific email by UID and account ID.",
+    readonly: true,
+    args: [
+      { name: "accountId", type: "string", required: true, description: "The ID of the email account" },
+      { name: "uid", type: "number", required: true, description: "The UID of the email" },
+    ],
+    handler: async (args) => await readEmail(String(args.accountId), Number(args.uid)),
+  },
+  {
+    name: "email.send",
+    description: "Send an email. Supports markdown body and file attachments.",
+    readonly: false,
+    args: [
+      { name: "accountId", type: "string", required: true, description: "The ID of the account to send from" },
+      { name: "to", type: "string", required: true, description: "Recipient email(s), comma-separated" },
+      { name: "subject", type: "string", required: true, description: "Email subject" },
+      { name: "body", type: "string", required: true, description: "Email body in markdown" },
+      { name: "attachments", type: "string", required: false, description: "Absolute paths to files to attach, comma-separated" },
+    ],
+    handler: async (args) => {
+      const to = String(args.to).split(",").map(s => s.trim()).filter(Boolean);
+      const attachments = args.attachments ? String(args.attachments).split(",").map(s => s.trim()).filter(Boolean) : [];
+      return await sendEmailFromAccount(String(args.accountId), {
+        to,
+        subject: String(args.subject),
+        body: String(args.body),
+        attachments,
+      });
+    },
+  },
+  {
+    name: "email.check_snoozed",
+    description: "Check triage store for snoozed emails and send a Telegram reminder if any exist.",
+    readonly: false,
+    args: [],
+    handler: async () => await checkSnoozedEmails(),
+  },
   {
     name: "vault.search",
     description: "Search the user's Obsidian vault for a query. Returns up to 50 matches as { path, line, preview }.",
@@ -3705,15 +3762,20 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "telegram.send",
-    description: "Send a message via the user's connected Telegram bot. Defaults to the saved chat id; pass chatId to override. Requires a Telegram connection on the Integrations page.",
+    description: "Send a message via the user's connected Telegram bot. Defaults to the saved chat id; pass chatId to override. Supports inline keyboards for interactive buttons. Requires a Telegram connection on the Integrations page.",
     readonly: false,
     args: [
       { name: "text", type: "string", required: true, description: "Message text" },
       { name: "chatId", type: "string", required: false, description: "Override the default chat id" },
+      { name: "keyboard", type: "string", required: false, description: "JSON array of button rows, e.g. '[[{\"text\":\"Yes\",\"callback_data\":\"yes\"}]]'" },
     ],
     handler: async (args) => {
       const { sendTelegramMessage } = await import("./telegram-bridge.js");
-      const r = await sendTelegramMessage(String(args.text ?? ""), args.chatId ? String(args.chatId) : undefined);
+      let keyboard = undefined;
+      if (args.keyboard) {
+        try { keyboard = JSON.parse(String(args.keyboard)); } catch { /* ignore malformed keyboard */ }
+      }
+      const r = await sendTelegramMessage(String(args.text ?? ""), args.chatId ? String(args.chatId) : undefined, keyboard);
       return r.ok ? { ok: true, sent: true, messageId: r.messageId } : { error: r.error };
     },
   },
@@ -4254,14 +4316,25 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     args: [{ name: "maxResults", type: "number", required: false, description: "Max events to return (default 10)" }],
     handler: async (args) => {
       try {
-        const { getValidAccessToken } = await import("./oauth-connectors.js");
-        const token = await getValidAccessToken("google");
-        const max = Math.min(Number(args.maxResults) || 10, 50);
-        const params = new URLSearchParams({ maxResults: String(max), singleEvents: "true", orderBy: "startTime", timeMin: new Date().toISOString() });
-        const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, { headers: { authorization: `Bearer ${token}` } });
-        if (!r.ok) return [];
-        const data: any = await r.json();
-        return (data.items ?? []).map((e: any) => ({ summary: e.summary, start: e.start?.dateTime ?? e.start?.date, end: e.end?.dateTime ?? e.end?.date }));
+        const { getValidAccessTokens } = await import("./oauth-connectors.js");
+        const tokens = await getValidAccessTokens("google");
+        if (!tokens.length) return [];
+        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
+        const allEvents = [];
+        for (const { token, accountName } of tokens) {
+          const params = new URLSearchParams({ maxResults: String(maxPerAccount), singleEvents: "true", orderBy: "startTime", timeMin: new Date().toISOString() });
+          const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, { headers: { authorization: `Bearer ${token}` } });
+          if (!r.ok) continue;
+          const data: any = await r.json();
+          const events = (data.items ?? []).map((e: any) => ({ 
+            summary: e.summary, 
+            start: e.start?.dateTime ?? e.start?.date, 
+            end: e.end?.dateTime ?? e.end?.date,
+            account: accountName ?? "unknown"
+          }));
+          allEvents.push(...events);
+        }
+        return allEvents;
       } catch { return []; }
     },
   },
@@ -4272,26 +4345,30 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     args: [{ name: "maxResults", type: "number", required: false, description: "Max messages to return (default 10)" }],
     handler: async (args) => {
       try {
-        const { getValidAccessToken } = await import("./oauth-connectors.js");
-        const token = await getValidAccessToken("google");
-        const max = Math.min(Number(args.maxResults) || 10, 50);
-        const listResp = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${max}`, { headers: { authorization: `Bearer ${token}` } });
-        if (!listResp.ok) return [];
-        const listData: any = await listResp.json();
-        const ids: string[] = (listData.messages ?? []).map((m: any) => m.id);
-        const out: any[] = [];
-        for (const id of ids) {
-          const mResp = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`, { headers: { authorization: `Bearer ${token}` } });
-          if (!mResp.ok) continue;
-          const m: any = await mResp.json();
-          const headers = m.payload?.headers ?? [];
-          out.push({
-            subject: headers.find((h: any) => h.name === "Subject")?.value,
-            from: headers.find((h: any) => h.name === "From")?.value,
-            snippet: m.snippet,
-          });
+        const { getValidAccessTokens } = await import("./oauth-connectors.js");
+        const tokens = await getValidAccessTokens("google");
+        if (!tokens.length) return [];
+        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
+        const allEmails = [];
+        for (const { token, accountName } of tokens) {
+          const listResp = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxPerAccount}`, { headers: { authorization: `Bearer ${token}` } });
+          if (!listResp.ok) continue;
+          const listData: any = await listResp.json();
+          const ids: string[] = (listData.messages ?? []).map((m: any) => m.id);
+          for (const id of ids) {
+            const mResp = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`, { headers: { authorization: `Bearer ${token}` } });
+            if (!mResp.ok) continue;
+            const m: any = await mResp.json();
+            const headers = m.payload?.headers ?? [];
+            allEmails.push({
+              subject: headers.find((h: any) => h.name === "Subject")?.value,
+              from: headers.find((h: any) => h.name === "From")?.value,
+              snippet: m.snippet,
+              account: accountName ?? "unknown"
+            });
+          }
         }
-        return out;
+        return allEmails;
       } catch { return []; }
     },
   },
@@ -4302,13 +4379,24 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     args: [{ name: "maxResults", type: "number", required: false, description: "Max messages to return (default 10)" }],
     handler: async (args) => {
       try {
-        const { getValidAccessToken } = await import("./oauth-connectors.js");
-        const token = await getValidAccessToken("microsoft");
-        const max = Math.min(Number(args.maxResults) || 10, 50);
-        const r = await fetch(`https://graph.microsoft.com/v1.0/me/messages?$top=${max}&$select=subject,from,bodyPreview`, { headers: { authorization: `Bearer ${token}` } });
-        if (!r.ok) return [];
-        const data: any = await r.json();
-        return (data.value ?? []).map((m: any) => ({ subject: m.subject, from: m.from?.emailAddress?.address, preview: m.bodyPreview }));
+        const { getValidAccessTokens } = await import("./oauth-connectors.js");
+        const tokens = await getValidAccessTokens("microsoft");
+        if (!tokens.length) return [];
+        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
+        const allEmails = [];
+        for (const { token, accountName } of tokens) {
+          const r = await fetch(`https://graph.microsoft.com/v1.0/me/messages?$top=${maxPerAccount}&$select=subject,from,bodyPreview`, { headers: { authorization: `Bearer ${token}` } });
+          if (!r.ok) continue;
+          const data: any = await r.json();
+          const emails = (data.value ?? []).map((m: any) => ({ 
+            subject: m.subject, 
+            from: m.from?.emailAddress?.address, 
+            preview: m.bodyPreview,
+            account: accountName ?? "unknown"
+          }));
+          allEmails.push(...emails);
+        }
+        return allEmails;
       } catch { return []; }
     },
   },
@@ -4319,13 +4407,24 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     args: [{ name: "maxResults", type: "number", required: false, description: "Max events to return (default 10)" }],
     handler: async (args) => {
       try {
-        const { getValidAccessToken } = await import("./oauth-connectors.js");
-        const token = await getValidAccessToken("microsoft");
-        const max = Math.min(Number(args.maxResults) || 10, 50);
-        const r = await fetch(`https://graph.microsoft.com/v1.0/me/events?$top=${max}&$select=subject,start,end&$orderby=start/dateTime`, { headers: { authorization: `Bearer ${token}` } });
-        if (!r.ok) return [];
-        const data: any = await r.json();
-        return (data.value ?? []).map((e: any) => ({ subject: e.subject, start: e.start?.dateTime, end: e.end?.dateTime }));
+        const { getValidAccessTokens } = await import("./oauth-connectors.js");
+        const tokens = await getValidAccessTokens("microsoft");
+        if (!tokens.length) return [];
+        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
+        const allEvents = [];
+        for (const { token, accountName } of tokens) {
+          const r = await fetch(`https://graph.microsoft.com/v1.0/me/events?$top=${maxPerAccount}&$select=subject,start,end&$orderby=start/dateTime`, { headers: { authorization: `Bearer ${token}` } });
+          if (!r.ok) continue;
+          const data: any = await r.json();
+          const events = (data.value ?? []).map((e: any) => ({ 
+            subject: e.subject, 
+            start: e.start?.dateTime, 
+            end: e.end?.dateTime,
+            account: accountName ?? "unknown"
+          }));
+          allEvents.push(...events);
+        }
+        return allEvents;
       } catch { return []; }
     },
   },
@@ -4336,13 +4435,24 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     args: [{ name: "maxResults", type: "number", required: false, description: "Max files to return (default 10)" }],
     handler: async (args) => {
       try {
-        const { getValidAccessToken } = await import("./oauth-connectors.js");
-        const token = await getValidAccessToken("microsoft");
-        const max = Math.min(Number(args.maxResults) || 10, 50);
-        const r = await fetch(`https://graph.microsoft.com/v1.0/me/drive/root/children?$top=${max}&$select=name,webUrl,lastModifiedDateTime`, { headers: { authorization: `Bearer ${token}` } });
-        if (!r.ok) return [];
-        const data: any = await r.json();
-        return (data.value ?? []).map((f: any) => ({ name: f.name, url: f.webUrl, lastModified: f.lastModifiedDateTime }));
+        const { getValidAccessTokens } = await import("./oauth-connectors.js");
+        const tokens = await getValidAccessTokens("microsoft");
+        if (!tokens.length) return [];
+        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
+        const allFiles = [];
+        for (const { token, accountName } of tokens) {
+          const r = await fetch(`https://graph.microsoft.com/v1.0/me/drive/root/children?$top=${maxPerAccount}&$select=name,webUrl,lastModifiedDateTime`, { headers: { authorization: `Bearer ${token}` } });
+          if (!r.ok) continue;
+          const data: any = await r.json();
+          const files = (data.value ?? []).map((f: any) => ({ 
+            name: f.name, 
+            url: f.webUrl, 
+            lastModified: f.lastModifiedDateTime,
+            account: accountName ?? "unknown"
+          }));
+          allFiles.push(...files);
+        }
+        return allFiles;
       } catch { return []; }
     },
   },

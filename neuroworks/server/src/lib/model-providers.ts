@@ -19,7 +19,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
 const PATH = resolve(STATE_DIR, "model-providers.json");
 
-export type ProviderKind = "anthropic" | "openai" | "gemini" | "openrouter" | "groq" | "together" | "custom";
+export type ProviderKind = "anthropic" | "openai" | "gemini" | "openrouter" | "groq" | "together" | "ollama_cloud" | "custom";
 
 export const PROVIDER_DEFAULTS: Record<ProviderKind, { label: string; baseUrl: string; modelHint: string }> = {
   // Anthropic via its OpenAI-compatible endpoint (/v1/chat/completions), so it
@@ -36,6 +36,7 @@ export const PROVIDER_DEFAULTS: Record<ProviderKind, { label: string; baseUrl: s
   openrouter: { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1",   modelHint: "openai/gpt-4o-mini" },
   groq:       { label: "Groq",       baseUrl: "https://api.groq.com/openai/v1", modelHint: "llama-3.3-70b-versatile" },
   together:   { label: "Together",   baseUrl: "https://api.together.xyz/v1",    modelHint: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
+  ollama_cloud: { label: "Ollama Cloud", baseUrl: "https://ollama.com/api/v1",   modelHint: "gemma4:31b" },
   custom:     { label: "Custom (OpenAI-compatible)", baseUrl: "", modelHint: "" },
 };
 

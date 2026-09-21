@@ -1,7 +1,7 @@
 import express from "express";
 import { timingSafeEqual } from "node:crypto";
 import type { Server } from "node:http";
-import { processInboundEmail, stripQuotedReply } from "./email.js";
+import { processInboundEmail, stripQuotedReply, loadEmailAccounts, readGlobalConfig } from "./email.js";
 import { evaluateAuthResultsHeader } from "./email-auth.js";
 
 // Dedicated, minimal HTTP listener for Mailjet's inbound Parse API. Runs on its
@@ -116,7 +116,20 @@ export function startInboundWebhook(): void {
     // (it would time out and retry, double-running the job). Process async.
     res.json({ ok: true });
     state.accepted += 1;
-    void processInboundEmail({ sender, subject, body: stripQuotedReply(text), messageId, references, inReplyTo })
+    const global = readGlobalConfig();
+    const accounts = loadEmailAccounts().filter(a => a.enabled);
+    const account = accounts[0] ?? {
+      id: "webhook",
+      user: "",
+      pass: "",
+      from: process.env.NEUROWORKS_EMAIL_FROM ?? "",
+      imapHost: "",
+      imapPort: 993,
+      smtpHost: "",
+      smtpPort: 587,
+      enabled: true,
+    };
+    void processInboundEmail(account, global, { sender, subject, body: stripQuotedReply(text), messageId, references, inReplyTo, authVerdict: auth })
       .then(r => console.log(`[inbound-webhook] ${sender}: ${r.status}${r.jobId ? ` (job ${r.jobId.slice(0, 8)})` : ""}${r.reason ? ` — ${r.reason}` : ""}`))
       .catch(e => console.error(`[inbound-webhook] processing failed: ${e?.stack ?? e}`));
   });

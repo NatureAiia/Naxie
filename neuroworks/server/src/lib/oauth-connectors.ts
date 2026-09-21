@@ -242,7 +242,7 @@ export async function handleCallback(platform: OauthPlatform, code: string, stat
 
   const list = load();
   const now = new Date().toISOString();
-  let row = list.find(c => c.platform === platform);
+  let row = list.find(c => c.platform === platform && c.accountName === accountName);
   if (!row) {
     row = {
       id: randomUUID(), platform, accessToken, expiresAt: Date.now() + expiresIn * 1000,
@@ -325,9 +325,21 @@ export async function refreshConnection(id: string): Promise<PlatformConnectionP
  * connection exists yet — callers (primitives.ts) should treat that as
  * "not connected" and return an empty result, matching the Python
  * originals' fail-open behavior for the daemon's read-only digest calls. */
-export async function getValidAccessToken(platform: OauthPlatform): Promise<string> {
-  const row = load().find(c => c.platform === platform);
-  if (!row) throw new Error(`no ${platform} connection — connect it under Settings > Connectors first`);
+export async function getValidAccessToken(platform: OauthPlatform, id?: string): Promise<string> {
+  const row = id ? findConnection(id) : load().find(c => c.platform === platform);
+  if (!row) throw new Error(`no ${platform} connection${id ? ` with id ${id}` : ""} — connect it under Settings > Connectors first`);
   if (row.expiresAt - 30_000 > Date.now() && row.accessToken) return row.accessToken;
   return doRefresh(row);
+}
+
+export async function getValidAccessTokens(platform: OauthPlatform): Promise<{ id: string, token: string, accountName: string | undefined }[]> {
+  const connections = load().filter(c => c.platform === platform);
+  const results = await Promise.allSettled(connections.map(async c => ({
+    id: c.id,
+    accountName: c.accountName as string | undefined,
+    token: await (c.expiresAt - 30_000 > Date.now() ? c.accessToken : doRefresh(c))
+  })));
+  return results
+    .filter((r): r is PromiseFulfilledResult<{ id: string, token: string, accountName: string | undefined }> => r.status === "fulfilled")
+    .map(r => r.value);
 }

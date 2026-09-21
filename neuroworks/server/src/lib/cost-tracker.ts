@@ -5,7 +5,7 @@ import { config } from "../config.js";
 export type CostRecord = {
   jobId: string;
   model: string;
-  backend: "ollama" | "openrouter" | "anthropic" | "ideogram" | "muapi";
+  backend: "ollama" | "openrouter" | "anthropic" | "ideogram" | "muapi" | "ollama_cloud" | "little-coder";
   profile: string;
   inputTokens: number;
   outputTokens: number;
@@ -109,7 +109,7 @@ function costTier(model: string): string {
 }
 
 function estimateCost(model: string, backend: string, inputTokens: number, outputTokens: number): number {
-  if (backend === "ollama") return 0;
+  if (backend === "ollama" || backend === "ollama_cloud" || backend === "little-coder") return 0;
   // OpenRouter ":free" models cost nothing — don't misreport them as paid.
   if (/:free\b/i.test(model)) return 0;
   const tier = costTier(model);

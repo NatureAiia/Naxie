@@ -8,50 +8,47 @@ applies_to: [plan, draft-other]
 
 ## Goal
 
-A 30-minute weekly ritual that catches drift early: what you said you'd do, what you actually did, what slipped, what you'll commit to next week. Run it on Friday afternoon or Monday morning — pick one and keep it.
+A high-signal weekly ritual to catch drift early and calibrate for the week ahead. This is about outcomes and energy, not a task list. Run it on Friday afternoon or Monday morning.
 
 ## Format
 
 ```
-# Weekly review — week of <YYYY-MM-DD>
+# 🗓️ Weekly Review: <YYYY-MM-DD>
 
-## How the week landed
-<2-3 sentences. Was it a strong week, a recovery week, a chaotic week? Naming it honestly is half the value.>
+## 🎯 The Bottom Line
+<2-3 sentences. Was this a strong week, a recovery week, or a chaotic one? Name the theme of the week honestly.>
 
-## What I shipped
-- <Concrete output — link to PR / doc / sent email / produced artifact>
-- <Another>
-- <Another>
+## 🚀 What I Shipped
+- **<Outcome>** → <Link to PR / doc / artifact>
+- **<Outcome>** → <Link>
+- **<Outcome>** → <Link>
 
-## What I committed to last week and didn't do
-- <Item — what blocked it — is it still relevant or should I drop it?>
-- <Item>
+## 📉 The Gap (Committed vs. Actual)
+- <Item that slipped> → <Blocker/Reason> → <Status: Keep / Drop / Reschedule>
+- <Item> → <Blocker> → <Status>
 
-## Time audit (rough)
-- Deep work: ~<X hours>
-- Meetings: ~<Y hours>
-- Reactive / inbox: ~<Z hours>
-- Learning / reading: ~<H hours>
+## 🔋 Energy Audit
+- **Highs:** <Moment + why — what to optimize toward>
+- **Lows:** <Moment + why — what to redesign or push back on>
 
-<If the ratio is off (too much reactive, too little deep), name it.>
+## ⏱️ Time Allocation (Rough)
+- **Deep Work:** ~<X hours>
+- **Meetings:** ~<Y hours>
+- **Reactive/Inbox:** ~<Z hours>
+- **Learning:** ~<H hours>
+<One-line insight: e.g., "Too much reactive time; need to protect Tuesday mornings.">
 
-## What energised me this week
-- <Specific moment + why — surfaces what to optimise toward>
+## ⭕ Open Loops
+- **Waiting on:** <Who / What / Escalation date>
+- **Avoiding:** <What / Why / Unsticking action>
 
-## What drained me
-- <Specific moment + why — surfaces what to redesign or push back on>
+## 🏁 Top 3 for Next Week
+1. **<Outcome>** → <By when> → <Success looks like X>
+2. **<Outcome>** → <By when> → <Success looks like X>
+3. **<Outcome>** → <By when> → <Success looks like X>
 
-## Open loops (carrying into next week)
-- <Thing waiting on someone — who, what, by when am I escalating>
-- <Thing I'm avoiding — why — what would unstick it>
-
-## Top 3 for next week
-1. <Specific outcome (not activity) — by when — what success looks like>
-2. <...>
-3. <...>
-
-## Meta / system tweaks
-- <One small process change for the new week — calendar block, communication norm, tool change>
+## ⚙️ System Tweak
+- <One small process change for the new week — e.g., calendar block, comms norm, tool change>
 ```
 
 ## Sections to consider adding (taste-dependent)
