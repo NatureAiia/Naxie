@@ -2038,13 +2038,14 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
     `Keep it tight — a morning glance, not a report. If the activity window is empty, say so plainly in one line rather than padding or inventing items. Output ONLY the finished briefing (the headings above and their bullets) — never your reasoning, the guidance, or these instructions.` +
     attachmentBlock;
   // `_personaId` passes through so a scheduled briefing can pin the right
-  // employee (an EA persona) instead of inheriting whoever happens to be the
-  // org-wide active hire that morning (a Procurement Officer gave one run a
+  // employee instead of inheriting whoever happens to be the org-wide active
+  // hire that morning (a Procurement Officer gave one run a
   // procurement-slanted briefing during live verification; an HR Manager
-  // lane-refused an entire briefing on 2026-07-19). When the schedule pins
-  // nobody, default to the Executive Assistant — a briefing is EA work by
-  // definition, and inheriting a random specialist produces refusals.
-  const personaId = (typeof inputs._personaId === "string" && inputs._personaId.trim()) || "executive-assistant";
+  // lane-refused an entire briefing on 2026-07-19 — both roles were pruned
+  // 2026-09-21). When the schedule pins nobody, default to Naxie — calendar +
+  // inbox triage / morning briefings are explicitly her lane (personas.ts),
+  // and inheriting a random specialist produces refusals.
+  const personaId = (typeof inputs._personaId === "string" && inputs._personaId.trim()) || "naxie";
   return generalTaskRunner({ task, save_as_template: false, _personaId: personaId }, push, progress);
 }
 

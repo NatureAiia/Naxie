@@ -41,48 +41,15 @@ const weekdaysAt = (hour: number, minute = 0): Cadence => ({ daysOfWeek: [1, 2, 
 const everyDayAt = (hour: number, minute = 0): Cadence => ({ daysOfWeek: [], hour, minute });
 const mondayAt = (hour: number, minute = 0): Cadence => ({ daysOfWeek: [1], hour, minute });
 
+// Pruned 2026-09-21 alongside personas.ts's own prune (all built-ins had zero
+// recorded activity in 30 days). Removed: exec-assistant (executive-assistant),
+// sales-sdr (account-executive), support-desk (customer-success), recruiter
+// (recruiter), ops-coordinator (operations-coordinator), content-studio
+// (multimedia-producer) — each referenced a persona id that no longer exists,
+// which would make applyPreset() throw ("preset references missing persona").
+// No surviving persona was an obvious fit to remap these onto, so they were
+// dropped rather than repointed.
 export const PRESETS: Preset[] = [
-  {
-    id: "exec-assistant",
-    name: "Executive Assistant",
-    tagline: "Protects your time — morning briefing, inbox triage, meeting prep.",
-    personaId: "executive-assistant",
-    recommendedSkills: ["daily-briefing", "email-triage", "meeting-prep-pack", "pre-read", "eod-handoff"],
-    recommendedIntegrations: ["google", "slack"],
-    schedules: [
-      { name: "Morning briefing", templateId: "daily-briefing", cadence: weekdaysAt(8), emailResult: true },
-    ],
-  },
-  {
-    id: "sales-sdr",
-    name: "Sales SDR",
-    tagline: "Runs the pipeline — qualification, follow-ups, discovery prep.",
-    personaId: "account-executive",
-    recommendedSkills: ["lead-qualification", "meddic-qualification", "follow-up-cadence", "discovery-call-prep", "objection-handling-script"],
-    recommendedIntegrations: ["hubspot", "google", "slack"],
-    schedules: [
-      { name: "Pipeline review", templateId: "daily-briefing", inputs: { focus: "sales pipeline and follow-ups due" }, cadence: weekdaysAt(8, 30), emailResult: true },
-    ],
-  },
-  {
-    id: "support-desk",
-    name: "Support Desk",
-    tagline: "Handles customers — triage, replies that resolve, churn signals.",
-    personaId: "customer-success",
-    recommendedSkills: ["email-triage", "support-escalation", "churn-risk-flag", "customer-360", "renewal-conversation"],
-    recommendedIntegrations: ["google", "slack", "hubspot"],
-    schedules: [
-      { name: "Support themes roundup", templateId: "daily-briefing", inputs: { focus: "open customer issues and recurring support themes" }, cadence: weekdaysAt(9), emailResult: true },
-    ],
-  },
-  {
-    id: "recruiter",
-    name: "Recruiter",
-    tagline: "Fills roles — JD writing, CV screening, candidate comms.",
-    personaId: "recruiter",
-    recommendedSkills: ["jd-writing", "cv-screening", "jd-to-tasks", "intro-email", "decline-politely"],
-    recommendedIntegrations: ["google", "linkedin", "slack"],
-  },
   {
     id: "research-analyst",
     name: "Research Analyst",
@@ -90,25 +57,6 @@ export const PRESETS: Preset[] = [
     personaId: "researcher",
     recommendedSkills: ["research-deep", "fact-check", "source-triangulation", "landscape-scan", "competitive-analysis"],
     recommendedIntegrations: ["notion", "slack"],
-  },
-  {
-    id: "ops-coordinator",
-    name: "Operations Coordinator",
-    tagline: "Removes ambiguity — runbooks, schedules, status rollups.",
-    personaId: "operations-coordinator",
-    recommendedSkills: ["runbook-writing", "sop-writing", "project-status-rollup", "risk-register", "standup-summary"],
-    recommendedIntegrations: ["slack", "msteams", "webhook"],
-    schedules: [
-      { name: "Weekly status rollup", templateId: "daily-briefing", inputs: { focus: "project status, blockers, and what's due this week" }, cadence: mondayAt(9), emailResult: true },
-    ],
-  },
-  {
-    id: "content-studio",
-    name: "Content Studio",
-    tagline: "Makes media — script, voiceover, video, and music from one brief.",
-    personaId: "multimedia-producer",
-    recommendedSkills: ["multimedia-package", "voiceover-script", "video-prompt", "music-brief", "launch-positioning"],
-    recommendedIntegrations: ["slack", "google"],
   },
   {
     id: "engineer",
@@ -201,6 +149,9 @@ export async function applyPreset(
   };
 }
 
-// Keep the unused helper referenced so tree-shakers/linters don't complain when
-// a preset doesn't use it.
+// Keep the unused helpers referenced so tree-shakers/linters don't complain
+// when no preset uses them (weekdaysAt/mondayAt lost their only callers when
+// the schedule-bearing presets were pruned 2026-09-21).
 void everyDayAt;
+void weekdaysAt;
+void mondayAt;

@@ -4,8 +4,8 @@
 // didn't know which lane they should live in. This module derives the right
 // lane on read by looking at three signals (in priority order):
 //
-//   1. The persona-id prefix in the template id (e.g. custom-financial-analyst-*
-//      → financial-analyst → "Insights"). Most accurate when present.
+//   1. The persona-id prefix in the template id (e.g. custom-software-engineer-*
+//      → software-engineer → "Engineering"). Most accurate when present.
 //   2. Topic keywords in the title and description ("MEDDIC" → sales/Ops,
 //      "runbook" → Engineering, "PRD" → Insights). Catches templates whose
 //      ids don't carry a persona prefix.
@@ -18,33 +18,23 @@ export type TemplateRole = "Engineering" | "Knowledge" | "Operations" | "Insight
 // Map known built-in persona-ids to their natural template lane. Extended over
 // time as new personas appear. Personas not in this map fall through to the
 // keyword pass.
+// Pruned 2026-09-21 alongside personas.ts's own prune (all built-ins had zero
+// recorded activity in 30 days) — entries for now-deleted persona ids were
+// removed; a template id can never carry one of those prefixes again.
 const PERSONA_ID_TO_ROLE: Record<string, TemplateRole> = {
   // Engineering lane
   "software-engineer": "Engineering",
-  "devops-sre": "Engineering",
-  "qa-engineer": "Engineering",
   "head-of-ai": "Engineering",
 
   // Knowledge lane (writing, docs, research)
-  "technical-writer": "Knowledge",
   "researcher": "Knowledge",
 
   // Operations lane (admin, coordination, customer-facing ops, legal review)
-  "operations-coordinator": "Operations",
-  "executive-assistant": "Operations",
-  "recruiter": "Operations",
-  "contracts-reviewer": "Operations",
-  "customer-success": "Operations",
-  "account-executive": "Operations",
   "insurance-sales-agent": "Operations",
   "insurance-underwriter": "Operations",
 
   // Insights lane (analysis, strategy, design, finance)
-  "financial-analyst": "Insights",
-  "data-analyst": "Insights",
-  "product-manager": "Insights",
   "designer": "Insights",
-  "marketing-manager": "Insights",
   "aiia-marketing-specialist": "Insights",
   "aiia-marketing-specialist-v2": "Insights",
 

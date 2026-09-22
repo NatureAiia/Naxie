@@ -16,7 +16,10 @@ import { api, type BoardRun, type Cadence } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { BrandMark } from "../components/BrandMark";
 
-const DEFAULT_COUNCIL = ["researcher", "knowitall", "product-manager", "qa-engineer", "data-analyst"];
+// Kept in sync with server/src/lib/board.ts's DEFAULT_COUNCIL — pruned
+// 2026-09-21 alongside personas.ts's own prune (all built-ins had zero
+// recorded activity in 30 days).
+const DEFAULT_COUNCIL = ["researcher", "knowitall", "software-engineer", "accountant", "social-media-manager"];
 const STORAGE_KEY = "neuroworks.board.topic";
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 

@@ -36,25 +36,13 @@ export type LaneCheck = {
 // personas.ts (BUILTIN_*_PERSONA) so the gate's suggestions are always
 // resolvable in the dashboard. Custom personas the customer created are not
 // listed here — the gate can still suggest them by role, but it can't name
-// a specific Riley/Drew analogue inside the customer's own workspace.
-// Kept in sync with LANE_DISCIPLINE_PREAMBLE's roster in personas.ts — this
-// blurb was stale (16 of the ~34 built-ins) so half the roster (Aria/Fiona's
-// live-finance counterpart, the media producers, HR, procurement, compliance,
-// etc.) could never be suggested even when they were the obviously correct
-// hire. Caught live 2026-07-20: a finance task on a custom "Nova" persona
-// wasn't in this list, so the gate's own hire suggestion had no chance of
-// naming Aria even if it judged correctly.
+// a specific analogue inside the customer's own workspace.
+// Pruned to the core 8 on 2026-09-21 alongside personas.ts's own prune (all
+// built-ins had zero recorded activity in 30 days) — kept in sync with
+// LANE_DISCIPLINE_PREAMBLE's roster in personas.ts.
 const ROSTER_BLURB =
-  "Casey (Customer Success Lead), Olivia (Operations Coordinator), Sam (Software Engineer), " +
-  "Maya (Marketing Manager), Researcher (Investigative Analyst), Drew (Account Executive), " +
-  "Riley (Talent Recruiter), Fiona (Financial Analyst), Priya (Product Manager), " +
-  "Dani (Product Designer), Dale (Data Analyst), Logan (Contracts Reviewer), " +
-  "Evie (Executive Assistant), Quinn (QA Engineer), Devon (DevOps / SRE), Tao (Technical Writer), " +
-  "Vera (Voice Producer), Vince (Video Producer), Melody (Music Producer), Milo (Multimedia Producer), " +
-  "Aria (Aiia Finance Officer), Hana (HR Manager), Cole (Accountant), Ivy (IT Support Specialist), " +
-  "Pia (Procurement Officer), Sasha (Sales Development Rep), Cora (Compliance & Risk Officer), " +
-  "Piers (Communications Manager), Ada (Office Manager), Bram (Business Analyst), " +
-  "Wren (Learning & Development Lead), Pax (Project Manager), Liam (Logistics & Supply Chain Coordinator)";
+  "Sam (Software Engineer), Researcher (Investigative Analyst), " +
+  "Sasha (Social Lead — Personal & Variety & Co), Ivy (IT Support Specialist), Cole (Accountant)";
 
 // Resolve a hire suggestion like "Aria (Aiia Finance Officer)" or bare "Aria"
 // back to the actual registered persona (built-in or custom) so a lane-gate
@@ -124,13 +112,16 @@ const SIGNALS: HeuristicProfile = {
 };
 
 // Live-company-finance signal — deliberately separate from SIGNALS.financeSignal
-// (which is abstract financial MODELING work, Fiona's lane). This one is
-// "pull the org's real books via the FinanceFlow connector" — Aria's lane.
-// Checked for EVERY persona, not just the ones in rulesByPersona below (see
-// the check ahead of that lookup), because it's a company-specific integration
-// a persona-agnostic classifier can't be expected to know about on its own.
+// (which is abstract financial MODELING work). This one is "pull the org's
+// real books via the FinanceFlow connector". Checked for EVERY persona, not
+// just the ones in rulesByPersona below (see the check ahead of that lookup),
+// because it's a company-specific integration a persona-agnostic classifier
+// can't be expected to know about on its own.
+// The dedicated live-finance role (Aria) and modeling role (Fiona) were both
+// pruned 2026-09-21 (zero recorded activity) — Cole (Accountant, who keeps the
+// actual books) is the closest surviving fit for this signal.
 const AIIA_LIVE_FINANCE_SIGNAL = /\b(?:aiia\b[^.\n]{0,20}\bfinance|finance\s*(?:connector|flow)|financeflow|live\s+(?:cash\s*flow|expense|financial)\s*(?:data|figures?|baselines?|numbers?)|historical\s+(?:cash\s*flow|expense)\s*baselines?|live\s+financial\s+(?:data|figures?|numbers?))\b/i;
-const AIIA_FINANCE_CAPABLE = new Set(["aiia-finance", "financial-analyst", "accountant"]);
+const AIIA_FINANCE_CAPABLE = new Set(["accountant"]);
 
 // Map each persona id to:
 //   • inLane(text) - which domain signals are IN their lane (always permit)
@@ -148,8 +139,8 @@ function heuristicCheck(persona: Persona, task: string): LaneCheck | null {
   if (!AIIA_FINANCE_CAPABLE.has(id) && AIIA_LIVE_FINANCE_SIGNAL.test(t)) {
     return {
       inLane: false,
-      reason: "Heuristic match — this needs the company's real books via the Aiia FinanceFlow connector, which is Aria's lane (Fiona for modeling on top of those figures).",
-      suggestedHire: "Aria (Aiia Finance Officer)",
+      reason: "Heuristic match — this needs the company's real books via the Aiia FinanceFlow connector, which is Cole's lane (the Accountant).",
+      suggestedHire: "Cole (Accountant)",
     };
   }
 
@@ -157,24 +148,16 @@ function heuristicCheck(persona: Persona, task: string): LaneCheck | null {
   // The structure: each entry = { sig: signal regex, hire: who to recommend }.
   // We pick the FIRST matching signal. If no signal matches, return null
   // (caller falls through to LLM check).
+  // Pruned to the core 8 on 2026-09-21 — every entry keyed to a now-deleted
+  // persona id was removed outright (those personas can never reach this
+  // lookup again), and the two survivors' rules were trimmed to only signals
+  // with an obvious surviving hire; signals whose old hire (legal review,
+  // customer success, product design, PM/QA) had no surviving analogue were
+  // dropped rather than invented.
   type Rule = { sig: RegExp; hire: string };
   const rulesByPersona: Record<string, Rule[]> = {
-    "customer-success":      [{ sig: SIGNALS.codeSignal, hire: "Sam (Software Engineer)" }, { sig: SIGNALS.sqlSignal, hire: "Dale (Data Analyst)" }, { sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.sreSignal, hire: "Devon (DevOps / SRE)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.prdSignal, hire: "Priya (Product Manager)" }, { sig: SIGNALS.qaSignal, hire: "Quinn (QA Engineer)" }],
-    "operations-coordinator":[{ sig: SIGNALS.codeSignal, hire: "Sam (Software Engineer)" }, { sig: SIGNALS.sqlSignal, hire: "Dale (Data Analyst)" }, { sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.marketingSignal, hire: "Maya (Marketing Manager)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.prdSignal, hire: "Priya (Product Manager)" }],
-    "software-engineer":     [{ sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.marketingSignal, hire: "Maya (Marketing Manager)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.csmSignal, hire: "Casey (Customer Success Lead)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }],
-    "marketing-manager":     [{ sig: SIGNALS.codeSignal, hire: "Sam (Software Engineer)" }, { sig: SIGNALS.sqlSignal, hire: "Dale (Data Analyst)" }, { sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.sreSignal, hire: "Devon (DevOps / SRE)" }, { sig: SIGNALS.prdSignal, hire: "Priya (Product Manager)" }, { sig: SIGNALS.qaSignal, hire: "Quinn (QA Engineer)" }],
-    "researcher":            [{ sig: SIGNALS.csmSignal, hire: "Casey (Customer Success Lead)" }, { sig: SIGNALS.marketingSignal, hire: "Maya (Marketing Manager)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }],
-    "account-executive":     [{ sig: SIGNALS.codeSignal, hire: "Sam (Software Engineer)" }, { sig: SIGNALS.sqlSignal, hire: "Dale (Data Analyst)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.sreSignal, hire: "Devon (DevOps / SRE)" }],
-    "recruiter":             [{ sig: SIGNALS.codeSignal, hire: "Sam (Software Engineer)" }, { sig: SIGNALS.sqlSignal, hire: "Dale (Data Analyst)" }, { sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.marketingSignal, hire: "Maya (Marketing Manager)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.sreSignal, hire: "Devon (DevOps / SRE)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.prdSignal, hire: "Priya (Product Manager)" }],
-    "financial-analyst":     [{ sig: SIGNALS.codeSignal, hire: "Sam (Software Engineer)" }, { sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.marketingSignal, hire: "Maya (Marketing Manager)" }, { sig: SIGNALS.csmSignal, hire: "Casey (Customer Success Lead)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.sreSignal, hire: "Devon (DevOps / SRE)" }],
-    "product-manager":       [{ sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.sreSignal, hire: "Devon (DevOps / SRE)" }],
-    "product-designer":      [{ sig: SIGNALS.codeSignal, hire: "Sam (Software Engineer)" }, { sig: SIGNALS.sqlSignal, hire: "Dale (Data Analyst)" }, { sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.sreSignal, hire: "Devon (DevOps / SRE)" }, { sig: SIGNALS.prdSignal, hire: "Priya (Product Manager)" }],
-    "data-analyst":          [{ sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.marketingSignal, hire: "Maya (Marketing Manager)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.csmSignal, hire: "Casey (Customer Success Lead)" }],
-    "contracts-reviewer":    [{ sig: SIGNALS.codeSignal, hire: "Sam (Software Engineer)" }, { sig: SIGNALS.sqlSignal, hire: "Dale (Data Analyst)" }, { sig: SIGNALS.marketingSignal, hire: "Maya (Marketing Manager)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.sreSignal, hire: "Devon (DevOps / SRE)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.csmSignal, hire: "Casey (Customer Success Lead)" }, { sig: SIGNALS.prdSignal, hire: "Priya (Product Manager)" }, { sig: SIGNALS.qaSignal, hire: "Quinn (QA Engineer)" }],
-    "executive-assistant":   [{ sig: SIGNALS.codeSignal, hire: "Sam (Software Engineer)" }, { sig: SIGNALS.sqlSignal, hire: "Dale (Data Analyst)" }, { sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.marketingSignal, hire: "Maya (Marketing Manager)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.sreSignal, hire: "Devon (DevOps / SRE)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.prdSignal, hire: "Priya (Product Manager)" }, { sig: SIGNALS.qaSignal, hire: "Quinn (QA Engineer)" }],
-    "qa-engineer":           [{ sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.marketingSignal, hire: "Maya (Marketing Manager)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.csmSignal, hire: "Casey (Customer Success Lead)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.prdSignal, hire: "Priya (Product Manager)" }],
-    "devops-sre":            [{ sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.marketingSignal, hire: "Maya (Marketing Manager)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.csmSignal, hire: "Casey (Customer Success Lead)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.prdSignal, hire: "Priya (Product Manager)" }],
-    "technical-writer":      [{ sig: SIGNALS.codeSignal, hire: "Sam (Software Engineer)" }, { sig: SIGNALS.sqlSignal, hire: "Dale (Data Analyst)" }, { sig: SIGNALS.legalSignal, hire: "Logan (Contracts Reviewer)" }, { sig: SIGNALS.financeSignal, hire: "Fiona (Financial Analyst)" }, { sig: SIGNALS.csmSignal, hire: "Casey (Customer Success Lead)" }, { sig: SIGNALS.designSignal, hire: "Dani (Product Designer)" }, { sig: SIGNALS.sreSignal, hire: "Devon (DevOps / SRE)" }],
+    "software-engineer": [{ sig: SIGNALS.marketingSignal, hire: "Sasha (Social Lead — Personal & Variety & Co)" }, { sig: SIGNALS.financeSignal, hire: "Cole (Accountant)" }],
+    "researcher":        [{ sig: SIGNALS.marketingSignal, hire: "Sasha (Social Lead — Personal & Variety & Co)" }],
   };
 
   const rules = rulesByPersona[id];

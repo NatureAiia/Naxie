@@ -21,30 +21,13 @@ const FILE = join(STATE_DIR, "team-templates.json");
 export type TeamMember = { personaId: string; role: string };
 export type PreorgTeam = { id: string; name: string; description: string; members: TeamMember[] };
 
+// Pruned 2026-09-21 alongside personas.ts's own prune (all built-ins had zero
+// recorded activity in 30 days). "Product squad" and "Launch & marketing"
+// were removed outright — trimming their now-deleted members left each with
+// only a single surviving/unaffected persona, too sparse to call a team (see
+// department-templates.ts's same 0-1-survivor threshold). "Insurance desk"
+// and "Research & GTM" kept 2 members each after trimming, so they stay.
 export const BUILTIN_TEAMS: PreorgTeam[] = [
-  {
-    id: "product-squad",
-    name: "Product squad",
-    description: "Feature scoping, builds, and releases.",
-    members: [
-      { personaId: "product-manager", role: "Product Manager" },
-      { personaId: "software-engineer", role: "Software Engineer" },
-      { personaId: "qa-engineer", role: "QA Engineer" },
-      { personaId: "product-designer", role: "Product Designer" },
-      { personaId: "devops-sre", role: "DevOps / SRE" },
-    ],
-  },
-  {
-    id: "launch-marketing",
-    name: "Launch & marketing",
-    description: "Launches, campaigns, and announcements.",
-    members: [
-      { personaId: "marketing-manager", role: "Marketing Manager" },
-      { personaId: "aiia-marketing-specialist", role: "Aiia Marketing Specialist" },
-      { personaId: "product-manager", role: "Product Manager" },
-      { personaId: "product-designer", role: "Product Designer" },
-    ],
-  },
   {
     id: "insurance-desk",
     name: "Insurance desk",
@@ -52,8 +35,6 @@ export const BUILTIN_TEAMS: PreorgTeam[] = [
     members: [
       { personaId: "insurance-sales-agent", role: "Insurance Sales Agent" },
       { personaId: "insurance-underwriter", role: "Insurance Underwriter" },
-      { personaId: "contracts-reviewer", role: "Contracts Reviewer" },
-      { personaId: "financial-analyst", role: "Financial Analyst" },
     ],
   },
   {
@@ -62,10 +43,7 @@ export const BUILTIN_TEAMS: PreorgTeam[] = [
     description: "Research pods and go-to-market / deal work.",
     members: [
       { personaId: "researcher", role: "Investigative analyst" },
-      { personaId: "data-analyst", role: "Data Analyst" },
       { personaId: "head-of-ai", role: "Head of AI" },
-      { personaId: "account-executive", role: "Account Executive" },
-      { personaId: "customer-success", role: "Customer Success Lead" },
     ],
   },
 ];
@@ -90,47 +68,23 @@ export type TeamTemplate = {
 
 // Seeded templates — one recurring brief per team. {{objective}} is replaced
 // with the caller's objective at dispatch (left as a generic prompt if absent).
+// "tpl-launch-pack" (launch-marketing) and "tpl-feature-kickoff" (product-squad)
+// were removed 2026-09-21 along with their now-deleted teams above.
 const SEED_TEMPLATES: TeamTemplate[] = [
   {
-    id: "tpl-launch-pack", name: "Launch announcement pack", teamId: "launch-marketing", builtin: true, createdAt: "",
-    description: "Coordinated launch assets across marketing, social, positioning, and visuals.",
-    tasks: [
-      { persona: "marketing-manager", content: "Draft a B2B launch announcement (3-4 crisp bullets, no hype) for: {{objective}}" },
-      { persona: "aiia-marketing-specialist", content: "Write 3 short social posts (LinkedIn tone) announcing: {{objective}}" },
-      { persona: "product-manager", content: "Write a one-paragraph positioning statement and the top 3 customer benefits for: {{objective}}" },
-      { persona: "product-designer", content: "Describe a simple visual/hero concept (layout + key message) for the launch of: {{objective}}" },
-    ],
-  },
-  {
-    id: "tpl-feature-kickoff", name: "Feature kickoff", teamId: "product-squad", builtin: true, createdAt: "",
-    description: "Problem statement, technical approach, test plan, rollout, and UX for a new feature.",
-    tasks: [
-      { persona: "product-manager", content: "Write a crisp problem statement and 3 measurable success metrics for: {{objective}}" },
-      { persona: "software-engineer", content: "Sketch a technical approach (key components, data flow, 3 edge cases) for: {{objective}}" },
-      { persona: "qa-engineer", content: "Write 6 test cases (Gherkin style, incl. 2 edge cases) for: {{objective}}" },
-      { persona: "devops-sre", content: "Outline a rollout + rollback runbook (5 ordered steps) for shipping: {{objective}}" },
-      { persona: "product-designer", content: "Outline the core UX flow (key screens + states) for: {{objective}}" },
-    ],
-  },
-  {
     id: "tpl-policy-review", name: "New policy review", teamId: "insurance-desk", builtin: true, createdAt: "",
-    description: "Underwriting risk, sales angle, contract clauses, and pricing for a policy.",
+    description: "Underwriting risk and sales angle for a policy.",
     tasks: [
       { persona: "insurance-underwriter", content: "Assess the key underwriting risks and required information for: {{objective}}" },
       { persona: "insurance-sales-agent", content: "Draft a concise customer-facing pitch and 3 FAQs for: {{objective}}" },
-      { persona: "contracts-reviewer", content: "List the 5 clauses to check first and what a red flag looks like in each, for: {{objective}}" },
-      { persona: "financial-analyst", content: "Outline a simple pricing/margin model and the key assumptions for: {{objective}}" },
     ],
   },
   {
     id: "tpl-market-scan", name: "Market scan", teamId: "research-gtm", builtin: true, createdAt: "",
-    description: "Landscape, metrics, AI implications, opportunities, and retention angle.",
+    description: "Landscape and AI-implications scan for a market or opportunity.",
     tasks: [
       { persona: "researcher", content: "Summarize the current landscape and 3 key players for: {{objective}} (cite sources)" },
-      { persona: "data-analyst", content: "Propose the 3 metrics you'd track and how you'd measure them for: {{objective}}" },
       { persona: "head-of-ai", content: "Assess the AI implications and 2 build-vs-buy considerations for: {{objective}}" },
-      { persona: "account-executive", content: "Identify the top 3 sales opportunities and the ideal customer profile for: {{objective}}" },
-      { persona: "customer-success", content: "Note the main retention/adoption risks and one mitigation each for: {{objective}}" },
     ],
   },
 ];

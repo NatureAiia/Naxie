@@ -35,7 +35,12 @@ const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
 const FILE = join(STATE_DIR, "board-meetings.json");
 const MAX_RUNS = 50;
 
-export const DEFAULT_COUNCIL = ["researcher", "knowitall", "product-manager", "qa-engineer", "data-analyst"];
+// Pruned 2026-09-21 alongside personas.ts's own prune (all built-ins had zero
+// recorded activity in 30 days) — product-manager/qa-engineer/data-analyst no
+// longer exist, so buildRoster() silently dropped them and every default-council
+// run fell below MIN_MEMBERS. Refilled with surviving personas to keep a
+// 5-member default council with a spread of lenses.
+export const DEFAULT_COUNCIL = ["researcher", "knowitall", "software-engineer", "accountant", "social-media-manager"];
 export const MIN_MEMBERS = 3;
 const MAX_MEMBERS = 8;
 

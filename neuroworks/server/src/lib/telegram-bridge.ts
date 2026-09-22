@@ -573,7 +573,7 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
     const messages = [...history, { role: "user" as const, content: text }];
     // First point of contact is Naxie (your PA) — she triages and delegates.
     // Override with NEUROWORKS_TELEGRAM_PERSONA if you want a different
-    // specialist to own Telegram (e.g. "clawbot", "executive-assistant").
+    // specialist to own Telegram (e.g. "clawbot", "it-support").
     const persona = (process.env.NEUROWORKS_TELEGRAM_PERSONA ?? "naxie").trim() || "naxie";
     const r = await apiPost("/api/chat", { messages, persona });
     let answer = "";
