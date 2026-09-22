@@ -38,6 +38,7 @@ const Skills = lazy(() => import("./pages/Skills").then(m => ({ default: m.Skill
 
 // Connect
 const Extensions = lazy(() => import("./pages/Extensions").then(m => ({ default: m.Extensions })));
+const WhatsApp = lazy(() => import("./pages/WhatsApp").then(m => ({ default: m.WhatsApp })));
 const Connectors = lazy(() => import("./pages/Connectors").then(m => ({ default: m.Connectors })));
 const McpServers = lazy(() => import("./pages/McpServers").then(m => ({ default: m.McpServers })));
 const Hermes = lazy(() => import("./pages/Hermes").then(m => ({ default: m.Hermes })));
@@ -124,6 +125,7 @@ function AppShell() {
         {/* Connect */}
         <Route path="/extensions" element={<Extensions />} />
         <Route path="/integrations" element={<Navigate to="/extensions?tab=integrations" replace />} />
+        <Route path="/whatsapp" element={<WhatsApp />} />
         <Route path="/connectors" element={<Connectors />} />
         <Route path="/mcp-servers" element={<McpServers />} />
         <Route path="/hermes" element={<Hermes />} />

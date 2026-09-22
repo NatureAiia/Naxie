@@ -102,6 +102,10 @@ const memoryNav: NavItem[] = [
 
 const connectNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
+  // WhatsApp is its own page, not an Extensions-catalog entry or a
+  // Connectors credential — it's a QR-paired Baileys device session (see
+  // pages/WhatsApp.tsx). Sits between the two for that reason.
+  { to: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
   // Integrations stays as an Extensions internal tab. Connectors and MCP
   // Servers each got their own top-level page — company systems + personal
   // Google/Microsoft accounts, and local MCP tool servers respectively.
