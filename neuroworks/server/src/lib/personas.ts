@@ -33,6 +33,12 @@ export type Persona = {
   // page's room grouping. Absent = the office buckets this persona into a
   // synthetic "general" room; it is NOT one of the real hireable templates.
   department?: string;
+  // The org's single top-authority persona — gates every caller-identity-
+  // checked tool (personas.manage, system.admin, org.approvals_pending; see
+  // isMasterEmployee below). Not settable via updatePersona's patch — only a
+  // built-in can hold this, and it's synced from the built-in on every load
+  // (see ensureBuiltinSeeded).
+  rank?: "master-employee";
   createdAt: string;
 };
 
@@ -47,6 +53,18 @@ export type PersonaStore = {
 // authorship attribution. Hired personas do the work; Naxie is who reports
 // back. Not part of the hireable catalog — this is display identity only.
 export const PA_IDENTITY = { id: "naxie", name: "Naxie" } as const;
+
+// Single source of truth for "is this caller the org's Master Employee" —
+// every caller-identity-gated tool (personas.manage, system.admin,
+// org.approvals_pending) should check this instead of comparing to
+// PA_IDENTITY.id directly, so the authority lives on the Persona record
+// (rank) rather than being re-hardcoded at each gate.
+export function isMasterEmployee(personaId: string | null | undefined): boolean {
+  const id = String(personaId ?? "").trim();
+  if (!id) return false;
+  const s = loadPersonas();
+  return s.personas.find(p => p.id === id)?.rank === "master-employee";
+}
 
 // Naxie PA — the first point of contact. Wired to Telegram (telegram-bridge.ts)
 // via NEUROWORKS_TELEGRAM_PERSONA=naxie. Triages every inbound, remembers the
@@ -93,8 +111,11 @@ Output discipline — every Naxie reply must look *nice* on every surface (chat,
 
 You are NOT Neuro (clawbot) — Neuro is a tool in your kit for structured-document drafting and vault authorship, not a separate voice the operator talks to. You are the PA who owns the relationship and owns the clock.
 
-Self-improvement: you are the ONLY persona with personas.manage (create/update/retire a hire) and system.admin (host-tools access settings). Both are proposal tools, not do-it-yourself ones — every call pauses in Approvals for Nature's sign-off before anything actually changes, no exceptions. The daily MD System Audit turns its high/medium-priority findings (e.g. "N/M personas dormant") into org-tasks automatically; when you see one of those in org.reports, look at the real evidence (personas.list, usage) before proposing the fix — never retire or reconfigure something on the finding's word alone.`,
+Self-improvement: you are the ONLY persona with personas.manage (create/update/retire a hire) and system.admin (host-tools access settings). Both are proposal tools, not do-it-yourself ones — every call pauses in Approvals for Nature's sign-off before anything actually changes, no exceptions. The daily MD System Audit turns its high/medium-priority findings (e.g. "N/M personas dormant") into org-tasks automatically; when you see one of those in org.reports, look at the real evidence (personas.list, usage) before proposing the fix — never retire or reconfigure something on the finding's word alone.
+
+As Master Employee (COO), you also get org.approvals_pending — a read-only, org-wide view of every job parked awaiting-approval across ALL personas, not just your own drafts. Use it to proactively surface a sign-off digest ("N items across the org are waiting on you") — never to approve or reject anything yourself; that decision stays with Nature via Approvals, no exceptions.`,
   createdAt: "2026-08-23T00:00:00.000Z",
+  rank: "master-employee",
 };
 
 let cache: PersonaStore | null = null;
@@ -392,6 +413,14 @@ function ensureBuiltinSeeded(s: PersonaStore): PersonaStore {
         // Clawbot → Neuro) propagates to installs that already persisted the old
         // name. We only touch `name` — user customisations to other fields stay.
         existing.name = builtin.name;
+        personasSyncDirty = true;
+      }
+      if (existing.rank !== builtin.rank) {
+        // Keep the master-employee rank in sync with code the same way — it's
+        // not an operator-editable field (see updatePersona), so a stale/absent
+        // value on disk (e.g. installs seeded before this field existed) is
+        // always corrected from the built-in, never left as a user override.
+        existing.rank = builtin.rank;
         personasSyncDirty = true;
       }
       // Backfill `department` once for stores persisted before this field

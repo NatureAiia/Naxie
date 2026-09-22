@@ -38,3 +38,9 @@ declare module "xlsx" {
     Sheets: Record<string, unknown>;
   };
 }
+
+declare module "qrcode-terminal" {
+  function generate(text: string, opts?: { small?: boolean }, cb?: (qrString: string) => void): void;
+  const _default: { generate: typeof generate };
+  export default _default;
+}

@@ -64,9 +64,24 @@ export default {
           "0%, 100%": { transform: "translate3d(0,0,0) scale(1)" },
           "50%": { transform: "translate3d(2%, -1.5%, 0) scale(1.08)" },
         },
+        // Office badges (OfficeScene.tsx) — a department badge pulses this
+        // when it has jobs sitting at awaiting-approval, so "needs your
+        // sign-off" reads at a glance even zoomed all the way out.
+        "badge-pulse": {
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(242,184,75,.55)" },
+          "50%": { boxShadow: "0 0 0 7px rgba(242,184,75,0)" },
+        },
+        // A badge's member/status number briefly flashes an accent color
+        // when it changes, instead of just silently updating.
+        "count-flash": {
+          "0%": { opacity: "1", filter: "saturate(2.2) brightness(1.3)" },
+          "100%": { opacity: "1", filter: "none" },
+        },
       },
       animation: {
         "fade-up": "fade-up 0.7s cubic-bezier(0.32,0.72,0,1) both",
+        "badge-pulse": "badge-pulse 1.6s cubic-bezier(0.32,0.72,0,1) infinite",
+        "count-flash": "count-flash 1.2s cubic-bezier(0.32,0.72,0,1)",
       },
     },
   },

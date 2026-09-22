@@ -16,10 +16,6 @@ type Thunk = () => Promise<unknown>;
 const preloaders: Record<string, Thunk> = {
   "/naxie": () => import("../pages/Naxie"),
   "/chat": () => import("../pages/BoardMeeting"),
-  "/agents": () => import("../pages/AgentRoster"),
-  "/squads": () => import("../pages/Squads"),
-  "/orchestrate": () => import("../pages/Orchestrate"),
-  "/spin-up": () => import("../pages/SpinUpAgent"),
   "/runs": () => import("../pages/Runs"),
   "/approvals": () => import("../pages/AgentApprovals"),
   "/my-tasks": () => import("../pages/MyTasks"),
@@ -45,7 +41,6 @@ const preloaders: Record<string, Thunk> = {
   "/ambient": () => import("../pages/AmbientWatch"),
   "/edit": () => import("../pages/DocEditor"),
   "/my-work": () => import("../pages/MyWork"),
-  "/skill-forge": () => import("../pages/SkillForge"),
 };
 
 const warmed = new Set<string>();

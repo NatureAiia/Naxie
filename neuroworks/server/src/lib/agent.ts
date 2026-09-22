@@ -126,7 +126,7 @@ const SOCIAL_TASK_RE = new RegExp(`\\b${SOCIAL_ACTION}\\b[^]{0,60}?\\b${SOCIAL_P
 // flipping a system-access toggle, however low-risk the specific action
 // looks, because this tool set didn't exist before and the operator asked
 // for a human in the loop on all of it, not just the destructive half.
-export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "system_control", "manage_clipboard", "git_pull", "personas.manage", "system.admin"]);
+export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "system_control", "manage_clipboard", "git_pull", "personas.manage", "system.admin", "whatsapp.send", "whatsapp.broadcast"]);
 
 // Tools whose caller identity actually matters — right now, only Naxie (the
 // MD/triage persona) may reach personas.manage / system.admin (docs
@@ -134,7 +134,7 @@ export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "
 // sets this itself — runStep stamps the REAL caller onto args just before
 // invoking the handler, so a persona can't just ask for the tool and get it;
 // the handler in primitives.ts checks it and refuses anyone but Naxie.
-export const CALLER_IDENTITY_GATED_TOOLS = new Set(["personas.manage", "system.admin"]);
+export const CALLER_IDENTITY_GATED_TOOLS = new Set(["personas.manage", "system.admin", "org.approvals_pending"]);
 
 // connector.call is gated by default (see SENSITIVE_APPROVAL_TOOLS above), but
 // a READ (GET/HEAD, or no method → GET default) against a connector the

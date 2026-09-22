@@ -155,27 +155,29 @@ function AccountModal({ existing, onClose, onSaved }: { existing: GithubAccount 
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>
-      <div className="w-full max-w-sm bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg text-cream-50 font-medium">{existing ? "Rename account" : "Add GitHub account"}</h2>
-          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Label <span className="text-coral-400">*</span></label>
-            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Personal / Work / Business" className={FIELD} />
+    <div className="fixed inset-0 z-50 bg-ink-900 flex flex-col overflow-hidden" onClick={onClose}>
+      <div className="flex-1 flex flex-col items-center justify-center p-6" onClick={e => e.stopPropagation()}>
+        <div className="w-full max-w-md bg-ink-950 border border-ink-800 rounded-3xl p-8 space-y-6 shadow-2xl">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl text-cream-50 font-medium">{existing ? "Rename account" : "Add GitHub account"}</h2>
+            <button onClick={onClose} className="p-2 text-cream-300/50 hover:text-cream-100 hover:bg-ink-800 rounded-lg transition-colors"><X size={24} /></button>
           </div>
-          {!existing && (
-            <div>
-              <label className="block text-[11px] text-cream-300/70 mb-1">Fine-grained PAT <span className="text-coral-400">*</span></label>
-              <input type="password" value={token} onChange={e => setToken(e.target.value)} className={`${FIELD} font-mono`} autoComplete="off" spellCheck={false} />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Label <span className="text-coral-400">*</span></label>
+              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Personal / Work / Business" className={FIELD} />
             </div>
-          )}
-        </div>
-        {err && <div className="text-[12px] text-coral-400 flex items-center gap-1.5"><AlertTriangle size={13} /> {err}</div>}
-        <div className="flex justify-end pt-1">
-          <Button onClick={submit} disabled={saving || !label || (!existing && !token)}>{saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} {existing ? "Save" : "Add account"}</Button>
+            {!existing && (
+              <div className="space-y-2">
+                <label className="block text-[12px] font-medium text-cream-300/70">Fine-grained PAT <span className="text-coral-400">*</span></label>
+                <input type="password" value={token} onChange={e => setToken(e.target.value)} className={`${FIELD} font-mono`} autoComplete="off" spellCheck={false} />
+              </div>
+            )}
+          </div>
+          {err && <div className="text-sm text-coral-400 flex items-center gap-2 p-3 rounded-lg bg-coral-500/5 border border-coral-500/20"><AlertTriangle size={16} /> {err}</div>}
+          <div className="flex justify-end pt-2">
+            <Button onClick={submit} disabled={saving || !label || (!existing && !token)} className="px-6 py-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} {existing ? "Save" : "Add account"}</Button>
+          </div>
         </div>
       </div>
     </div>

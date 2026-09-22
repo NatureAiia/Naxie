@@ -49,10 +49,10 @@ export function OfficeDirectory({ rooms, onSelectPersona }: Props) {
       {filtered.length === 0 && (
         <div className="text-xs text-cream-300/40 px-1 py-2">No one matches "{query}".</div>
       )}
-      {filtered.map(room => {
+      {filtered.map((room, i) => {
         const isOpen = query.trim().length > 0 || expanded.has(room.id);
         return (
-          <div key={room.id}>
+          <div key={room.id} className="animate-fade-up" style={{ animationDelay: `${i * 40}ms` }}>
             <button
               type="button"
               onClick={() => toggle(room.id)}

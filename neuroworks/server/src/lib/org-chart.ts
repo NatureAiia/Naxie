@@ -131,3 +131,17 @@ export function reportsOf(idOrName: string): Person[] {
   const chart = loadOrgChart();
   return start.reports.map(id => chart.byId.get(id)).filter((p): p is Person => !!p);
 }
+
+// Resolve whichever persona currently holds the "master-employee" rank
+// (see personas.ts's Persona.rank / isMasterEmployee) to their entry on this
+// chart. Returns null if no persona holds the rank, or `_governance/people.md`
+// has no entry for them yet — the chart is optional data, so callers should
+// treat a null here as "not charted", not as "no master employee exists"
+// (use personas.ts directly for that).
+export async function resolveMasterEmployee(): Promise<Person | null> {
+  const { loadPersonas } = await import("./personas.js");
+  const master = loadPersonas().personas.find(p => p.rank === "master-employee");
+  if (!master) return null;
+  const chart = loadOrgChart();
+  return chart.byPersonaId.get(master.id) ?? null;
+}

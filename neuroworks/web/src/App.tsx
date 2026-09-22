@@ -16,10 +16,6 @@ const CommandCenter = lazy(() => import("./pages/CommandCenter").then(m => ({ de
 
 // Agents & Subagents
 const Office = lazy(() => import("./pages/Office").then(m => ({ default: m.Office })));
-const AgentRoster = lazy(() => import("./pages/AgentRoster").then(m => ({ default: m.AgentRoster })));
-const Squads = lazy(() => import("./pages/Squads").then(m => ({ default: m.Squads })));
-const Orchestrate = lazy(() => import("./pages/Orchestrate").then(m => ({ default: m.Orchestrate })));
-const SpinUpAgent = lazy(() => import("./pages/SpinUpAgent").then(m => ({ default: m.SpinUpAgent })));
 
 // Work Queue
 const Runs = lazy(() => import("./pages/Runs").then(m => ({ default: m.Runs })));
@@ -58,7 +54,6 @@ const AmbientWatch = lazy(() => import("./pages/AmbientWatch").then(m => ({ defa
 // Misc / unchanged
 const DocEditor = lazy(() => import("./pages/DocEditor").then(m => ({ default: m.DocEditor })));
 const MyWork = lazy(() => import("./pages/MyWork").then(m => ({ default: m.MyWork })));
-const SkillForge = lazy(() => import("./pages/SkillForge").then(m => ({ default: m.SkillForge })));
 
 // Lightweight, layout-shift-free placeholder while a route chunk downloads —
 // on a warm cache this never has time to paint; on a cold load it beats a
@@ -105,10 +100,6 @@ function AppShell() {
 
         {/* Agents & Subagents */}
         <Route path="/office" element={<Office />} />
-        <Route path="/agents" element={<AgentRoster />} />
-        <Route path="/squads" element={<Squads />} />
-        <Route path="/orchestrate" element={<Orchestrate />} />
-        <Route path="/spin-up" element={<SpinUpAgent />} />
 
         {/* Work Queue */}
         <Route path="/runs" element={<Runs />} />
@@ -154,7 +145,6 @@ function AppShell() {
         <Route path="/edit" element={<DocEditor />} />
         <Route path="/edit/*" element={<DocEditor />} />
         <Route path="/my-work" element={<MyWork />} />
-        <Route path="/skill-forge" element={<SkillForge />} />
 
         {/* Transition redirects — old paths never hard-404 */}
         <Route path="/dashboard" element={<Navigate to="/naxie" replace />} />
@@ -163,11 +153,16 @@ function AppShell() {
         <Route path="/results" element={<Navigate to="/runs" replace />} />
         <Route path="/results/:jobId" element={<ResultsRedirect />} />
         <Route path="/quality" element={<Navigate to="/runs?filter=quality" replace />} />
-        <Route path="/team" element={<Navigate to="/orchestrate" replace />} />
-        <Route path="/presets" element={<Navigate to="/spin-up" replace />} />
-        <Route path="/workforce" element={<Navigate to="/agents" replace />} />
-        <Route path="/personas" element={<Navigate to="/agents" replace />} />
-        <Route path="/departments" element={<Navigate to="/squads" replace />} />
+        <Route path="/agents" element={<Navigate to="/office" replace />} />
+        <Route path="/team" element={<Navigate to="/office" replace />} />
+        <Route path="/presets" element={<Navigate to="/office" replace />} />
+        <Route path="/workforce" element={<Navigate to="/office" replace />} />
+        <Route path="/personas" element={<Navigate to="/office" replace />} />
+        <Route path="/departments" element={<Navigate to="/office" replace />} />
+        <Route path="/squads" element={<Navigate to="/office" replace />} />
+        <Route path="/orchestrate" element={<Navigate to="/office" replace />} />
+        <Route path="/spin-up" element={<Navigate to="/office" replace />} />
+        <Route path="/skill-forge" element={<Navigate to="/skills?tab=forge" replace />} />
         <Route path="/governance" element={<Navigate to="/policies" replace />} />
         <Route path="/security" element={<Navigate to="/audit" replace />} />
         <Route path="/knowledge/*" element={<Navigate to="/library" replace />} />

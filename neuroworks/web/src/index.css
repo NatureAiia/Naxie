@@ -566,3 +566,38 @@ body::after {                               /* blueprint glow — light from abo
   body::before { animation: none !important; }
   .noise-bg-pan { animation: none !important; }
 }
+
+/* Modal state - locks background scroll when an immersive modal is open */
+.modal-open {
+  overflow: hidden !important;
+}
+
+/* Themed Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--c-ink-700);
+  border-radius: 10px;
+  transition: background 200ms ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-ink-600);
+}
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-ink-700) transparent;
+}
+
+/* Haptic Visuals - Physical press effect */
+.nw-haptic-press {
+  transition: transform 80ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.nw-haptic-press:active:not(:disabled) {
+  transform: scale(0.95);
+}

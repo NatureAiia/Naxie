@@ -51,7 +51,7 @@ export type Pipeline = {
 export type Activity = {
   id: string;
   contactId: string;
-  kind: "note" | "email" | "call" | "stage-change";
+  kind: "note" | "email" | "call" | "stage-change" | "whatsapp";
   body: string;
   at: string;
 };
@@ -212,6 +212,16 @@ export function logActivity(input: { contactId: string; kind: Activity["kind"]; 
   store.activities.push(activity);
   persist();
   return activity;
+}
+
+// Contacts with a phone number and at least one activity of any kind within
+// the last `days` days — the "clients I've dealt with recently" set that
+// whatsapp.broadcast (primitives.ts) targets for bulk sends.
+export function listContactsWithRecentActivity(days: number): Contact[] {
+  const store = load();
+  const cutoff = Date.now() - days * 86_400_000;
+  const recentContactIds = new Set(store.activities.filter(a => new Date(a.at).getTime() >= cutoff).map(a => a.contactId));
+  return store.contacts.filter(c => c.phone && recentContactIds.has(c.id));
 }
 
 // ─── Naxie context injection ───

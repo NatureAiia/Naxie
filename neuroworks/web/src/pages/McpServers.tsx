@@ -182,51 +182,52 @@ function AddMcpServerModal({ prefill, onClose, onSaved }: { prefill: McpCatalogE
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>
-      <div className="w-full max-w-lg bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4 my-8" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg text-cream-50 font-medium">Add MCP server</h2>
-          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
-        </div>
+    <div className="fixed inset-0 z-50 bg-ink-900 flex flex-col overflow-hidden" onClick={onClose}>
+      <div className="flex-1 flex flex-col items-center justify-center p-6" onClick={e => e.stopPropagation()}>
+        <div className="w-full max-w-2xl bg-ink-950 border border-ink-800 rounded-3xl p-8 space-y-6 shadow-2xl">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl text-cream-50 font-medium">Add MCP server</h2>
+            <button onClick={onClose} className="p-2 text-cream-300/50 hover:text-cream-100 hover:bg-ink-800 rounded-lg transition-colors"><X size={24} /></button>
+          </div>
 
-        <div className="space-y-3">
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Label <span className="text-coral-400">*</span></label>
-            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Filesystem" className={FIELD} />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Label <span className="text-coral-400">*</span></label>
+              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Filesystem" className={FIELD} />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Description</label>
+              <input value={description} onChange={e => setDescription(e.target.value)} placeholder="What this server exposes — agents read this" className={FIELD} />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Command <span className="text-coral-400">*</span></label>
+              <input value={command} onChange={e => setCommand(e.target.value)} placeholder="npx" className={`${FIELD} font-mono`} autoComplete="off" spellCheck={false} />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Args</label>
+              <input value={argsText} onChange={e => setArgsText(e.target.value)} placeholder='-y @modelcontextprotocol/server-filesystem /home/user/docs' className={`${FIELD} font-mono`} autoComplete="off" spellCheck={false} />
+              <p className="text-[11px] text-cream-300/40">Space-separated; wrap an argument with spaces in quotes.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Env vars (JSON, optional)</label>
+              <textarea value={envJson} onChange={e => setEnvJson(e.target.value)} rows={3}
+                placeholder={'{ "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..." }'} className={`${FIELD} font-mono text-[12px]`} spellCheck={false} />
+              <p className="text-[11px] text-cream-300/40">Encrypted at rest, never shown again after saving.</p>
+              {prefill?.env?.length ? (
+                <div className="text-[11px] text-amber-300/70 p-2 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+                  {prefill.label} needs: {prefill.env.map(e => `${e.name}${e.required ? "" : " (optional)"}`).join(", ")}
+                </div>
+              ) : null}
+            </div>
+            <div className="text-xs text-cream-300/60 bg-ink-900/50 border border-ink-800 rounded-xl px-4 py-3 leading-relaxed">
+              This runs a local command with the server's own OS permissions. Only add servers from sources you trust.
+            </div>
           </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Description</label>
-            <input value={description} onChange={e => setDescription(e.target.value)} placeholder="What this server exposes — agents read this" className={FIELD} />
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Command <span className="text-coral-400">*</span></label>
-            <input value={command} onChange={e => setCommand(e.target.value)} placeholder="npx" className={`${FIELD} font-mono`} autoComplete="off" spellCheck={false} />
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Args</label>
-            <input value={argsText} onChange={e => setArgsText(e.target.value)} placeholder='-y @modelcontextprotocol/server-filesystem /home/user/docs' className={`${FIELD} font-mono`} autoComplete="off" spellCheck={false} />
-            <div className="text-[10px] text-cream-300/40 mt-1">Space-separated; wrap an argument with spaces in quotes.</div>
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Env vars (JSON, optional)</label>
-            <textarea value={envJson} onChange={e => setEnvJson(e.target.value)} rows={3}
-              placeholder={'{ "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..." }'} className={`${FIELD} font-mono text-[12px]`} spellCheck={false} />
-            <div className="text-[10px] text-cream-300/40 mt-1">Encrypted at rest, never shown again after saving — for a server's own API keys (e.g. a GitHub MCP server's PAT).</div>
-            {prefill?.env?.length ? (
-              <div className="text-[10px] text-amber-300/70 mt-1">
-                {prefill.label} needs: {prefill.env.map(e => `${e.name}${e.required ? "" : " (optional)"}`).join(", ")} — fill in the values above.
-              </div>
-            ) : null}
-          </div>
-          <div className="text-[11px] text-cream-300/60 bg-ink-950/40 border border-ink-800 rounded-lg px-3 py-2">
-            This runs a local command with the server's own OS permissions. Only add servers from sources you trust —
-            see <a href="https://github.com/punkpeye/awesome-mcp-servers" target="_blank" rel="noreferrer" className="text-violet-400 hover:text-violet-300">awesome-mcp-servers</a> for a curated list.
-          </div>
-        </div>
 
-        {err && <div className="text-[12px] text-coral-400 flex items-center gap-1.5"><AlertTriangle size={13} /> {err}</div>}
-        <div className="flex justify-end pt-1">
-          <Button onClick={submit} disabled={saving || !label || !command}>{saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Add server</Button>
+          {err && <div className="text-sm text-coral-400 flex items-center gap-2 p-3 rounded-lg bg-coral-500/5 border border-coral-500/20"><AlertTriangle size={16} /> {err}</div>}
+          <div className="flex justify-end pt-2">
+            <Button onClick={submit} disabled={saving || !label || !command} className="px-6 py-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Add server</Button>
+          </div>
         </div>
       </div>
     </div>
@@ -248,34 +249,55 @@ function ToolsModal({ server, onClose }: { server: McpServer; onClose: () => voi
   useEffect(() => { void load(); }, [server.id]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>
-      <div className="w-full max-w-lg bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-3 my-8" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg text-cream-50 font-medium">Tools — {server.label}</h2>
-          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
+    <div className="fixed inset-0 z-50 bg-ink-900 flex flex-col overflow-hidden" onClick={onClose}>
+      <div className="flex-1 flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 border-b border-ink-800 shrink-0">
+          <h2 className="text-2xl text-cream-50 font-medium flex items-center gap-3"><ListTree size={24} /> Tools — {server.label}</h2>
+          <button onClick={onClose} className="p-2 text-cream-300/50 hover:text-cream-100 hover:bg-ink-800 rounded-lg transition-colors"><X size={24} /></button>
         </div>
 
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-cream-300/60 py-4"><Loader2 size={16} className="animate-spin" /> Starting server &amp; discovering tools…</div>
-        ) : err ? (
-          <div className="text-[12px] text-coral-400 flex items-center gap-1.5"><AlertTriangle size={13} /> {err}</div>
-        ) : tools.length === 0 ? (
-          <div className="text-sm text-cream-300/60 py-4 text-center">This server reported no tools.</div>
-        ) : (
-          <div className="space-y-2 max-h-96 overflow-auto">
-            {tools.map(t => (
-              <div key={t.name} className="rounded-lg bg-ink-950/50 border border-ink-800 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-mono text-sm text-cream-100">{t.name}</div>
-                  <Button variant="subtle" onClick={() => setTrying(t)}><Play size={12} /> Try</Button>
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 overflow-hidden">
+          <div className="lg:col-span-1 p-6 space-y-6 border-r border-ink-800 overflow-y-auto bg-ink-950/30">
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-ink-900 border border-ink-800">
+                <div className="text-xs font-medium text-cream-300/70 uppercase tracking-wider mb-2">Server Info</div>
+                <div className="text-sm text-cream-100 font-medium mb-1">{server.label}</div>
+                <div className="text-[11px] font-mono text-cream-300/50 break-all">{server.command} {server.args.join(" ")}</div>
+              </div>
+              {server.description && (
+                <div className="text-xs text-cream-300/60 leading-relaxed italic">
+                  "{server.description}"
                 </div>
-                {t.description && <div className="text-[12px] text-cream-300/60 mt-1">{t.description}</div>}
+              )}
+            </div>
+            <div className="p-4 rounded-xl bg-ink-950/50 border border-ink-800 text-xs text-cream-300/50 leading-relaxed">
+              MCP servers run as local processes with your OS permissions. Every tool call is manually approved before execution.
+            </div>
+          </div>
+
+          <div className="lg:col-span-3 p-6 space-y-4 overflow-y-auto bg-ink-900">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-sm font-medium text-cream-300/70 uppercase tracking-widest">Available Tools</h3>
+              {tools.length > 0 && <span className="text-xs bg-ink-800 text-cream-300 px-3 py-1 rounded-full border border-ink-700">{tools.length} tools found</span>}
+            </div>
+            {loading ? (
+              <div className="flex items-center gap-2 text-sm text-cream-300/60 py-20 justify-center"><Loader2 size={20} className="animate-spin" /> Starting server &amp; discovering tools…</div>
+            ) : err ? (
+              <div className="text-sm text-coral-400 flex items-center gap-2 p-6 rounded-2xl bg-coral-500/5 border border-coral-500/20"><AlertTriangle size={18} /> {err}</div>
+            ) : tools.length === 0 ? (
+              <div className="text-sm text-cream-300/50 text-center py-32 border-2 border-dashed border-ink-800 rounded-2xl">This server reported no tools.</div>
+            ) : tools.map(t => (
+              <div key={t.name} className="rounded-2xl bg-ink-950/50 border border-ink-800 p-5 hover:border-violet-500/40 transition-all group">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="font-mono text-base text-cream-100">{t.name}</div>
+                  <Button variant="subtle" className="px-4 py-1.5" onClick={() => setTrying(t)}><Play size={14} /> Try tool</Button>
+                </div>
+                {t.description && <div className="text-sm text-cream-300/60 mt-2 leading-relaxed">{t.description}</div>}
+                {trying?.name === t.name && <TryToolPanel server={server} tool={t} onClose={() => setTrying(null)} />}
               </div>
             ))}
           </div>
-        )}
-
-        {trying && <TryToolPanel server={server} tool={trying} onClose={() => setTrying(null)} />}
+        </div>
       </div>
     </div>
   );

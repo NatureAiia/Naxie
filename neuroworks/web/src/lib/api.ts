@@ -333,32 +333,6 @@ export const api = {
     ...(opts?.persona ? { persona: opts.persona } : {}),
     ...(opts?.continuesTaskRef ? { continuesTaskRef: opts.continuesTaskRef } : {}),
   }) }),
-  team: (tasks: { persona?: string; content: string; attachments?: { contextId: string }[] }[]) => req<{
-    kind: "team-task";
-    tasksDispatched: number;
-    tasks: {
-      taskIndex: number;
-      persona: { id: string; name: string; role: string } | null;
-      personaAutoRouted: boolean;
-      jobId: string;
-      route: "primary" | "auto" | "explicit" | "active";
-    }[];
-  }>("/api/team", { method: "POST", body: JSON.stringify({ tasks }) }),
-  listTeams: () => req<{
-    teams: { id: string; name: string; description: string; members: { personaId: string; role: string }[] }[];
-    templates: { id: string; name: string; description?: string; teamId?: string; builtin?: boolean; tasks: { persona: string; content: string }[] }[];
-  }>("/api/teams"),
-  dispatchTeam: (body: { teamId?: string; templateId?: string; objective?: string }) => req<{
-    kind: "team-dispatch";
-    label: string;
-    tasksDispatched: number;
-    tasks: { taskIndex: number; persona: { id: string; name: string; role: string } | null; personaAutoRouted: boolean; jobId: string; route: "primary" | "auto" | "explicit" | "active" }[];
-  }>("/api/teams/dispatch", { method: "POST", body: JSON.stringify(body) }),
-  // Hand-off relay — sequential team workflow (agents pass work down a chain).
-  startHandoff: (body: { objective: string; teamId?: string; members?: { personaId: string; role?: string }[]; label?: string }) =>
-    req<{ runId: string; jobId: string; roster: { personaId: string; role: string; name: string }[] }>("/api/handoff", { method: "POST", body: JSON.stringify(body) }),
-  listHandoffs: () => req<{ runs: HandoffRun[] }>("/api/handoff"),
-  getHandoff: (id: string) => req<{ run: HandoffRun }>(`/api/handoff/${encodeURIComponent(id)}`),
   // Board Meeting — LLM council (opinions → anonymized peer review → chairman synthesis).
   startBoard: (body: { topic: string; personaIds?: string[] }) =>
     req<{ runId: string; jobId: string; roster: { personaId: string; name: string; role: string }[] }>("/api/board", { method: "POST", body: JSON.stringify(body) }),
@@ -386,13 +360,11 @@ export const api = {
   }>("/api/uploads", { method: "POST", body: JSON.stringify(body) }),
   saveSession: (sessionId: string, messages: { role: string; content: string; jobId?: string }[]) => req<{ saved: true; path: string; sessionId: string }>("/api/chat/save-session", { method: "POST", body: JSON.stringify({ sessionId, messages }) }),
   listPersonas: () => req<{ personas: any[]; activeId: string | null; active: any }>("/api/personas"),
-  createPersona: (body: { name: string; jobDescription: string; tone?: string; role?: string; description?: string; responsibilities?: string[]; systemPromptOverride?: string }) => req<{ persona: any }>("/api/personas", { method: "POST", body: JSON.stringify(body) }),
   activatePersona: (id: string | "default") => req<{ active: any }>(`/api/personas/${id}/activate`, { method: "POST" }),
   deactivatePersona: () => req<{ active: null }>("/api/personas/deactivate", { method: "POST" }),
   deletePersona: (id: string) => req<{ deleted: true; removedTemplates?: number }>(`/api/personas/${id}`, { method: "DELETE" }),
   refreshPersonaTemplates: (id: string) => req<{ persona: string; kept: number; added: number; removed: number; ids: string[] }>(`/api/personas/${id}/refresh-templates`, { method: "POST" }),
   listPersonaTemplates: (id: string) => req<{ templates: any[] }>(`/api/personas/${id}/templates`),
-  previewPersona: (jobDescription: string) => req<{ role: string; description: string; tone: string; responsibilities: string[] }>("/api/personas/preview", { method: "POST", body: JSON.stringify({ jobDescription }) }),
   peers: () => req<{ self: any; peers: any[]; registry?: any[] }>("/api/peers"),
   getFeedback: (jobId: string) => req<{ feedback: { rating: "up" | "down"; note?: string; ts: string } | null }>(`/api/feedback?jobId=${encodeURIComponent(jobId)}`),
   postFeedback: (body: { jobId: string; rating: "up" | "down"; note?: string; persona?: string; template?: string; score?: number }) => req<{ ok: true; path: string }>("/api/feedback", { method: "POST", body: JSON.stringify(body) }),
@@ -511,12 +483,9 @@ export const api = {
     req<{ constraint: ExtractedConstraint }>(`/api/governance/${encodeURIComponent(name)}/constraints/${encodeURIComponent(constraintId)}`, { method: "PUT", body: JSON.stringify(patch) }),
   checkAction: (action: string, policy?: string) => req<{ action: string; violations: any[]; constrained: boolean; summary: string }>(
     "/api/governance/check-action", { method: "POST", body: JSON.stringify({ action, policy }) }),
-  // Department Marketplace.
+  // Department listing — Office.tsx reads this for room names/colors; Naxie
+  // owns hiring/apply decisions, so there's no client-side apply/create/delete.
   listDepartments: () => req<{ departments: any[] }>("/api/departments"),
-  applyDepartment: (id: string) => req<any>(`/api/departments/${encodeURIComponent(id)}/apply`, { method: "POST" }),
-  createDepartment: (body: { name: string; tagline?: string; description?: string; roles?: string[] }) =>
-    req<{ department: any }>("/api/departments", { method: "POST", body: JSON.stringify(body) }),
-  deleteDepartment: (id: string) => req<{ ok: true }>(`/api/departments/${encodeURIComponent(id)}`, { method: "DELETE" }),
   listSchedules: () => req<{ schedules: Schedule[] }>("/api/schedules"),
   createSchedule: (body: {
     name: string;
@@ -530,9 +499,6 @@ export const api = {
     req<{ schedule: Schedule }>(`/api/schedules/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteSchedule: (id: string) => req<{ ok: true }>(`/api/schedules/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  listPresets: () => req<{ presets: Preset[] }>("/api/presets"),
-  applyPreset: (id: string, body: { deliverEmail?: string; createSchedules?: boolean }) =>
-    req<PresetApplyResult>(`/api/presets/${encodeURIComponent(id)}/apply`, { method: "POST", body: JSON.stringify(body) }),
   integrationsCatalog: () => req<{ providers: IntegrationProvider[] }>("/api/integrations/catalog"),
   listIntegrations: () => req<{ connections: IntegrationConnection[] }>("/api/integrations"),
   addIntegration: (providerId: string, label: string, values: Record<string, string>, expiresAt?: string) =>
@@ -660,6 +626,8 @@ export const api = {
     req<{ result: McpCallResult }>(`/api/mcp-servers/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(body) }),
   hermesBridgeStatus: () => req<HermesBridgeStatus>("/api/hermes-bridge/status"),
   registerHermesBridge: () => req<{ ok: boolean; alreadyRegistered: boolean; status: HermesBridgeStatus }>("/api/hermes-bridge/register", { method: "POST" }),
+  whatsappStatus: () => req<WhatsAppBridgeStatus>("/api/whatsapp/status"),
+  whatsappReconnect: () => req<{ ok: true }>("/api/whatsapp/reconnect", { method: "POST" }),
   getExecutor: () => req<ExecutorStatus>("/api/executor"),
   setExecutor: (body: { mode?: "clawbot" | "hermes"; hermesModel?: string | null; hermesLocal?: boolean }) =>
     req<{ ok: true; mode: string; hermesModelOverride: string | null; hermesLocal: boolean }>("/api/executor", { method: "POST", body: JSON.stringify(body) }),
@@ -783,11 +751,6 @@ export const api = {
     req<{ skill: any; raw: string }>("/api/skill-forge/draft", { method: "POST", body: JSON.stringify({ intent, taskSample, failureReason }) }),
   saveSkill: (intent: string, raw: string) =>
     req<{ ok: boolean; path: string; skill?: any }>("/api/skill-forge/save", { method: "POST", body: JSON.stringify({ intent, raw }) }),
-  // Orchestrator.
-  startOrchestration: (objective: string) =>
-    req<{ id: string; label: string; status: string; subTasks: any[] }>("/api/orchestrate/run", { method: "POST", body: JSON.stringify({ objective }) }),
-  listOrchestrations: () => req<{ runs: any[] }>("/api/orchestrate/runs"),
-  getOrchestration: (id: string) => req<{ run: any }>(`/api/orchestrate/runs/${encodeURIComponent(id)}`),
 };
 
 // Access layers: superadmin (money + secrets), admin (people + work), staff
@@ -1038,6 +1001,18 @@ export type HermesBridgeStatus = {
   tools: { name: string; description: string; readonly: boolean }[];
 };
 
+export type WhatsAppBridgeStatus = {
+  running: boolean;
+  connected: boolean;
+  phoneNumber?: string;
+  startedAt?: string;
+  lastError?: string;
+  processed: number;
+  qrDataUrl?: string;
+  qrUpdatedAt?: string;
+  pendingTriage: number;
+};
+
 export type Contact = {
   id: string; name?: string; email?: string; phone?: string; company?: string;
   source?: string; tags: string[]; notes?: string; createdAt: string; updatedAt: string;
@@ -1120,36 +1095,6 @@ export type FileEntry = {
   type: "dir" | "file";
   size?: number;
   mtimeMs?: number;
-};
-
-// Hand-off relay (sequential team workflow).
-export type HandoffStep = {
-  index: number;
-  personaId: string;
-  personaName: string;
-  role: string;
-  status: "pending" | "running" | "done" | "failed";
-  output: string;
-  status_note: string;
-  handoffTo: string | null;
-  complete: boolean;
-  jobId?: string;
-  startedAt?: string;
-  endedAt?: string;
-  elapsedMs?: number;
-};
-export type HandoffRun = {
-  id: string;
-  objective: string;
-  teamId?: string;
-  label: string;
-  roster: { personaId: string; role: string; name: string }[];
-  steps: HandoffStep[];
-  status: "running" | "completed" | "exhausted" | "failed";
-  finalReport: string;
-  jobId?: string;
-  createdAt: string;
-  updatedAt: string;
 };
 
 // Board Meeting (LLM council).
@@ -1270,24 +1215,5 @@ export type Schedule = {
   fireCount: number;
   nextFireAt?: number | null;
 };
-
-export type Preset = {
-  id: string;
-  name: string;
-  tagline: string;
-  personaId: string;
-  recommendedSkills: string[];
-  recommendedIntegrations: string[];
-  schedules?: { name: string; templateId: string; cadence: Cadence; emailResult?: boolean }[];
-};
-export type PresetApplyResult = {
-  preset: Preset;
-  persona: { id: string; name: string; role: string };
-  templatesEnsured: number;
-  schedulesCreated: { id: string; name: string; emailTo?: string }[];
-  missingIntegrations: string[];
-};
-
-
 
 

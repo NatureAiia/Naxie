@@ -3522,8 +3522,8 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "reason", type: "string", required: true, description: "Why this change — cite the evidence (e.g. a system-audit finding, usage stats)" },
     ],
     handler: async (args) => {
-      const { PA_IDENTITY } = await import("./personas.js");
-      if (String(args.__callerPersonaId ?? "") !== PA_IDENTITY.id) {
+      const { PA_IDENTITY, isMasterEmployee } = await import("./personas.js");
+      if (!isMasterEmployee(String(args.__callerPersonaId ?? ""))) {
         return { error: `personas.manage is restricted to ${PA_IDENTITY.name} — this caller is not authorized to use it.` };
       }
       const { addPersona, updatePersona, deletePersona, extractPersonaMetadata, slugifyId } = await import("./personas.js");
@@ -3587,8 +3587,8 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "reason", type: "string", required: true, description: "Why this change is needed — cite the evidence (failure rate, cost, a better free option)" },
     ],
     handler: async (args) => {
-      const { PA_IDENTITY } = await import("./personas.js");
-      if (String(args.__callerPersonaId ?? "") !== PA_IDENTITY.id) {
+      const { PA_IDENTITY, isMasterEmployee } = await import("./personas.js");
+      if (!isMasterEmployee(String(args.__callerPersonaId ?? ""))) {
         return { error: `system.admin is restricted to ${PA_IDENTITY.name} — this caller is not authorized to use it.` };
       }
       const action = String(args.action ?? "").trim();
@@ -3628,6 +3628,19 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     },
   },
   {
+    name: "org.master_employee",
+    description: "Return who currently holds the org's Master Employee rank (COO-level, top authority over personas.manage/system.admin/org.approvals_pending) — persona id + name, plus their org-chart entry if `_governance/people.md` has one. Use instead of assuming \"naxie\" by name.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { resolveMasterEmployee } = await import("./org-chart.js");
+      const { loadPersonas } = await import("./personas.js");
+      const master = loadPersonas().personas.find(p => p.rank === "master-employee");
+      if (!master) return { error: "no persona currently holds the master-employee rank" };
+      return { personaId: master.id, personaName: master.name, orgChartPerson: await resolveMasterEmployee() };
+    },
+  },
+  {
     name: "org.escalation_path",
     description: "Return the manager chain for a person (id / name / persona_id), root last. Walks `manager` until it hits a person with no manager set (a human, by convention).",
     readonly: true,
@@ -3655,6 +3668,30 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     handler: async (args) => {
       const { reportsOf } = await import("./org-chart.js");
       return { reports: reportsOf(String(args.query ?? "")) };
+    },
+  },
+  {
+    name: "org.approvals_pending",
+    description: "List every job parked awaiting-approval across the WHOLE org (all personas), not just your own drafts — for the org's Master Employee to surface a sign-off digest to the operator. MASTER-EMPLOYEE-ONLY. Read-only: this does not approve or reject anything — decisions stay with the operator via the Approvals page.",
+    readonly: true,
+    args: [],
+    handler: async (args) => {
+      const { PA_IDENTITY, isMasterEmployee } = await import("./personas.js");
+      if (!isMasterEmployee(String(args.__callerPersonaId ?? ""))) {
+        return { error: `org.approvals_pending is restricted to ${PA_IDENTITY.name} — this caller is not authorized to use it.` };
+      }
+      const { listJobs } = await import("./jobs.js");
+      const now = Date.now();
+      const pending = listJobs()
+        .filter(j => j.status === "awaiting-approval")
+        .map(j => ({
+          id: j.id,
+          title: j.title ?? j.task ?? "",
+          personaName: j.personaName ?? "",
+          startedAt: j.startedAt,
+          ageMs: now - new Date(j.startedAt).getTime(),
+        }));
+      return { count: pending.length, pending };
     },
   },
   {
@@ -3777,6 +3814,73 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       }
       const r = await sendTelegramMessage(String(args.text ?? ""), args.chatId ? String(args.chatId) : undefined, keyboard);
       return r.ok ? { ok: true, sent: true, messageId: r.messageId } : { error: r.error };
+    },
+  },
+  {
+    name: "whatsapp.reconnect",
+    description: "Force a fresh WhatsApp pairing: disconnects the current session, deletes the saved credentials, and restarts the bridge — which prints a brand-new QR code to the server console/logs to scan. Use this whenever the operator asks to reconnect/rescan/relink WhatsApp (e.g. the linked device was removed from the phone, the connection looks stuck, or they just want to re-pair). Not approval-gated — it's a connection reset, not customer-facing.",
+    readonly: false,
+    args: [],
+    handler: async () => {
+      const { resetAndReconnectWhatsApp } = await import("./whatsapp-bridge.js");
+      const r = await resetAndReconnectWhatsApp();
+      return r.ok
+        ? { ok: true, message: "WhatsApp session cleared and the bridge is restarting — scan the new QR code printed in the server console/logs." }
+        : { error: r.error };
+    },
+  },
+  {
+    name: "whatsapp.send",
+    description: "Send a WhatsApp message to one phone number via the connected Baileys bridge (Variety & Co business number). APPROVAL-GATED — outward customer messaging pauses for the operator's sign-off first, same as email.send. Args: to (phone number, digits only or with country code — no jid needed), text.",
+    readonly: false,
+    args: [
+      { name: "to", type: "string", required: true, description: "Recipient phone number, e.g. 263771234567 (country code + number, no +/spaces needed)." },
+      { name: "text", type: "string", required: true, description: "Message text" },
+    ],
+    handler: async (args) => {
+      const { sendWhatsAppMessage } = await import("./whatsapp-bridge.js");
+      const r = await sendWhatsAppMessage(String(args.to ?? ""), String(args.text ?? ""));
+      return r.ok ? { ok: true, sent: true } : { error: r.error };
+    },
+  },
+  {
+    name: "whatsapp.broadcast",
+    description: "Send the same WhatsApp message to CRM contacts with a phone number who've had activity in the last N days (e.g. \"message all clients from the last 30 days\"). APPROVAL-GATED. Paced with randomized human-like delays between sends (not a fixed interval) and capped at 40 recipients per call — a burst to hundreds of numbers at once is the single biggest spam-detection trigger, so a bigger list needs multiple calls (spread across a day or more, not back to back). Use daysBack to control the recency window (default 30). Returns per-recipient send results plus how many were left over the cap.",
+    readonly: false,
+    args: [
+      { name: "text", type: "string", required: true, description: "Message text to send to every matching contact. Supports {{name}}, replaced with the contact's name (falls back to their phone number)." },
+      { name: "daysBack", type: "number", required: false, description: "Only message contacts with CRM activity within this many days (default 30)." },
+    ],
+    handler: async (args) => {
+      const text = String(args.text ?? "").trim();
+      if (!text) return { error: "text is required" };
+      const daysBack = Math.max(1, Number(args.daysBack ?? 30) || 30);
+      const { listContactsWithRecentActivity, logActivity } = await import("./crm.js");
+      const { sendWhatsAppMessage } = await import("./whatsapp-bridge.js");
+      const matched = listContactsWithRecentActivity(daysBack).filter(c => c.phone);
+      if (!matched.length) return { error: `no CRM contacts with a phone number and activity in the last ${daysBack} day(s)` };
+      // Cap + shuffle — sending in CRM order (usually creation/alpha order) is
+      // itself a machine-like pattern; a human working a list jumps around.
+      const MAX_PER_CALL = 40;
+      const shuffled = [...matched].sort(() => Math.random() - 0.5);
+      const targets = shuffled.slice(0, MAX_PER_CALL);
+      const leftover = shuffled.length - targets.length;
+      const results: { contactId: string; name?: string; phone?: string; ok: boolean; error?: string }[] = [];
+      for (const c of targets) {
+        const body = text.replace(/\{\{\s*name\s*\}\}/gi, c.name || c.phone || "there");
+        const r = await sendWhatsAppMessage(c.phone!, body);
+        results.push({ contactId: c.id, name: c.name, phone: c.phone, ok: r.ok, error: r.error });
+        if (r.ok) { try { logActivity({ contactId: c.id, kind: "whatsapp", body: `Broadcast: ${body}`.slice(0, 500) }); } catch { /* best-effort */ } }
+        // Randomized gap between recipients (on top of sendWhatsAppMessage's own
+        // per-message typing delay) — a fixed interval is as detectable as no
+        // interval at all; real outreach has irregular pauses between contacts.
+        await new Promise(res => setTimeout(res, 4000 + Math.random() * 6000));
+      }
+      const sent = results.filter(r => r.ok).length;
+      return {
+        requested: matched.length, sent, failed: targets.length - sent, results,
+        ...(leftover > 0 ? { leftover, note: `${leftover} more matched contact(s) were left out of this call (cap ${MAX_PER_CALL}/call) — run whatsapp.broadcast again later, not immediately, to reach them.` } : {}),
+      };
     },
   },
   {
@@ -4675,6 +4779,9 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "web.firecrawl":      return s("url") ? `Scraping ${s("url")} (Firecrawl)` : "Scraping via Firecrawl";
     case "inbox.read_unread":  return a.unreadOnly === false ? "Reading your recent email" : "Reading your unread email";
     case "social.post":        return s("platforms") ? `Drafting a post for ${s("platforms")} (needs your approval)` : "Drafting a social post (needs your approval)";
+    case "whatsapp.send":      return s("to") ? `Sending a WhatsApp message to ${s("to")} (needs your approval)` : "Sending a WhatsApp message (needs your approval)";
+    case "whatsapp.broadcast": return "Broadcasting a WhatsApp message to recent clients (needs your approval)";
+    case "whatsapp.reconnect": return "Resetting the WhatsApp connection — a fresh QR code will print to the server logs";
     case "social.history":     return "Reading your recent social posts";
     case "social.analytics":   return "Reading social post analytics";
     case "social.comments":    return "Reading social comments & mentions";

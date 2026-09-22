@@ -9,7 +9,7 @@ import { Card, Button, showToast } from "../components/Card";
 // Business=Variety Vault, seeded on server boot). Each brand owns a voice,
 // audience, values block, an optional vault guidelines doc, and one or more
 // channel bindings (which Buffer/social connection speaks for it). This is
-// deliberately lighter than the Squads.tsx department-apply flow — a brand is
+// deliberately lighter than a department-apply flow — a brand is
 // "one voice, one calendar, one set of channels," not a multi-agent workflow.
 
 const ICON_MAP: Record<string, LucideIcon> = { megaphone: Megaphone, user: User, briefcase: Briefcase, store: Store };
@@ -95,6 +95,11 @@ function EditBrandModal({ brand, onClose, onSaved }: { brand: Brand; onClose: ()
   const [calendarCadence, setCalendarCadence] = useState(brand.calendarCadence ?? "");
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    document.body.classList.add('modal-open');
+    return () => { document.body.classList.remove('modal-open'); };
+  }, []);
+
   async function save() {
     setSaving(true);
     try {
@@ -106,37 +111,39 @@ function EditBrandModal({ brand, onClose, onSaved }: { brand: Brand; onClose: ()
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>
-      <div className="w-full max-w-lg bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4 my-8" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg text-cream-50 font-medium">Edit {brand.name}</h2>
-          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Voice</label>
-            <input value={voice} onChange={e => setVoice(e.target.value)} placeholder="e.g. warm, direct, story-first" className={FIELD} />
+    <div className="fixed inset-0 z-50 bg-ink-900 flex flex-col overflow-hidden" onClick={onClose}>
+      <div className="flex-1 flex flex-col items-center justify-center p-6" onClick={e => e.stopPropagation()}>
+        <div className="w-full max-w-2xl bg-ink-950 border border-ink-800 rounded-3xl p-8 space-y-6 shadow-2xl">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl text-cream-50 font-medium">Edit {brand.name}</h2>
+            <button onClick={onClose} className="p-2 text-cream-300/50 hover:text-cream-100 hover:bg-ink-800 rounded-lg transition-colors"><X size={24} /></button>
           </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Audience</label>
-            <textarea value={audience} onChange={e => setAudience(e.target.value)} rows={2} placeholder="Who this brand speaks to" className={FIELD} />
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Values</label>
-            <textarea value={values} onChange={e => setValues(e.target.value)} rows={4} placeholder="Bullet-style values this brand always reflects" className={`${FIELD} font-mono text-[12px]`} />
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Content calendar cadence</label>
-            <input value={calendarCadence} onChange={e => setCalendarCadence(e.target.value)} placeholder="e.g. 3x/week: Mon/Wed/Fri 9am" className={FIELD} />
-          </div>
-          {brand.guidelinesVaultPath && (
-            <div className="text-[11px] text-cream-300/50 bg-ink-950/40 border border-ink-800 rounded-lg px-3 py-2">
-              Full guidelines doc: <span className="font-mono">{brand.guidelinesVaultPath}</span> — edit it in the vault for longer-form brand guidelines beyond this quick form.
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Voice</label>
+              <input value={voice} onChange={e => setVoice(e.target.value)} placeholder="e.g. warm, direct, story-first" className={FIELD} />
             </div>
-          )}
-        </div>
-        <div className="flex justify-end pt-1">
-          <Button onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save</Button>
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Audience</label>
+              <textarea value={audience} onChange={e => setAudience(e.target.value)} rows={3} placeholder="Who this brand speaks to" className={FIELD} />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Values</label>
+              <textarea value={values} onChange={e => setValues(e.target.value)} rows={5} placeholder="Bullet-style values this brand always reflects" className={`${FIELD} font-mono text-[13px]`} />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Content calendar cadence</label>
+              <input value={calendarCadence} onChange={e => setCalendarCadence(e.target.value)} placeholder="e.g. 3x/week: Mon/Wed/Fri 9am" className={FIELD} />
+            </div>
+            {brand.guidelinesVaultPath && (
+              <div className="text-xs text-cream-300/50 bg-ink-900/50 border border-ink-800 rounded-xl px-4 py-3">
+                Full guidelines doc: <span className="font-mono text-violet-400">{brand.guidelinesVaultPath}</span> — edit it in the vault for longer-form brand guidelines beyond this quick form.
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button onClick={save} disabled={saving} className="px-6 py-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save Changes</Button>
+          </div>
         </div>
       </div>
     </div>
@@ -152,6 +159,11 @@ function ChannelsModal({ brand, onClose, onSaved }: { brand: Brand; onClose: () 
   const [connectionLabel, setConnectionLabel] = useState("");
   const [platforms, setPlatforms] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    document.body.classList.add('modal-open');
+    return () => { document.body.classList.remove('modal-open'); };
+  }, []);
 
   async function save() {
     if (!connectionLabel.trim()) { showToast("Connection label is required — see the label on the Integrations page", "error"); return; }
@@ -169,48 +181,52 @@ function ChannelsModal({ brand, onClose, onSaved }: { brand: Brand; onClose: () 
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>
-      <div className="w-full max-w-lg bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4 my-8" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg text-cream-50 font-medium">Channels — {brand.name}</h2>
-          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
-        </div>
+    <div className="fixed inset-0 z-50 bg-ink-900 flex flex-col overflow-hidden" onClick={onClose}>
+      <div className="flex-1 flex flex-col items-center justify-center p-6" onClick={e => e.stopPropagation()}>
+        <div className="w-full max-w-2xl bg-ink-950 border border-ink-800 rounded-3xl p-8 space-y-6 shadow-2xl">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl text-cream-50 font-medium">Channels — {brand.name}</h2>
+            <button onClick={onClose} className="p-2 text-cream-300/50 hover:text-cream-100 hover:bg-ink-800 rounded-lg transition-colors"><X size={24} /></button>
+          </div>
 
-        {brand.channels.length > 0 && (
-          <div className="space-y-1.5">
-            {brand.channels.map((c, i) => (
-              <div key={i} className="text-[12px] rounded-lg bg-ink-950/50 border border-ink-800 p-2.5 flex items-center justify-between">
-                <span className="font-mono text-cream-100">{c.provider}: {c.connectionLabel}</span>
-                {c.platforms?.length ? <span className="text-cream-300/50">{c.platforms.join(", ")}</span> : null}
+          {brand.channels.length > 0 && (
+            <div className="space-y-2">
+              <label className="block text-[12px] font-medium text-cream-300/70">Active Bindings</label>
+              <div className="grid grid-cols-1 gap-2">
+                {brand.channels.map((c, i) => (
+                  <div key={i} className="text-sm rounded-xl bg-ink-900 border border-ink-800 p-3 flex items-center justify-between">
+                    <span className="font-mono text-cream-100">{c.provider}: {c.connectionLabel}</span>
+                    {c.platforms?.length ? <span className="text-cream-300/50 text-xs">{c.platforms.join(", ")}</span> : null}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          )}
 
-        <div className="space-y-3 border-t border-ink-800 pt-3">
-          <div className="text-[11px] text-cream-300/60">
-            Bind a connection from the <a href="/extensions" className="text-violet-400 hover:text-violet-300">Integrations page</a> to this brand by its label —
-            posting for this brand will use that connection instead of whichever one connects first.
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Provider</label>
-            <input value="Buffer" disabled className={`${FIELD} opacity-60 cursor-not-allowed`} />
-            <div className="text-[10px] text-cream-300/40 mt-1">
-              Ayrshare/Social isn't multi-account yet — it's one shared key for the whole server (AYRSHARE_API_KEY), not per-connection like Buffer.
+          <div className="space-y-4 border-t border-ink-800 pt-6">
+            <div className="text-xs text-cream-300/60 leading-relaxed">
+              Bind a connection from the <a href="/extensions" className="text-violet-400 hover:text-violet-300 font-medium underline-offset-4 hover:underline">Integrations page</a> to this brand by its label.
+            </div>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <label className="block text-[12px] font-medium text-cream-300/70">Provider</label>
+                <input value="Buffer" disabled className={`${FIELD} opacity-60 cursor-not-allowed`} />
+                <p className="text-[11px] text-cream-300/40">Ayrshare/Social isn't multi-account yet — it uses a shared server key.</p>
+              </div>
+              <div className="space-y-2">
+                <label className="block text-[12px] font-medium text-cream-300/70">Connection label</label>
+                <input value={connectionLabel} onChange={e => setConnectionLabel(e.target.value)} placeholder="e.g. Buffer – Variety Vault" className={FIELD} />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-[12px] font-medium text-cream-300/70">Platforms (optional, comma-separated)</label>
+                <input value={platforms} onChange={e => setPlatforms(e.target.value)} placeholder="twitter, linkedin" className={FIELD} />
+              </div>
             </div>
           </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Connection label</label>
-            <input value={connectionLabel} onChange={e => setConnectionLabel(e.target.value)} placeholder="e.g. Buffer – Variety Vault" className={FIELD} />
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Platforms (optional, comma-separated)</label>
-            <input value={platforms} onChange={e => setPlatforms(e.target.value)} placeholder="twitter, linkedin" className={FIELD} />
-          </div>
-        </div>
 
-        <div className="flex justify-end pt-1">
-          <Button onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />} Bind channel</Button>
+          <div className="flex justify-end pt-2">
+            <Button onClick={save} disabled={saving} className="px-6 py-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Plug size={16} />} Bind channel</Button>
+          </div>
         </div>
       </div>
     </div>
@@ -231,6 +247,11 @@ function SignalsModal({ brand, onClose, onBrandSaved }: { brand: Brand; onClose:
   const [signals, setSignals] = useState<BrandSignal[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.body.classList.add('modal-open');
+    return () => { document.body.classList.remove('modal-open'); };
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -272,59 +293,75 @@ function SignalsModal({ brand, onClose, onBrandSaved }: { brand: Brand; onClose:
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>
-      <div className="w-full max-w-xl bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4 my-8" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg text-cream-50 font-medium flex items-center gap-2"><Radar size={18} /> Signals — {brand.name}</h2>
-          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
+    <div className="fixed inset-0 z-50 bg-ink-900 flex flex-col overflow-hidden" onClick={onClose}>
+      <div className="flex-1 flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 border-b border-ink-800 shrink-0">
+          <h2 className="text-2xl text-cream-50 font-medium flex items-center gap-3"><Radar size={24} /> Signals — {brand.name}</h2>
+          <button onClick={onClose} className="p-2 text-cream-300/50 hover:text-cream-100 hover:bg-ink-800 rounded-lg transition-colors"><X size={24} /></button>
         </div>
 
-        <div className="space-y-2">
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Watch list (comma-separated terms this brand monitors for)</label>
-            <input value={watchTermsText} onChange={e => setWatchTermsText(e.target.value)} placeholder="e.g. Variety Vault, @varietyvault" className={FIELD} />
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Own domains/handles (optional — scores a hit as "primary" provenance)</label>
-            <input value={ownDomainsText} onChange={e => setOwnDomainsText(e.target.value)} placeholder="e.g. varietyvault.com" className={FIELD} />
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Reputation-risk terms (optional — overrides the shared default list for the "critical" alert)</label>
-            <input value={riskTermsText} onChange={e => setRiskTermsText(e.target.value)} placeholder="e.g. recall, lawsuit — leave blank to use the shared default list" className={FIELD} />
-          </div>
-          <div className="flex gap-2">
-            <Button variant="subtle" className="flex-1" onClick={saveTerms} disabled={savingTerms}>{savingTerms ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save</Button>
-            <Button className="flex-1" onClick={scan} disabled={scanning || !watchTermsText.trim()}>
-              {scanning ? <Loader2 size={14} className="animate-spin" /> : <Radar size={14} />} Scan now
-            </Button>
-          </div>
-          <div className="text-[10px] text-cream-300/40">
-            Alerts (critical reputation-risk hits, and the first-ever signal of a new kind) go to Telegram/email — this list is drafts still awaiting your decision.
-            Pair with a recurring Schedule (template: "Scan for brand signals") to run this automatically.
-          </div>
-        </div>
-
-        <div className="border-t border-ink-800 pt-3 space-y-2 max-h-80 overflow-auto">
-          {loading ? (
-            <div className="flex items-center gap-2 text-sm text-cream-300/60"><Loader2 size={16} className="animate-spin" /> Loading…</div>
-          ) : signals.length === 0 ? (
-            <div className="text-sm text-cream-300/50 text-center py-4">No draft signals awaiting review.</div>
-          ) : signals.map(s => (
-            <div key={s.id} className="rounded-lg bg-ink-950/50 border border-ink-800 p-3">
-              <div className="text-[12px] text-cream-100">{s.text.slice(0, 220)}</div>
-              <div className="flex items-center justify-between mt-2">
-                <div className="text-[10px] text-cream-300/50">
-                  {s.sourceUrl && <a href={s.sourceUrl} target="_blank" rel="noreferrer" className="text-violet-400 hover:text-violet-300">source</a>}
-                  {" · sourced: "}{s.provenance >= 0.6 ? "primary (own domain)" : "third-party"}
-                  {s.seenCount > 1 ? ` · seen ${s.seenCount}x` : ""}
-                </div>
-                <div className="flex gap-1.5">
-                  <Button variant="subtle" onClick={() => decide(s.id, "validated")} disabled={busyId === s.id}><Check size={12} /> Validate</Button>
-                  <Button variant="subtle" onClick={() => decide(s.id, "rejected")} disabled={busyId === s.id}><Ban size={12} /> Reject</Button>
-                </div>
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 overflow-hidden">
+          <div className="lg:col-span-1 p-6 space-y-8 border-r border-ink-800 overflow-y-auto bg-ink-950/30">
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <label className="block text-[12px] font-medium text-cream-300/70">Watch list</label>
+                <input value={watchTermsText} onChange={e => setWatchTermsText(e.target.value)} placeholder="e.g. Variety Vault, @varietyvault" className={FIELD} />
+                <p className="text-[11px] text-cream-300/40">Comma-separated terms this brand monitors for</p>
+              </div>
+              <div className="space-y-3">
+                <label className="block text-[12px] font-medium text-cream-300/70">Own domains/handles</label>
+                <input value={ownDomainsText} onChange={e => setOwnDomainsText(e.target.value)} placeholder="e.g. varietyvault.com" className={FIELD} />
+                <p className="text-[11px] text-cream-300/40">Scores a hit as "primary" provenance</p>
+              </div>
+              <div className="space-y-3">
+                <label className="block text-[12px] font-medium text-cream-300/70">Reputation-risk terms</label>
+                <input value={riskTermsText} onChange={e => setRiskTermsText(e.target.value)} placeholder="e.g. recall, lawsuit" className={FIELD} />
+                <p className="text-[11px] text-cream-300/40">Overrides shared default list for "critical" alerts</p>
               </div>
             </div>
-          ))}
+            <div className="flex gap-3">
+              <Button variant="subtle" className="flex-1" onClick={saveTerms} disabled={savingTerms}>{savingTerms ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save</Button>
+              <Button className="flex-1" onClick={scan} disabled={scanning || !watchTermsText.trim()}>
+                {scanning ? <Loader2 size={14} className="animate-spin" /> : <Radar size={14} />} Scan now
+              </Button>
+            </div>
+            <div className="p-4 rounded-xl bg-ink-950/50 border border-ink-800 text-xs text-cream-300/50 leading-relaxed">
+              Alerts (critical risk hits, and new signal kinds) go to Telegram/email. This list contains drafts awaiting your decision.
+              <div className="mt-3 pt-3 border-t border-ink-800/50 font-medium text-cream-300/70">
+                Tip: Pair with a recurring Schedule (template: "Scan for brand signals") to automate this.
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-3 p-6 space-y-4 overflow-y-auto bg-ink-900">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-sm font-medium text-cream-300/70 uppercase tracking-widest">Draft Signals</h3>
+              {signals.length > 0 && <span className="text-xs bg-ink-800 text-cream-300 px-3 py-1 rounded-full border border-ink-700">{signals.length} pending review</span>}
+            </div>
+            {loading ? (
+              <div className="flex items-center gap-2 text-sm text-cream-300/60 py-20 justify-center"><Loader2 size={20} className="animate-spin" /> Loading signals…</div>
+            ) : signals.length === 0 ? (
+              <div className="text-sm text-cream-300/50 text-center py-32 border-2 border-dashed border-ink-800 rounded-2xl">No draft signals awaiting review.</div>
+            ) : signals.map(s => (
+              <div key={s.id} className="rounded-2xl bg-ink-950/50 border border-ink-800 p-5 hover:border-violet-500/40 transition-all group">
+                <div className="text-base text-cream-100 leading-relaxed">{s.text}</div>
+                <div className="flex items-center justify-between mt-6">
+                  <div className="flex items-center gap-4 text-xs text-cream-300/50">
+                    {s.sourceUrl && <a href={s.sourceUrl} target="_blank" rel="noreferrer" className="text-violet-400 hover:text-violet-300 font-medium flex items-center gap-1 underline-offset-4 hover:underline">source <X size={12} className="rotate-45" /></a>}
+                    <span className="flex items-center gap-1.5">
+                      <div className={`w-2 h-2 rounded-full ${s.provenance >= 0.6 ? "bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.5)]" : "bg-cream-300/30"}`} />
+                      {s.provenance >= 0.6 ? "primary provenance" : "third-party provenance"}
+                    </span>
+                    {s.seenCount > 1 && <span className="bg-ink-800 px-2 py-0.5 rounded text-cream-300 border border-ink-700">seen {s.seenCount}x</span>}
+                  </div>
+                  <div className="flex gap-3">
+                    <Button variant="subtle" className="px-4 py-1.5" onClick={() => decide(s.id, "validated")} disabled={busyId === s.id}><Check size={14} /> Validate</Button>
+                    <Button variant="subtle" className="px-4 py-1.5" onClick={() => decide(s.id, "rejected")} disabled={busyId === s.id}><Ban size={14} /> Reject</Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

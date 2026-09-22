@@ -8,7 +8,6 @@ import {
   Sparkles,
   Puzzle,
   LogOut,
-  Zap,
   Inbox,
   PanelLeftClose,
   PanelLeftOpen,
@@ -23,6 +22,7 @@ import {
   Network,
   Contact,
   Building2,
+  MessageCircle,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -44,7 +44,6 @@ const TodoIcon = matIcon("todo");
 const ChangelogIcon = matIcon("changelog");
 const ReviewFolderIcon = matIcon("folder-review");
 const TemplateIcon = matIcon("template");
-const RobotIcon = matIcon("robot");
 const RobotFolderIcon = matIcon("folder-robot");
 const DocsFolderIcon = matIcon("folder-docs");
 const CertificateIcon = matIcon("certificate");
@@ -74,10 +73,6 @@ const primaryNav: NavItem[] = [
 ];
 
 const agentsNav: NavItem[] = [
-  { to: "/agents", label: "Agent Roster", icon: RobotIcon },
-  { to: "/squads", label: "Squads", icon: Zap },
-  { to: "/orchestrate", label: "Orchestrate", icon: RobotFolderIcon },
-  { to: "/spin-up", label: "Spin up an agent", icon: Sparkles },
   { to: "/org-dashboard", label: "Org Dashboard", icon: Network },
   { to: "/policies", label: "Policies", icon: CertificateIcon },
 ];
@@ -398,7 +393,7 @@ export function Layout({ children }: { children: ReactNode }) {
             <div className="flex flex-wrap items-center gap-2">
               {persona && (
                 <Link
-                  to="/agents"
+                  to="/office"
                   className="nw-shiny-pill flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border bg-violet-500/10 border-violet-500/30 text-violet-300"
                   title="Active persona"
                 >

@@ -179,7 +179,7 @@ export function Naxie() {
 
         {/* Status pills */}
         <div className="shrink-0 flex flex-wrap items-center gap-1.5 pb-3">
-          <Link to="/agents" className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-ink-800/70 border border-violet-500/20 text-[11px] text-cream-300 hover:bg-ink-800 hover:border-violet-500/30 transition-colors">
+          <Link to="/office" className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-ink-800/70 border border-violet-500/20 text-[11px] text-cream-300 hover:bg-ink-800 hover:border-violet-500/30 transition-colors">
             <Bot size={11} className="text-violet-400" /> {personaCount ?? "…"} agents
           </Link>
           <Link to="/runs" className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-ink-800/70 border border-ink-700 text-[11px] text-cream-300 hover:bg-ink-800 transition-colors">

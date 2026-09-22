@@ -59,9 +59,7 @@ export function CommandPalette() {
   const items: Item[] = [
     { id: "n-naxie", group: "Navigate", label: "Naxie", icon: Sparkles, onSelect: go("/naxie"), keywords: "home overview voice assistant mic talk speak naxie jarvis" },
     { id: "n-chat", group: "Navigate", label: "Board Meeting", icon: MessageSquare, onSelect: go("/chat"), keywords: "talk message council" },
-    { id: "n-agents", group: "Navigate", label: "Agent Roster", icon: UserCircle, onSelect: go("/agents"), keywords: "personas roles employees workforce" },
-    { id: "n-orchestrate", group: "Navigate", label: "Orchestrate", icon: Users, onSelect: go("/orchestrate"), keywords: "team dispatch focus subagents" },
-    { id: "n-spin-up", group: "Navigate", label: "Spin up an agent", icon: Sparkles, onSelect: go("/spin-up"), keywords: "preset role hire activate setup wizard sdr assistant recruiter" },
+    { id: "n-agents", group: "Navigate", label: "Office", icon: UserCircle, onSelect: go("/office"), keywords: "agents personas roles employees workforce roster office desk" },
     { id: "n-terminal", group: "Navigate", label: "IDE", icon: Terminal, onSelect: go("/ide"), keywords: "shell console command exec code editor" },
     { id: "n-runs", group: "Navigate", label: "Runs", icon: ListChecks, onSelect: go("/runs"), keywords: "jobs queue tasks results outputs activity" },
     { id: "n-knowledge", group: "Navigate", label: "Library", icon: BookOpen, onSelect: go("/library"), keywords: "vault notes search files" },
@@ -70,13 +68,11 @@ export function CommandPalette() {
     { id: "n-schedules", group: "Navigate", label: "Schedules", icon: Calendar, onSelect: go("/schedules"), keywords: "cron recurring schedule" },
 
     { id: "a-new-chat", group: "Actions", label: "New board meeting", icon: PlusCircle, onSelect: go("/chat"), keywords: "start fresh session council" },
-    { id: "a-dispatch-team", group: "Actions", label: "Dispatch to agents", icon: Users, onSelect: go("/orchestrate") },
     { id: "a-search-vault", group: "Actions", label: "Search the vault", icon: SearchIcon, onSelect: go("/library") },
     { id: "a-new-schedule", group: "Actions", label: "Create a schedule", icon: Calendar, onSelect: go("/schedules"), keywords: "recurring template fire" },
 
     { id: "l-templates", group: "Library", label: "Templates", icon: TemplateIcon, onSelect: go("/templates") },
     { id: "l-skills", group: "Library", label: "Skills", icon: Sparkles, onSelect: go("/skills") },
-    { id: "l-squads", group: "Library", label: "Squads", icon: UserCircle, onSelect: go("/squads"), keywords: "departments teams" },
     { id: "l-policies", group: "Library", label: "Policies", icon: CertificateIcon, onSelect: go("/policies"), keywords: "policy guardrail compliance governance instructions" },
     { id: "l-audit", group: "Library", label: "Audit Log", icon: LogIcon, onSelect: go("/extensions?tab=audit"), keywords: "security intrusion blocked ip log" },
     { id: "l-integrations", group: "Library", label: "Extensions — Integrations", icon: Plug, onSelect: go("/extensions?tab=integrations"), keywords: "connect slack telegram github notion social oauth api integrations" },

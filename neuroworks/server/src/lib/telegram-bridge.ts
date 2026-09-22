@@ -468,6 +468,10 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
     if (data.startsWith("email:")) {
       return handleEmailCallback(token, allow, update.callback_query);
     }
+    if (data.startsWith("whatsapp:")) {
+      const { handleWhatsAppCallback } = await import("./whatsapp-bridge.js");
+      return handleWhatsAppCallback(token, allow, update.callback_query);
+    }
     return handleTodoCallback(token, allow, update.callback_query);
   }
   const msg = update.message ?? update.channel_post;
@@ -505,6 +509,18 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
   }
 
   let text = msg.text.trim();
+
+  // ── WhatsApp triage edit capture ── (checked first — cheap map lookup, no I/O
+  // beyond the triage JSON read/write; mirrors the email edit-capture below.)
+  if (!isGroup && text.length > 0 && !text.startsWith("/")) {
+    try {
+      const { tryCaptureWhatsAppEdit } = await import("./whatsapp-bridge.js");
+      if (await tryCaptureWhatsAppEdit(chatId, text)) {
+        state.processed += 1;
+        return;
+      }
+    } catch (e: any) { console.warn(`[telegram] whatsapp edit-capture failed: ${e?.message ?? e}`); }
+  }
 
   // ── Email triage edit capture ──
   // If this DM chat has an email awaiting an edited draft, treat the next

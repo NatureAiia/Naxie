@@ -6,6 +6,7 @@ shamefully-hoist: true
 allowBuilds:
   '@parcel/watcher': true
   '@theia/ffmpeg': true
+  '@whiskeysockets/baileys': true
   cpu-features: set this to true or false
   drivelist: true
   esbuild: true
@@ -13,6 +14,7 @@ allowBuilds:
   keytar: true
   msgpackr-extract: set this to true or false
   node-pty: true
+  protobufjs: true
   puppeteer: set this to true or false
   ssh2: set this to true or false
   tesseract.js: true

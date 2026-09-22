@@ -29,10 +29,33 @@ type Props = {
   frontDeskMember?: OfficeMember | null;
   busyPersonaIds: Set<string>;
   stuckPersonaIds?: Set<string>;
+  // roomId → count of jobs parked at awaiting-approval for a member of that
+  // room. Drives the department badge's amber pulse — a real "needs your
+  // sign-off" signal instead of a decorative sweep.
+  pendingApprovalCounts?: Map<string, number>;
   onSelectPersona: (personaId: string) => void;
   onSelectMeetingTable: () => void;
+  // Clicking a department badge — opens a department-level detail panel
+  // (member list + status) distinct from the per-persona chat rail.
+  onSelectDepartment?: (roomId: string) => void;
   highlightPersonaId?: string | null;
   height?: number | string;
+};
+
+// Department status badge — one plain DOM pill per room, reprojected to
+// screen space every tick (see tick() below) so it stays legible at any zoom
+// level, unlike the baked-in 3D name-tag sprites which shrink into
+// illegibility zoomed out. Built imperatively to match this file's existing
+// non-React Three.js/DOM style rather than introducing per-frame React
+// re-renders.
+type Badge = {
+  el: HTMLDivElement;
+  countEl: HTMLSpanElement;
+  pendingEl: HTMLSpanElement;
+  cx: number;
+  cz: number;
+  glowColor: Color;
+  lastPending: number;
 };
 
 const DESK_SPACING = 1.6;
@@ -157,7 +180,7 @@ type AvatarState = {
   yaw: number;           // last frame's facing angle, so the head can lag behind a turn and settle (follow-through)
 };
 
-export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPersonaIds, onSelectPersona, onSelectMeetingTable, highlightPersonaId, height = 560 }: Props) {
+export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPersonaIds, pendingApprovalCounts, onSelectPersona, onSelectMeetingTable, onSelectDepartment, highlightPersonaId, height = 560 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   // Sorted-by-id room/member signature — stable so packing order doesn't
@@ -168,6 +191,7 @@ export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPerso
     renderer: WebGLRenderer; scene: Scene; camera: OrthographicCamera;
     indicators: Map<string, Object3D>; warnMarkers: Map<string, Object3D>; deskByPersona: Map<string, Object3D>;
     screens: Map<string, { plate: Mesh; idleTex: any; busyTex: any }>; hub: HubCoreHandle | null; render: () => void;
+    badges: Map<string, Badge>;
   } | null>(null);
   // Bridges the busy/stuck-status poll (a separate, lightweight effect below)
   // into the long-lived animation loop below without rebuilding the whole
@@ -212,6 +236,8 @@ export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPerso
     // "General" room floor/halo materials whose color the tick loop cycles
     // through the same gradient stops as the Send button's nw-noise-fill.
     const generalGlowMats: { color: Color }[] = [];
+    const badges = new Map<string, Badge>();
+    const projVec = new Vector3();
 
     // Shared shadow-flag setter — Object3D.traverse walks every mesh inside
     // a builder's group (legs, top, joints, etc.) so callers don't have to
@@ -343,6 +369,33 @@ export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPerso
 
     for (const { room, x, z, w: rw, d: rd, cx, cz } of placedRooms) {
       const color = departmentColor(room.color);
+
+      // Department status badge — an always-legible HTML pill floating above
+      // the pod, reprojected to screen space every tick (see tick() below).
+      // Shows the room name + member count; glows the room's own color while
+      // someone there is busy, and pulses amber when a job is parked
+      // awaiting-approval for that room (see the pendingApprovalCounts effect
+      // below liveRef assignment).
+      const badgeEl = document.createElement("div");
+      badgeEl.className = "absolute left-0 top-0 pointer-events-auto cursor-pointer flex flex-col items-center gap-0.5 rounded-2xl border border-ink-700/60 bg-ink-900/85 backdrop-blur px-3 py-1.5 shadow-lg shadow-black/20 transition-shadow duration-300 hover:border-cream-300/40";
+      badgeEl.title = `${room.name} — click for details`;
+      badgeEl.addEventListener("click", ev => {
+        ev.stopPropagation();
+        onSelectDepartment?.(room.id);
+      });
+      const nameEl = document.createElement("div");
+      nameEl.className = "text-[9px] font-medium tracking-[.14em] uppercase text-cream-300/70 whitespace-nowrap";
+      nameEl.textContent = room.name;
+      const countEl = document.createElement("span");
+      countEl.className = "font-display text-lg leading-none text-cream-50";
+      countEl.textContent = String(room.members.length);
+      const pendingEl = document.createElement("span");
+      pendingEl.className = "text-[9px] font-semibold tracking-[.08em] text-coral-500 whitespace-nowrap";
+      pendingEl.textContent = "";
+      badgeEl.append(nameEl, countEl, pendingEl);
+      container.appendChild(badgeEl);
+      badges.set(room.id, { el: badgeEl, countEl, pendingEl, cx, cz, glowColor: color, lastPending: 0 });
+
       // Lighten/desaturate the department accent into a pastel floor tint —
       // a dark tint on this fixed-light ground would read as a stain, not a room.
       const floorTint = color.clone().offsetHSL(0, -0.1, 0.3);
@@ -763,6 +816,18 @@ export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPerso
         }
       }
 
+      // Reproject each department badge to screen space so it tracks the
+      // orbiting/zooming camera and stays legible at any distance, unlike the
+      // baked-in 3D name-tag sprites which shrink away zoomed out.
+      const nw = container!.clientWidth || w, nh = container!.clientHeight || h;
+      for (const b of badges.values()) {
+        projVec.set(b.cx, 1.7, b.cz);
+        projVec.project(camera);
+        const sx = (projVec.x * 0.5 + 0.5) * nw;
+        const sy = (-projVec.y * 0.5 + 0.5) * nh;
+        b.el.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -100%)`;
+      }
+
       render();
       raf = requestAnimationFrame(tick);
     };
@@ -775,7 +840,7 @@ export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPerso
     });
     ro.observe(container);
 
-    liveRef.current = { renderer, scene, camera, indicators, warnMarkers, deskByPersona, screens, hub, render };
+    liveRef.current = { renderer, scene, camera, indicators, warnMarkers, deskByPersona, screens, hub, render, badges };
 
     return () => {
       cancelAnimationFrame(raf);
@@ -788,6 +853,8 @@ export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPerso
       for (const d of disposables) { try { d.dispose(); } catch { /* tolerate */ } }
       renderer.dispose();
       try { container.removeChild(canvas); } catch { /* already gone */ }
+      for (const b of badges.values()) { try { b.el.remove(); } catch { /* already gone */ } }
+      badges.clear();
       liveRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -809,8 +876,44 @@ export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPerso
       m.map = busyPersonaIds.has(personaId) ? screen.busyTex : screen.idleTex;
       m.needsUpdate = true;
     }
+    // Real-state badge glow — the room's own accent color while any member
+    // is busy, replacing agents-office's decorative time-based sweep with an
+    // actual "something is happening here" signal.
+    for (const room of rooms) {
+      const badge = live.badges.get(room.id);
+      if (!badge) continue;
+      const busy = room.members.some(m => busyPersonaIds.has(m.personaId));
+      badge.el.style.boxShadow = busy
+        ? `0 0 0 1.5px rgba(${Math.round(badge.glowColor.r * 255)},${Math.round(badge.glowColor.g * 255)},${Math.round(badge.glowColor.b * 255)},.55), 0 10px 26px -6px rgba(${Math.round(badge.glowColor.r * 255)},${Math.round(badge.glowColor.g * 255)},${Math.round(badge.glowColor.b * 255)},.5)`
+        : "";
+    }
     live.render();
-  }, [busyPersonaIds, stuckPersonaIds]);
+  }, [busyPersonaIds, stuckPersonaIds, rooms]);
+
+  // Approval-pending badge indicator — a real "this department needs your
+  // sign-off" signal (feeds off org.approvals_pending-style job data via
+  // Office.tsx), amber-pulsing until cleared. Separate effect from the busy
+  // glow above since it changes on a different cadence and owns its own
+  // count-flash-on-change animation.
+  useEffect(() => {
+    const live = liveRef.current;
+    if (!live) return;
+    for (const room of rooms) {
+      const badge = live.badges.get(room.id);
+      if (!badge) continue;
+      const count = pendingApprovalCounts?.get(room.id) ?? 0;
+      badge.pendingEl.textContent = count > 0 ? `⏳ ${count} pending` : "";
+      if (count > 0) badge.el.classList.add("animate-badge-pulse");
+      else badge.el.classList.remove("animate-badge-pulse");
+      if (count !== badge.lastPending) {
+        badge.countEl.classList.remove("animate-count-flash");
+        // Force reflow so re-adding the class restarts the animation.
+        void badge.countEl.offsetWidth;
+        badge.countEl.classList.add("animate-count-flash");
+        badge.lastPending = count;
+      }
+    }
+  }, [pendingApprovalCounts, rooms]);
 
   // H — "jump to desk" from the sidebar directory/search: a brief highlight
   // pulse on the matched desk. The camera is fixed/isometric with no

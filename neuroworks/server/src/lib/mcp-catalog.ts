@@ -96,6 +96,15 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     source: "reference",
   },
   {
+    id: "browser-use",
+    label: "browser-use (AI browser agent)",
+    description: "Real-browser control via Playwright with LLM-oriented DOM extraction — navigate, click, type, scroll, screenshot, extract content, plus an autonomous fallback action. Requires Python 3.11+ and uv/uvx on PATH (astral.sh/uv).",
+    command: "uvx",
+    args: ["--from", "browser-use[cli]", "browser-use", "--mcp"],
+    homepage: "https://github.com/browser-use/browser-use",
+    source: "community",
+  },
+  {
     id: "brave-search",
     label: "Brave Search",
     description: "Web and local search via the Brave Search API.",

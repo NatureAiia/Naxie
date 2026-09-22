@@ -78,6 +78,7 @@ import { seedAiiAWebsiteConnector, seedPublicApiConnectors } from "./lib/connect
 import { executorRouter } from "./routes/executor.js";
 import { primitivesRouter } from "./routes/primitives.js";
 import { hermesBridgeRouter } from "./routes/hermes-bridge.js";
+import { whatsappBridgeRouter } from "./routes/whatsapp-bridge.js";
 import { brandsRouter } from "./routes/brands.js";
 import { seedDefaultBrands } from "./lib/brands.js";
 import { brandSignalsRouter } from "./routes/brand-signals.js";
@@ -99,6 +100,7 @@ import { skillForgeRouter } from "./routes/skill-forge.js";
 import { orchestratorRouter } from "./routes/orchestrator.js";
 import { startEmailBridge, stopEmailBridge } from "./lib/email.js";
 import { startTelegramBridge, stopTelegramBridge } from "./lib/telegram-bridge.js";
+import { startWhatsAppBridge, stopWhatsAppBridge } from "./lib/whatsapp-bridge.js";
 import { startExtensionHealthScheduler, stopExtensionHealthScheduler } from "./lib/extension-scheduler.js";
 import { startGithubWatcher } from "./lib/github-watcher.js";
 import { originGuard, ALLOWED_ORIGINS } from "./lib/origin-guard.js";
@@ -291,6 +293,7 @@ app.use("/api/crm", crmRouter); // contacts/deals/activities — local JSON stor
 app.use("/api/executor", executorRouter); // flips who/what executes tasks (spend implications)
 app.use("/api/primitives", primitivesRouter);
 app.use("/api/hermes-bridge", hermesBridgeRouter); // status/register for the clawbot-mcp.mjs ↔ Hermes bridge
+app.use("/api/whatsapp", whatsappBridgeRouter); // status/reconnect for the Baileys WhatsApp bridge
 app.use("/api/brands", brandsRouter); // marketing brand registry (personal/work/business)
 app.use("/api/brand-signals", brandSignalsRouter); // own-brand mention/opportunity monitoring, MAIA-shaped
 app.use("/api/users", usersRouter); // directory admin (salary redaction inside)
@@ -657,6 +660,12 @@ const server = app.listen(config.port, config.bindHost, async () => {
     void startTelegramBridge().catch(e =>
       console.warn(`  ⚠ telegram bridge start failed: ${e?.message ?? e}`)
     );
+    // WhatsApp bridge (Baileys) — triage-only inbound for the Variety & Co
+    // business number. No-op (with a log) until QR-paired. Mirrors the
+    // email/Telegram bridges' primary-only, single-connection posture.
+    void startWhatsAppBridge().catch(e =>
+      console.warn(`  ⚠ whatsapp bridge start failed: ${e?.message ?? e}`)
+    );
   }
 });
 
@@ -718,6 +727,8 @@ async function gracefulExit(signal: string) {
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopTelegramBridge(); }
   catch (e: any) { console.warn(`  ⚠ telegram bridge stop failed: ${e?.message ?? e}`); }
+  try { stopWhatsAppBridge(); }
+  catch (e: any) { console.warn(`  ⚠ whatsapp bridge stop failed: ${e?.message ?? e}`); }
   try { stopEmailBridge(); }
   catch { /* never block shutdown on the email bridge */ }
   try { stopVaultWatcher(); }

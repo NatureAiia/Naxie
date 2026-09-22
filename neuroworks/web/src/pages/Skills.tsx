@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { SkillForge } from "./SkillForge";
 
 // Merged Skills workspace: the browseable playbook Catalog and the SkillForge
 // (draft/refine new skills) now live as two tabs on one page instead of two
-// separate nav entries.
+// separate nav entries. `?tab=forge` deep-links straight to the forge tab —
+// the old standalone /skill-forge route redirects here with that param.
 export function Skills() {
-  const [tab, setTab] = useState<"catalog" | "forge">("catalog");
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab") === "forge" ? "forge" : "catalog";
+  const [tab, setTab] = useState<"catalog" | "forge">(initialTab);
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-1 border-b border-ink-800">
