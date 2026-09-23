@@ -35,12 +35,6 @@ const localFilesPathRaw = pick("LOCAL_FILES_PATH", "C:\\NaxieFiles");
 const localFilesPath = resolve(localFilesPathRaw);
 const ollamaHost = pick("OLLAMA_HOST", "http://127.0.0.1:11434");
 const ollamaModel = pick("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0");
-// Legacy: the separate naxionai/backend (FastAPI, Python) service used to host
-// Naxie's personal Google/Microsoft connectors via a proxy at /naxie-api. That
-// connector logic now lives natively here (see lib/oauth-connectors.ts,
-// routes/oauth-connectors.ts) — this var is kept only for any remaining
-// reference during the naxionai/backend retirement pass.
-const naxionBaseUrl = pick("NAXION_BASE_URL", "http://127.0.0.1:8000");
 // Google/Microsoft OAuth (authorization-code flow) for the personal connectors
 // — ported from naxionai/backend/api/{google,microsoft}_connector.py. Optional:
 // each platform is simply unavailable (authorize returns 400) until its client
@@ -221,7 +215,6 @@ export const config = {
   localFilesPath,
   ollamaHost,
   ollamaModel,
-  naxionBaseUrl,
   googleClientId,
   googleClientSecret,
   googleOauthEnabled: googleClientId.length > 0 && googleClientSecret.length > 0,

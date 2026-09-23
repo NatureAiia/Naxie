@@ -13,6 +13,12 @@ export type Cadence = {
   daysOfWeek: number[];   // 0..6 (Sun..Sat). Empty array means every day.
   hour: number;           // 0..23 in local time
   minute: number;         // 0..59 in local time
+  // One-off override — when set, this schedule fires exactly once on this
+  // calendar date (YYYY-MM-DD, local) at hour:minute, ignoring daysOfWeek
+  // entirely. The Calendar page's "schedule for <date>" popup with its
+  // REPEAT toggle off produces this; toggled on, it omits `once` and fills
+  // daysOfWeek like a normal recurring schedule.
+  once?: string;
 };
 
 // Optional delivery — when set, the schedule's result is pushed somewhere the
@@ -35,6 +41,15 @@ export type Schedule = {
   lastJobId?: string;      // last job id triggered
   lastError?: string;      // most recent fire error (cleared on success)
   fireCount: number;
+  // "Needs my OK" — when true, a fire of this schedule forces the resulting
+  // job to status "awaiting-approval" (Approvals page) regardless of the
+  // template's own default, instead of running immediately.
+  requireApproval?: boolean;
+  // Routine chaining — schedule ids to fire (as real fires, subject to their
+  // own requireApproval/deliver) once THIS schedule's job succeeds. Never
+  // fires on failure/rejection/timeout. See fireSchedule's `visited` param
+  // for cycle protection — that, not id validation, is the actual guard.
+  chainTo?: string[];
 };
 
 type Store = { schedules: Schedule[] };
@@ -102,6 +117,8 @@ export function createSchedule(input: Omit<Schedule, "id" | "createdAt" | "fireC
     cadence: input.cadence,
     enabled: input.enabled ?? true,
     ...(input.deliver ? { deliver: input.deliver } : {}),
+    ...(input.requireApproval ? { requireApproval: true } : {}),
+    ...(input.chainTo?.length ? { chainTo: input.chainTo } : {}),
     createdAt: new Date().toISOString(),
     fireCount: 0,
   };
@@ -110,7 +127,7 @@ export function createSchedule(input: Omit<Schedule, "id" | "createdAt" | "fireC
   return fresh;
 }
 
-export function updateSchedule(id: string, patch: Partial<Pick<Schedule, "name" | "templateId" | "inputs" | "cadence" | "enabled" | "deliver">>): Schedule | null {
+export function updateSchedule(id: string, patch: Partial<Pick<Schedule, "name" | "templateId" | "inputs" | "cadence" | "enabled" | "deliver" | "requireApproval" | "chainTo">>): Schedule | null {
   const s = load();
   const idx = s.schedules.findIndex(x => x.id === id);
   if (idx === -1) return null;
@@ -130,8 +147,14 @@ export function deleteSchedule(id: string): boolean {
 
 // Compute the next fire time for a cadence, in absolute ms-since-epoch.
 // Uses local time (server-local). Returns null when cadence is empty
-// (e.g. no days selected).
+// (e.g. no days selected), or when a one-off `once` date has already passed.
 export function nextFireAt(cadence: Cadence, from: Date = new Date()): number | null {
+  if (cadence.once) {
+    const [y, m, d] = cadence.once.split("-").map(Number);
+    if (!y || !m || !d) return null;
+    const at = new Date(y, m - 1, d, cadence.hour, cadence.minute, 0, 0);
+    return at.getTime() > from.getTime() ? at.getTime() : null;
+  }
   const days = cadence.daysOfWeek.length === 0 ? [0,1,2,3,4,5,6] : cadence.daysOfWeek.slice().sort((a,b)=>a-b);
   if (days.length === 0) return null;
   // Try today + each of the next 7 days; return the first match strictly
@@ -183,15 +206,24 @@ export function recordFireError(id: string, error: string) {
 
 let timer: NodeJS.Timeout | null = null;
 
-async function fireSchedule(s: Schedule): Promise<void> {
+// Belt-and-suspenders cap on chain length, on top of the `visited` set's
+// actual cycle protection (see fireSchedule below).
+const MAX_CHAIN_DEPTH = 10;
+
+async function fireSchedule(s: Schedule, visited: Set<string> = new Set([s.id])): Promise<void> {
   const url = `http://127.0.0.1:${config.port}/api/templates/run/${encodeURIComponent(s.templateId)}`;
   try {
     const r = await fetch(url, {
       method: "POST",
       // Scheduled marker → run route tags the job (scheduledBy) → jobs.ts
       // journals SCHEDULED reports to the vault while the ad-hoc clutter
-      // gate stays closed.
-      headers: { "Content-Type": "application/json", "x-clawbot-scheduled": s.id },
+      // gate stays closed. force-approval → "needs my OK" schedules park
+      // the fired job for sign-off regardless of the template's own default.
+      headers: {
+        "Content-Type": "application/json",
+        "x-clawbot-scheduled": s.id,
+        ...(s.requireApproval ? { "x-clawbot-force-approval": "1" } : {}),
+      },
       body: JSON.stringify(s.inputs ?? {}),
     });
     const body: any = await r.json().catch(() => ({}));
@@ -207,12 +239,16 @@ async function fireSchedule(s: Schedule): Promise<void> {
       return;
     }
     recordFire(s.id, body.jobId);
+    // One-off schedules fire exactly once — disable so the UI shows it as
+    // done rather than still-armed (nextFireAt already returns null for a
+    // past `once` date, but disabling makes that explicit, not just implicit).
+    if (s.cadence.once) updateSchedule(s.id, { enabled: false });
     console.log(`[schedules] fired ${s.id} (${s.name}) → job ${String(body.jobId).slice(0, 8)}`);
-    // Optional delivery — if this schedule is configured to email its result,
-    // wait (in the background) for the job to finish, then send. Fire-and-forget
-    // so a slow job doesn't stall the scheduler tick.
-    if (s.deliver?.email) {
-      void deliverScheduleResult(s, String(body.jobId), s.deliver.email);
+    // Optional delivery/chaining — if this schedule emails its result and/or
+    // chains to other schedules, wait (in the background) for the job to
+    // finish, then act. Fire-and-forget so a slow job doesn't stall the tick.
+    if (s.deliver?.email || s.chainTo?.length) {
+      void deliverScheduleResult(s, String(body.jobId), s.deliver?.email, s.chainTo, visited);
     }
   } catch (e: any) {
     console.warn(`[schedules] fire crashed: ${s.id} (${s.name}) — ${e?.message ?? e}`);
@@ -220,11 +256,13 @@ async function fireSchedule(s: Schedule): Promise<void> {
   }
 }
 
-// Poll a fired job to completion, then email the synthesised answer to the
-// configured address. Best-effort: failures are logged but never crash the
-// scheduler (the result still lives on the Tasks page). Used by the
-// "email me a daily briefing" pattern that Role Presets wire up.
-async function deliverScheduleResult(s: Schedule, jobId: string, to: string): Promise<void> {
+// Poll a fired job to completion, then (a) email the synthesised answer to
+// the configured address, if any, and/or (b) fire any chained schedules —
+// but ONLY on a genuine "succeeded" status, never on failed/rejected/timeout.
+// Best-effort: failures are logged but never crash the scheduler (the result
+// still lives on the Tasks page). Used by the "email me a daily briefing"
+// pattern that Role Presets wire up, and by routine chaining.
+async function deliverScheduleResult(s: Schedule, jobId: string, to: string | undefined, chainTo: string[] | undefined, visited: Set<string>): Promise<void> {
   const base = `http://127.0.0.1:${config.port}`;
   const deadline = Date.now() + 15 * 60_000;
   let answer = "";
@@ -246,6 +284,17 @@ async function deliverScheduleResult(s: Schedule, jobId: string, to: string): Pr
         if (looksLikeReasoningLeak(answer)) {
           answer = `The scheduled task "${s.name}" finished but produced internal model reasoning instead of a usable result — I'm not sending that. Open the Tasks page (job ${jobId}) to inspect it, or just re-run the schedule.`;
         }
+        // Routine chaining — fire downstream schedules now, inside the
+        // succeeded branch specifically, so a 15-minute timeout below (no
+        // status transition ever observed) can never trigger a chain.
+        if (chainTo?.length && visited.size < MAX_CHAIN_DEPTH) {
+          for (const id of chainTo) {
+            if (visited.has(id)) continue; // the actual cycle guard — see file header
+            const target = getSchedule(id);
+            if (!target || !target.enabled) continue;
+            void fireSchedule(target, new Set([...visited, id]));
+          }
+        }
         break;
       }
       if (j.status === "failed" || j.status === "rejected") {
@@ -253,6 +302,7 @@ async function deliverScheduleResult(s: Schedule, jobId: string, to: string): Pr
         break;
       }
     }
+    if (!to) return; // nothing further to do once chaining (above) has run
     if (!answer) answer = `Your scheduled task "${s.name}" is still running — check the Tasks page for the result.`;
     const { sendEmail, emailConfigured } = await import("./email.js");
     if (!emailConfigured()) {

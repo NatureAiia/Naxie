@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Network, Clock, RefreshCw } from "lucide-react";
-import { api, type OrgTask, type OrgRole, type OrgTaskStatus } from "../lib/api";
+import { api, type OrgTask, type OrgRole, type OrgTaskStatus, type OrgTaskPriority } from "../lib/api";
 import { Card } from "../components/Card";
 
 // Org dashboard (docs/naxie-architecture.md §4/§8/§8.5) — a read-only
@@ -35,6 +35,13 @@ const STATUS_COLOR: Record<OrgTaskStatus, string> = {
   blocked: "bg-coral-500/15 text-coral-400",
   "waiting-on-approval": "bg-amber-400/15 text-amber-300",
   done: "bg-leaf-500/15 text-leaf-400",
+};
+const PRIORITY_COLOR: Record<OrgTaskPriority, string> = {
+  crown: "bg-fuchsia-500/20 text-fuchsia-300",
+  urgent: "bg-coral-500/20 text-coral-300",
+  high: "bg-amber-400/15 text-amber-300",
+  normal: "bg-ink-800 text-cream-300/50",
+  low: "bg-ink-800 text-cream-300/50",
 };
 
 function relTime(iso?: string): string {
@@ -133,7 +140,7 @@ export function OrgDashboard() {
                         <div className="flex items-center gap-2">
                           <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_COLOR[t.status]}`}>{t.status}</span>
                           <span className="text-cream-100 truncate flex-1">{t.title}</span>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${t.priority === "urgent" ? "bg-coral-500/20 text-coral-300" : t.priority === "high" ? "bg-amber-400/15 text-amber-300" : "bg-ink-800 text-cream-300/50"}`}>{t.priority}</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${PRIORITY_COLOR[t.priority]}`}>{t.priority}</span>
                         </div>
                         <div className="text-cream-300/50 mt-1 flex items-center gap-1.5">
                           <Clock size={10} /> {relTime(t.updatedAt)} · {t.createdBy}

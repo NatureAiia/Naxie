@@ -230,7 +230,7 @@ extensionsRouter.post("/webhook/:id", async (req, res) => {
   if (taskText) {
     try {
       const { newJob, runJob } = await import("../lib/jobs.js");
-      const { planAndExecute } = await import("../lib/agent.js");
+      const { planAndExecute, crownBypassesApproval } = await import("../lib/agent.js");
       const { getActivePersona, personaSystemSuffix } = await import("../lib/personas.js");
       const job = newJob(`webhook:${id}`);
       (job as any).title = taskText.slice(0, 80);
@@ -243,6 +243,7 @@ extensionsRouter.post("/webhook/:id", async (req, res) => {
         const r = await planAndExecute(taskText, push, (patch) => progress(patch as any), {
           personaSystemSuffix: personaSystemSuffix(persona),
           workMode: persona?.workMode === "human" ? undefined : persona?.workMode,
+          skipApprovalGate: crownBypassesApproval(job.priority),
         });
         return r as any;
       }).catch((e: any) => { logAudit({ level: "error", actor: "webhook", action: "webhook.job", target: id, detail: String(e?.message ?? e).slice(0,300), result: "failure", jobId }); });

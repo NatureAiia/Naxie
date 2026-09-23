@@ -18,6 +18,11 @@ export type CustomTemplate = {
   plan: Plan;            // the verified plan to re-run
   runCount: number;
   lastRunAt?: string;
+  // Hidden from the general Templates gallery but still runnable via
+  // /run/:id — used for one-off ad-hoc templates the Calendar page
+  // auto-creates behind a scheduled task's free-text box (mirrors the
+  // built-in Template.hidden convention, e.g. board-meeting).
+  hidden?: boolean;
 };
 
 let cache: CustomTemplate[] | null = null;

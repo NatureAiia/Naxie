@@ -50,9 +50,10 @@ import { workforceRouter } from "./routes/workforce.js";
 import { schedulesRouter } from "./routes/schedules.js";
 import { startScheduleScheduler, stopScheduleScheduler } from "./lib/schedules.js";
 import { hostToolsRouter } from "./routes/host-tools.js";
+import { daemonSettingsRouter } from "./routes/daemon-settings.js";
 import { orgTasksRouter } from "./routes/org-tasks.js";
-import { naxieConnectorsRouter } from "./routes/naxie-connectors.js";
 import { oauthConnectorsRouter } from "./routes/oauth-connectors.js";
+import { localFolderRouter } from "./routes/local-folder.js";
 import { startOrgDaemon, stopOrgDaemon } from "./lib/org-daemon.js";
 import { hydrateMemoryFromSupabaseIfLocalEmpty } from "./lib/memory.js";
 import { governanceRouter } from "./routes/governance.js";
@@ -87,6 +88,7 @@ import { assignmentsRouter } from "./routes/assignments.js";
 import { voiceRouter } from "./routes/voice.js";
 import { authRouter } from "./routes/auth.js";
 import { departmentsRouter } from "./routes/departments.js";
+import { officeNotesRouter } from "./routes/office-notes.js";
 import { knowledgePacksRouter } from "./routes/knowledge-packs.js";
 import { dispatchRouter, dispatchKeysRouter } from "./routes/dispatch.js";
 import { publicFinanceRouter } from "./routes/public-finance.js";
@@ -257,11 +259,9 @@ app.use("/api/board", boardRouter);
 app.use("/api/workforce", workforceRouter);
 app.use("/api/schedules", schedulesRouter);
 app.use("/api/host-tools", hostToolsRouter);
+app.use("/api/daemon-settings", daemonSettingsRouter);
 app.use("/api/org-tasks", orgTasksRouter);
-// Mounted OUTSIDE /api (naxionai's own prefix, not ours) and BEFORE the SPA
-// fallback below — GET requests here would otherwise be swallowed by the
-// history-fallback `app.get("*", ...)` in production (SERVE_WEB=1).
-app.use("/naxie-api", naxieConnectorsRouter);
+app.use("/api/local-folder", localFolderRouter); // "My documents" indexing — native replacement for naxionai/backend's local-folder endpoints
 app.use("/api/governance", governanceRouter);
 // Security watchdog readout — recent attack events + currently blocked IPs.
 app.get("/api/security/events", (_req, res) => res.json(securityStatus()));
@@ -303,6 +303,7 @@ app.use("/api/naxie", naxieRouter); // RAG/MAG/CAG inspector + remember (second-
 app.use("/api/onboarding", onboardingRouter); // wizard: operator identity + sector/org profile; bypasses users.json entirely
 app.use("/api/auth", authRouter);
 app.use("/api/departments", departmentsRouter);
+app.use("/api/office-notes", officeNotesRouter);
 app.use("/api/knowledge-packs", knowledgePacksRouter);
 // External agent-dispatch surface (API-key auth; originGuard exempts /api/v1/).
 app.use("/api/v1/dispatch", dispatchRouter);

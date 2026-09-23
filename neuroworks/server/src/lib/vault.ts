@@ -216,6 +216,81 @@ export async function vaultFileLineage(rel: string): Promise<{ commitHash: strin
   }
 }
 
+// Full commit history for one vault file — powers the Library page's
+// "History" panel (list of versions to diff). Same guards/idiom as
+// vaultFileLineage above, just `git log` without `-1` and with author name
+// added (the UI shows "who changed this"). Requests one extra row beyond
+// `limit` so we can tell the caller whether there's another page — `before`
+// is passed straight through as a revision arg (e.g. the oldest commitHash
+// already seen), so `git log <before> -- rel` continues the walk from
+// there for the next page.
+export async function vaultFileHistory(
+  rel: string,
+  opts?: { limit?: number; before?: string },
+): Promise<{ versions: { commitHash: string; commitDate: string; author: string; commitMessage: string }[]; hasMore: boolean }> {
+  assertVaultExists();
+  const full = resolve(VAULT, rel);
+  ensureInsideVault(full);
+  if (!existsSync(full)) return { versions: [], hasMore: false };
+  const limit = opts?.limit ?? 50;
+  try {
+    const git = simpleGit(VAULT);
+    const args = ["log", `--max-count=${limit + 1}`];
+    if (opts?.before) args.push(opts.before);
+    args.push("--format=%H%x1f%aI%x1f%an%x1f%s", "--", rel);
+    const out = await git.raw(args);
+    const lines = out.split("\n").map(l => l.trim()).filter(Boolean);
+    const hasMore = lines.length > limit;
+    const versions = lines.slice(0, limit).map(line => {
+      const [commitHash, commitDate, author, commitMessage] = line.split("\x1f");
+      return { commitHash, commitDate, author: author ?? "", commitMessage: commitMessage ?? "" };
+    });
+    return { versions, hasMore };
+  } catch {
+    return { versions: [], hasMore: false };
+  }
+}
+
+// Read this file's content as of a specific commit. Returns null (rather
+// than throwing) when the file didn't exist at that commit, the hash is
+// bad, or the vault isn't a git repo — callers (the diff endpoint) treat
+// null as "this side has no content" rather than a hard error.
+export async function vaultFileVersionContent(rel: string, commitHash: string): Promise<string | null> {
+  assertVaultExists();
+  const full = resolve(VAULT, rel);
+  ensureInsideVault(full);
+  try {
+    const git = simpleGit(VAULT);
+    const out = await git.raw(["show", `${commitHash}:${rel}`]);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+// Diff support for the History panel — `toHash === "WORKING"` compares a
+// past commit against the current on-disk file (which may be ahead of HEAD:
+// writes are coalesced through a 4s debounce in commit-queue.ts before
+// they're committed), otherwise both sides are read from git history.
+export async function vaultFileDiff(
+  rel: string,
+  fromHash: string,
+  toHash: string,
+): Promise<{ before: string | null; after: string | null }> {
+  const before = await vaultFileVersionContent(rel, fromHash);
+  if (toHash === "WORKING") {
+    let after: string | null;
+    try {
+      after = readVaultFile(rel);
+    } catch {
+      after = null;
+    }
+    return { before, after };
+  }
+  const after = await vaultFileVersionContent(rel, toHash);
+  return { before, after };
+}
+
 export function readVaultFile(rel: string): string {
   assertVaultExists();
   const full = resolve(VAULT, rel);
@@ -313,6 +388,22 @@ export function writeVaultFile(rel: string, content: string, opts: { system?: bo
 export function writeWikiFile(rel: string, content: string) {
   if (!isWikiPath(rel)) throw new Error(`writeWikiFile called with a non-${WIKI_DIR}/ path: ${rel}`);
   writeVaultFile(rel, content, { system: true });
+}
+
+// Persist a Zettelkasten permanent note — shared by the vault.create_zettel
+// tool handler (primitives.ts) and the auto-zettel-extraction daemon loop
+// (zettel-extract.ts), so both produce byte-identical frontmatter/filename
+// shape (vault tooling like tag search and the graph view depend on that
+// consistency). Does NOT commit — callers enqueueVaultCommit() themselves
+// with their own commit message.
+export function writeZettel(title: string, body: string, tags: string[] = []): { path: string; id: string } {
+  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "note";
+  const path = `2-Permanent/${stamp}-${slug}.md`;
+  const today = new Date().toISOString().slice(0, 10);
+  const md = `---\nid: ${stamp}\ntitle: ${title}\ntags: [${tags.join(", ")}]\ncreated: ${today}\n---\n\n# ${title}\n\n${body}\n`;
+  writeVaultFile(path, md);
+  return { path, id: stamp };
 }
 
 // `_neuroworks/` (and its OS path-separator variants) is NeuroWorks's own

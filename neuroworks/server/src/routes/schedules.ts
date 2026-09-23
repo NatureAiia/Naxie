@@ -10,6 +10,8 @@ import {
 } from "../lib/schedules.js";
 import { callerLayer } from "../lib/access.js";
 import { isLocalMachineTask } from "../lib/task-restrictions.js";
+import { saveCustomTemplate, slugify, type CustomTemplate } from "../lib/custom-templates.js";
+import { randomUUID } from "node:crypto";
 
 export const schedulesRouter = Router();
 
@@ -37,12 +39,20 @@ function guardScheduleMutation(req: any, res: any, inputs: any): boolean {
   return true;
 }
 
+const ONCE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 function validateCadence(c: any): { ok: true; cadence: Cadence } | { ok: false; error: string } {
   if (!c || typeof c !== "object") return { ok: false, error: "cadence is required" };
   const hour = Number(c.hour);
   const minute = Number(c.minute);
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) return { ok: false, error: "cadence.hour must be 0..23" };
   if (!Number.isInteger(minute) || minute < 0 || minute > 59) return { ok: false, error: "cadence.minute must be 0..59" };
+  // A one-off date wins over daysOfWeek — the Calendar popup's REPEAT toggle
+  // decides which one it sends, never both.
+  if (typeof c.once === "string" && c.once) {
+    if (!ONCE_RE.test(c.once)) return { ok: false, error: "cadence.once must be YYYY-MM-DD" };
+    return { ok: true, cadence: { daysOfWeek: [], hour, minute, once: c.once } };
+  }
   const daysOfWeek = Array.isArray(c.daysOfWeek)
     ? c.daysOfWeek.filter((d: any) => Number.isInteger(d) && d >= 0 && d <= 6)
     : [];
@@ -75,21 +85,64 @@ function parseDeliver(raw: any): { email?: string } | undefined {
   return undefined;
 }
 
-// Create a schedule. Body: { name, templateId, inputs?, cadence: {daysOfWeek, hour, minute}, enabled?, deliver?: { email } }
+// Parse an optional chainTo list — forgiving like parseDeliver: drop
+// anything that isn't a string, isn't a real schedule id, or (PATCH only,
+// via `selfId`) refers to the schedule being edited. This is cosmetic
+// cleanliness, not the actual cycle guard — that's fireSchedule's `visited`
+// set (schedules.ts), since a two-step A→B then separately B→A edit can't be
+// caught at either edit's validation time.
+function parseChainTo(raw: any, selfId?: string): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const validIds = new Set(listSchedules().map(s => s.id));
+  const ids = raw.filter((x): x is string => typeof x === "string" && validIds.has(x) && x !== selfId);
+  return ids.length > 0 ? ids : [];
+}
+
+// Create a schedule. Body: { name, templateId | task, inputs?, cadence: {daysOfWeek|once, hour, minute}, enabled?, deliver?: { email }, requireApproval? }
+//
+// `task` is a shortcut for the Calendar page's "just type a task" popup — no
+// template picker there, matching the reference design. When present instead
+// of `templateId`, we auto-create a hidden, empty-plan custom template from
+// the text (same shape persona-derived starter templates use — see
+// templates.ts's run handler: an empty plan re-plans fresh from origin.task
+// every fire) and schedule that. `hidden: true` keeps it out of the general
+// Templates gallery; it's still runnable/re-editable via its id like any
+// other custom template.
 schedulesRouter.post("/", (req, res) => {
-  const { name, templateId, inputs, cadence: rawCadence, enabled, deliver } = req.body ?? {};
+  const { name, templateId, task, inputs, cadence: rawCadence, enabled, deliver, requireApproval, chainTo } = req.body ?? {};
   if (!guardScheduleMutation(req, res, inputs)) return;
   if (!name || typeof name !== "string") return res.status(400).json({ error: "name is required" });
-  if (!templateId || typeof templateId !== "string") return res.status(400).json({ error: "templateId is required" });
+  let resolvedTemplateId: string;
+  if (typeof templateId === "string" && templateId) {
+    resolvedTemplateId = templateId;
+  } else if (typeof task === "string" && task.trim()) {
+    const now = new Date().toISOString();
+    const adhoc: CustomTemplate = {
+      id: `custom-${slugify(name)}-${randomUUID().slice(0, 8)}`,
+      role: "Custom",
+      title: name.trim(),
+      description: task.trim().slice(0, 300),
+      origin: { task: task.trim(), createdAt: now },
+      plan: { steps: [] },
+      runCount: 0,
+      hidden: true,
+    };
+    saveCustomTemplate(adhoc);
+    resolvedTemplateId = adhoc.id;
+  } else {
+    return res.status(400).json({ error: "templateId or task is required" });
+  }
   const v = validateCadence(rawCadence);
   if (!v.ok) return res.status(400).json({ error: v.error });
   const fresh = createSchedule({
     name: name.trim(),
-    templateId,
+    templateId: resolvedTemplateId,
     inputs: inputs && typeof inputs === "object" ? inputs : {},
     cadence: v.cadence,
     enabled: enabled === false ? false : true,
     deliver: parseDeliver(deliver),
+    requireApproval: requireApproval === true,
+    chainTo: parseChainTo(chainTo),
   });
   res.json({ schedule: fresh });
 });
@@ -111,6 +164,8 @@ schedulesRouter.patch("/:id", (req, res) => {
   }
   if (typeof req.body?.enabled === "boolean") patch.enabled = req.body.enabled;
   if ("deliver" in (req.body ?? {})) patch.deliver = parseDeliver(req.body.deliver);
+  if (typeof req.body?.requireApproval === "boolean") patch.requireApproval = req.body.requireApproval;
+  if ("chainTo" in (req.body ?? {})) patch.chainTo = parseChainTo(req.body.chainTo, req.params.id);
   const updated = updateSchedule(req.params.id, patch);
   if (!updated) return res.status(404).json({ error: "not found" });
   res.json({ schedule: updated });

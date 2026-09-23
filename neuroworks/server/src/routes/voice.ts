@@ -231,7 +231,7 @@ voiceRouter.post("/converse", async (req, res) => {
     const task = `${historyBlock}${naxieCtx.rag ? naxieCtx.rag + "\n\n" : ""}${modelHealthBlock ? modelHealthBlock.trim() + "\n\n" : ""}The user just said: "${last.content}"\n\nRespond as Naxie — speak naturally, use a tool only if you genuinely need one.`;
 
     const { newJob, runJob } = await import("../lib/jobs.js");
-    const { planAndExecute } = await import("../lib/agent.js");
+    const { planAndExecute, crownBypassesApproval } = await import("../lib/agent.js");
     const { PA_IDENTITY } = await import("../lib/personas.js");
     const job = newJob("naxie:converse");
     job.title = last.content.slice(0, 80);
@@ -247,6 +247,7 @@ voiceRouter.post("/converse", async (req, res) => {
         personaId: PA_IDENTITY.id,
         scopeId: job.id,
         taskKind: job.kind,
+        skipApprovalGate: crownBypassesApproval(job.priority),
       });
       return { ...r, sourceNoteId: naxieCtx.sourceNoteId };
     });

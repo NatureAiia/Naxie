@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Mail, FolderOpen, Plug, Loader2, ChevronRight, Folder, FileText } from "lucide-react";
-import { naxieApi, type NaxieConnection } from "../lib/naxieApi";
+import { api, type PlatformConnection } from "../lib/api";
 import { Card, Button, showToast } from "./Card";
 
-// Naxie's personal-account connectors (Google, Microsoft, local documents) —
-// these live on the separate naxionai/backend service (see lib/naxieApi.ts),
-// not on neuroworks/server like the generic Connectors above. Kept as its
-// own section so the two systems don't get visually conflated.
+// Naxie's personal-account connectors (Google, Microsoft, local documents).
+// Kept as its own section so it doesn't get visually conflated with the
+// generic company-system Connectors above, even though both now run
+// natively on neuroworks/server (lib/oauth-connectors.ts, routes/local-folder.ts).
 
 function readOAuthReturn(): { connected?: string; error?: string } {
   const params = new URLSearchParams(window.location.search);
@@ -38,13 +38,11 @@ export function NaxiePersonalConnectors() {
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <OAuthConnectorCard
-          label="Google" icon={<Mail size={16} />}
-          list={naxieApi.googleList} authorize={naxieApi.googleAuthorize} disconnect={naxieApi.googleDisconnect}
+          label="Google" icon={<Mail size={16} />} platform="google"
           scopeHint="Gmail (read) + Calendar (read)"
         />
         <OAuthConnectorCard
-          label="Microsoft" icon={<Mail size={16} />}
-          list={naxieApi.microsoftList} authorize={naxieApi.microsoftAuthorize} disconnect={naxieApi.microsoftDisconnect}
+          label="Microsoft" icon={<Mail size={16} />} platform="microsoft"
           scopeHint="Outlook Mail + Calendar + OneDrive (read)"
         />
         <LocalDocumentsCard />
@@ -53,24 +51,22 @@ export function NaxiePersonalConnectors() {
   );
 }
 
-function OAuthConnectorCard({ label, icon, list, authorize, disconnect, scopeHint }: {
+function OAuthConnectorCard({ label, icon, platform, scopeHint }: {
   label: string; icon: React.ReactNode; scopeHint: string;
-  list: () => Promise<NaxieConnection[]>;
-  authorize: () => Promise<{ authorize_url: string }>;
-  disconnect: (id: string) => Promise<{ status: string }>;
+  platform: "google" | "microsoft";
 }) {
-  const [connections, setConnections] = useState<NaxieConnection[] | null>(null);
+  const [connections, setConnections] = useState<PlatformConnection[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
-    try { setConnections(await list()); } catch { setConnections([]); }
+    try { setConnections((await api.naxiePlatformConnections(platform)).connections); } catch { setConnections([]); }
   }
   useEffect(() => { void refresh(); }, []);
 
   async function connect() {
     setBusy(true);
     try {
-      const { authorize_url } = await authorize();
+      const { authorize_url } = await api.naxiePlatformAuthorize(platform);
       window.location.href = authorize_url; // full navigation — Google/Microsoft redirects back here when done
     } catch (e: any) {
       showToast(e?.message ?? String(e), "error");
@@ -79,7 +75,7 @@ function OAuthConnectorCard({ label, icon, list, authorize, disconnect, scopeHin
   }
 
   async function remove(id: string) {
-    try { await disconnect(id); showToast(`${label} disconnected`, "success"); refresh(); }
+    try { await api.naxiePlatformDisconnect(platform, id); showToast(`${label} disconnected`, "success"); refresh(); }
     catch (e: any) { showToast(e?.message ?? String(e), "error"); }
   }
 
@@ -102,7 +98,7 @@ function OAuthConnectorCard({ label, icon, list, authorize, disconnect, scopeHin
           </div>
           <div className="text-[11px] text-cream-300/60 mt-0.5">{scopeHint}</div>
           {connected && (
-            <div className="text-[11px] text-cream-300/70 mt-1 font-mono truncate">{connections![0].account_name}</div>
+            <div className="text-[11px] text-cream-300/70 mt-1 font-mono truncate">{connections![0].accountName}</div>
           )}
         </div>
       </div>
@@ -120,17 +116,17 @@ function OAuthConnectorCard({ label, icon, list, authorize, disconnect, scopeHin
 }
 
 function LocalDocumentsCard() {
-  const [status, setStatus] = useState<{ configured: boolean; root_label: string | null } | null>(null);
+  const [status, setStatus] = useState<{ configured: boolean; rootLabel: string | null } | null>(null);
   const [browsing, setBrowsing] = useState(false);
   const [subPath, setSubPath] = useState("");
-  const [entries, setEntries] = useState<{ name: string; is_dir: boolean; supported: boolean }[] | null>(null);
+  const [entries, setEntries] = useState<{ name: string; isDir: boolean; supported: boolean }[] | null>(null);
   const [ingesting, setIngesting] = useState(false);
 
-  useEffect(() => { void naxieApi.localFolderStatus().then(setStatus).catch(() => setStatus({ configured: false, root_label: null })); }, []);
+  useEffect(() => { void api.localFolderStatus().then(setStatus).catch(() => setStatus({ configured: false, rootLabel: null })); }, []);
 
   async function browse(path: string) {
     setBrowsing(true);
-    try { const r = await naxieApi.localFolderBrowse(path); setSubPath(r.sub_path); setEntries(r.entries); }
+    try { const r = await api.localFolderBrowse(path); setSubPath(r.subPath); setEntries(r.entries); }
     catch (e: any) { showToast(e?.message ?? String(e), "error"); }
     finally { setBrowsing(false); }
   }
@@ -138,8 +134,8 @@ function LocalDocumentsCard() {
   async function ingest() {
     setIngesting(true);
     try {
-      const r = await naxieApi.localFolderIngest({ sub_path: subPath, recursive: true });
-      showToast(`Queued ${r.queued} file(s) for indexing${r.skipped_unsupported ? ` (${r.skipped_unsupported} unsupported skipped)` : ""}`, "success");
+      const r = await api.localFolderIngest({ subPath, recursive: true });
+      showToast(`Queued ${r.queued} file(s) for indexing${r.skippedUnsupported ? ` (${r.skippedUnsupported} unsupported skipped)` : ""}`, "success");
     } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
     finally { setIngesting(false); }
   }
@@ -159,7 +155,7 @@ function LocalDocumentsCard() {
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/60">not configured</span>
             )}
           </div>
-          <div className="text-[11px] text-cream-300/60 mt-0.5">Index a folder on disk into Naxie's knowledge base</div>
+          <div className="text-[11px] text-cream-300/60 mt-0.5">Index a folder under Local Files into Naxie's knowledge base</div>
         </div>
       </div>
 
@@ -179,12 +175,12 @@ function LocalDocumentsCard() {
               {entries.length === 0 && <div className="px-2.5 py-2 text-[11px] text-cream-300/50">Empty folder</div>}
               {entries.map(e => (
                 <button key={e.name} type="button"
-                  onClick={() => e.is_dir && browse(`${subPath}${subPath ? "/" : ""}${e.name}`)}
+                  onClick={() => e.isDir && browse(`${subPath}${subPath ? "/" : ""}${e.name}`)}
                   className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-left hover:bg-ink-900/60 disabled:cursor-default"
-                  disabled={!e.is_dir}
+                  disabled={!e.isDir}
                 >
-                  {e.is_dir ? <Folder size={12} className="text-cream-300/60" /> : <FileText size={12} className={e.supported ? "text-leaf-400/80" : "text-cream-300/30"} />}
-                  <span className={e.is_dir ? "text-cream-100" : e.supported ? "text-cream-200" : "text-cream-300/40"}>{e.name}</span>
+                  {e.isDir ? <Folder size={12} className="text-cream-300/60" /> : <FileText size={12} className={e.supported ? "text-leaf-400/80" : "text-cream-300/30"} />}
+                  <span className={e.isDir ? "text-cream-100" : e.supported ? "text-cream-200" : "text-cream-300/40"}>{e.name}</span>
                 </button>
               ))}
             </div>
@@ -195,7 +191,7 @@ function LocalDocumentsCard() {
         </div>
       ) : (
         <div className="mt-3 text-[11px] text-cream-300/60">
-          Set <code className="font-mono text-cream-200">LOCAL_DOCUMENTS_ROOT</code> in naxionai/backend's <code className="font-mono text-cream-200">.env</code> to enable.
+          Couldn't reach the server to check Local Files status — try again shortly.
         </div>
       )}
     </Card>

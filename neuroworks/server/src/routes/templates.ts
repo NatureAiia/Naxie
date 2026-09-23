@@ -11,8 +11,9 @@ import { writeVaultFile, commitAndPush, searchVault, VaultUnreachable } from "..
 import { ollamaGenerate } from "../lib/ollama.js";
 import { llmGenerate } from "../lib/llm.js";
 import { syncDownloads } from "../lib/sync-downloads.js";
-import { planAndExecute, executePlan } from "../lib/agent.js";
-import { requireLayer, callerOf } from "../lib/access.js";
+import { planAndExecute, executePlan, crownBypassesApproval } from "../lib/agent.js";
+import { requireLayer, callerOf, callerLayer } from "../lib/access.js";
+import { ORG_TASK_PRIORITIES, type OrgTaskPriority } from "../lib/org-tasks.js";
 import { filterJobsForCaller, canSeeJob } from "../lib/job-visibility.js";
 import { checkTaskAllowed } from "../lib/task-restrictions.js";
 import { loadCustomTemplates, saveCustomTemplate, findCustomTemplate, bumpRunCount, slugify, type CustomTemplate } from "../lib/custom-templates.js";
@@ -94,29 +95,36 @@ templatesRouter.get("/", (req, res) => {
   // shows them under Engineering / Knowledge / Operations / Insights
   // when the id + title + description match a known lane. Unclassifiable
   // saves still fall through to "Custom" for discoverability.
-  const custom = loadCustomTemplates().map(c => ({
-    id: c.id,
-    role: classifyCustomTemplate(c),
-    title: c.title,
-    description: c.description,
-    icon: "saved",
-    agent: "clawbot",
-    inputs: [],
-    requiresApproval: false,
-    estimateSeconds: 30,
-    runCount: c.runCount,
-    lastRunAt: c.lastRunAt,
-  }));
+  const includeHidden = req.query.includeHidden === "1";
+  // Hidden customs (e.g. Calendar's auto-created one-off task templates)
+  // stay runnable via /run/:id but don't clutter the general gallery,
+  // mirroring the built-in Template.hidden convention just below.
+  const custom = loadCustomTemplates()
+    .filter(c => includeHidden || !c.hidden)
+    .map(c => ({
+      id: c.id,
+      role: classifyCustomTemplate(c),
+      title: c.title,
+      description: c.description,
+      icon: "saved",
+      agent: "clawbot",
+      inputs: [],
+      requiresApproval: false,
+      estimateSeconds: 30,
+      runCount: c.runCount,
+      lastRunAt: c.lastRunAt,
+    }));
   // Recount every role with the re-classified customs folded in. Built-in
   // templates already have correct roles; we just need to add the custom
   // contribution per bucket.
   const customByRole: Record<TemplateRole, number> = { Engineering: 0, Knowledge: 0, Operations: 0, Insights: 0, Custom: 0 };
   for (const c of custom) customByRole[c.role as TemplateRole]++;
   const allRoles = roles.map(r => ({ ...r, count: (r.count ?? 0) + (customByRole[r.id as TemplateRole] ?? 0) }));
-  // Hidden templates (e.g. board-meeting) stay runnable via /run/:id — a
-  // schedule can still fire them — but don't clutter the general gallery
-  // unless explicitly asked for (Schedules.tsx's template picker passes this).
-  const visibleTemplates = req.query.includeHidden === "1" ? templates : templates.filter(t => !t.hidden);
+  // Hidden built-in templates (e.g. board-meeting) stay runnable via
+  // /run/:id — a schedule can still fire them — but don't clutter the
+  // general gallery unless explicitly asked for (Schedules.tsx's template
+  // picker passes this).
+  const visibleTemplates = includeHidden ? templates : templates.filter(t => !t.hidden);
   res.json({ roles: allRoles, templates: [...visibleTemplates, ...custom] });
 });
 
@@ -225,13 +233,15 @@ templatesRouter.post("/jobs/:id/retry", async (req, res) => {
   job.title = `Retry: ${task.slice(0, 60)}`;
   job.inputs = { task, save_as_template: false, retryOf: req.params.id };
   job.createdByEmail = callerOf(req)?.email ?? old.createdByEmail;
+  // A retry of a crown job stays crown-tier (queue priority + approval bypass).
+  job.priority = old.priority;
   res.json({ jobId: job.id, retryOf: req.params.id });
 
   void runJob(job, async (push, progress) => {
     push(`retry of job ${req.params.id} (${old.status})`);
     const persona = getActivePersona();
     const suffix = personaSystemSuffix(persona);
-    const r = await planAndExecute(task, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: suffix, workMode: persona?.workMode, taskKind: job.kind, persona: persona?.name, personaId: persona?.id });
+    const r = await planAndExecute(task, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: suffix, workMode: persona?.workMode, taskKind: job.kind, persona: persona?.name, personaId: persona?.id, skipApprovalGate: crownBypassesApproval(job.priority) });
     return {
       answer: r.answer,
       plan: r.plan,
@@ -296,7 +306,27 @@ templatesRouter.post("/run/:id", async (req, res) => {
   job.template = tpl.id;
   job.title = tpl.title;
   job.inputs = inputs;
-  job.requiresApproval = tpl.requiresApproval;
+  // Crown Job priority — the one place today a caller can actually ask for a
+  // Job (not just an OrgTask) to run at crown tier. "crown" is admin+ only;
+  // anyone below that (a staff-layer human) is silently downgraded to
+  // "urgent" rather than rejected, same posture as other layer-gated fields
+  // in this codebase. A token-less machine/operator caller (layer === null,
+  // see access.ts's scope note) is trusted with crown same as admin.
+  const requestedPriority = typeof inputs.priority === "string" ? inputs.priority.trim() : "";
+  if (requestedPriority === "crown") {
+    const layer = callerLayer(req);
+    job.priority = (layer === null || layer === "admin" || layer === "superadmin") ? "crown" : "urgent";
+  } else if (requestedPriority && (ORG_TASK_PRIORITIES as readonly string[]).includes(requestedPriority)) {
+    job.priority = requestedPriority as OrgTaskPriority;
+  }
+  // A "needs my OK" schedule forces approval on its fired job regardless of
+  // the template's own default — set alongside x-clawbot-scheduled by
+  // schedules.ts's fireSchedule() when Schedule.requireApproval is true.
+  // Crown skips the TEMPLATE's own default approval requirement, but never
+  // this explicit schedule-level opt-in — a narrower human "review this one
+  // recurring schedule" choice always wins over crown's bypass.
+  const forceApproval = req.get("x-clawbot-force-approval") === "1";
+  job.requiresApproval = (tpl.requiresApproval && job.priority !== "crown") || forceApproval;
   // Attribute to the initiating human (staff feeds show only own tasks).
   job.createdByEmail = callerOf(req)?.email;
   // Schedule-fired runs carry a marker header; the tag routes their results
@@ -304,7 +334,7 @@ templatesRouter.post("/run/:id", async (req, res) => {
   const scheduledBy = req.get("x-clawbot-scheduled");
   if (scheduledBy) job.scheduledBy = scheduledBy;
 
-  if (tpl.requiresApproval) {
+  if (job.requiresApproval) {
     job.status = "awaiting-approval";
     job.log.push(`[${new Date().toISOString()}] task created · waiting on human approval (Approvals page)`);
     return res.json({ jobId: job.id, requiresApproval: true, status: "awaiting-approval" });
@@ -342,6 +372,7 @@ templatesRouter.post("/run/:id", async (req, res) => {
         personaSystemSuffix: personaSuffix,
         preplan: custom.plan,
         workMode: persona?.workMode,
+        skipApprovalGate: crownBypassesApproval(job.priority),
       });
       return { ...r, fromCustom: custom.id };
     }
@@ -420,6 +451,7 @@ templatesRouter.post("/jobs/:id/approve", requireLayer("admin"), async (req, res
         personaSystemSuffix: j.personaSuffix,
         preplan: j.plan && j.plan.steps.length > 0 ? j.plan : undefined,
         personaId: j.personaId,
+        skipApprovalGate: crownBypassesApproval(j.priority),
       }));
     return;
   }

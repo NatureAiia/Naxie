@@ -11,6 +11,7 @@ import { classifyDeliverable, taskWantsResearch } from "./deliverable.js";
 import { newOffloadRun, offloadLargeFields, recoverFullText } from "./context-offload.js";
 import { listSources as listDataSources, getSourceByLabel } from "./data-sources.js";
 import { appendMissionNote, dailyScopeId } from "./mission-log.js";
+import type { OrgTaskPriority } from "./org-tasks.js"; // type-only — erased at runtime, no import cycle
 
 // Shared local-filesystem detector — "does this task point at a file on the
 // operator's PC?" Used at three points (the planner's system-prompt hint,
@@ -127,6 +128,19 @@ const SOCIAL_TASK_RE = new RegExp(`\\b${SOCIAL_ACTION}\\b[^]{0,60}?\\b${SOCIAL_P
 // looks, because this tool set didn't exist before and the operator asked
 // for a human in the loop on all of it, not just the destructive half.
 export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "system_control", "manage_clipboard", "git_pull", "personas.manage", "system.admin", "whatsapp.send", "whatsapp.broadcast"]);
+
+// Crown Job priority (org-tasks.ts's OrgTaskPriority) bypasses ONLY the
+// generic sensitive-tool checkpoint below (opts.skipApprovalGate) — the same
+// gate an internal pipeline that's already reviewed the action upstream opts
+// out of. It must NOT and does not touch forceApprovalForRole (org-tasks.ts):
+// the architect/hermes-reviewer unconditional-approval rule is enforced
+// entirely outside planAndExecute (architect.ts's runArchitectReview calls
+// requestApproval() directly, never reaching this checkpoint at all), so
+// there is no branch here for crown to accidentally bypass. A crown-tagged
+// architect/hermes-reviewer OrgTask still requires human approval.
+export function crownBypassesApproval(priority?: OrgTaskPriority): boolean {
+  return priority === "crown";
+}
 
 // Tools whose caller identity actually matters — right now, only Naxie (the
 // MD/triage persona) may reach personas.manage / system.admin (docs

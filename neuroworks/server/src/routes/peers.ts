@@ -4,7 +4,7 @@ import { pollPeers, localInflightCount } from "../lib/peers.js";
 import { registerPeer, deregisterPeer, listAllPeers, autodiscoverLocalPeers } from "../lib/peer-registry.js";
 import { ensureWorker, workerStatus, shutdownManagedWorker } from "../lib/worker-manager.js";
 import { newJob, runJob, listJobs } from "../lib/jobs.js";
-import { planAndExecute } from "../lib/agent.js";
+import { planAndExecute, crownBypassesApproval } from "../lib/agent.js";
 import { ollamaGenerate } from "../lib/ollama.js";
 import { personaSystemSuffix, addPersona, deletePersona, loadPersonas, type Persona } from "../lib/personas.js";
 import { loadJobsInWindow } from "../lib/job-store.js";
@@ -358,7 +358,7 @@ peersRouter.post("/delegate", async (req, res) => {
       // Suffix is captured from THIS run's persona, not from global state.
       // Concurrent delegations with different personas no longer collide.
       const suffix = personaSystemSuffix(resolvedPersona);
-      const r = await planAndExecute(task, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: suffix, workMode: resolvedPersona?.workMode });
+      const r = await planAndExecute(task, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: suffix, workMode: resolvedPersona?.workMode, skipApprovalGate: crownBypassesApproval(job.priority) });
       return {
         answer: r.answer,
         plan: r.plan,
@@ -496,5 +496,73 @@ Be terse. "good" = ship it, "needs-work" = fixable issues, "bad" = misleading or
     revised_answer: typeof parsed.revised_answer === "string" ? parsed.revised_answer.slice(0, 4000) : "",
     confidence: typeof parsed.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0,
     reviewer: { name: config.name, model: config.ollamaModel },
+  });
+});
+
+// Judge two candidate answers to the same task head-to-head. Used by chat.ts's
+// Hermes/clawbot cross-check (executor-mode's `crosscheck` flag) instead of
+// unconditionally discarding Hermes's answer on a quality-fail offload.
+// Mirrors /review's request-parsing, local-first-with-OpenRouter-fallback
+// generation, temperature:0, and brace-matched JSON parsing.
+peersRouter.post("/crosscheck", async (req, res) => {
+  const task = String(req.body?.task ?? "").trim();
+  const answerA = String(req.body?.answerA ?? "").trim();
+  const answerB = String(req.body?.answerB ?? "").trim();
+  const labelA = String(req.body?.labelA ?? "a").trim() || "a";
+  const labelB = String(req.body?.labelB ?? "b").trim() || "b";
+  if (!task || !answerA || !answerB) return res.status(400).json({ error: "task, answerA and answerB are required" });
+
+  // Same input-cap rationale as /review — a verdict doesn't need the full
+  // text of either answer, and truncating keeps latency/cost bounded.
+  const CROSSCHECK_INPUT_CAP = 6000;
+  const trunc = (s: string) => s.length > CROSSCHECK_INPUT_CAP
+    ? s.slice(0, CROSSCHECK_INPUT_CAP) + "\n\n[...truncated for judging; judge on what's shown...]"
+    : s;
+  const sys = `You are judging two candidate answers to the SAME task, head-to-head. Decide which one better serves the task on: factual grounding, relevance, clarity, and completeness.
+
+Output ONLY a JSON object with this exact shape, no prose, no markdown fences:
+{"winner":"a"|"b"|"tie","reason":"<short>","confidence":<0..1 number>}
+
+Be terse. Pick "tie" only when they're genuinely comparable — prefer a decision when one is clearly better.`;
+  const crosscheckMaxTokens = 300;
+  const prompt = `Task: ${task}\n\nAnswer ${labelA} ("a"):\n${trunc(answerA)}\n\nAnswer ${labelB} ("b"):\n${trunc(answerB)}`;
+  let raw: string = "";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    raw = await Promise.race<string>([
+      (async () => {
+        try {
+          return await ollamaGenerate(prompt, sys, { profile: "extraction", temperature: 0, maxTokens: crosscheckMaxTokens });
+        } catch (e: any) {
+          const msg = String(e?.message ?? e);
+          if (!/429|rate[\s-]?limit|fetch\s+failed|terminated|ECONNRESET|HTTP\s+5\d\d|timeout|other\s+side\s+closed/i.test(msg)) throw e;
+          return await ollamaGenerate(prompt, sys, { profile: undefined, temperature: 0, maxTokens: crosscheckMaxTokens });
+        }
+      })(),
+      new Promise<string>((_, rej) => { timer = setTimeout(() => rej(new Error("peer.crosscheck wall-time cap (300s) exceeded")), 300_000); }),
+    ]);
+  } catch (e: any) {
+    return res.status(503).json({ error: `crosscheck judge LLM unavailable: ${String(e?.message ?? e).slice(0, 200)}` });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  const fence = raw.match(/```(?:json)?\s*([\s\S]+?)```/);
+  const candidate = (fence ? fence[1] : raw).trim();
+  const open = candidate.indexOf("{");
+  if (open === -1) return res.json({ winner: "a", reason: "judge returned no JSON", confidence: 0, raw });
+  let depth = 0;
+  let parsed: any = null;
+  for (let i = open; i < candidate.length; i++) {
+    if (candidate[i] === "{") depth++;
+    else if (candidate[i] === "}") { depth--; if (depth === 0) { try { parsed = JSON.parse(candidate.slice(open, i + 1)); } catch {} break; } }
+  }
+  if (!parsed) return res.json({ winner: "a", reason: "judge JSON unparseable", confidence: 0, raw });
+
+  res.json({
+    winner: ["a", "b", "tie"].includes(parsed.winner) ? parsed.winner : "a",
+    reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 300) : "",
+    confidence: typeof parsed.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0,
+    judge: { name: config.name, model: config.ollamaModel },
   });
 });

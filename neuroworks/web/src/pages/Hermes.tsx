@@ -110,6 +110,11 @@ function ExecutorCard() {
               onChange={e => patch({ hermesLocal: e.target.checked })} />
             Run against local Ollama ({status.hermes.localModel}) instead of {status.hermes.provider} — free, offline
           </label>
+          <label className="flex items-center gap-2 text-sm text-cream-200">
+            <input type="checkbox" checked={status.crosscheck} disabled={busy}
+              onChange={e => patch({ crosscheck: e.target.checked })} />
+            Cross-check — on a quality-gate fail, have a peer judge Hermes's answer against clawbot's instead of always taking clawbot's
+          </label>
           <div>
             <label className="block text-[11px] text-cream-300/70 mb-1">Model override (blank = default: {status.hermes.model})</label>
             <div className="flex gap-2">

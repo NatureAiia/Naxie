@@ -4,7 +4,7 @@ import { journal } from "./journal.js";
 import { getActivePersona } from "./personas.js";
 import { persistJobRecord, loadJobsInWindow } from "./job-store.js";
 import { logAudit } from "./audit-log.js";
-import { classifyOrgRole, createOrgTask, updateOrgTaskStatus, requestApproval } from "./org-tasks.js";
+import { classifyOrgRole, createOrgTask, updateOrgTaskStatus, requestApproval, type OrgTaskPriority } from "./org-tasks.js";
 import type { Plan } from "./agent.js"; // type-only — erased at runtime, no import cycle
 
 export type Job = {
@@ -50,6 +50,13 @@ export type Job = {
   // completion, so the org dashboard can show it as genuinely "active" while
   // the job runs, not just retroactively. See runJob().
   orgTaskId?: string;
+  // Crown-tier priority (see org-tasks.ts's OrgTaskPriority) propagated onto
+  // the Job that actually does the work — the OrgTask-level field alone only
+  // affects the org backlog's sort/SLA; this is what lets the JOB queue
+  // (acquireSlot's crown-reserved slots below) and the approval checkpoint
+  // (agent.ts's crownBypassesApproval) react to crown too. Absent = normal
+  // queueing/approval behaviour, unchanged.
+  priority?: OrgTaskPriority;
 };
 
 const jobs = new Map<string, Job>();
@@ -98,13 +105,24 @@ export function getJobAbortSignal(id: string): AbortSignal | undefined {
   return jobAborts.get(id)?.signal;
 }
 
-export function cancelJob(id: string, reason = "Cancelled by the operator"): { ok: boolean; status?: string } {
+export function cancelJob(
+  id: string,
+  reason = "Cancelled by the operator",
+  opts?: { force?: boolean },
+): { ok: boolean; status?: string; reason?: string } {
   const j = jobs.get(id);
   if (!j) return { ok: false };
   if (j.status !== "running" && j.status !== "pending" && j.status !== "waiting_on_human") {
     // Already terminal — nothing to cancel, but report the current state so
     // the UI can reconcile rather than showing a spurious error.
     return { ok: false, status: j.status };
+  }
+  // Crown jobs resist the normal cancel path — a superadmin's explicit
+  // `force: true` (checked by the caller, e.g. routes/tasks.ts, BEFORE it
+  // reaches here — this function trusts opts.force completely) is the only
+  // escape hatch for a genuinely hung crown job.
+  if (j.priority === "crown" && !opts?.force) {
+    return { ok: false, status: j.status, reason: "crown jobs cannot be cancelled without a force override" };
   }
   // Signal cooperative aborts (agent loop / peer poll) to stop ASAP.
   try { jobAborts.get(id)?.abort(); } catch { /* tolerate */ }
@@ -185,6 +203,14 @@ export function adoptJob(j: Job): Job {
 export function sweepStaleApprovals(now = Date.now()): number {
   let swept = 0;
   for (const j of jobs.values()) {
+    // Crown jobs never get auto-failed for sitting parked — see agent.ts's
+    // crownBypassesApproval, which means crown mostly shouldn't even REACH
+    // awaiting-approval in the first place (forceApprovalForRole aside, which
+    // this skip has no bearing on since that's an org-tasks/architect-only
+    // gate, not a Job-level one). This is a belt-and-braces skip for the rare
+    // case a crown job still parks (e.g. a narrower schedule-level
+    // requireApproval opt-in).
+    if (j.priority === "crown") continue;
     if (j.status !== "awaiting-approval") continue;
     if (now - new Date(j.startedAt).getTime() <= APPROVAL_TTL_MS) continue;
     j.status = "failed";
@@ -283,6 +309,12 @@ export type ProgressUpdater = (patch: Record<string, unknown>) => void;
 // staying `pending` (still pollable). 0 = unbounded (legacy behaviour, default
 // so nothing changes unless the operator opts in).
 const MAX_CONCURRENT_JOBS = Math.max(0, Number(process.env.NEUROWORKS_MAX_CONCURRENT_JOBS ?? "0"));
+// Crown-priority jobs may borrow this many slots ABOVE the cap (see
+// acquireSlot below) so a Crown Job never sits stuck behind a full queue of
+// ordinary work. Only meaningful when MAX_CONCURRENT_JOBS > 0 — with the
+// default unbounded queue there's no cap to reserve against, so this is a
+// pure no-op and every job (crown or not) still runs immediately.
+const CROWN_RESERVED_SLOTS = Math.max(0, Number(process.env.NEUROWORKS_CROWN_RESERVED_SLOTS ?? "1"));
 // Mirror every job into the Obsidian vault as a markdown note? Default OFF — it
 // littered the user's real vault (D:\Main brain\_neuroworks\jobs\) with a new
 // file per task (incl. delegated sub-tasks + test runs). The durable record the
@@ -316,36 +348,80 @@ function isImportantForVault(j: Job): boolean {
   return usedKnowledgeTool || hasCitations;
 }
 let activeJobs = 0;
-const slotWaiters: Array<() => void> = [];
+let activeCrownJobs = 0;
+type SlotWaiter = { resolve: () => void; crown: boolean };
+const slotWaiters: SlotWaiter[] = [];
 
-function acquireSlot(): Promise<void> {
+// `priority` is optional so every existing caller (none of which knew about
+// crown before) keeps behaving exactly as before. When MAX_CONCURRENT_JOBS
+// <= 0 (unbounded, the default) this returns immediately for EVERYONE,
+// crown or not — reserved slots only mean something once there's a cap to
+// reserve against, so unbounded behaviour is completely unchanged.
+function acquireSlot(priority?: OrgTaskPriority): Promise<void> {
   if (MAX_CONCURRENT_JOBS <= 0) return Promise.resolve();
-  if (activeJobs < MAX_CONCURRENT_JOBS) { activeJobs += 1; return Promise.resolve(); }
+  const crown = priority === "crown";
+  // A crown job may use the cap PLUS the reserved overflow; a plain job is
+  // held to the cap alone — the reserved slots are invisible to it, so
+  // ordinary jobs never get squeezed by crown's headroom sitting unused.
+  const ceiling = crown ? MAX_CONCURRENT_JOBS + CROWN_RESERVED_SLOTS : MAX_CONCURRENT_JOBS;
+  if (activeJobs < ceiling) {
+    activeJobs += 1;
+    if (crown) activeCrownJobs += 1;
+    return Promise.resolve();
+  }
   // At capacity — queue. The waiter inherits the releaser's slot (activeJobs
   // stays at the cap), so there's no double-count.
-  return new Promise<void>((resolve) => slotWaiters.push(resolve));
+  return new Promise<void>((resolve) => slotWaiters.push({ resolve, crown }));
 }
-function releaseSlot(): void {
+// `wasCrown` tells us whether the SLOT BEING FREED belonged to a crown job,
+// so activeCrownJobs stays accurate independent of who (if anyone) inherits
+// the slot next.
+function releaseSlot(wasCrown: boolean): void {
   if (MAX_CONCURRENT_JOBS <= 0) return;
-  const next = slotWaiters.shift();
-  if (next) next();                       // hand the slot straight to the next in line
-  else activeJobs = Math.max(0, activeJobs - 1);
+  if (wasCrown) activeCrownJobs = Math.max(0, activeCrownJobs - 1);
+  // Wake the earliest QUEUED CROWN waiter ahead of plain FIFO order — crown
+  // work shouldn't sit behind ordinary jobs it happened to queue alongside.
+  // Falls back to strict FIFO (index 0) when no crown waiter is queued.
+  const crownIdx = slotWaiters.findIndex(w => w.crown);
+  const idx = crownIdx !== -1 ? crownIdx : 0;
+  const next = slotWaiters.length > 0 ? slotWaiters.splice(idx, 1)[0] : undefined;
+  if (next) {
+    if (next.crown) activeCrownJobs += 1;
+    next.resolve();                       // hand the slot straight to the next in line
+  } else {
+    activeJobs = Math.max(0, activeJobs - 1);
+  }
 }
 
-export function jobQueueStatus(): { cap: number; active: number; queued: number } {
-  return { cap: MAX_CONCURRENT_JOBS, active: activeJobs, queued: slotWaiters.length };
+export function jobQueueStatus(): {
+  cap: number; active: number; queued: number;
+  crownReserved: number; activeCrown: number; queuedCrown: number;
+} {
+  return {
+    cap: MAX_CONCURRENT_JOBS,
+    active: activeJobs,
+    queued: slotWaiters.length,
+    crownReserved: CROWN_RESERVED_SLOTS,
+    activeCrown: activeCrownJobs,
+    queuedCrown: slotWaiters.filter(w => w.crown).length,
+  };
 }
 
 export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progress: ProgressUpdater) => Promise<T>): Promise<void> {
   // Backpressure gate. Stays `pending` (pollable) while queued. If the job was
   // aborted (e.g. graceful shutdown) while waiting, bail without running.
-  if (MAX_CONCURRENT_JOBS > 0 && activeJobs >= MAX_CONCURRENT_JOBS) {
+  // Mirrors acquireSlot's own ceiling so this pre-check log is accurate for a
+  // crown job too — otherwise a crown job that will actually get an
+  // immediate reserved slot would still log a misleading "Queued" line.
+  const isCrown = j.priority === "crown";
+  const ceiling = MAX_CONCURRENT_JOBS + (isCrown ? CROWN_RESERVED_SLOTS : 0);
+  if (MAX_CONCURRENT_JOBS > 0 && activeJobs >= ceiling) {
     const ahead = slotWaiters.length;
     try { ensureEmitter(j.id); } catch { /* tolerate */ }
     j.log.push(`[${new Date().toISOString()}] Queued — ${ahead} task${ahead === 1 ? "" : "s"} ahead (cap ${MAX_CONCURRENT_JOBS} running at once).`);
   }
-  await acquireSlot();
-  if (j.status === "failed" || j.status === "rejected") { releaseSlot(); return; }
+  await acquireSlot(j.priority);
+  if (j.status === "failed" || j.status === "rejected") { releaseSlot(isCrown); return; }
   j.status = "running";
   // Naxie org-task tracking (docs/naxie-architecture.md §3-§6) — file this
   // job onto the classified role's backlog AT DISPATCH TIME, as "active",
@@ -562,7 +638,7 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
     dropEmitter(j.id);
     // Release the concurrency slot LAST so the next queued job starts only
     // after this one is fully wound down.
-    releaseSlot();
+    releaseSlot(isCrown);
   }
 }
 

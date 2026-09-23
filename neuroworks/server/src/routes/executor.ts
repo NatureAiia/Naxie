@@ -18,6 +18,7 @@ executorRouter.get("/", (_req, res) => {
     mode: cfg.mode,
     hermesModelOverride: cfg.hermesModel ?? null,
     hermesLocal: local,
+    crosscheck: cfg.crosscheck === true,
     fallbackToClawbot: process.env.NEUROWORKS_HERMES_FALLBACK !== "0",
     qualityGate: process.env.NEUROWORKS_HERMES_QUALITY_GATE !== "0",
     hermes: {
@@ -31,9 +32,11 @@ executorRouter.get("/", (_req, res) => {
 });
 
 // POST { mode?: "clawbot" | "hermes", hermesModel?: string | null,
-//        hermesLocal?: boolean }
+//        hermesLocal?: boolean, crosscheck?: boolean }
 // hermesLocal:true points Hermes at the local Ollama daemon running
 // config.hermesLocalModel (default north-mini-code-10) — free + offline.
+// crosscheck:true has a peer judge Hermes's answer against clawbot's on a
+// quality-fail offload instead of always taking clawbot's (see chat.ts).
 executorRouter.post("/", (req, res) => {
   const body = req.body ?? {};
   const mode = body.mode as ExecutorMode | undefined;
@@ -48,8 +51,9 @@ executorRouter.post("/", (req, res) => {
       ...(mode !== undefined ? { mode } : {}),
       ...(body.hermesModel !== undefined ? { hermesModel: body.hermesModel } : {}),
       ...(body.hermesLocal !== undefined ? { hermesLocal: body.hermesLocal === true } : {}),
+      ...(body.crosscheck !== undefined ? { crosscheck: body.crosscheck === true } : {}),
     });
-    res.json({ ok: true, mode: next.mode, hermesModelOverride: next.hermesModel ?? null, hermesLocal: next.hermesLocal === true });
+    res.json({ ok: true, mode: next.mode, hermesModelOverride: next.hermesModel ?? null, hermesLocal: next.hermesLocal === true, crosscheck: next.crosscheck === true });
   } catch (e: any) {
     res.status(400).json({ error: String(e?.message ?? e) });
   }

@@ -122,6 +122,7 @@ export type QualitySummary = {
   }[];
 };
 export type HostToolsSettings = { allowSystemControl: boolean; allowClipboardAccess: boolean; allowNotifications: boolean; gitRepoPath: string };
+export type DaemonSettings = { disabledLoops: string[] };
 export type RosterRow = { name: string; providerKind?: string; providerLabel?: string; tier?: "small" | "large"; free: boolean; active: boolean; calls: number; costUsd: number; failed: number; failureRate: number };
 
 export type OnboardingSector = {
@@ -152,13 +153,14 @@ export type OperatorIdentity = {
 
 export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect" | "hermes-reviewer";
 export type OrgTaskStatus = "backlog" | "active" | "blocked" | "waiting-on-approval" | "done";
+export type OrgTaskPriority = "low" | "normal" | "high" | "urgent" | "crown";
 export type OrgTask = {
   id: string;
   role: OrgRole;
   title: string;
   detail: string;
   status: OrgTaskStatus;
-  priority: "low" | "normal" | "high" | "urgent";
+  priority: OrgTaskPriority;
   linkedTaskIds: string[];
   jobId?: string;
   createdAt: string;
@@ -246,10 +248,23 @@ export const api = {
   brainDownloadUrl: (path: string) => `/api/brain/download?path=${encodeURIComponent(path)}`,
   brainSearch: (q: string) => req<{ q: string; results: { path: string; line: number; preview: string }[] }>(`/api/brain/search?q=${encodeURIComponent(q)}`),
   brainGraph: () => req<{ nodes: { id: string; label: string; group: string; kind: "note" | "tag" }[]; links: { source: string; target: string }[]; docCount: number }>("/api/brain/graph"),
+  brainHistory: (path: string, opts?: { limit?: number; before?: string }) => {
+    const params = new URLSearchParams({ path });
+    if (opts?.limit != null) params.set("limit", String(opts.limit));
+    if (opts?.before) params.set("before", opts.before);
+    return req<{ path: string; versions: { commitHash: string; commitDate: string; author: string; commitMessage: string }[]; hasMore: boolean }>(`/api/brain/history?${params.toString()}`);
+  },
+  brainDiff: (path: string, from: string, to = "WORKING") =>
+    req<{ path: string; from: string; to: string; before: string | null; after: string | null }>(
+      `/api/brain/diff?path=${encodeURIComponent(path)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    ),
   storageStatus: () => req<{ backends: { id: "local" | "obsidian" | "github" | "drive" | "supabase"; label: string; configured: boolean; reachable: boolean; detail: string }[] }>("/api/storage/status"),
   hostToolsSettings: () => req<{ settings: HostToolsSettings }>("/api/host-tools/settings"),
   updateHostToolsSettings: (patch: Partial<HostToolsSettings>) =>
     req<{ settings: HostToolsSettings }>("/api/host-tools/settings", { method: "PATCH", body: JSON.stringify(patch) }),
+  daemonSettings: () => req<{ settings: DaemonSettings }>("/api/daemon-settings/settings"),
+  updateDaemonSettings: (patch: Partial<DaemonSettings>) =>
+    req<{ settings: DaemonSettings }>("/api/daemon-settings/settings", { method: "PATCH", body: JSON.stringify(patch) }),
   launchHermesAgent: () => req<{ result: string }>("/api/host-tools/hermes/launch", { method: "POST" }),
   // Operator onboarding wizard — Naxie's identity/profile of the operator.
   onboardingSectors: () => req<{ sectors: OnboardingSector[] }>("/api/onboarding/sectors"),
@@ -261,10 +276,11 @@ export const api = {
   }) => req<{ ok: true; state: OnboardingState; operator: OperatorIdentity }>("/api/onboarding/complete", { method: "POST", body: JSON.stringify(body) }),
   applyOnboardingBundle: (sectorId: string) =>
     req<{ ok: true; result: SectorBundleResult }>("/api/onboarding/apply-bundle", { method: "POST", body: JSON.stringify({ sectorId }) }),
-  orgTasks: (filter?: { role?: OrgRole; status?: OrgTaskStatus }) => {
+  orgTasks: (filter?: { role?: OrgRole; status?: OrgTaskStatus; priority?: OrgTaskPriority }) => {
     const q = new URLSearchParams();
     if (filter?.role) q.set("role", filter.role);
     if (filter?.status) q.set("status", filter.status);
+    if (filter?.priority) q.set("priority", filter.priority);
     const qs = q.toString();
     return req<{ tasks: OrgTask[] }>(`/api/org-tasks${qs ? `?${qs}` : ""}`);
   },
@@ -487,17 +503,28 @@ export const api = {
   // owns hiring/apply decisions, so there's no client-side apply/create/delete.
   listDepartments: () => req<{ departments: any[] }>("/api/departments"),
   listSchedules: () => req<{ schedules: Schedule[] }>("/api/schedules"),
+  // Either `templateId` (run an existing template) or `task` (free text —
+  // the server auto-creates a hidden one-off custom template from it, the
+  // Calendar popup's "just type a task" flow) is required, not both.
   createSchedule: (body: {
     name: string;
-    templateId: string;
+    templateId?: string;
+    task?: string;
     inputs?: Record<string, unknown>;
     cadence: Cadence;
     enabled?: boolean;
     deliver?: ScheduleDelivery;
+    requireApproval?: boolean;
+    chainTo?: string[];
   }) => req<{ schedule: Schedule }>("/api/schedules", { method: "POST", body: JSON.stringify(body) }),
-  updateSchedule: (id: string, patch: Partial<Pick<Schedule, "name" | "templateId" | "inputs" | "cadence" | "enabled" | "deliver">>) =>
+  updateSchedule: (id: string, patch: Partial<Pick<Schedule, "name" | "templateId" | "inputs" | "cadence" | "enabled" | "deliver" | "requireApproval" | "chainTo">>) =>
     req<{ schedule: Schedule }>(`/api/schedules/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteSchedule: (id: string) => req<{ ok: true }>(`/api/schedules/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  // Office dashboard — manual, per-department stat lines (not computed).
+  listOfficeNotes: () => req<{ notes: Record<string, string[]> }>("/api/office-notes"),
+  setOfficeNotes: (departmentId: string, lines: string[]) =>
+    req<{ departmentId: string; lines: string[] }>(`/api/office-notes/${encodeURIComponent(departmentId)}`, { method: "PUT", body: JSON.stringify({ lines }) }),
 
   integrationsCatalog: () => req<{ providers: IntegrationProvider[] }>("/api/integrations/catalog"),
   listIntegrations: () => req<{ connections: IntegrationConnection[] }>("/api/integrations"),
@@ -593,6 +620,29 @@ export const api = {
     req<{ status: "pending" | "complete" | "error" | "expired"; error?: string }>(
       `/api/connectors/${encodeURIComponent(id)}/oauth/poll`, { method: "POST", body: JSON.stringify({ flowId }) }),
 
+  // Naxie's personal Google/Microsoft connectors (Gmail/Calendar, Outlook
+  // Mail/Calendar/OneDrive read-only) — distinct from the company-system
+  // connectors above. One connection slot per platform.
+  naxiePlatformConnections: (platform: "google" | "microsoft") =>
+    req<{ connections: PlatformConnection[] }>(`/api/connectors/${platform}`),
+  naxiePlatformAuthorize: (platform: "google" | "microsoft") =>
+    req<{ authorize_url: string }>(`/api/connectors/${platform}/authorize`),
+  naxiePlatformDisconnect: (platform: "google" | "microsoft", id: string) =>
+    req<{ status: string }>(`/api/connectors/${platform}/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  // "My documents" — index a folder under the Local Files sandbox into the
+  // vault/RAG knowledge base. See routes/local-folder.ts.
+  localFolderStatus: () => req<{ configured: boolean; rootLabel: string | null }>("/api/local-folder/status"),
+  localFolderBrowse: (subPath: string) =>
+    req<{ subPath: string; entries: { name: string; isDir: boolean; size: number | null; supported: boolean }[] }>(
+      `/api/local-folder/browse?subPath=${encodeURIComponent(subPath)}`,
+    ),
+  localFolderIngest: (body: { subPath: string; recursive?: boolean; category?: string; tags?: string[]; maxFiles?: number }) =>
+    req<{ queued: number; skippedUnsupported: number; skippedOverCap: number; root: string }>(
+      "/api/local-folder/ingest",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
   // Multi-account GitHub credentials + projects (repos grouped per account,
   // watched for new commits by the github-commit-watcher engine).
   listGithubAccounts: () => req<{ accounts: GithubAccount[] }>("/api/github-accounts"),
@@ -629,8 +679,8 @@ export const api = {
   whatsappStatus: () => req<WhatsAppBridgeStatus>("/api/whatsapp/status"),
   whatsappReconnect: () => req<{ ok: true }>("/api/whatsapp/reconnect", { method: "POST" }),
   getExecutor: () => req<ExecutorStatus>("/api/executor"),
-  setExecutor: (body: { mode?: "clawbot" | "hermes"; hermesModel?: string | null; hermesLocal?: boolean }) =>
-    req<{ ok: true; mode: string; hermesModelOverride: string | null; hermesLocal: boolean }>("/api/executor", { method: "POST", body: JSON.stringify(body) }),
+  setExecutor: (body: { mode?: "clawbot" | "hermes"; hermesModel?: string | null; hermesLocal?: boolean; crosscheck?: boolean }) =>
+    req<{ ok: true; mode: string; hermesModelOverride: string | null; hermesLocal: boolean; crosscheck: boolean }>("/api/executor", { method: "POST", body: JSON.stringify(body) }),
   listBrands: () => req<{ brands: Brand[] }>("/api/brands"),
   getBrand: (id: string) => req<{ brand: Brand }>(`/api/brands/${encodeURIComponent(id)}`),
   updateBrand: (id: string, patch: Partial<Omit<Brand, "id" | "createdAt" | "personaIds">>) =>
@@ -906,6 +956,17 @@ export type ConnectorCallResult = {
   contentType?: string; body: any; truncated?: boolean; error?: string;
 };
 
+export type PlatformConnection = {
+  id: string;
+  platform: "google" | "microsoft";
+  accountName?: string;
+  connectionStatus: "connected" | "error";
+  errorMessage?: string;
+  scope?: string;
+  hasRefreshToken: boolean;
+  updatedAt: string;
+};
+
 export type BrandChannel = { provider: string; connectionLabel: string; platforms?: string[] };
 export type Brand = {
   id: string;
@@ -983,6 +1044,7 @@ export type ExecutorStatus = {
   mode: "clawbot" | "hermes";
   hermesModelOverride: string | null;
   hermesLocal: boolean;
+  crosscheck: boolean;
   fallbackToClawbot: boolean;
   qualityGate: boolean;
   hermes: { available: boolean; binPath?: string; model: string; provider: string; localModel: string };
@@ -1197,6 +1259,10 @@ export type Cadence = {
   daysOfWeek: number[];
   hour: number;
   minute: number;
+  // One-off override — fires exactly once on this date (YYYY-MM-DD, local),
+  // ignoring daysOfWeek. Set by Calendar's "schedule for <date>" popup when
+  // its REPEAT toggle is off.
+  once?: string;
 };
 
 export type ScheduleDelivery = { email?: string };
@@ -1214,6 +1280,11 @@ export type Schedule = {
   lastError?: string;
   fireCount: number;
   nextFireAt?: number | null;
+  // "Needs my OK" — a fired job from this schedule is forced into
+  // awaiting-approval regardless of its template's own default.
+  requireApproval?: boolean;
+  // Routine chaining — schedule ids fired once this one's job succeeds.
+  chainTo?: string[];
 };
 
 

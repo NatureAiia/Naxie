@@ -15,6 +15,7 @@ export type NaxieInteractions = {
   lastInteractionAt: string; // ISO
   lastNudgeAt?: string;      // ISO — throttles one check-in per idle window
   lastResearchAt?: string;   // ISO — throttle for proactive research
+  lastZettelScanAt?: string; // ISO — cursor + throttle for auto-zettel extraction
 };
 
 let cache: NaxieInteractions | null = null;
@@ -57,6 +58,7 @@ export function touchInteraction(): void {
       lastInteractionAt: now,
       lastNudgeAt: prev?.lastNudgeAt,
       lastResearchAt: prev?.lastResearchAt,
+      lastZettelScanAt: prev?.lastZettelScanAt,
     };
     persist(next);
   } catch { /* best-effort */ }
@@ -65,13 +67,19 @@ export function touchInteraction(): void {
 export function setLastNudgeAt(iso: string): void {
   const prev = load();
   const now = prev?.lastInteractionAt ?? new Date().toISOString();
-  persist({ lastInteractionAt: now, lastNudgeAt: iso, lastResearchAt: prev?.lastResearchAt });
+  persist({ lastInteractionAt: now, lastNudgeAt: iso, lastResearchAt: prev?.lastResearchAt, lastZettelScanAt: prev?.lastZettelScanAt });
 }
 
 export function setLastResearchAt(iso: string): void {
   const prev = load();
   const now = prev?.lastInteractionAt ?? new Date().toISOString();
-  persist({ lastInteractionAt: now, lastNudgeAt: prev?.lastNudgeAt, lastResearchAt: iso });
+  persist({ lastInteractionAt: now, lastNudgeAt: prev?.lastNudgeAt, lastResearchAt: iso, lastZettelScanAt: prev?.lastZettelScanAt });
+}
+
+export function setLastZettelScanAt(iso: string): void {
+  const prev = load();
+  const now = prev?.lastInteractionAt ?? new Date().toISOString();
+  persist({ lastInteractionAt: now, lastNudgeAt: prev?.lastNudgeAt, lastResearchAt: prev?.lastResearchAt, lastZettelScanAt: iso });
 }
 
 // For tests / daemon's `now` injection — direct read without cache side-effects.

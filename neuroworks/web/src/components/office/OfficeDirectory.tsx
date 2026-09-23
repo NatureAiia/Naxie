@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import { Search, ChevronDown, ChevronRight } from "lucide-react";
-import type { OfficeRoom } from "./OfficeScene";
+import type { OfficeRoom } from "./types";
+import { departmentColor } from "../../lib/departmentColor";
 
-// H — an always-legible "who's where" that doesn't depend on the 3D view
-// being readable at a given moment: the same room data OfficeScene renders,
-// as a plain list. Selecting a persona here does the exact same thing as
-// clicking their desk (onSelectPersona) — this is a second entry point to
-// one action, not a separate feature.
+// A searchable "who's where" list, same room data the department cards
+// render, for finding one person quickly without scanning every card.
+// Selecting a persona here does the exact same thing as clicking their chip
+// on a card (onSelectPersona) — a second entry point to one action, not a
+// separate feature.
 type Props = {
   rooms: OfficeRoom[];
   onSelectPersona: (personaId: string) => void;
@@ -62,7 +63,7 @@ export function OfficeDirectory({ rooms, onSelectPersona }: Props) {
               {room.id === "general" ? (
                 <span className="w-2 h-2 rounded-full shrink-0 nw-dot-glow" />
               ) : (
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: room.color }} />
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: departmentColor(room.color) }} />
               )}
               <span className="text-xs font-medium text-cream-100">{room.name}</span>
               <span className="text-[10px] text-cream-300/40 ml-auto">{room.members.length}</span>

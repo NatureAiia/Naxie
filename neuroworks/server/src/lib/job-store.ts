@@ -24,6 +24,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Job } from "./jobs.js";
+import type { OrgTaskPriority } from "./org-tasks.js";
 
 // Anchor to the SAME stable repo-root .neuroworks that every other config
 // module uses (assignments, connectors, personas, …), via __dirname — NOT
@@ -92,6 +93,11 @@ export type PersistedJob = {
   // Email of the initiating human (staff-feed attribution). Absent for
   // machine/scheduled/agent jobs.
   createdByEmail?: string;
+  // Crown-tier priority (see org-tasks.ts's OrgTaskPriority / jobs.ts's
+  // Job.priority) — persisted so a restart-rehydrated job (asJob below)
+  // still carries it into cancelJob's crown-refuses-cancel check and
+  // sweepStaleApprovals' crown skip.
+  priority?: OrgTaskPriority;
 };
 
 function ensureDir(): void {
@@ -150,6 +156,7 @@ export function persistJobRecord(j: Job): void {
       // fallback chain for back-compat.
       persona: j.personaName ?? r.activePersona?.name ?? inputs.activePersona?.name ?? r.persona?.name,
       createdByEmail: typeof j.createdByEmail === "string" ? j.createdByEmail : undefined,
+      priority: j.priority,
       peer: r.peer?.name,
       runs: Array.isArray(r.runs)
         ? r.runs
@@ -304,6 +311,7 @@ export function asJob(rec: PersistedJob): Job {
     error: rec.error,
     personaName: rec.persona,
     createdByEmail: rec.createdByEmail,
+    priority: rec.priority,
     // Approval-replay state — lets the approve endpoint replay a parked job's
     // exact plan after a restart re-hydrates it from disk.
     ...(rec.task ? { task: rec.task } : {}),

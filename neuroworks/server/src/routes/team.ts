@@ -32,7 +32,7 @@ import { newJob, runJob } from "../lib/jobs.js";
 import { getActivePersona, personaSystemSuffix, loadPersonas } from "../lib/personas.js";
 import { autoRoutePersona } from "../lib/persona-router.js";
 import { resolveContextAttachment } from "./uploads.js";
-import { planAndExecute } from "../lib/agent.js";
+import { planAndExecute, crownBypassesApproval } from "../lib/agent.js";
 
 export const teamRouter = Router();
 
@@ -192,6 +192,7 @@ teamRouter.post("/", async (req, res) => {
           personaSystemSuffix: pinnedSuffix,
           workMode: persona?.workMode,
           testMode,
+          skipApprovalGate: crownBypassesApproval(job.priority),
         });
       });
     }

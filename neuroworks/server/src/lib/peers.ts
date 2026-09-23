@@ -440,3 +440,57 @@ export async function reviewWithPeer(args: { task: string; answer: string }): Pr
     : { url: base, name: `${config.name} (self)`, model: config.ollamaModel };
   return { peer: peerInfo, elapsedMs: Date.now() - t0, ...body };
 }
+
+// Judge two candidate answers to the SAME task head-to-head and pick a
+// winner — used by chat.ts's Hermes/clawbot cross-check (see executor-mode's
+// `crosscheck` flag) instead of always discarding Hermes's answer on a
+// quality-fail offload. Same local-first / peer-routed / capped-wall-time
+// scaffold as reviewWithPeer(): pick the lightest idle peer (or self-review
+// via our own /api/peers/crosscheck when none is configured), bounded so a
+// hung judge never stalls the caller.
+//
+// FAIL-OPEN TOWARD "A": on any error, timeout, or unparseable verdict, this
+// returns { winner: "a", ... }. The caller's convention is that "a" is
+// Hermes's answer — mirroring scoreHermesAnswer's existing philosophy of
+// keeping Hermes's own answer when the scorer/judge itself fails, rather
+// than silently preferring clawbot's just because the judge broke.
+export async function crosscheckAnswers(args: {
+  task: string;
+  answerA: string;
+  answerB: string;
+  labelA?: string;
+  labelB?: string;
+}): Promise<{ winner: "a" | "b" | "tie"; reason: string; confidence: number }> {
+  const FAIL_OPEN = { winner: "a" as const, reason: "crosscheck unavailable", confidence: 0 };
+  const peer = await pickLightestIdlePeer(0);
+  const base = peer
+    ? peer.url.replace(/\/+$/, "")
+    : `http://127.0.0.1:${config.port}`;
+  // Same caller-side wall cap philosophy as reviewWithPeer — a hung judge (peer
+  // or self) must not stall the task that's waiting on a final answer.
+  // Tunable via NEUROWORKS_PEER_CROSSCHECK_TIMEOUT_MS.
+  const CROSSCHECK_CAP_MS = Math.max(30_000, Number(process.env.NEUROWORKS_PEER_CROSSCHECK_TIMEOUT_MS ?? "90000"));
+  const ctrl = new AbortController();
+  const capTimer = setTimeout(() => ctrl.abort(), CROSSCHECK_CAP_MS);
+  try {
+    const r = await fetch(`${base}/api/peers/crosscheck`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args),
+      signal: ctrl.signal,
+    });
+    if (!r.ok) return FAIL_OPEN;
+    const body = await r.json();
+    if (body?.winner !== "a" && body?.winner !== "b" && body?.winner !== "tie") return FAIL_OPEN;
+    return {
+      winner: body.winner,
+      reason: typeof body.reason === "string" ? body.reason : "",
+      confidence: typeof body.confidence === "number" ? Math.max(0, Math.min(1, body.confidence)) : 0,
+    };
+  } catch {
+    // Covers both the abort (wall-time cap) and any transport failure.
+    return FAIL_OPEN;
+  } finally {
+    clearTimeout(capTimer);
+  }
+}

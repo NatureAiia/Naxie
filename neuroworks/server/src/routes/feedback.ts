@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { config } from "../config.js";
 import { newJob, getJob, listJobs, runJob } from "../lib/jobs.js";
 import { loadJobsInWindow } from "../lib/job-store.js";
-import { planAndExecute } from "../lib/agent.js";
+import { planAndExecute, crownBypassesApproval } from "../lib/agent.js";
 import { getActivePersona, personaSystemSuffix } from "../lib/personas.js";
 import { findCustomTemplate } from "../lib/custom-templates.js";
 
@@ -130,13 +130,16 @@ feedbackRouter.post("/retry", async (req, res) => {
   // Tasks page + reflection can see this is a retry lineage at a glance.
   const newJobRec = newJob(`retry:${original.kind ?? "chat"}`);
   newJobRec.title = `Retry: ${(task as string).slice(0, 80)}`;
+  // A retry of a crown job stays crown-tier — same reasoning as the
+  // waiting_on_human continuation in tasks.ts.
+  newJobRec.priority = (original as any).priority;
   newJobRec.log.push(`[${new Date().toISOString()}] retry of ${jobId}${note ? ` · note: "${note.slice(0, 120)}"` : ""}`);
 
   res.json({ newJobId: newJobRec.id, originalJobId: jobId });
 
   void runJob(newJobRec, async (push, progress) => {
     push(`retry of ${jobId}${feedback?.rating === "down" ? " (👎 marked)" : ""}${note ? ` — note: "${note.slice(0, 80)}"` : ""}`);
-    return await planAndExecute(enriched, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode });
+    return await planAndExecute(enriched, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, skipApprovalGate: crownBypassesApproval(newJobRec.priority) });
   });
 });
 

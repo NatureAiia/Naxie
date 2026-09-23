@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { resolve, basename, extname, sep, join, dirname } from "node:path";
 import { config } from "../config.js";
 import { ollamaGenerate, ollamaGenerateWithMeta } from "./ollama.js";
-import { listVault, readVaultFile, searchVault, writeVaultFile, importBinaryIntoVault, ARCHIVE_DIR, WIKI_DIR } from "./vault.js";
+import { listVault, readVaultFile, searchVault, writeVaultFile, writeZettel, importBinaryIntoVault, ARCHIVE_DIR, WIKI_DIR } from "./vault.js";
 import { fetchYoutubeTranscript } from "./youtube-transcript.js";
 import { extractDocText, extractDocsParallel } from "./doc-extractor.js";
 import { listOwnedRepos, recentCommits, openPRs, openIssues, readme, octokit } from "./github.js";
@@ -945,15 +945,10 @@ export const primitives: Primitive[] = [
       { name: "tags", type: "string", required: false, description: "Comma-separated tags" },
     ],
     handler: async (args) => {
-      const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
-      const slug = String(args.title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "note";
-      const path = `2-Permanent/${stamp}-${slug}.md`;
       const tags = String(args.tags ?? "").split(",").map(t => t.trim()).filter(Boolean);
-      const today = new Date().toISOString().slice(0, 10);
-      const md = `---\nid: ${stamp}\ntitle: ${args.title}\ntags: [${tags.join(", ")}]\ncreated: ${today}\n---\n\n# ${args.title}\n\n${args.body}\n`;
-      writeVaultFile(path, md);
-      void enqueueVaultCommit(`neuroworks: zettel — ${slug}`);
-      return { path, id: stamp };
+      const { path, id } = writeZettel(String(args.title), String(args.body), tags);
+      void enqueueVaultCommit(`neuroworks: zettel — ${path.split("/").pop()!.replace(/\.md$/, "")}`);
+      return { path, id };
     },
   },
   {

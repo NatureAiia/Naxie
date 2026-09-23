@@ -9,10 +9,10 @@ import { searchVault } from "../lib/vault.js";
 import { getActivePersona, personaSystemSuffix, PA_IDENTITY } from "../lib/personas.js";
 import { autoRoutePersona } from "../lib/persona-router.js";
 import { checkLaneFit, buildOutOfLaneRefusal, resolveHireToPersona } from "../lib/lane.js";
-import { localInflightCount, pickLightestIdlePeer, pickPeerByRole, pickExecutor, delegateToPeer, pollPeers, type PeerInfo, type RoutingDecision } from "../lib/peers.js";
+import { localInflightCount, pickLightestIdlePeer, pickPeerByRole, pickExecutor, delegateToPeer, pollPeers, crosscheckAnswers, type PeerInfo, type RoutingDecision } from "../lib/peers.js";
 import { curatePeerOutput } from "../lib/curation.js";
 import { ensureWorker, ensureExtraWorker } from "../lib/worker-manager.js";
-import { isHermesPrimary, getHermesModelOverride } from "../lib/executor-mode.js";
+import { isHermesPrimary, getHermesModelOverride, isCrosscheckEnabled } from "../lib/executor-mode.js";
 import { detectsShonaOrNdebele, shonaLanguageDirective, getShonaNdebeleMatches } from "../lib/shona-glossary.js";
 import { recordChatExchange, listChatHistory } from "../lib/chat-history.js";
 import { loadJobById } from "../lib/job-store.js";
@@ -1091,6 +1091,11 @@ async function handleChat(req: any, res: any) {
       // too-thin answer — we OFFLOAD to clawbot's full pipeline below. Each
       // agent does what it's best at; clawbot catches the rest.
       let offloadedFromHermes = false;
+      // Captured ONLY on a quality-fail offload (not a hard-fail — a hard-failed
+      // Hermes run has no usable answer to compare). Used below, after clawbot's
+      // runFromChat produces its own answer, to cross-check the two instead of
+      // unconditionally taking clawbot's — see crosscheckAnswers() in peers.ts.
+      let hermesQualityFailAnswer: string | undefined;
       // If OpenRouter's circuit is open (a recent outage), Hermes — which runs
       // on an OpenRouter model — would just burn its full 220s timeout before
       // failing and offloading anyway. Skip it and go straight to clawbot, which
@@ -1163,11 +1168,51 @@ async function handleChat(req: any, res: any) {
         }
         offloadedFromHermes = true;
         if (hardFail) push(`Hermes couldn't complete this (${hr.error ?? `answer too thin — ${answerLen}c`}) — offloading to clawbot for maximum coverage.`);
+        // Only the quality-fail case has a usable Hermes answer worth cross-
+        // checking — a hard fail means Hermes errored or came back too thin.
+        else if (qualityFail) hermesQualityFailAnswer = hr.answer;
       }
 
       const result = await runFromChat("general-task", { task: enrichedTask, save_as_template: true, _signal: getJobAbortSignal(job.id) }, push, progress);
       // Tag offloaded results so the UI / tests can see the Hermes→clawbot handoff.
       if (offloadedFromHermes && result && typeof result === "object") (result as any).offloadedFromHermes = true;
+
+      // CROSS-CHECK — quality-fail offload only (a hard fail has no usable
+      // Hermes answer to compare), and only when the operator turned it on
+      // (executor-mode's `crosscheck` flag). Hard-fail behavior and the
+      // crosscheck-disabled path are UNCHANGED: straight to clawbot's answer,
+      // no added latency. clawbot's pipeline already ran above regardless —
+      // this only changes what happens with its output, not whether it runs.
+      if (hermesQualityFailAnswer !== undefined && isCrosscheckEnabled() && result && typeof result === "object") {
+        const clawbotAnswer = (result as any).answer;
+        if (typeof clawbotAnswer === "string" && clawbotAnswer.trim().length > 0) {
+          try {
+            push("Cross-checking Hermes's answer against clawbot's before picking a final response.");
+            const verdict = await crosscheckAnswers({
+              task: text,
+              answerA: hermesQualityFailAnswer,
+              answerB: clawbotAnswer,
+              labelA: "hermes",
+              labelB: "clawbot",
+            });
+            const winnerAgent: "hermes" | "clawbot" | "tie" = verdict.winner === "a" ? "hermes" : verdict.winner === "b" ? "clawbot" : "tie";
+            (result as any).crosschecked = true;
+            (result as any).crosscheckWinner = winnerAgent;
+            if (verdict.winner === "a") {
+              (result as any).answer = hermesQualityFailAnswer;
+              push(`Cross-check picked Hermes's answer over clawbot's${verdict.reason ? ` (${verdict.reason})` : ""}.`);
+            } else if (verdict.winner === "tie") {
+              push(`Cross-check called it a tie${verdict.reason ? ` (${verdict.reason})` : ""} — keeping clawbot's answer.`);
+            } else {
+              push(`Cross-check confirmed clawbot's answer${verdict.reason ? ` (${verdict.reason})` : ""}.`);
+            }
+          } catch (e: any) {
+            // Fail open toward keeping clawbot's already-computed answer —
+            // mirrors the quality gate's own fail-safe philosophy.
+            push(`Cross-check failed (${String(e?.message ?? e)}) — keeping clawbot's answer.`);
+          }
+        }
+      }
       const answer = (result as any)?.answer;
       const planSteps = (result as any)?.plan?.steps;
       const allRuns = (result as any)?.runs;
@@ -1962,7 +2007,7 @@ chatRouter.post("/team", async (req, res) => {
     }
 
     const { loadPersonas } = await import("../lib/personas.js");
-    const { planAndExecute } = await import("../lib/agent.js");
+    const { planAndExecute, crownBypassesApproval } = await import("../lib/agent.js");
     const { commitAndPush } = await import("../lib/vault.js");
     const personaStore = loadPersonas();
 
@@ -2059,7 +2104,7 @@ chatRouter.post("/team", async (req, res) => {
           : content + attachmentBlock;
         const personaSuffix = personaSystemSuffix(persona);
         if (persona) push(`Working as ${persona.name} — ${persona.role}.`);
-        const r = await planAndExecute(enriched, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, testMode, taskKind: job.kind, persona: persona?.name, personaId: persona?.id, scopeId: job.id });
+        const r = await planAndExecute(enriched, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, testMode, taskKind: job.kind, persona: persona?.name, personaId: persona?.id, scopeId: job.id, skipApprovalGate: crownBypassesApproval(job.priority) });
         if (r.hadWrites) {
           push("Wrote to second brain — committing.");
           try {

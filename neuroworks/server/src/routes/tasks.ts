@@ -17,12 +17,22 @@ tasksRouter.get("/jobs", (req, res) => res.json({ jobs: filterJobsForCaller(req,
 // and emits "done" so the UI flips out of the running state immediately.
 // Same per-user visibility slice as the rest of the feed — a staff caller
 // can only cancel work they can see (404, not 403, so existence isn't leaked).
+//
+// Crown jobs refuse the normal cancel (see jobs.ts's cancelJob) — a
+// superadmin may override with `{ force: true }` in the body as an escape
+// hatch for a genuinely hung crown job. Anyone below superadmin sending
+// `force: true` has it silently ignored (cancelJob still refuses), same
+// downgrade-not-error pattern the templates.ts crown-priority gate uses.
 tasksRouter.post("/jobs/:id/cancel", (req, res) => {
   const j = getJob(String(req.params.id));
   if (!j) return res.status(404).json({ error: "not found" });
   if (!canSeeJob(req, j)) return res.status(404).json({ error: "not found" });
-  const r = cancelJob(String(req.params.id));
-  if (!r.ok) return res.status(409).json({ error: `job is "${r.status ?? "gone"}", not cancellable`, status: r.status });
+  const layer = callerLayer(req);
+  // null = token-less machine/operator caller — trusted the same way the
+  // rest of access.ts treats machine context (see its scope note).
+  const force = req.body?.force === true && (layer === null || layer === "superadmin");
+  const r = cancelJob(String(req.params.id), undefined, { force });
+  if (!r.ok) return res.status(409).json({ error: r.reason ?? `job is "${r.status ?? "gone"}", not cancellable`, status: r.status });
   res.json({ ok: true, jobId: j.id, status: r.status });
 });
 
@@ -126,6 +136,10 @@ tasksRouter.post("/jobs/:id/human-input", async (req, res) => {
   // Continuation inherits the original job's owner (falling back to whoever
   // answered the wait) so it stays in the initiator's per-user task slice.
   job.createdByEmail = (j as any).createdByEmail ?? callerOf(req)?.email;
+  // A crown-tier wait stays crown-tier through its continuation — otherwise
+  // pausing on a human ask would silently drop a job out of crown treatment
+  // (queue priority, approval bypass) the moment it resumes.
+  job.priority = j.priority;
   job.inputs = {
     task: contTask,
     save_as_template: false,
@@ -137,7 +151,7 @@ tasksRouter.post("/jobs/:id/human-input", async (req, res) => {
 
   void runJob(job, async (push, progress) => {
     push(`Continuing ${j!.id.slice(0, 8)} with the operator's input.`);
-    const { planAndExecute } = await import("../lib/agent.js");
+    const { planAndExecute, crownBypassesApproval } = await import("../lib/agent.js");
     const { getActivePersona, personaSystemSuffix } = await import("../lib/personas.js");
     const persona = getActivePersona();
     // Deliberately NOT re-passing workMode "human" here — a continuation with
@@ -146,6 +160,7 @@ tasksRouter.post("/jobs/:id/human-input", async (req, res) => {
     const r = await planAndExecute(contTask, push, (patch) => progress(patch as Record<string, unknown>), {
       personaSystemSuffix: personaSystemSuffix(persona),
       workMode: wm,
+      skipApprovalGate: crownBypassesApproval(job.priority),
     });
     return { answer: r.answer, plan: r.plan, runs: r.runs, review: r.review, quality: r.quality, security: r.security, humanRequest: r.humanRequest };
   });

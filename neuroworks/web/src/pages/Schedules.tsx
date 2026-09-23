@@ -1,34 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Calendar, Play, Pause, Trash2, Plus, AlertTriangle, ArrowRight } from "lucide-react";
-import { api, type Schedule, type Template, type Cadence } from "../lib/api";
+import { api, type Schedule, type Template } from "../lib/api";
 import { Card, Button } from "../components/Card";
-
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function formatNext(ts: number | null | undefined): string {
-  if (!ts) return "—";
-  const d = new Date(ts);
-  const now = Date.now();
-  const diff = d.getTime() - now;
-  if (diff < 0) return "due now";
-  const mins = Math.round(diff / 60_000);
-  if (mins < 60) return `in ${mins}m`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `in ${hrs}h`;
-  const days = Math.round(hrs / 24);
-  if (days < 7) return `in ${days}d`;
-  return d.toLocaleString();
-}
-
-function formatCadence(c: Cadence): string {
-  const t = `${c.hour.toString().padStart(2, "0")}:${c.minute.toString().padStart(2, "0")}`;
-  if (c.daysOfWeek.length === 0 || c.daysOfWeek.length === 7) return `Every day at ${t}`;
-  const weekdays = [1, 2, 3, 4, 5];
-  if (c.daysOfWeek.length === 5 && weekdays.every(d => c.daysOfWeek.includes(d))) return `Weekdays at ${t}`;
-  const sorted = c.daysOfWeek.slice().sort((a, b) => a - b);
-  return `${sorted.map(d => DAY_LABELS[d]).join(", ")} at ${t}`;
-}
+import { DAY_LABELS, formatNext, formatCadence } from "../lib/scheduleFormat";
+import { DaemonLoopToggles } from "../components/DaemonLoopToggles";
 
 export function Schedules() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -82,12 +58,20 @@ export function Schedules() {
       {showCreate && (
         <CreateScheduleForm
           templates={templates}
+          schedules={schedules}
           onCreated={async () => { setShowCreate(false); await load(); }}
           onError={setErr}
         />
       )}
 
       <DailyRhythmCard schedules={schedules} />
+
+      <Card title="Background loops">
+        <p className="text-sm text-cream-300/60 mb-3">
+          Turn off individual pieces of Naxie's org-daemon cycle without touching the others.
+        </p>
+        <DaemonLoopToggles />
+      </Card>
 
       <Card title={`Active schedules (${schedules.length})`}>
         {schedules.length === 0 ? (
@@ -268,8 +252,9 @@ function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
   );
 }
 
-function CreateScheduleForm({ templates, onCreated, onError }: {
+function CreateScheduleForm({ templates, schedules, onCreated, onError }: {
   templates: Template[];
+  schedules: Schedule[];
   onCreated: () => Promise<void>;
   onError: (msg: string) => void;
 }) {
@@ -281,11 +266,16 @@ function CreateScheduleForm({ templates, onCreated, onError }: {
   const [submitting, setSubmitting] = useState(false);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [deliverEmail, setDeliverEmail] = useState("");
+  const [chainTo, setChainTo] = useState<string[]>([]);
 
   const tpl = useMemo(() => templates.find(t => t.id === templateId), [templates, templateId]);
 
   function toggleDay(d: number) {
     setDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort((a, b) => a - b));
+  }
+
+  function toggleChain(id: string) {
+    setChainTo(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }
 
   async function submit() {
@@ -308,9 +298,10 @@ function CreateScheduleForm({ templates, onCreated, onError }: {
         cadence: { daysOfWeek: days, hour, minute },
         enabled: true,
         ...(deliverEmail.trim() ? { deliver: { email: deliverEmail.trim() } } : {}),
+        ...(chainTo.length ? { chainTo } : {}),
       });
       await onCreated();
-      setName(""); setTemplateId(""); setInputs({}); setDeliverEmail("");
+      setName(""); setTemplateId(""); setInputs({}); setDeliverEmail(""); setChainTo([]);
     } catch (e: any) {
       onError(e?.message ?? String(e));
     } finally {
@@ -443,6 +434,25 @@ function CreateScheduleForm({ templates, onCreated, onError }: {
           />
           <p className="text-[11px] text-cream-300/50 mt-1">When set, the finished result is emailed to this address the moment the job completes (needs the email bridge configured).</p>
         </div>
+
+        {schedules.length > 0 && (
+          <div>
+            <label className="block text-[11px] uppercase tracking-wider text-cream-300/60 mb-1">Then run (optional)</label>
+            <div className="flex flex-wrap gap-1">
+              {schedules.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => toggleChain(s.id)}
+                  className={`text-xs px-3 py-1.5 rounded border ${chainTo.includes(s.id) ? "bg-violet-500/15 border-violet-500/40 text-violet-200" : "bg-ink-950 border-ink-800 text-cream-300 hover:border-ink-700"}`}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-cream-300/50 mt-1">When this schedule's job succeeds, the selected schedule(s) fire right away too — a manual chain instead of waiting for their own cadence.</p>
+          </div>
+        )}
 
         <div className="flex items-center gap-3 pt-2 border-t border-ink-800">
           <Button onClick={submit} disabled={submitting || !name.trim() || !templateId || days.length === 0}>

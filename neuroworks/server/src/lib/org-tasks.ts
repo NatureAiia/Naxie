@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { logAudit } from "./audit-log.js";
 import { config } from "../config.js";
+import { notifyUrgent } from "./notify.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
@@ -27,7 +28,11 @@ const FILE = join(STATE_DIR, "org-tasks.json");
 // ownerId anywhere in this module.
 export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect" | "hermes-reviewer";
 export type OrgTaskStatus = "backlog" | "active" | "blocked" | "waiting-on-approval" | "done";
-export type OrgTaskPriority = "low" | "normal" | "high" | "urgent";
+export type OrgTaskPriority = "low" | "normal" | "high" | "urgent" | "crown";
+// Ascending rank — single source of truth for both request validation
+// (routes/naxie.ts) and the priority-first sort in listOrgTasks() below, so
+// a future 6th tier only needs updating here.
+export const ORG_TASK_PRIORITIES: readonly OrgTaskPriority[] = ["low", "normal", "high", "urgent", "crown"];
 export type PendingApprovalKind = "external-comms" | "spend" | "calendar-external" | "host-tool" | "architect-change" | "hermes-review" | "other";
 
 // Architect-specific proposal payload (docs/naxie-architecture.md §7) — a
@@ -240,11 +245,18 @@ export function snapshotOrgTasksToVault(): boolean {
 
 // ─── CRUD ───────────────────────────────────────────────────────────────
 
-export function listOrgTasks(filter?: { role?: OrgRole; status?: OrgTaskStatus }): OrgTask[] {
+export function listOrgTasks(filter?: { role?: OrgRole; status?: OrgTaskStatus; priority?: OrgTaskPriority }): OrgTask[] {
   let tasks = load().tasks.slice();
   if (filter?.role) tasks = tasks.filter(t => t.role === filter.role);
   if (filter?.status) tasks = tasks.filter(t => t.status === filter.status);
-  return tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  if (filter?.priority) tasks = tasks.filter(t => t.priority === filter.priority);
+  // Priority first (crown/urgent surface before low/normal wherever this list
+  // is consumed — the dashboard and approval-preview endpoints don't re-sort
+  // client-side), most-recently-updated as the tiebreak within a tier.
+  return tasks.sort((a, b) => {
+    const rank = ORG_TASK_PRIORITIES.indexOf(b.priority) - ORG_TASK_PRIORITIES.indexOf(a.priority);
+    return rank !== 0 ? rank : b.updatedAt.localeCompare(a.updatedAt);
+  });
 }
 
 export function getOrgTask(id: string): OrgTask | undefined {
@@ -288,6 +300,12 @@ export function createOrgTask(input: CreateOrgTaskInput): OrgTask {
     jobId: task.jobId,
     result: "success",
   });
+  // Crown work shouldn't wait for the 48h blocked-SLA sweep to page the
+  // operator — notify immediately. Fire-and-forget: this function is sync,
+  // notifyUrgent is async, and no failure here should affect task creation.
+  if (task.priority === "crown") {
+    void notifyUrgent(task.title, task.detail, { actor: task.role, target: task.title });
+  }
   return task;
 }
 

@@ -32,6 +32,8 @@ import { getInteractions, setLastNudgeAt, setLastResearchAt } from "./naxie-inte
 import { resolveResearchTopics } from "./research-interests.js";
 import { getOperatorIdentity } from "./mag.js";
 import { buildMagContext } from "./mag.js";
+import { isLoopEnabled } from "./daemon-settings.js";
+import { maybeExtractZettels } from "./zettel-extract.js";
 
 // Desktop toast nudge — fires when an OrgTask sits in waiting-on-approval
 // past this threshold (docs/naxie-architecture.md §2.3 "needs your attention
@@ -388,45 +390,54 @@ export function reconcileOrphanedActiveTasks(now = Date.now()): number {
 // SLA: blocked tasks that have sat >48h without update get escalated (priority bump + urgent notify)
 const BLOCKED_SLA_MS = Number(process.env.NEUROWORKS_ORG_BLOCKED_SLA_MS) || 48 * 3600 * 1000;
 const BLOCKED_SLA_THROTTLE_MS = 24 * 3600 * 1000;
+// Crown priority gets a much tighter SLA and re-notify cadence — it shouldn't
+// sit blocked for anywhere near as long before paging the operator again.
+const CROWN_BLOCKED_SLA_MS = Number(process.env.NEUROWORKS_ORG_CROWN_BLOCKED_SLA_MS) || 2 * 3600 * 1000;
+const CROWN_BLOCKED_SLA_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_CROWN_BLOCKED_SLA_THROTTLE_MS) || 1 * 3600 * 1000;
 const blockedSlaNotified = new Map<string, number>();
 
 export function maybeEscalateBlockedSLA(now = Date.now()): number {
   let escalated = 0;
   for (const t of listOrgTasks({ status: "blocked" })) {
-    if (now - new Date(t.updatedAt).getTime() <= BLOCKED_SLA_MS) continue;
+    const slaMs = t.priority === "crown" ? CROWN_BLOCKED_SLA_MS : BLOCKED_SLA_MS;
+    const throttleMs = t.priority === "crown" ? CROWN_BLOCKED_SLA_THROTTLE_MS : BLOCKED_SLA_THROTTLE_MS;
+    if (now - new Date(t.updatedAt).getTime() <= slaMs) continue;
     const last = blockedSlaNotified.get(t.id) ?? 0;
-    if (now - last < BLOCKED_SLA_THROTTLE_MS) continue;
+    if (now - last < throttleMs) continue;
     blockedSlaNotified.set(t.id, now);
     void notifyUrgent(
-      `Naxie — SLA breached: "${(t.title ?? "").slice(0, 80)}" blocked >${Math.round(BLOCKED_SLA_MS / 3600000)}h`,
+      `Naxie — SLA breached: "${(t.title ?? "").slice(0, 80)}" blocked >${Math.round(slaMs / 3600000)}h`,
       `Task ${t.id} (${t.role}) has been blocked for ${Math.round((now - new Date(t.updatedAt).getTime()) / 3600000)}h without update. Review on /org-dashboard and unblock or archive.`,
       { actor: t.role, target: t.title },
     );
-    auditBestEffort(t, "org_task.sla_breach", `blocked >${Math.round(BLOCKED_SLA_MS / 3600000)}h — escalated`);
+    auditBestEffort(t, "org_task.sla_breach", `blocked >${Math.round(slaMs / 3600000)}h — escalated`);
     escalated += 1;
   }
   return escalated;
 }
 
 async function tick(): Promise<void> {
-  // Sync phases — cheap, keep sequential
-  try { sweepStaleOrgApprovals(); } catch (e) { console.warn(`[org-daemon] sweepStaleOrgApprovals failed: ${(e as Error).message}`); }
-  try { reconcileOrphanedActiveTasks(); } catch (e) { console.warn(`[org-daemon] reconcileOrphanedActiveTasks failed: ${(e as Error).message}`); }
-  try { maybeEscalateBlockedSLA(); } catch (e) { console.warn(`[org-daemon] maybeEscalateBlockedSLA failed: ${(e as Error).message}`); }
-  try { maybeNudgePendingApprovals(); } catch (e) { console.warn(`[org-daemon] maybeNudgePendingApprovals failed: ${(e as Error).message}`); }
-  try { maybeBackupVault(); } catch (e) { console.warn(`[org-daemon] maybeBackupVault failed: ${(e as Error).message}`); }
-  try { maybeNudgeStaleExecutorTasks(); } catch (e) { console.warn(`[org-daemon] maybeNudgeStaleExecutorTasks failed: ${(e as Error).message}`); }
-  try { maybeReportIdleActivity(); } catch (e) { console.warn(`[org-daemon] maybeReportIdleActivity failed: ${(e as Error).message}`); }
+  // Sync phases — cheap, keep sequential. Each gated by the operator's
+  // per-loop kill switch (lib/daemon-settings.ts) — disabled loops are
+  // skipped entirely, not just silenced.
+  if (isLoopEnabled("sweepStaleOrgApprovals")) { try { sweepStaleOrgApprovals(); } catch (e) { console.warn(`[org-daemon] sweepStaleOrgApprovals failed: ${(e as Error).message}`); } }
+  if (isLoopEnabled("reconcileOrphanedActiveTasks")) { try { reconcileOrphanedActiveTasks(); } catch (e) { console.warn(`[org-daemon] reconcileOrphanedActiveTasks failed: ${(e as Error).message}`); } }
+  if (isLoopEnabled("maybeEscalateBlockedSLA")) { try { maybeEscalateBlockedSLA(); } catch (e) { console.warn(`[org-daemon] maybeEscalateBlockedSLA failed: ${(e as Error).message}`); } }
+  if (isLoopEnabled("maybeNudgePendingApprovals")) { try { maybeNudgePendingApprovals(); } catch (e) { console.warn(`[org-daemon] maybeNudgePendingApprovals failed: ${(e as Error).message}`); } }
+  if (isLoopEnabled("maybeBackupVault")) { try { maybeBackupVault(); } catch (e) { console.warn(`[org-daemon] maybeBackupVault failed: ${(e as Error).message}`); } }
+  if (isLoopEnabled("maybeNudgeStaleExecutorTasks")) { try { maybeNudgeStaleExecutorTasks(); } catch (e) { console.warn(`[org-daemon] maybeNudgeStaleExecutorTasks failed: ${(e as Error).message}`); } }
+  if (isLoopEnabled("maybeReportIdleActivity")) { try { maybeReportIdleActivity(); } catch (e) { console.warn(`[org-daemon] maybeReportIdleActivity failed: ${(e as Error).message}`); } }
 
   // Async phases — run concurrently so a slow LLM call (chat nudge, research)
   // or git push (backup) never head-blocks the next inexpensive phase.
   await Promise.allSettled([
-    maybeRunArchitectReview().catch(e => { console.warn(`[org-daemon] maybeRunArchitectReview failed: ${(e as Error).message}`); }),
-    maybeGenerateBriefing().catch(e => { console.warn(`[org-daemon] maybeGenerateBriefing failed: ${(e as Error).message}`); }),
-    maybeNudgeChatInactivity().catch(e => { console.warn(`[org-daemon] maybeNudgeChatInactivity failed: ${(e as Error).message}`); }),
-    maybeRunProactiveResearch().catch(e => { console.warn(`[org-daemon] maybeRunProactiveResearch failed: ${(e as Error).message}`); }),
-    maybeScoreTelegramNews().catch(e => { console.warn(`[org-daemon] maybeScoreTelegramNews failed: ${(e as Error).message}`); }),
-    maybeProcessComplianceReminders().catch(e => { console.warn(`[org-daemon] maybeProcessComplianceReminders failed: ${(e as Error).message}`); }),
+    isLoopEnabled("maybeRunArchitectReview") ? maybeRunArchitectReview().catch(e => { console.warn(`[org-daemon] maybeRunArchitectReview failed: ${(e as Error).message}`); }) : Promise.resolve(),
+    isLoopEnabled("maybeGenerateBriefing") ? maybeGenerateBriefing().catch(e => { console.warn(`[org-daemon] maybeGenerateBriefing failed: ${(e as Error).message}`); }) : Promise.resolve(),
+    isLoopEnabled("maybeNudgeChatInactivity") ? maybeNudgeChatInactivity().catch(e => { console.warn(`[org-daemon] maybeNudgeChatInactivity failed: ${(e as Error).message}`); }) : Promise.resolve(),
+    isLoopEnabled("maybeRunProactiveResearch") ? maybeRunProactiveResearch().catch(e => { console.warn(`[org-daemon] maybeRunProactiveResearch failed: ${(e as Error).message}`); }) : Promise.resolve(),
+    isLoopEnabled("maybeScoreTelegramNews") ? maybeScoreTelegramNews().catch(e => { console.warn(`[org-daemon] maybeScoreTelegramNews failed: ${(e as Error).message}`); }) : Promise.resolve(),
+    isLoopEnabled("maybeProcessComplianceReminders") ? maybeProcessComplianceReminders().catch(e => { console.warn(`[org-daemon] maybeProcessComplianceReminders failed: ${(e as Error).message}`); }) : Promise.resolve(),
+    isLoopEnabled("maybeExtractZettels") ? maybeExtractZettels().catch(e => { console.warn(`[org-daemon] maybeExtractZettels failed: ${(e as Error).message}`); }) : Promise.resolve(),
   ]);
 
   // MD voice briefing — 5 min after audit (07:05) — best-effort, once per day

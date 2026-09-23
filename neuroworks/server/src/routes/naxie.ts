@@ -92,10 +92,10 @@ naxieRouter.post("/remember", async (req, res) => {
 naxieRouter.post("/ask", async (req, res) => {
   const text = String(req.body?.text ?? "").trim().slice(0, 4000);
   if (!text) return res.status(400).json({ error: "text required" });
-  const priority = ["low", "normal", "high", "urgent"].includes(String(req.body?.priority)) ? String(req.body.priority) as any : "normal";
   try { const { touchInteraction } = await import("../lib/naxie-interactions.js"); touchInteraction(); } catch { /* ignore */ }
   try {
-    const { classifyOrgRole, createOrgTask } = await import("../lib/org-tasks.js");
+    const { classifyOrgRole, createOrgTask, ORG_TASK_PRIORITIES } = await import("../lib/org-tasks.js");
+    const priority = ORG_TASK_PRIORITIES.includes(String(req.body?.priority) as any) ? String(req.body.priority) as any : "normal";
     // classifyOrgRole is a Job-shape classifier — wrap the raw ask into that shape.
     const role = classifyOrgRole({ kind: "chat:naxie-delegate", title: text.slice(0, 80), task: text }) ?? "executor";
     const task = createOrgTask({

@@ -27,7 +27,11 @@ export type ExecutorMode = "clawbot" | "hermes";
 // hermesLocal — run Hermes against local Ollama (config.hermesLocalModel,
 // default north-mini-code-10) instead of the cloud provider. Zero key, zero
 // spend, offline-capable; the model must exist in `ollama list`.
-export type ExecutorConfig = { mode: ExecutorMode; hermesModel?: string; hermesLocal?: boolean };
+// crosscheck — on a quality-fail offload (Hermes's answer scored below the
+// quality.check threshold, NOT a hard fail), have a peer judge Hermes's
+// answer against clawbot's instead of blindly taking clawbot's — see
+// crosscheckAnswers() in peers.ts and its use in chat.ts.
+export type ExecutorConfig = { mode: ExecutorMode; hermesModel?: string; hermesLocal?: boolean; crosscheck?: boolean };
 
 // Tiny cache so the per-request read isn't a disk hit every time. 5s TTL keeps
 // a live flip visible within a few seconds without hammering the FS.
@@ -43,6 +47,7 @@ function readConfig(): ExecutorConfig {
       if (j?.mode === "hermes" || j?.mode === "clawbot") cfg.mode = j.mode;
       if (typeof j?.hermesModel === "string" && j.hermesModel.trim()) cfg.hermesModel = j.hermesModel.trim();
       if (j?.hermesLocal === true) cfg.hermesLocal = true;
+      if (j?.crosscheck === true) cfg.crosscheck = true;
     }
   } catch { /* default */ }
   cache = { cfg, at: Date.now() };
@@ -65,14 +70,18 @@ export function isHermesLocal(): boolean {
   return readConfig().hermesLocal === true;
 }
 
+export function isCrosscheckEnabled(): boolean {
+  return readConfig().crosscheck === true;
+}
+
 export function isHermesPrimary(): boolean {
   return readConfig().mode === "hermes";
 }
 
 // Update the executor config. Pass `hermesModel: null` to clear the override.
-export function setExecutorConfig(patch: { mode?: ExecutorMode; hermesModel?: string | null; hermesLocal?: boolean }): ExecutorConfig {
+export function setExecutorConfig(patch: { mode?: ExecutorMode; hermesModel?: string | null; hermesLocal?: boolean; crosscheck?: boolean }): ExecutorConfig {
   const cur = readConfig();
-  const next: ExecutorConfig = { mode: cur.mode, ...(cur.hermesModel ? { hermesModel: cur.hermesModel } : {}), ...(cur.hermesLocal ? { hermesLocal: true } : {}) };
+  const next: ExecutorConfig = { mode: cur.mode, ...(cur.hermesModel ? { hermesModel: cur.hermesModel } : {}), ...(cur.hermesLocal ? { hermesLocal: true } : {}), ...(cur.crosscheck ? { crosscheck: true } : {}) };
   if (patch.mode !== undefined) {
     if (patch.mode !== "clawbot" && patch.mode !== "hermes") throw new Error(`invalid executor mode "${patch.mode}"`);
     next.mode = patch.mode;
@@ -84,6 +93,10 @@ export function setExecutorConfig(patch: { mode?: ExecutorMode; hermesModel?: st
   if (patch.hermesLocal !== undefined) {
     if (patch.hermesLocal) next.hermesLocal = true;
     else delete next.hermesLocal;
+  }
+  if (patch.crosscheck !== undefined) {
+    if (patch.crosscheck) next.crosscheck = true;
+    else delete next.crosscheck;
   }
   if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
   writeFileSync(CONFIG_PATH, JSON.stringify({ ...next, updatedAt: new Date().toISOString() }, null, 2), "utf8");

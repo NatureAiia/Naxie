@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { existsSync, renameSync, readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, basename, join, extname, relative, sep } from "node:path";
-import { listVault, readVaultFile, searchVault, writeVaultFile, getVaultHealth } from "../lib/vault.js";
+import { listVault, readVaultFile, searchVault, writeVaultFile, getVaultHealth, vaultFileHistory, vaultFileDiff } from "../lib/vault.js";
 import { buildIndex, indexStats, isBuildInProgress } from "../lib/vault-index.js";
 import { enqueueVaultCommit } from "../lib/commit-queue.js";
 import { buildVaultGraph } from "../lib/vault-graph.js";
@@ -202,6 +202,42 @@ brainRouter.get("/graph", (req, res) => {
     res.json(buildVaultGraph(limit));
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? String(e) });
+  }
+});
+
+// GET /api/brain/history?path=&limit=&before= — git commit history for one
+// vault markdown/text file, powering the Library page's version-history
+// panel. Read-only, same open tier as /search and /graph.
+brainRouter.get("/history", async (req, res) => {
+  if (!requireVault(res)) return;
+  const path = String(req.query.path ?? "").trim();
+  if (!path) return res.status(400).json({ error: "path required" });
+  if (!/\.(md|markdown|txt)$/i.test(path)) return res.status(400).json({ error: "only .md / .markdown / .txt files have history via this endpoint" });
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 50) || 50, 1), 200);
+  const before = req.query.before ? String(req.query.before) : undefined;
+  try {
+    const { versions, hasMore } = await vaultFileHistory(path, { limit, before });
+    res.json({ path, versions, hasMore });
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message ?? String(e) });
+  }
+});
+
+// GET /api/brain/diff?path=&from=&to= — diff two versions of one vault file
+// (`to` defaults to "WORKING", the current on-disk content). Read-only.
+brainRouter.get("/diff", async (req, res) => {
+  if (!requireVault(res)) return;
+  const path = String(req.query.path ?? "").trim();
+  if (!path) return res.status(400).json({ error: "path required" });
+  if (!/\.(md|markdown|txt)$/i.test(path)) return res.status(400).json({ error: "only .md / .markdown / .txt files can be diffed via this endpoint" });
+  const from = String(req.query.from ?? "").trim();
+  if (!from) return res.status(400).json({ error: "from required" });
+  const to = req.query.to ? String(req.query.to) : "WORKING";
+  try {
+    const { before, after } = await vaultFileDiff(path, from, to);
+    res.json({ path, from, to, before, after });
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message ?? String(e) });
   }
 });
 

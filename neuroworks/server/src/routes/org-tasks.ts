@@ -5,7 +5,7 @@
 // the same class of internal-activity data, not a secrets tier.
 
 import { Router } from "express";
-import { listOrgTasks, getOrgTask, resolveApproval, type OrgRole, type OrgTaskStatus } from "../lib/org-tasks.js";
+import { listOrgTasks, getOrgTask, resolveApproval, ORG_TASK_PRIORITIES, type OrgRole, type OrgTaskStatus, type OrgTaskPriority } from "../lib/org-tasks.js";
 
 export const orgTasksRouter = Router();
 
@@ -15,12 +15,14 @@ const VALID_STATUSES: OrgTaskStatus[] = ["backlog", "active", "blocked", "waitin
 // Pure — exported for testing. An unrecognized or absent value silently
 // becomes "no filter" rather than a 400; this is a diagnostics GET, not a
 // strict API contract worth rejecting requests over.
-export function parseOrgTaskFilter(query: Record<string, unknown>): { role?: OrgRole; status?: OrgTaskStatus } {
+export function parseOrgTaskFilter(query: Record<string, unknown>): { role?: OrgRole; status?: OrgTaskStatus; priority?: OrgTaskPriority } {
   const roleParam = typeof query.role === "string" ? query.role : undefined;
   const statusParam = typeof query.status === "string" ? query.status : undefined;
+  const priorityParam = typeof query.priority === "string" ? query.priority : undefined;
   const role = roleParam && (VALID_ROLES as string[]).includes(roleParam) ? (roleParam as OrgRole) : undefined;
   const status = statusParam && (VALID_STATUSES as string[]).includes(statusParam) ? (statusParam as OrgTaskStatus) : undefined;
-  return { role, status };
+  const priority = priorityParam && (ORG_TASK_PRIORITIES as readonly string[]).includes(priorityParam) ? (priorityParam as OrgTaskPriority) : undefined;
+  return { role, status, priority };
 }
 
 orgTasksRouter.get("/", (req, res) => {
