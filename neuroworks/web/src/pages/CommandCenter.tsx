@@ -152,103 +152,52 @@ export function CommandCenter() {
             <MiniStat icon={<TrendingUp className="w-3.5 h-3.5" />} label="LLM calls" value={costSummary?.callCount ?? 0} />
             <MiniStat icon={<Brain className="w-3.5 h-3.5" />} label="Prompt-cache hit rate" value={cache?.overall?.cacheHitRatio != null ? `${Math.round(cache.overall.cacheHitRatio * 100)}%` : "—"} />
           </div>
-<<<<<<< HEAD
-        )}
-        <div className="mt-3 flex gap-4 text-xs">
-          <Link to="/runs" className="text-violet-400 hover:text-violet-300">All runs →</Link>
-          <Link to="/approvals" className="text-violet-400 hover:text-violet-300">Approvals →</Link>
-        </div>
-      </Section>
-
-      {/* Crown Jobs — the priority tier above urgent (docs: org-tasks.ts's
-          ORG_TASK_PRIORITIES). Only rendered once there's something to show,
-          same "no clutter when idle" posture as the rest of this page. */}
-      {(activeCrown.length > 0 || crownHistory.length > 0) && (
-        <Section title="Crown Jobs">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <div className="text-xs font-semibold text-cream-200 mb-1.5 flex items-center gap-1.5">
-                <Crown className="w-3.5 h-3.5 text-fuchsia-300" /> Active ({activeCrown.length})
-              </div>
-              {activeCrown.length === 0 ? (
-                <div className="text-xs text-cream-300/40">No crown-priority work running right now.</div>
-              ) : (
-                <div className="space-y-1">
-                  {activeCrown.map(t => (
-                    <CrownTaskRow key={t.id} task={t} />
-                  ))}
-                </div>
-              )}
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-cream-200 mb-1.5 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-cream-300/60" /> Recent history
-              </div>
-              {crownHistory.length === 0 ? (
-                <div className="text-xs text-cream-300/40">Nothing finished or blocked yet.</div>
-              ) : (
-                <div className="space-y-1">
-                  {crownHistory.map(t => (
-                    <CrownTaskRow key={t.id} task={t} />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="mt-3">
-            <Link to="/org-dashboard" className="text-violet-400 hover:text-violet-300 text-xs">Full org backlog →</Link>
-          </div>
-        </Section>
-      )}
-
-      {/* Naxie performance */}
-      <Section title="Naxie performance">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Tile icon={<CheckCircle2 className="w-4 h-4" />} label="Success rate" value={successRate != null ? `${successRate}%` : "—"} />
-          <Tile icon={<Clock className="w-4 h-4" />} label="Median task time" value={eta ? fmtMs(eta.globalMedianMs) : "—"} />
-          <Tile icon={<TrendingUp className="w-4 h-4" />} label="Quality signal (30d)" value={quality ? `${quality.upvotes}↑ / ${quality.downvotes}↓` : "—"} />
-          <Tile icon={<Hourglass className="w-4 h-4" />} label="Agent time share" value={timeA ? `${timeA.totals.pct.agent}%` : "—"} />
-        </div>
-        {timeA && <p className="mt-3 text-xs text-cream-300/60">{timeA.verdict}</p>}
-        <div className="mt-3">
-          <Link to="/runs" className="text-violet-400 hover:text-violet-300 text-xs">All runs →</Link>
-        </div>
-      </Section>
-
-      {/* Spend */}
-      <Section title="Spend">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Tile icon={<DollarSign className="w-4 h-4" />} label="Total spend" value={`$${(costSummary?.totalCostUsd ?? 0).toFixed(4)}`} />
-          <Tile icon={<TrendingUp className="w-4 h-4" />} label="LLM calls" value={costSummary?.callCount ?? 0} />
-          <Tile icon={<Brain className="w-4 h-4" />} label="Prompt-cache hit rate" value={cache?.overall?.cacheHitRatio != null ? `${Math.round(cache.overall.cacheHitRatio * 100)}%` : "—"} />
-        </div>
-        <div className="mt-3">
-          <Link to="/cost" className="text-violet-400 hover:text-violet-300 text-xs">Full cost breakdown →</Link>
-        </div>
-      </Section>
-
-      {/* Governance, security & memory */}
-      <Section title="Governance, security & memory">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Tile icon={<ShieldAlert className="w-4 h-4" />} label="Blocked IPs" value={security?.blocked?.length ?? 0} tone={(security?.blocked?.length ?? 0) > 0 ? "warn" : "ok"} />
-          <Tile icon={<ShieldAlert className="w-4 h-4" />} label="Watched events" value={security?.watching ?? 0} />
-          <Tile icon={<Brain className="w-4 h-4" />} label="Memory freshness" value={naxie?.cag?.built ? fmtMs(naxie.cag.ageMs) + " old" : "not built"} />
-        </div>
-        {audit && audit.events.length > 0 && (
-          <div className="mt-4 space-y-1">
-            <div className="text-xs font-semibold text-cream-200 mb-1">Recent audit activity</div>
-            {audit.events.map((e, i) => (
-              <div key={i} className="flex items-center justify-between text-xs text-cream-300/60 py-0.5">
-                <span className="truncate">{e.action ?? e.detail ?? "event"}</span>
-                <span className="shrink-0 ml-2 text-cream-300/40">{new Date(e.ts ?? e.at).toLocaleString()}</span>
-              </div>
-            ))}
-=======
           <div className="mt-3">
             <Link to="/cost" className="text-violet-400 hover:text-violet-300 text-xs">Full cost breakdown →</Link>
->>>>>>> fa2696618fe0a9bb18eb9697c7c55d6c0cdacb02
           </div>
         </Cell>
+
+        {/* Crown Jobs — the priority tier above urgent (docs: org-tasks.ts's
+            ORG_TASK_PRIORITIES). Only rendered once there's something to show,
+            same "no clutter when idle" posture as the rest of this page. */}
+        {(activeCrown.length > 0 || crownHistory.length > 0) && (
+          <Cell className="lg:col-span-6" delay={7}>
+            <div className="flex items-center gap-2 text-sm text-cream-300/60"><Crown className="w-4 h-4 text-fuchsia-300" /> Crown Jobs</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+              <div>
+                <div className="text-xs font-semibold text-cream-200 mb-1.5 flex items-center gap-1.5">
+                  <Crown className="w-3.5 h-3.5 text-fuchsia-300" /> Active ({activeCrown.length})
+                </div>
+                {activeCrown.length === 0 ? (
+                  <div className="text-xs text-cream-300/40">No crown-priority work running right now.</div>
+                ) : (
+                  <div className="space-y-1">
+                    {activeCrown.map(t => (
+                      <CrownTaskRow key={t.id} task={t} />
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-cream-200 mb-1.5 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-cream-300/60" /> Recent history
+                </div>
+                {crownHistory.length === 0 ? (
+                  <div className="text-xs text-cream-300/40">Nothing finished or blocked yet.</div>
+                ) : (
+                  <div className="space-y-1">
+                    {crownHistory.map(t => (
+                      <CrownTaskRow key={t.id} task={t} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="mt-3">
+              <Link to="/org-dashboard" className="text-violet-400 hover:text-violet-300 text-xs">Full org backlog →</Link>
+            </div>
+          </Cell>
+        )}
 
         <Cell className="lg:col-span-3" delay={7}>
           <div className="flex items-center gap-2 text-sm text-cream-300/60"><ShieldAlert className="w-4 h-4" /> Governance, security & memory</div>
