@@ -33,6 +33,22 @@ const PENDING_TTL_MS = 10 * 60 * 1000;
 type PendingApproval = { jobId: string; label: string; expiresAt: number };
 const pending = new Map<string, PendingApproval>();
 
+// Escalation — an active sweep for approvals sitting unanswered too long.
+// Gates 1/2 above only react to what's already in front of the operator
+// (the moment a job parks, or an inbound reply); nothing previously
+// re-surfaced an approval the operator saw once and then forgot about.
+// Tracked per jobId (not per chatId — `pending` above is keyed by chat, but
+// several chats could theoretically be waiting on different jobs at once,
+// and PENDING_TTL_MS's 10-minute window is far shorter than these
+// thresholds, so escalation needs its own longer-lived state).
+const ESCALATION_THRESHOLDS_MS = [15 * 60_000, 60 * 60_000, 4 * 3600_000]; // 15m, 1h, 4h
+const SWEEP_INTERVAL_MS = 5 * 60_000;
+
+type EscalationState = { chatId: string; label: string; createdAt: number; level: number };
+const escalations = new Map<string, EscalationState>(); // jobId -> state
+
+let sweepTimer: NodeJS.Timeout | null = null;
+
 async function apiGet(path: string): Promise<any> {
   try {
     const r = await fetch(`${BASE}${path}`);
@@ -63,6 +79,7 @@ export async function presentApproval(chatId: string, jobId: string, fallbackTex
   const job = await apiGet(`/api/tasks/jobs/${jobId}`);
   const label = job?.id ? describeJob(job) : (fallbackText?.trim() || "this task");
   pending.set(chatId, { jobId, label, expiresAt: Date.now() + PENDING_TTL_MS });
+  escalations.set(jobId, { chatId, label, createdAt: Date.now(), level: 0 });
   return `This needs your sign-off before it runs:\n\n${label}\n\nReply *yes* to approve or *no* to reject.`;
 }
 
@@ -82,6 +99,7 @@ export async function handleApprovalReply(chatId: string, text: string): Promise
   const reject = !approve && NO.has(norm);
   if (!approve && !reject) return null;
   pending.delete(chatId);
+  escalations.delete(p.jobId);
   const r = await apiPost(`/api/templates/jobs/${p.jobId}/${approve ? "approve" : "reject"}`, {});
   if (!r.httpOk) {
     return `Couldn't ${approve ? "approve" : "reject"} "${p.label}": ${r.error ?? "unknown error"}`;
@@ -89,4 +107,52 @@ export async function handleApprovalReply(chatId: string, text: string): Promise
   return approve
     ? `Approved — running it now. I'll follow up here when it's done: ${p.label}`
     : `Rejected: ${p.label}`;
+}
+
+// One sweep tick — re-checks every tracked job's live status (it may have
+// been resolved from the web Approvals page instead of Telegram, in which
+// case we stop tracking it) and nudges the operator again once elapsed time
+// crosses the next unfired threshold. Re-arms `pending` on every nudge:
+// PENDING_TTL_MS (10min) is far shorter than the 1h/4h thresholds, so by the
+// time a later escalation fires, gate 2's original yes/no window has long
+// since expired — without re-arming, a "yes" reply to the nudge would fall
+// straight through to normal chat routing instead of being caught.
+async function sweepOnce(): Promise<void> {
+  if (escalations.size === 0) return;
+  // Dynamic import — telegram-bridge.ts imports this module, so a static
+  // import here would be circular.
+  const { sendTelegramMessage } = await import("./telegram-bridge.js");
+  const now = Date.now();
+  for (const [jobId, st] of [...escalations]) {
+    const job = await apiGet(`/api/tasks/jobs/${jobId}`);
+    if (job?.status !== "awaiting-approval") {
+      escalations.delete(jobId);
+      continue;
+    }
+    const elapsed = now - st.createdAt;
+    let crossedIdx = -1;
+    for (let i = 0; i < ESCALATION_THRESHOLDS_MS.length; i++) {
+      if (elapsed >= ESCALATION_THRESHOLDS_MS[i] && st.level <= i) { crossedIdx = i; break; }
+    }
+    if (crossedIdx === -1) continue;
+    st.level = crossedIdx + 1;
+    const mins = Math.round(elapsed / 60_000);
+    const waited = mins < 60 ? `${mins}m` : `${Math.round(mins / 60)}h`;
+    try {
+      await sendTelegramMessage(`⏰ Still waiting on your approval (${waited}):\n\n${st.label}\n\nReply *yes* to approve or *no* to reject.`, st.chatId);
+      pending.set(st.chatId, { jobId, label: st.label, expiresAt: now + PENDING_TTL_MS });
+    } catch (e: any) {
+      console.warn(`[action-approvals] escalation nudge failed for job ${jobId}: ${e?.message ?? e}`);
+    }
+  }
+}
+
+export function startApprovalEscalationSweep(): void {
+  if (sweepTimer) return;
+  sweepTimer = setInterval(() => void sweepOnce(), SWEEP_INTERVAL_MS);
+  sweepTimer.unref?.();
+}
+
+export function stopApprovalEscalationSweep(): void {
+  if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
 }

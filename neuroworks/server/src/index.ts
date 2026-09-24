@@ -49,6 +49,7 @@ import { boardRouter } from "./routes/board.js";
 import { workforceRouter } from "./routes/workforce.js";
 import { schedulesRouter } from "./routes/schedules.js";
 import { startScheduleScheduler, stopScheduleScheduler } from "./lib/schedules.js";
+import { startApprovalEscalationSweep, stopApprovalEscalationSweep } from "./lib/action-approvals.js";
 import { hostToolsRouter } from "./routes/host-tools.js";
 import { daemonSettingsRouter } from "./routes/daemon-settings.js";
 import { orgTasksRouter } from "./routes/org-tasks.js";
@@ -616,6 +617,16 @@ const server = app.listen(config.port, config.bindHost, async () => {
     console.log(`  ⓘ schedule tick armed (30s interval)`);
   }
 
+  // Approval escalation — re-nudges the operator over Telegram when a
+  // job parked "awaiting-approval" sits unanswered past 15m/1h/4h, instead
+  // of relying on them to remember to go check. Primary-only, same
+  // reasoning as the schedule tick above. Disable with
+  // NEUROWORKS_APPROVAL_ESCALATION=0.
+  if (process.env.NEUROWORKS_APPROVAL_ESCALATION !== "0" && config.role === "primary") {
+    startApprovalEscalationSweep();
+    console.log(`  ⓘ approval escalation sweep armed (5min interval)`);
+  }
+
   // Naxie org-orchestration daemon (docs/naxie-architecture.md §6) — keeps
   // the OrgTask backlog honest between conversations (stale-approval sweep,
   // orphaned-active-task reconciliation). Primary-only, same reasoning as
@@ -721,6 +732,8 @@ async function gracefulExit(signal: string) {
   try { stopWikiCompileScheduler(); stopWikiDigestScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopScheduleScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopApprovalEscalationSweep(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopOrgDaemon(); }
   catch { /* never block shutdown on a scheduler stop */ }

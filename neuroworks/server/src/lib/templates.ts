@@ -139,6 +139,19 @@ export const templates: Template[] = [
     estimateSeconds: 60,
   },
   {
+    id: "email-to-vault",
+    role: "Knowledge",
+    title: "File mail to the vault",
+    description: "Reads recent inbox mail, classifies each message (who/what they want/urgency/needs a reply), and writes a searchable note per message worth attention — newsletters and automated mail are skipped. Pair with a Schedule to run it hourly.",
+    icon: "broadcast",
+    agent: "clawbot",
+    inputs: [
+      { name: "limit", label: "Messages to scan", type: "number", default: 20, placeholder: "20" },
+    ],
+    requiresApproval: false,
+    estimateSeconds: 60,
+  },
+  {
     id: "buffer-story-post",
     role: "Operations",
     title: "Draft a social post from email stories",

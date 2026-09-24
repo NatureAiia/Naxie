@@ -24,6 +24,8 @@ import { createBoardRun, executeBoardRun, failBoardRun, MIN_MEMBERS } from "../l
 import { getBrand, channelFor, slug as slugBrandId, type Brand } from "../lib/brands.js";
 import { runBrandSignalScan } from "../lib/brand-signals.js";
 import { logAudit } from "../lib/audit-log.js";
+import { listRecentEmails, readEmail } from "../lib/email.js";
+import { shouldKeep, renderEmailNote, emailNotePath, EMAIL_NOTES_DIR, type MailForNote, type MailVerdict } from "../lib/email-notes.js";
 
 export const templatesRouter = Router();
 
@@ -543,6 +545,7 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
     case "browse-vault":   return { redirect: "/knowledge" };
     case "sync-downloads": return syncDownloadsRunner(inputs, push);
     case "daily-briefing": return dailyBriefingRunner(inputs, push, progress);
+    case "email-to-vault": return emailToVaultRunner(inputs, push);
     case "innovation-scan": return innovationScanRunner(inputs, push, progress);
     case "buffer-story-post": return bufferStoryPostRunner(inputs, push, progress);
     case "africa-ai-news":   return africaAiNewsRunner(inputs, push);
@@ -1964,6 +1967,81 @@ async function brandSignalScanRunner(inputs: Record<string, unknown>, push: (m: 
   const answer = `Scanned ${run.candidateCount} candidate${run.candidateCount === 1 ? "" : "s"} for "${brandId}" — ${run.signalCount} new draft signal${run.signalCount === 1 ? "" : "s"} filed, ${run.refusedCount} refused. Review with GET /api/brand-signals?brandId=${brandId}&status=draft or the Signals panel on the Brands page.`;
   push(answer);
   return { answer, ok: true, run };
+}
+
+// Email-to-vault digest — classifies recent inbox mail one message at a
+// time (a whole-batch JSON request failed outright against a local model in
+// testing, and a parse failure there would silently zero out every
+// message's verdict; one request per message means a failure costs just
+// that message's verdict) and files the ones judged worth attention as a
+// searchable vault note — email.ts's fileAttachmentsToVault only ever files
+// ATTACHMENTS, never the message text itself, so a text-only mail (no
+// attachment) was previously unfindable no matter what it said.
+async function emailToVaultRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
+  const limit = Math.max(1, Math.min(50, Number(inputs.limit ?? 20)));
+  const { emails } = await listRecentEmails(limit);
+  if (emails.length === 0) {
+    push("No recent mail to scan.");
+    return { answer: "No recent mail to scan.", filed: 0, skipped: 0, scanned: 0 };
+  }
+  push(`${emails.length} message${emails.length === 1 ? "" : "s"} to classify.`);
+
+  let filed = 0;
+  let skipped = 0;
+  for (const e of emails) {
+    let body = "";
+    try {
+      const full = await readEmail(e.accountId, e.uid);
+      body = full.body;
+    } catch (err: any) {
+      push(`⚠ Could not read "${String(e.subject).slice(0, 50)}": ${String(err?.message ?? err).slice(0, 120)}`);
+      continue;
+    }
+
+    let v: MailVerdict = {};
+    try {
+      const raw = await llmGenerate(
+        `From: ${e.sender}\nSubject: ${e.subject}\n\n${body.slice(0, 1500)}`,
+        `You triage the operator's email. Reply with ONE JSON object and nothing else:\n` +
+        `{"who":"<who sent it, plainly>","wants":"<what they want, one sentence>","urgency":"high|normal|low",` +
+        `"needsReply":true or false}\n\n` +
+        `Rules: use only what the message says — never invent names, numbers, commitments, dates or prices. ` +
+        `Automated mail (newsletters, notifications, verification codes, receipts, no-reply senders) is needsReply=false.`,
+        { maxTokens: 300, profile: "extraction" },
+      );
+      const start = raw.indexOf("{");
+      const end = raw.lastIndexOf("}");
+      if (start >= 0 && end > start) v = JSON.parse(raw.slice(start, end + 1));
+    } catch { /* fall through to the heuristic below */ }
+
+    if (!v || typeof v !== "object" || Object.keys(v).length === 0) {
+      // Deterministic fallback so an unparseable verdict never silently
+      // becomes "no reply needed" for a real person's message.
+      const automated = /no[-_]?reply|noreply|notification|newsletter|mailer|do[-_]?not[-_]?reply|billing|receipt/i.test(`${e.sender} ${e.subject}`);
+      v = { who: e.sender, wants: e.subject, urgency: "normal", needsReply: !automated, _unclassified: true };
+    }
+
+    const decision = shouldKeep(v);
+    if (!decision.keep) { skipped++; continue; }
+
+    const note: MailForNote = { from: e.sender, identity: e.accountId, subject: e.subject, date: String(e.date ?? new Date().toISOString()), body };
+    const rel = emailNotePath(note.date, note.subject, slugify);
+    // Never overwrite: a second message with the same subject on the same
+    // day is a different message, and the first one is somebody's evidence.
+    const path = existsSync(resolve(config.vaultPath, rel)) ? rel.replace(/\.md$/, `-${String(e.uid)}.md`) : rel;
+    writeVaultFile(path, renderEmailNote(note, v, decision.why));
+    filed++;
+  }
+
+  const summary = `Filed ${filed} of ${emails.length} message${emails.length === 1 ? "" : "s"} to ${EMAIL_NOTES_DIR}/ (${skipped} skipped as automated/informational).`;
+  push(summary);
+  if (filed > 0) {
+    try {
+      const { enqueueVaultCommit } = await import("../lib/commit-queue.js");
+      void enqueueVaultCommit(`chore(email): file ${filed} triaged message(s)`);
+    } catch { /* commit queue optional */ }
+  }
+  return { answer: summary, filed, skipped, scanned: emails.length };
 }
 
 // Daily briefing — a thin wrapper over the general-task agent with a fixed,
