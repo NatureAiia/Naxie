@@ -90,7 +90,6 @@ import { voiceRouter } from "./routes/voice.js";
 import { authRouter } from "./routes/auth.js";
 import { departmentsRouter } from "./routes/departments.js";
 import { officeNotesRouter } from "./routes/office-notes.js";
-import { knowledgePacksRouter } from "./routes/knowledge-packs.js";
 import { dispatchRouter, dispatchKeysRouter } from "./routes/dispatch.js";
 import { publicFinanceRouter } from "./routes/public-finance.js";
 import { agentIngestRouter } from "./routes/agent-ingest.js";
@@ -305,7 +304,6 @@ app.use("/api/onboarding", onboardingRouter); // wizard: operator identity + sec
 app.use("/api/auth", authRouter);
 app.use("/api/departments", departmentsRouter);
 app.use("/api/office-notes", officeNotesRouter);
-app.use("/api/knowledge-packs", knowledgePacksRouter);
 // External agent-dispatch surface (API-key auth; originGuard exempts /api/v1/).
 app.use("/api/v1/dispatch", dispatchRouter);
 // Operator-only API-key management (stays behind originGuard).

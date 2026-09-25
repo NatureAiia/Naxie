@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, Assignment, AssignmentStatus, AssignPerson, WaitingTask, User } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { useLoadMore, LoadMoreButton } from "../components/LoadMore";
@@ -7,26 +7,44 @@ import { FileUpload } from "../components/FileUpload";
 import {
   Inbox, Send, Loader2, CheckCircle2, XCircle, Play, Paperclip, Bot,
   User as UserIcon, Clock, ChevronDown, ChevronUp, AlertTriangle, RotateCcw, Download,
-  FileText, FileEdit,
+  FileText, ListChecks, History, ShieldCheck,
 } from "lucide-react";
 import { getToken } from "../lib/api";
 import { Runs } from "./Runs";
-import { DocEditor } from "./DocEditor";
+import { AgentApprovals } from "./AgentApprovals";
 
-// Combined personal workspace: My Work (handoffs + assignments), Reports (the
-// deliverables the workforce produced — the merged Runs list), and the Doc
-// editor — three tabs on one page instead of three nav entries. The
-// individual routes (/runs, /edit) still work for deep links.
+// Unified Work page — Inbox (handoffs + assignments) + Runs (timeline/board)
+// + History (prompts). One canonical list route (/my-work); /runs redirects
+// here and /runs/:jobId stays standalone for deep links.
 export function MyWork() {
-  const [tab, setTab] = useState<"work" | "reports" | "editor">("work");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const raw = searchParams.get("tab");
+  const tab: "inbox" | "runs" | "approvals" | "history" = raw === "runs" ? "runs" : raw === "approvals" ? "approvals" : raw === "history" ? "history" : "inbox";
+  // Legacy aliases
+  const legacy = raw === "work" ? "inbox" : raw === "reports" ? "runs" : null;
+  useEffect(() => {
+    if (legacy) {
+      const n = new URLSearchParams(searchParams);
+      n.set("tab", legacy);
+      setSearchParams(n, { replace: true });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  function setTab(next: typeof tab) {
+    setSearchParams(prev => {
+      const n = new URLSearchParams(prev);
+      if (next === "inbox") n.delete("tab");
+      else n.set("tab", next);
+      return n;
+    }, { replace: true });
+  }
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-1 border-b border-ink-800">
-        {([["work", "My Work", Inbox], ["reports", "Reports", FileText], ["editor", "Doc editor", FileEdit]] as const).map(([id, label, Icon]) => (
+        {([["inbox", "Inbox", Inbox], ["runs", "Runs", ListChecks], ["approvals", "Approvals", ShieldCheck], ["history", "History", History]] as const).map(([id, label, Icon]) => (
           <button
             key={id}
             type="button"
-            onClick={() => setTab(id)}
+            onClick={() => setTab(id as typeof tab)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors inline-flex items-center gap-1.5 ${
               tab === id ? "border-violet-500 text-cream-50" : "border-transparent text-cream-300/60 hover:text-cream-100"
             }`}
@@ -35,9 +53,15 @@ export function MyWork() {
           </button>
         ))}
       </div>
-      {tab === "work" ? <MyWorkInner /> : tab === "reports" ? <Runs /> : <DocEditor />}
+      {tab === "inbox" ? <MyWorkInner /> : tab === "runs" ? <Runs /> : tab === "approvals" ? <AgentApprovals /> : <MyWorkHistory />}
     </div>
   );
+}
+
+function MyWorkHistory() {
+  const [history, setHistory] = useState<PromptExchange[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  return <MyWorkHistoryInner history={history} setHistory={setHistory} loaded={loaded} setLoaded={setLoaded} />;
 }
 
 // Download an assignment file (brief attachment or a submission) through the
@@ -182,8 +206,38 @@ function MyWorkInner() {
         </div>
       </section>
 
-      <MyPromptsSection signedIn={!!me} />
     </div>
+  );
+}
+
+// History tab — no sign-in required for local single-operator use.
+function MyWorkHistoryInner({ history, setHistory, loaded, setLoaded }: {
+  history: PromptExchange[]; setHistory: React.Dispatch<React.SetStateAction<PromptExchange[]>>;
+  loaded: boolean; setLoaded: React.Dispatch<React.SetStateAction<boolean>>;
+}) {
+  const promptList = useLoadMore(history);
+  useEffect(() => {
+    let alive = true;
+    const pull = () => api.chatHistory(50)
+      .then(r => { if (alive) { setHistory(r.history); setLoaded(true); } })
+      .catch(() => { if (alive) setLoaded(true); });
+    pull();
+    const i = setInterval(pull, 15000);
+    return () => { alive = false; clearInterval(i); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <section>
+      <Card title={`Prompts & results · ${history.length}`}>
+        {!loaded && <div className="text-sm text-cream-300/60">Loading…</div>}
+        {loaded && history.length === 0 && (
+          <div className="text-sm text-cream-300/60">Everything you ask in Chat lands here with its result — nothing yet.</div>
+        )}
+        <div className="space-y-2">
+          {promptList.visible.map(h => <PromptRow key={h.id} h={h} />)}
+        </div>
+        <LoadMoreButton state={promptList} noun="prompts" />
+      </Card>
+    </section>
   );
 }
 

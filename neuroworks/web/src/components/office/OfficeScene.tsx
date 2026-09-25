@@ -67,12 +67,11 @@ const WALK_SPEED = 0.6; // units/sec
 // to that footprint so avatars never visually overlap each other or a desk.
 const AVATAR_COLLIDE_R = 0.5;
 const DESK_COLLIDE_R = 0.68;
-// Boardroom's world position (matches the meeting-table placement below) and
-// its clearance radius (a touch past sceneObjects.ts's own BOARDROOM_WALL_RADIUS
-// of 1.3) — connector dots inside this radius are skipped so the boardroom
-// floor doesn't z-fight with a coplanar dot.
-const BOARDROOM_POS = { x: 0, z: 2.6 };
-const BOARDROOM_CLEAR_R = 1.35;
+// Boardroom isolated in the open southeast gap — well clear of every
+// department pod so the oval table never touches a room wall or its
+// connector studs.
+const BOARDROOM_POS = { x: 8.5, z: 3.2 };
+const BOARDROOM_CLEAR_R = 1.6;
 
 type Placed = { room: OfficeRoom; x: number; z: number; w: number; d: number; cx: number; cz: number };
 
@@ -267,8 +266,10 @@ export function OfficeScene({ rooms, frontDeskMember, busyPersonaIds, stuckPerso
     // E1 — bounding box across every placed room + the front desk + meeting
     // table, so the camera fits whatever the roster actually produces instead
     // of a hardcoded guess that clips a large office or wastes most of the
-    // frame on a small one.
-    let minX = -3, maxX = 3, minZ = -3, maxZ = 3;
+    // frame on a small one. Boardroom position is included so an isolated
+    // table far from pods still stays in frame.
+    let minX = Math.min(-3, BOARDROOM_POS.x - 1.5), maxX = Math.max(3, BOARDROOM_POS.x + 1.5);
+    let minZ = Math.min(-3, BOARDROOM_POS.z - 1.5), maxZ = Math.max(3, BOARDROOM_POS.z + 1.5);
     for (const { x, z, w: rw, d: rd } of placedRooms) {
       minX = Math.min(minX, x); maxX = Math.max(maxX, x + rw);
       minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z + rd);

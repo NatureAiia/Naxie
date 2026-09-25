@@ -76,16 +76,8 @@ export type Template = {
 };
 export type Role = { id: string; label: string; description: string; count: number };
 
-// Knowledge Packs.
-export type KnowledgePack = {
-  sectorId: string;
-  name: string;
-  installed: boolean;
-  files: { path: string; title: string; wordCount: number }[];
-};
 // Omnisignal — acquires raw signal (web/db/file/vault) and, via ADRS, publishes
-// it as a dataset agents can RAG against. Surfaced on the Knowledge Packs page
-// alongside sector packs (same "reusable knowledge asset" concept).
+// it as a dataset agents can RAG against. Surfaced on Library's Datasets tab.
 export type OmniSourceKind = "web_search" | "web_page" | "db" | "local_file" | "vault" | "email";
 export type OmniSourceKindInfo = { kind: OmniSourceKind; needs: string; description: string };
 export type OmniSource = {
@@ -131,7 +123,6 @@ export type OnboardingSector = {
 };
 export type SectorBundleResult = {
   sectorId: string;
-  knowledgePack: { installed: boolean; files: string[] };
   departments: { id: string; departmentName: string; personaCount: number }[];
   suggestedConnectors: { label: string; hasTemplate: boolean }[];
 };
@@ -749,10 +740,6 @@ export const api = {
   chatHistory: (limit = 50) =>
     req<{ history: { id: string; at: string; prompt: string; response: string; kind?: string; jobId?: string; persona?: string; sessionId?: string; jobStatus?: string }[] }>(`/api/chat/history?limit=${limit}`),
   loginEvents: (limit = 50) => req<{ events: LoginEvent[] }>(`/api/auth/login-events?limit=${limit}`),
-  // Knowledge Packs.
-  listKnowledgePacks: () => req<{ packs: KnowledgePack[] }>("/api/knowledge-packs"),
-  installKnowledgePack: (sectorId: string) =>
-    req<{ ok: boolean; files: string[] }>(`/api/knowledge-packs/${encodeURIComponent(sectorId)}/install`, { method: "POST" }),
   // Omnisignal — source registry + acquire/publish.
   listOmniKinds: () => req<{ kinds: OmniSourceKindInfo[] }>("/api/omnisignal/kinds"),
   listOmniSources: () => req<{ sources: OmniSource[] }>("/api/omnisignal/sources"),

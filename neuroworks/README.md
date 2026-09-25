@@ -42,7 +42,6 @@ Local-only browser app. Bind: `127.0.0.1:7470` (web) and `127.0.0.1:7471` (serve
 - **Results** — outcome card for any completed job (duration + top-source previews).
 - **Approvals** — gate for templates marked `requiresApproval`.
 - **Knowledge** — Obsidian vault browser (path set by `VAULT_PATH`) with markdown rendering and full-text search.
-- **Knowledge Packs** — curated sector packs, indexed for agent retrieval.
 - **Models** — pull/remove local Ollama models from a curated catalog (streamed progress), set the default, and plug in cloud model APIs you already use (OpenAI/OpenRouter/Groq/Together/custom). Keys encrypted at rest, applied with no restart.
 - **Personas** — manage AI employees (role, tone, responsibilities, system prompt overrides).
 - **Settings** — model selection, OpenRouter pins, persona-template defaults.

@@ -11,14 +11,14 @@ export function Card({ title, action, children, className = "", hoverable = fals
     ? "bg-ink-900/60 backdrop-blur-md border border-violet-500/20 shadow-[0_0_24px_-8px_rgba(139,92,246,0.25)] hover:border-violet-500/35 transition-colors"
     : "bg-ink-900 border border-ink-800";
   return (
-    <div className={`${skin} rounded-xl ${hoverable ? "nw-card-hover" : ""} ${className}`}>
+    <div className={`${skin} rounded-2xl ${hoverable ? "nw-card-hover" : ""} ${className}`}>
       {(title || action) && (
-        <div className={`flex items-center justify-between px-5 py-3.5 border-b ${variant === "glass" ? "border-violet-500/10" : "border-ink-800"}`}>
-          {title && <h3 className="text-sm font-semibold text-cream-100 tracking-tight">{title}</h3>}
+        <div className={`flex items-center justify-between px-6 py-4 border-b ${variant === "glass" ? "border-violet-500/10" : "border-ink-800"}`}>
+          {title && <h3 className="text-[15px] font-semibold text-cream-100 tracking-tight">{title}</h3>}
           {action}
         </div>
       )}
-      <div className="p-5">{children}</div>
+      <div className="p-6 tablet:p-7">{children}</div>
     </div>
   );
 }
@@ -100,7 +100,7 @@ export function StatusDot({ ok, label }: { ok: boolean | "pending"; label: strin
 }
 
 export function Button({ onClick, disabled, children, variant = "primary", className = "", type = "button", noise = true }: { onClick?: () => void; disabled?: boolean; children: ReactNode; variant?: "primary" | "ghost" | "subtle"; className?: string; type?: "button" | "submit"; noise?: boolean }) {
-  const base = "px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+  const base = "px-5 py-2.5 rounded-lg text-[14px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
   // Primary rides a living noise-gradient backdrop (Aceternity-style). The fill
   // is an absolutely-positioned layer BEHIND the label, so the button box is
   // unchanged and every existing <Button> lays out exactly as before. Opt out

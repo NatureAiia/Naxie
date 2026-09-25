@@ -66,7 +66,6 @@ export function KnowledgeGraph({ focusId }: { focusId?: string | null }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
-  const [hasPersonas, setHasPersonas] = useState(false);
   // Vault note Naxie's last answer drew from — highlighted + panned to, the
   // same "answer highlights its source" pattern as jarvis-claude-code's
   // setFocus(), except riding on the RAG scoring already computed server-side.
@@ -182,7 +181,6 @@ export function KnowledgeGraph({ focusId }: { focusId?: string | null }) {
       nodesRef.current = simNodes;
       linksRef.current = links;
       setCount(simNodes.length);
-      setHasPersonas(simNodes.some(n => n.kind === "persona"));
       setLoading(false);
     });
 
@@ -726,13 +724,7 @@ export function KnowledgeGraph({ focusId }: { focusId?: string | null }) {
         <div className="absolute inset-0 grid place-items-center text-xs text-cream-300/50">Nothing to map yet.</div>
       )}
       <canvas ref={canvasRef} className="block w-full h-full" />
-      {!loading && hasPersonas && (
-        <div className="absolute bottom-2 left-3 flex items-center gap-3 text-[10px] text-cream-300/40 pointer-events-none">
-          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ boxShadow: "0 0 0 1.5px hsl(140,60%,55%)" }} />agent</span>
-          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ boxShadow: "0 0 0 1.5px hsl(40,90%,60%)" }} />hybrid</span>
-          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ boxShadow: "0 0 0 1.5px hsl(210,75%,65%)" }} />human</span>
-        </div>
-      )}
+
       {!loading && count > 0 && (
         <div className="absolute bottom-2 right-3 text-[10px] text-cream-300/40 pointer-events-none">
           {count} nodes · drag to rearrange · scroll to zoom

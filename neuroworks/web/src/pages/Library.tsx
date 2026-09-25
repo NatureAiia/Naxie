@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Database, Folder } from "lucide-react";
+import { Database, Folder, Sparkles } from "lucide-react";
 import { api, type FileBackendId, type FileEntry, type User } from "../lib/api";
 import { FileExplorer } from "../components/FileExplorer";
 import { VaultHealthBanner, type VaultHealth } from "../components/library/VaultHealthBanner";
@@ -9,6 +9,7 @@ import { MarkdownPreviewPanel } from "../components/library/MarkdownPreviewPanel
 import { PromoteBar } from "../components/library/PromoteBar";
 import { ImportsActions } from "../components/library/ImportsActions";
 import { LibraryConnections } from "../components/library/LibraryConnections";
+import { DatasetsPanel } from "../components/library/DatasetsPanel";
 
 // The vault path lives in the URL (e.g. /library/NeuroWorks%20Data%20Migration.md)
 // so spaces arrive percent-encoded. Decode ONCE here — otherwise api.brainFile()
@@ -21,9 +22,11 @@ function isPreviewable(name: string): boolean {
   return name.endsWith(".md") || name.endsWith(".txt") || name.endsWith(".json");
 }
 
-// Connections tab lives at its own URL so gating applies the same whether the
-// user clicks the tab or hits the URL directly.
+// Connections/Datasets tabs live at their own URL so gating (Connections) and
+// deep-linking apply the same whether the user clicks the tab or hits the
+// URL directly.
 const CONNECTIONS_PATH = "/library/data";
+const DATASETS_PATH = "/library/datasets";
 
 export function Library() {
   const nav = useNavigate();
@@ -37,7 +40,9 @@ export function Library() {
   const canSeeConnections = layer !== "staff";
 
   const onConnectionsRoute = loc.pathname === CONNECTIONS_PATH || loc.pathname.startsWith(CONNECTIONS_PATH + "/");
-  const tab: "files" | "connections" = onConnectionsRoute && canSeeConnections ? "connections" : "files";
+  const onDatasetsRoute = loc.pathname === DATASETS_PATH || loc.pathname.startsWith(DATASETS_PATH + "/");
+  const tab: "files" | "connections" | "datasets" =
+    onConnectionsRoute && canSeeConnections ? "connections" : onDatasetsRoute ? "datasets" : "files";
 
   // ---- vault deep-linking (Files tab, vault backend only) ----
   // FileExplorer owns its own path/selection state internally (no controlled
@@ -46,7 +51,7 @@ export function Library() {
   // file's content directly here, and selecting a previewable vault file in
   // FileExplorer pushes the URL to match. Folder browsing stays FileExplorer's
   // own client-side state, same as every other backend.
-  const subPath = !onConnectionsRoute ? decodePath(loc.pathname.replace(/^\/library\/?/, "")) : "";
+  const subPath = !onConnectionsRoute && !onDatasetsRoute ? decodePath(loc.pathname.replace(/^\/library\/?/, "")) : "";
 
   const [sel, setSel] = useState<{ backend: FileBackendId; path: string; entries: FileEntry[]; selectedEntry: FileEntry | null }>(
     { backend: "vault", path: "", entries: [], selectedEntry: null },
@@ -121,6 +126,13 @@ export function Library() {
             <Database size={14} /> Connections
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => nav(DATASETS_PATH)}
+          className={`flex items-center gap-1.5 text-sm px-3 py-2 border-b-2 -mb-px ${tab === "datasets" ? "border-violet-500 text-cream-50" : "border-transparent text-cream-300/60 hover:text-cream-100"}`}
+        >
+          <Sparkles size={14} /> Datasets
+        </button>
       </div>
 
       {tab === "connections" ? (
@@ -131,6 +143,8 @@ export function Library() {
             You don't have permission to view database connections. Ask an admin for access.
           </div>
         )
+      ) : tab === "datasets" ? (
+        <DatasetsPanel />
       ) : (
         <div className="space-y-4">
           {showVaultChrome && <VaultHealthBanner vaultHealth={vaultHealth} onRetry={retryVaultHealth} />}

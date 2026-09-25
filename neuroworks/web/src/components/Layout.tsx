@@ -19,8 +19,6 @@ import {
   Cable,
   ArrowLeftRight,
   Megaphone,
-  Network,
-  Contact,
   Building2,
   MessageCircle,
 } from "lucide-react";
@@ -72,47 +70,32 @@ const primaryNav: NavItem[] = [
   { to: "/ide", label: "Naxion IDE", icon: Terminal },
 ];
 
-const agentsNav: NavItem[] = [
-  { to: "/org-dashboard", label: "Org Dashboard", icon: Network },
-  { to: "/policies", label: "Policies", icon: CertificateIcon },
-];
+const agentsNav: NavItem[] = [];
 
 const workNav: NavItem[] = [
-  // My Work leads the queue — it hosts Reports and the Doc editor as tabs,
-  // so a person's handoffs, the deliverables, and editing all live in one
-  // place.
-  { to: "/my-work", label: "My Work", icon: Inbox },
+  { to: "/my-work", label: "Work", icon: Inbox, badgeKey: "approvals" },
   { to: "/brands", label: "Brands", icon: Megaphone },
-  { to: "/crm", label: "CRM", icon: Contact },
-  { to: "/runs", label: "Runs", icon: TodoIcon, badgeKey: "activity" },
-  { to: "/approvals", label: "Agent Approvals", icon: ReviewFolderIcon, badgeKey: "approvals" },
-  { to: "/my-tasks", label: "My Tasks", icon: TodoIcon },
-  { to: "/calendar", label: "Calendar", icon: CalendarDays },
+  { to: "/planner", label: "Planner", icon: CalendarDays },
   { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
+  { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
 ];
 
 const memoryNav: NavItem[] = [
   { to: "/library", label: "Library", icon: DocsFolderIcon },
-  { to: "/knowledge-packs", label: "Knowledge Packs", icon: DocsFolderIcon },
-  { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
   { to: "/templates", label: "Templates", icon: TemplateIcon },
   { to: "/skills", label: "Skills", icon: TemplateIcon },
-  // SkillForge lives as a tab on Skills.
+  // SkillForge lives as a tab on Skills. Datasets (formerly "Knowledge
+  // Packs") lives as a tab on Library.
 ];
 
 const connectNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
-  // WhatsApp is its own page, not an Extensions-catalog entry or a
-  // Connectors credential — it's a QR-paired Baileys device session (see
-  // pages/WhatsApp.tsx). Sits between the two for that reason.
   { to: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
-  // Integrations stays as an Extensions internal tab. Connectors and MCP
-  // Servers each got their own top-level page — company systems + personal
-  // Google/Microsoft accounts, and local MCP tool servers respectively.
   { to: "/connectors", label: "Connectors", icon: Boxes },
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
   { to: "/hermes", label: "Hermes", icon: ArrowLeftRight },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
+  { to: "/connectors?tab=policies", label: "Policies", icon: CertificateIcon },
 ];
 
 // Ambient Watch — a single stub slot, not a real group yet (no logic behind
@@ -339,8 +322,6 @@ export function Layout({ children }: { children: ReactNode }) {
           <nav className={`flex-1 space-y-0.5 overflow-y-auto scrollbar-thin ${collapsed ? "px-2" : "px-3"}`}>
             {primaryNav.map(renderNavItem)}
             {collapsed ? (
-              // Collapsed rail has no room for group labels/chevrons — flatten
-              // every group to a plain icon stack instead of a broken accordion.
               <>
                 {agentsNav.map(renderNavItem)}
                 {workNav.map(renderNavItem)}
@@ -350,7 +331,7 @@ export function Layout({ children }: { children: ReactNode }) {
               </>
             ) : (
               <>
-                {renderGroup("agents", "Agents & Subagents", RobotFolderIcon, agentsNav)}
+                {agentsNav.length > 0 && renderGroup("agents", "Agents & Subagents", RobotFolderIcon, agentsNav)}
                 {renderGroup("work", "Work Queue", WorkspaceFolderIcon, workNav, counts.approvals + counts.activity)}
                 {renderGroup("memory", "Memory & Knowledge", DocsFolderIcon, memoryNav)}
                 {renderGroup("connect", "Connect", Puzzle, connectNav)}
@@ -442,8 +423,8 @@ export function Layout({ children }: { children: ReactNode }) {
               key={location.pathname.split("/")[1] || "/"}
               className={
                 clearBackground
-                  ? "px-4 py-5 tablet:h-full tablet:px-6 tablet:py-5 nw-page-enter"
-                  : "max-w-6xl mx-auto px-6 py-6 tablet:px-8 tablet:py-7 nw-page-enter"
+                  ? "px-6 py-6 tablet:h-full tablet:px-8 tablet:py-6 nw-page-enter"
+                  : "max-w-[88rem] mx-auto px-8 py-8 tablet:px-10 tablet:py-8 nw-page-enter"
               }
             >
               {children}

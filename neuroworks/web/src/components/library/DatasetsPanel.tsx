@@ -1,103 +1,14 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { api, type KnowledgePack, type DatasetManifest, type OmniSourceKindInfo, type OmniSourceKind, type OmniSpec } from "../lib/api";
-import { Loader2, BookOpen, CheckCircle2, Download, FileText, Database, Sparkles } from "lucide-react";
-import { Card, Button } from "../components/Card";
+import { api, type DatasetManifest, type OmniSourceKindInfo, type OmniSourceKind, type OmniSpec } from "../../lib/api";
+import { Loader2, Download, Database, Sparkles } from "lucide-react";
+import { Card, Button } from "../Card";
 
-export function KnowledgePacks() {
-  const nav = useNavigate();
-  const [packs, setPacks] = useState<KnowledgePack[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [installing, setInstalling] = useState<string | null>(null);
-
-  const load = () => {
-    setLoading(true);
-    api.listKnowledgePacks().then(r => setPacks(r.packs)).catch(() => {}).finally(() => setLoading(false));
-  };
-  useEffect(load, []);
-
-  const install = async (sectorId: string) => {
-    setInstalling(sectorId);
-    await api.installKnowledgePack(sectorId);
-    setInstalling(null);
-    load();
-  };
-
-  if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="animate-spin w-6 h-6 text-violet-400" /></div>;
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <div className="nw-eyebrow">Library</div>
-        <h1 className="text-2xl font-semibold tracking-tight text-cream-50 flex items-center gap-2">
-          <BookOpen className="w-6 h-6 text-violet-400" /> Knowledge Packs
-        </h1>
-        <p className="text-sm text-cream-300/70 mt-1 max-w-3xl">
-          Curated sector packs live in your vault under <span className="font-mono text-cream-200">_knowledge-packs/</span>, and are retrievable by agents via vault search.
-        </p>
-      </div>
-
-      <DatasetsSection />
-
-      <div>
-        <h2 className="text-sm font-semibold text-cream-100 mb-3">Sector packs</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {packs.map(pack => (
-            <Card key={pack.sectorId} hoverable className={pack.installed ? "border-leaf-500/40" : ""}>
-              <div className="flex items-start justify-between mb-2">
-                <h3 className="font-semibold text-cream-50">{pack.name}</h3>
-                {pack.installed && <CheckCircle2 className="w-5 h-5 text-leaf-400 shrink-0" />}
-              </div>
-
-              {pack.installed ? (
-                <div className="space-y-2">
-                  <p className="text-xs text-leaf-400 font-medium">Installed ({pack.files.length} files)</p>
-                  <div className="space-y-1">
-                    {pack.files.map(f => (
-                      <button
-                        key={f.path}
-                        onClick={() => nav("/library/" + f.path.replace(/\\/g, "/"))}
-                        className="w-full flex items-center gap-2 text-xs text-cream-300/70 hover:text-violet-300 text-left"
-                      >
-                        <FileText className="w-3 h-3 shrink-0" />
-                        <span className="truncate">{f.title}</span>
-                        <span className="shrink-0 text-cream-300/40">({f.wordCount} words)</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-xs text-cream-300/40 mb-3">Not installed</p>
-                  <button
-                    onClick={() => install(pack.sectorId)}
-                    disabled={installing === pack.sectorId}
-                    className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-md bg-violet-500 text-white hover:bg-violet-600 disabled:opacity-50"
-                  >
-                    {installing === pack.sectorId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                    Install Pack
-                  </button>
-                </div>
-              )}
-            </Card>
-          ))}
-        </div>
-      </div>
-
-      {packs.every(p => p.installed) && packs.length > 0 && (
-        <div className="bg-violet-500/10 border border-violet-500/30 rounded-lg px-4 py-3 text-sm text-violet-200">
-          All sector packs installed. Use vault search to query them — they're indexed alongside your other notes.
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Datasets (Omnisignal → ADRS) ──────────────────────────────────────────
-// Acquire raw signal (web/db/file/vault), publish it through the ADRS
-// pipeline (hash/score/entity-resolve), and it becomes a dataset agents can
-// RAG against — same "reusable knowledge asset" idea as a sector pack, just
-// built from live signal instead of a curated file bundle.
+// Datasets (Omnisignal → ADRS) — acquire raw signal (web/db/file/vault),
+// publish it through the ADRS pipeline (hash/score/entity-resolve), and it
+// becomes a dataset agents can RAG against. Moved out of the old
+// "Knowledge Packs" page when its other half (static hardcoded sector
+// content) was removed — this is a real, live data-acquisition tool, not
+// generic content, so it kept its home in Library instead of being deleted.
 
 const OUTPUT_KINDS: { kind: "csv" | "jsonl" | "rag" | "card"; label: string }[] = [
   { kind: "card", label: "Card" },
@@ -106,7 +17,7 @@ const OUTPUT_KINDS: { kind: "csv" | "jsonl" | "rag" | "card"; label: string }[] 
   { kind: "rag", label: "RAG" },
 ];
 
-function DatasetsSection() {
+export function DatasetsPanel() {
   const [datasets, setDatasets] = useState<DatasetManifest[]>([]);
   const [dsLoading, setDsLoading] = useState(true);
   const [kinds, setKinds] = useState<OmniSourceKindInfo[]>([]);

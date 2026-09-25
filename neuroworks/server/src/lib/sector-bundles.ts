@@ -1,37 +1,27 @@
 // Sector → one-click bundle install ("AI Employee"-style packaging). Wires
-// together three things that already exist but nothing previously connected:
+// together two things that already exist but nothing previously connected:
 // sector-packs.ts's SECTORS metadata (suggestedDepartments/Integrations were
-// descriptive only), knowledge-packs.ts's per-sector pack generator, and
-// department-templates.ts's persona-creation. Lives in its own file (not
-// sector-packs.ts) to avoid a cycle: knowledge-packs.ts already imports
-// SECTORS from sector-packs.ts, so sector-packs.ts importing back into
-// knowledge-packs.ts would be circular.
+// descriptive only) and department-templates.ts's persona-creation. Used to
+// also install a per-sector knowledge pack (static generic markdown) — that
+// generator was removed along with the Knowledge Packs page; this step just
+// dropped rather than being replaced.
 
 import { SECTORS } from "./sector-packs.js";
-import { installKnowledgePack } from "./knowledge-packs.js";
 import { getDepartmentTemplate, applyResolvedTemplate } from "./department-templates.js";
 import { listConnectorTemplates } from "./connectors.js";
 
 export type SectorBundleResult = {
   sectorId: string;
-  knowledgePack: { installed: boolean; files: string[] };
   departments: { id: string; departmentName: string; personaCount: number }[];
   suggestedConnectors: { label: string; hasTemplate: boolean }[];
 };
 
 // Best-effort — one failing piece (e.g. an unknown department id) never
-// blocks the others. Idempotent: installKnowledgePack/applyResolvedTemplate
-// are themselves safe to re-run (knowledge packs overwrite their own files;
-// personas are addressed by a stable slugified id).
+// blocks the others. Idempotent: applyResolvedTemplate is itself safe to
+// re-run (personas are addressed by a stable slugified id).
 export function applySectorBundle(sectorId: string): SectorBundleResult {
   const sector = SECTORS.find(s => s.id === sectorId);
   if (!sector) throw new Error(`unknown sector "${sectorId}"`);
-
-  let knowledgePack: SectorBundleResult["knowledgePack"] = { installed: false, files: [] };
-  try {
-    const r = installKnowledgePack(sectorId);
-    knowledgePack = { installed: r.ok, files: r.files };
-  } catch (e: any) { console.warn(`[sector-bundles] knowledge pack install failed: ${e?.message ?? e}`); }
 
   const departments: SectorBundleResult["departments"] = [];
   for (const deptId of sector.suggestedDepartments) {
@@ -48,5 +38,5 @@ export function applySectorBundle(sectorId: string): SectorBundleResult {
     label, hasTemplate: templateLabels.has(label.toLowerCase()),
   }));
 
-  return { sectorId, knowledgePack, departments, suggestedConnectors };
+  return { sectorId, departments, suggestedConnectors };
 }

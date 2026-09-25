@@ -1,16 +1,61 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   LayoutDashboard, Bot, PlayCircle, CheckCircle2, Loader2, DollarSign,
-  ShieldAlert, ShieldCheck, Brain, Clock, TrendingUp, Hourglass, Cpu, Database, Crown,
+  ShieldAlert, ShieldCheck, Brain, Clock, TrendingUp, Hourglass, Cpu, Database, Crown, Network, RefreshCw,
 } from "lucide-react";
-import { api, type TimeAnalysis, type QualitySummary, type SecurityStatus, type SchedulerEngine, type RagStatus, type OrgTask } from "../lib/api";
+import { api, type TimeAnalysis, type QualitySummary, type SecurityStatus, type SchedulerEngine, type RagStatus, type OrgTask, type OrgRole, type OrgTaskStatus, type OrgTaskPriority } from "../lib/api";
+import { Card } from "../components/Card";
 
-// The mission-control view Naxie.tsx's own comment deferred: "not a rebuild
-// of Dashboard's 12-call mission control." This is that view, now that it
-// has a home of its own — one glance at everything the COO is running,
-// with a link out to the specialized page for anything that needs detail.
+// Merged Command Center: Overview (bento) + Org Backlog (former /org-dashboard) as tabs.
+// Single canonical route /command?tab=overview|org — /org-dashboard redirects here.
 export function CommandCenter() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get("tab");
+  const activeTab: "overview" | "org" = rawTab === "org" ? "org" : "overview";
+
+  function setTab(tab: "overview" | "org") {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (tab === "overview") next.delete("tab");
+      else next.set("tab", tab);
+      return next;
+    }, { replace: true });
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-cream-50 flex items-center gap-2">
+            <LayoutDashboard className="w-6 h-6" /> Command Center
+          </h1>
+          <p className="text-sm text-cream-300/70 mt-1">
+            {activeTab === "org"
+              ? "Naxie's internal 6-role backlog — diagnostics only. She never names a role in conversation; this is here purely for when you want to see what's actually happening."
+              : "What Naxie's running, how well she's running it, and what it's costing — one board, for the boss."}
+          </p>
+        </div>
+        <div className="flex items-center gap-1 p-1 rounded-full bg-ink-900 border border-ink-800 shrink-0">
+          <button
+            type="button"
+            onClick={() => setTab("overview")}
+            className={`text-xs px-3 py-1.5 rounded-full transition-colors ${activeTab === "overview" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}
+          >Overview</button>
+          <button
+            type="button"
+            onClick={() => setTab("org")}
+            className={`text-xs px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${activeTab === "org" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}
+          ><Network size={12} /> Org Backlog</button>
+        </div>
+      </div>
+
+      {activeTab === "overview" ? <OverviewTab onGoOrg={() => setTab("org")} /> : <OrgBacklogTab />}
+    </div>
+  );
+}
+
+function OverviewTab({ onGoOrg }: { onGoOrg: () => void }) {
   const [health, setHealth] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
   const [personaCount, setPersonaCount] = useState<number | null>(null);
@@ -27,7 +72,6 @@ export function CommandCenter() {
   const [crownTasks, setCrownTasks] = useState<OrgTask[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fast-moving: polled every 5s, same cadence as Naxie.tsx's ambient strip.
   useEffect(() => {
     let alive = true;
     async function tick() {
@@ -47,7 +91,6 @@ export function CommandCenter() {
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  // Slow-moving: fetched once on mount, same split Naxie.tsx already uses.
   useEffect(() => {
     api.listPersonas().then(r => setPersonaCount((r.personas ?? []).length)).catch(() => {});
     api.timeAnalysis(30).then(setTimeA).catch(() => {});
@@ -66,10 +109,6 @@ export function CommandCenter() {
   const succeededCount = jobs.filter(j => j.status === "succeeded").length;
   const successRate = finished.length > 0 ? Math.round((succeededCount / finished.length) * 100) : null;
   const recentJobs = [...jobs].sort((a, b) => String(b.startedAt ?? "").localeCompare(String(a.startedAt ?? ""))).slice(0, 6);
-  // Crown Jobs — the tier above urgent (see org-tasks.ts's ORG_TASK_PRIORITIES).
-  // The OrgTask store already keeps full history, so "active" vs. a
-  // done/blocked history slice is just a client-side split of one poll —
-  // no new persistence needed.
   const activeCrown = crownTasks.filter(t => t.status === "active");
   const crownHistory = crownTasks
     .filter(t => t.status === "done" || t.status === "blocked")
@@ -89,21 +128,7 @@ export function CommandCenter() {
   const blockedCount = security?.blocked?.length ?? 0;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-cream-50 flex items-center gap-2">
-          <LayoutDashboard className="w-6 h-6" /> Command Center
-        </h1>
-        <p className="text-sm text-cream-300/70 mt-1">
-          What Naxie's running, how well she's running it, and what it's costing — one board, for the boss.
-        </p>
-      </div>
-
-      {/* Bento grid: cell size tracks how much a reader needs from it at a
-          glance — the two live feeds (ops, spend/governance) get the wide
-          cells, single numbers stay small so the eye can scan the whole
-          board in one pass instead of reading section by section. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
         <Cell className="lg:col-span-3 lg:row-span-2">
           <div className="flex items-center gap-2 text-sm text-cream-300/60"><PlayCircle className="w-4 h-4" /> Running now</div>
           <div className="text-4xl font-bold mt-1 text-cream-50">{runningCount}</div>
@@ -135,8 +160,6 @@ export function CommandCenter() {
         <Stat delay={5} icon={<Database className="w-4 h-4" />} label="Vector store" value={vectorValue} tone={vectorTone} />
         <Stat delay={6} icon={<CheckCircle2 className="w-4 h-4" />} label="Success rate" value={successRate != null ? `${successRate}%` : "—"} />
 
-        {/* Performance strip — same size class as each other on purpose:
-            these are peer metrics, none more important than the rest. */}
         <Stat delay={7} className="lg:col-span-2" icon={<Clock className="w-4 h-4" />} label="Median task time" value={eta ? fmtMs(eta.globalMedianMs) : "—"} />
         <Stat delay={7} className="lg:col-span-2" icon={<TrendingUp className="w-4 h-4" />} label="Quality signal (30d)" value={quality ? `${quality.upvotes}↑ / ${quality.downvotes}↓` : "—"} />
         <Stat delay={7} className="lg:col-span-2" icon={<Hourglass className="w-4 h-4" />} label="Agent time share" value={timeA ? `${timeA.totals.pct.agent}%` : "—"} />
@@ -157,9 +180,6 @@ export function CommandCenter() {
           </div>
         </Cell>
 
-        {/* Crown Jobs — the priority tier above urgent (docs: org-tasks.ts's
-            ORG_TASK_PRIORITIES). Only rendered once there's something to show,
-            same "no clutter when idle" posture as the rest of this page. */}
         {(activeCrown.length > 0 || crownHistory.length > 0) && (
           <Cell className="lg:col-span-6" delay={7}>
             <div className="flex items-center gap-2 text-sm text-cream-300/60"><Crown className="w-4 h-4 text-fuchsia-300" /> Crown Jobs</div>
@@ -194,7 +214,7 @@ export function CommandCenter() {
               </div>
             </div>
             <div className="mt-3">
-              <Link to="/org-dashboard" className="text-violet-400 hover:text-violet-300 text-xs">Full org backlog →</Link>
+              <button type="button" onClick={onGoOrg} className="text-violet-400 hover:text-violet-300 text-xs">Full org backlog →</button>
             </div>
           </Cell>
         )}
@@ -219,26 +239,152 @@ export function CommandCenter() {
           )}
           <div className="mt-3 flex gap-4 text-xs">
             <Link to="/audit" className="text-violet-400 hover:text-violet-300">Audit log →</Link>
-            <Link to="/policies" className="text-violet-400 hover:text-violet-300">Policies →</Link>
+            <Link to="/connectors?tab=policies" className="text-violet-400 hover:text-violet-300">Policies →</Link>
           </div>
         </Cell>
       </div>
+  );
+}
+
+// Org Backlog — lifted from former OrgDashboard.tsx, now a tab inside Command Center.
+const ROLE_ORDER: OrgRole[] = ["scheduler", "admin", "researcher", "executor", "architect", "hermes-reviewer"];
+const ROLE_LABEL: Record<OrgRole, string> = {
+  scheduler: "Scheduler",
+  admin: "Admin",
+  researcher: "Researcher",
+  executor: "Executor",
+  architect: "Architect",
+  "hermes-reviewer": "Hermes Reviewer",
+};
+const ROLE_BLURB: Record<OrgRole, string> = {
+  scheduler: "Time-triggered — reminders, calendar, nudges",
+  admin: "Recurring, bounded, same-shape-every-time",
+  researcher: "Lookups, summarization, briefings",
+  executor: "Multi-step projects needing a standing plan",
+  architect: "Self-improvement — always requires approval",
+  "hermes-reviewer": "Reviews Hermes' output — always requires approval",
+};
+const STATUS_ORDER: OrgTaskStatus[] = ["backlog", "active", "blocked", "waiting-on-approval", "done"];
+const STATUS_COLOR: Record<OrgTaskStatus, string> = {
+  backlog: "bg-ink-700 text-cream-300/70",
+  active: "bg-violet-500/15 text-violet-300",
+  blocked: "bg-coral-500/15 text-coral-400",
+  "waiting-on-approval": "bg-amber-400/15 text-amber-300",
+  done: "bg-leaf-500/15 text-leaf-400",
+};
+const PRIORITY_COLOR: Record<OrgTaskPriority, string> = {
+  crown: "bg-fuchsia-500/20 text-fuchsia-300",
+  urgent: "bg-coral-500/20 text-coral-300",
+  high: "bg-amber-400/15 text-amber-300",
+  normal: "bg-ink-800 text-cream-300/50",
+  low: "bg-ink-800 text-cream-300/50",
+};
+
+function relTime(iso?: string): string {
+  if (!iso) return "";
+  const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60); if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+function OrgBacklogTab() {
+  const [tasks, setTasks] = useState<OrgTask[] | null>(null);
+  const [statusFilter, setStatusFilter] = useState<OrgTaskStatus | "">("");
+  const [expanded, setExpanded] = useState<OrgRole | null>(null);
+  const [err, setErr] = useState("");
+
+  async function load() {
+    try {
+      const r = await api.orgTasks(statusFilter ? { status: statusFilter } : undefined);
+      setTasks(r.tasks);
+      setErr("");
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+      setTasks([]);
+    }
+  }
+  useEffect(() => { void load(); const i = setInterval(load, 8000); return () => clearInterval(i); }, [statusFilter]);
+
+  const byRole = (role: OrgRole) => (tasks ?? []).filter(t => t.role === role);
+  const totalActive = (tasks ?? []).filter(t => t.status === "active" || t.status === "waiting-on-approval").length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] text-cream-300/50 uppercase tracking-wider">Filter status</span>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("")}
+          className={`text-[11px] px-2.5 py-1 rounded-full border ${statusFilter === "" ? "bg-violet-500 border-violet-500 text-white" : "border-ink-700 text-cream-300/70 hover:text-cream-100"}`}
+        >All</button>
+        {STATUS_ORDER.map(s => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setStatusFilter(s)}
+            className={`text-[11px] px-2.5 py-1 rounded-full border ${statusFilter === s ? "bg-violet-500 border-violet-500 text-white" : "border-ink-700 text-cream-300/70 hover:text-cream-100"}`}
+          >{s}</button>
+        ))}
+        <span className="text-[11px] text-cream-300/40 ml-auto">{totalActive} active or awaiting approval right now</span>
+        <button type="button" onClick={() => void load()} className="text-xs px-3 py-1.5 rounded-md border border-ink-700 hover:border-violet-500/40 text-cream-300 hover:text-cream-100 flex items-center gap-1.5 shrink-0">
+          <RefreshCw size={13} /> Refresh
+        </button>
+      </div>
+
+      {err && <div className="text-xs text-coral-400 bg-coral-500/10 border border-coral-500/30 rounded-lg px-3 py-2">{err}</div>}
+
+      {tasks === null ? (
+        <div className="text-sm text-cream-300/60">Loading…</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {ROLE_ORDER.map(role => {
+            const roleTasks = byRole(role);
+            const isOpen = expanded === role;
+            const counts = STATUS_ORDER.reduce((acc, s) => { acc[s] = roleTasks.filter(t => t.status === s).length; return acc; }, {} as Record<OrgTaskStatus, number>);
+            return (
+              <Card key={role} className={roleTasks.length > 0 ? "border-violet-500/20" : ""}>
+                <button type="button" onClick={() => setExpanded(isOpen ? null : role)} className="w-full text-left">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-medium text-cream-50">{ROLE_LABEL[role]}</div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/60 font-mono">{roleTasks.length}</span>
+                  </div>
+                  <div className="text-[11px] text-cream-300/50 mt-0.5">{ROLE_BLURB[role]}</div>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {STATUS_ORDER.filter(s => counts[s] > 0).map(s => (
+                      <span key={s} className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_COLOR[s]}`}>{s} · {counts[s]}</span>
+                    ))}
+                    {roleTasks.length === 0 && <span className="text-[10px] text-cream-300/30">idle</span>}
+                  </div>
+                </button>
+                {isOpen && roleTasks.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-ink-800 space-y-1.5 max-h-64 overflow-y-auto">
+                    {roleTasks.map(t => (
+                      <div key={t.id} className="text-xs rounded-md bg-ink-950/50 border border-ink-800 px-2.5 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_COLOR[t.status]}`}>{t.status}</span>
+                          <span className="text-cream-100 truncate flex-1">{t.title}</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${PRIORITY_COLOR[t.priority]}`}>{t.priority}</span>
+                        </div>
+                        <div className="text-cream-300/50 mt-1 flex items-center gap-1.5">
+                          <Clock size={10} /> {relTime(t.updatedAt)} · {t.createdBy}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
-// Glass look — translucent + blur + a soft violet glow (see Card.tsx's
-// "glass" variant, which this mirrors). Command Center is the dashboard the
-// blueprint's "ambient HUD" framing was written for, so it's the first place
-// this ships — same treatment as Card's glass variant, kept local here since
-// the bento cells below aren't built on <Card>.
 export const GLASS = "bg-ink-900/60 backdrop-blur-md border border-violet-500/20 shadow-[0_0_24px_-8px_rgba(139,92,246,0.25)]";
 
-// One bento cell — 12px radius (matches <Card>'s rounded-xl) so every
-// surface in the app shares the same corner curve. nw-card-hover +
-// nw-fade-up/nw-delay-N give the load-in and hover feedback the rest of
-// the app already uses (see Card.tsx, index.css) instead of inventing a
-// new motion language just for this page.
 function Cell({ children, className = "", delay }: { children: ReactNode; className?: string; delay?: number }) {
   return (
     <div className={`${GLASS} nw-card-hover nw-fade-up ${delay ? `nw-delay-${delay}` : ""} rounded-xl p-4 ${className}`}>
@@ -256,8 +402,6 @@ function Stat({ icon, label, value, tone, className = "", delay }: { icon: React
   );
 }
 
-// Sub-stat used inside a wide Cell (Spend, Governance) — no card chrome of
-// its own so grouped numbers read as one module, not cards-within-cards.
 function MiniStat({ icon, label, value, tone }: { icon?: ReactNode; label: string; value: string | number; tone?: "ok" | "warn" }) {
   return (
     <div>
@@ -267,10 +411,6 @@ function MiniStat({ icon, label, value, tone }: { icon?: ReactNode; label: strin
   );
 }
 
-// One Crown Job row — title + status, linking to the run-detail page the
-// same way Naxie.tsx / MyWork.tsx / Runs.tsx already link a job (`/runs/:id`)
-// when this OrgTask has a jobId (it won't yet if it's still on the backlog,
-// not dispatched to a Job). Falls back to a plain (non-link) row otherwise.
 function CrownTaskRow({ task }: { task: OrgTask }) {
   const tone = task.status === "done" ? "text-leaf-400" : task.status === "blocked" ? "text-coral-400" : "text-flame-400";
   const inner = (
@@ -287,7 +427,6 @@ function CrownTaskRow({ task }: { task: OrgTask }) {
   );
 }
 
-// "2h 15m" / "45m" / "30s" — same coarse formatting Cost.tsx uses.
 function fmtMs(ms: number): string {
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;

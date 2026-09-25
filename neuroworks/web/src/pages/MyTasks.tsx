@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Sun, Star, Plus, Trash2, X, Repeat, Bell, CalendarDays, ChevronDown, ChevronRight, List as ListIcon } from "lucide-react";
+import {
+  Inbox, Send, Loader2, CheckCircle2, XCircle, Play, Paperclip, Bot,
+  User as UserIcon, Clock, AlertTriangle, RotateCcw, Download,
+  FileText, ListChecks, History,
+} from "lucide-react";
 import { api, type MyTaskItem, type MyTaskList, type RepeatRule } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
+import { CalendarPage } from "./CalendarPage";
 
-// The operator's own to-do list — Microsoft To Do-style (lists, sub-steps, due
-// date, reminder, repeat, importance, "My Day"), native and offline: no
-// external account, no OAuth, nothing paid. Distinct from the Tasks page,
-// which is the agent job queue.
-
-type ViewKey = "my-day" | "important" | `list:${string}`;
+type ViewKey = "my-day" | "important" | "calendar" | `list:${string}`;
 
 function todayYmd(): string { return new Date().toISOString().slice(0, 10); }
 
@@ -27,6 +28,7 @@ export function MyTasks() {
     try { const r = await api.myTaskLists(); setLists(r.lists); } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
   }
   async function refreshItems() {
+    if (view === "calendar") { setLoaded(true); return; }
     try {
       const filter = view === "my-day" ? { myDay: true } : view === "important" ? { important: true } : { listId: view.slice(5) };
       const r = await api.myTaskItems(filter);
@@ -87,12 +89,17 @@ export function MyTasks() {
     setSelected(item);
   }
 
-  const viewTitle = view === "my-day" ? "My Day" : view === "important" ? "Important" : lists.find(l => l.id === view.slice(5))?.name ?? "List";
+  const [todayMeetings, setTodayMeetings] = useState<number | null>(null);
+  useEffect(() => {
+    if (view !== "my-day") return;
+    api.calendarAgenda(todayYmd()).then(r => setTodayMeetings(r.meetings?.length ?? 0)).catch(() => setTodayMeetings(0));
+  }, [view]);
+  const viewTitle = view === "my-day" ? "My Day" : view === "important" ? "Important" : view === "calendar" ? "Calendar" : lists.find(l => l.id === view.slice(5))?.name ?? "List";
   const viewSubtitle = view === "my-day" ? todayYmd() : undefined;
 
   return (
     <div className="flex gap-4 h-[calc(100vh-140px)]">
-      {/* Lists sidebar */}
+      {/* Lists sidebar — all planner tools in one place */}
       <div className="w-56 shrink-0 space-y-1">
         <button type="button" onClick={() => setView("my-day")}
           className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left ${view === "my-day" ? "bg-ink-800 text-cream-50" : "text-cream-300/80 hover:bg-ink-900"}`}>
@@ -101,6 +108,10 @@ export function MyTasks() {
         <button type="button" onClick={() => setView("important")}
           className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left ${view === "important" ? "bg-ink-800 text-cream-50" : "text-cream-300/80 hover:bg-ink-900"}`}>
           <Star size={15} /> Important
+        </button>
+        <button type="button" onClick={() => setView("calendar")}
+          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left ${view === "calendar" ? "bg-ink-800 text-cream-50" : "text-cream-300/80 hover:bg-ink-900"}`}>
+          <CalendarDays size={15} /> Calendar
         </button>
         <div className="pt-2 mt-2 border-t border-ink-800 space-y-1">
           {lists.map(l => (
@@ -128,40 +139,53 @@ export function MyTasks() {
         </div>
       </div>
 
-      {/* Task list */}
-      <div className="flex-1 min-w-0 flex flex-col">
-        <div className="mb-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-cream-50">{viewTitle}</h1>
-          {viewSubtitle && <p className="text-sm text-cream-300/60">{new Date(viewSubtitle + "T12:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>}
+      {/* Main panel — task list or calendar */}
+      {view === "calendar" ? (
+        <div className="flex-1 min-w-0 overflow-auto">
+          <CalendarPage />
         </div>
-
-        <div className="flex items-center gap-2 mb-3">
-          <input value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void addTask(); }}
-            placeholder="Add a task" className="flex-1 bg-ink-950 border border-ink-800 rounded-lg px-3 py-2.5 text-sm text-cream-100 focus:outline-none focus:border-violet-500/60" />
-          <Button onClick={addTask} disabled={!newTitle.trim()}><Plus size={14} /> Add</Button>
-        </div>
-
-        <div className="flex-1 overflow-auto space-y-1">
-          {loaded && incomplete.length === 0 && completed.length === 0 && (
-            <Card><div className="text-center py-10 text-cream-300/50 text-sm">Nothing here yet.</div></Card>
-          )}
-          {incomplete.map(item => <TaskRow key={item.id} item={item} onToggle={() => toggle(item)} onOpen={() => setSelected(item)} />)}
-
-          {completed.length > 0 && (
-            <div className="pt-2">
-              <button type="button" onClick={() => setShowCompleted(s => !s)} className="flex items-center gap-1.5 text-xs text-cream-300/60 hover:text-cream-100 px-1 py-1.5">
-                {showCompleted ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Completed ({completed.length})
-              </button>
-              {showCompleted && completed.map(item => <TaskRow key={item.id} item={item} onToggle={() => toggle(item)} onOpen={() => setSelected(item)} />)}
+      ) : (
+        <>
+          <div className="flex-1 min-w-0 flex flex-col">
+            <div className="mb-3">
+              <h1 className="text-2xl font-semibold tracking-tight text-cream-50">{viewTitle}</h1>
+              {viewSubtitle && <p className="text-sm text-cream-300/60">{new Date(viewSubtitle + "T12:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>}
+              {view === "my-day" && todayMeetings !== null && (
+                <div className="mt-2 inline-flex items-center gap-2 text-[11px] px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-violet-300">
+                  <CalendarDays size={11} /> {todayMeetings} meeting{todayMeetings === 1 ? "" : "s"} today · {incomplete.filter(i => i.dueDate === todayYmd()).length} tasks due
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
 
-      {selected && (
-        <TaskDetail item={selected} lists={lists} onClose={() => setSelected(null)}
-          onChange={patchLocal}
-          onDeleted={() => { setItems(prev => prev.filter(i => i.id !== selected.id)); setSelected(null); }} />
+            <div className="flex items-center gap-2 mb-3">
+              <input value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void addTask(); }}
+                placeholder="Add a task" className="flex-1 bg-ink-950 border border-ink-800 rounded-lg px-3 py-2.5 text-sm text-cream-100 focus:outline-none focus:border-violet-500/60" />
+              <Button onClick={addTask} disabled={!newTitle.trim()}><Plus size={14} /> Add</Button>
+            </div>
+
+            <div className="flex-1 overflow-auto space-y-1">
+              {loaded && incomplete.length === 0 && completed.length === 0 && (
+                <Card><div className="text-center py-10 text-cream-300/50 text-sm">Nothing here yet.</div></Card>
+              )}
+              {incomplete.map(item => <TaskRow key={item.id} item={item} onToggle={() => toggle(item)} onOpen={() => setSelected(item)} />)}
+
+              {completed.length > 0 && (
+                <div className="pt-2">
+                  <button type="button" onClick={() => setShowCompleted(s => !s)} className="flex items-center gap-1.5 text-xs text-cream-300/60 hover:text-cream-100 px-1 py-1.5">
+                    {showCompleted ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Completed ({completed.length})
+                  </button>
+                  {showCompleted && completed.map(item => <TaskRow key={item.id} item={item} onToggle={() => toggle(item)} onOpen={() => setSelected(item)} />)}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {selected && (
+            <TaskDetail item={selected} lists={lists} onClose={() => setSelected(null)}
+              onChange={patchLocal}
+              onDeleted={() => { setItems(prev => prev.filter(i => i.id !== selected.id)); setSelected(null); }} />
+          )}
+        </>
       )}
     </div>
   );
@@ -244,6 +268,23 @@ function TaskDetail({ item, lists, onClose, onChange, onDeleted }: {
     if (!confirm(`Delete "${item.title}"?`)) return;
     try { await api.removeMyTaskItem(item.id); onDeleted(); } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
   }
+  const [decomposing, setDecomposing] = useState(false);
+  async function decomposeWithNaxie() {
+    setDecomposing(true);
+    try {
+      const r = await api.chat([{ role: "user", content: `Break down this task into 3-5 short actionable steps, one per line, no numbering: "${item.title}"` + (item.notes ? `\nContext: ${item.notes}` : "") }]);
+      const lines = String(r.text ?? "").split("\n").map(s => s.replace(/^\s*[-*\d.)\s]+/, "").trim()).filter(Boolean).slice(0, 5);
+      if (lines.length === 0) { showToast("Naxie didn't return steps", "error"); return; }
+      let cur: MyTaskItem = item;
+      for (const line of lines) {
+        const res = await api.addMyTaskStep(cur.id, line);
+        cur = res.item;
+      }
+      onChange(cur);
+      showToast(`Added ${lines.length} steps via Naxie`, "success");
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setDecomposing(false); }
+  }
 
   const FIELD = "w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/60";
 
@@ -306,6 +347,9 @@ function TaskDetail({ item, lists, onClose, onChange, onDeleted }: {
         </div>
         <input value={newStep} onChange={e => setNewStep(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void addStep(); }}
           placeholder="Add a step" className={`${FIELD} mt-1.5`} />
+        <button type="button" onClick={decomposeWithNaxie} disabled={decomposing} className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/15 disabled:opacity-50">
+          {decomposing ? <Loader2 size={11} className="animate-spin" /> : <span className="text-[11px]">✦</span>} Break down with Naxie
+        </button>
       </div>
 
       <div>

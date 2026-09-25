@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Boxes, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Pencil, Lock, Unlock, Plug, Sparkles } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Boxes, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Pencil, Lock, Unlock, Plug, Sparkles, Shield } from "lucide-react";
 import { api, type Connector, type ConnectorAuthCatalog, type ConnectorAuthType, type ConnectorInput, type ConnectorCallResult, type ConnectorTemplate } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { NaxiePersonalConnectors } from "../components/NaxiePersonalConnectors";
+import { Policies } from "./Policies";
 
 // Connectors — register the company's existing systems (any HTTP API) so agents
 // can read from / act on them. Each connector stores a base URL, an auth scheme
@@ -19,6 +21,16 @@ function relTime(iso?: string): string {
 }
 
 export function Connectors() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab: "connectors" | "policies" = searchParams.get("tab") === "policies" ? "policies" : "connectors";
+  function setTab(tab: "connectors" | "policies") {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (tab === "connectors") next.delete("tab");
+      else next.set("tab", tab);
+      return next;
+    }, { replace: true });
+  }
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [authTypes, setAuthTypes] = useState<ConnectorAuthCatalog[]>([]);
   const [templates, setTemplates] = useState<ConnectorTemplate[]>([]);
@@ -54,16 +66,26 @@ export function Connectors() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Boxes size={24} /> Connectors</h1>
-        <p className="text-sm text-cream-300/70 mt-1">
-          Wire up your existing company systems so agents can read &amp; act on them. Each connector holds a base URL, an
-          auth scheme (<span className="text-cream-200">encrypted at rest</span>), and an endpoint manifest agents read before calling.
-          Calls are <span className="text-cream-200">read-only by default</span> — enable writes per connector.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Boxes size={24} /> Connectors</h1>
+          <p className="text-sm text-cream-300/70 mt-1">
+            {activeTab === "policies"
+              ? "Governance guardrails that apply to every connector call — policies prepend to each agent's system prompt."
+              : "Wire up your existing company systems so agents can read & act on them. Each connector holds a base URL, an auth scheme (encrypted at rest), and an endpoint manifest agents read before calling."}
+          </p>
+        </div>
+        <div className="flex items-center gap-1 p-1 rounded-full bg-ink-900 border border-ink-800 shrink-0">
+          <button type="button" onClick={() => setTab("connectors")} className={`text-xs px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${activeTab === "connectors" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}><Boxes size={12} /> Connectors</button>
+          <button type="button" onClick={() => setTab("policies")} className={`text-xs px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${activeTab === "policies" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}><Shield size={12} /> Policies</button>
+        </div>
       </div>
 
-      <NaxiePersonalConnectors />
+      {activeTab === "policies" ? (
+        <Policies />
+      ) : (
+        <>
+          <NaxiePersonalConnectors />
 
       <div className="flex justify-end gap-2 relative">
         {templates.length > 0 && (
@@ -162,6 +184,8 @@ export function Connectors() {
       )}
       {trying && <TryModal connector={trying} onClose={() => setTrying(null)} />}
       {connecting && <ConnectModal connector={connecting} onClose={() => setConnecting(null)} onConnected={() => { setConnecting(null); refresh(); }} />}
+        </>
+      )}
     </div>
   );
 }

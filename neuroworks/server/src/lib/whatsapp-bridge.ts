@@ -390,7 +390,7 @@ export async function startWhatsAppBridge(): Promise<void> {
         try {
           if (!msg.message || msg.key?.fromMe) continue;
           const jid: string = msg.key?.remoteJid ?? "";
-          if (!jid || jid.endsWith("@g.us") || jid === "status@broadcast") continue; // 1:1 chats only — group/status noise stays out of triage
+          if (!jid || jid.endsWith("@g.us") || jid === "status@broadcast" || jid.endsWith("@newsletter")) continue; // 1:1 chats only — group/status/channel noise stays out of triage
           const text: string =
             msg.message.conversation ??
             msg.message.extendedTextMessage?.text ??

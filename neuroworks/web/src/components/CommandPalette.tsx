@@ -73,7 +73,7 @@ export function CommandPalette() {
 
     { id: "l-templates", group: "Library", label: "Templates", icon: TemplateIcon, onSelect: go("/templates") },
     { id: "l-skills", group: "Library", label: "Skills", icon: Sparkles, onSelect: go("/skills") },
-    { id: "l-policies", group: "Library", label: "Policies", icon: CertificateIcon, onSelect: go("/policies"), keywords: "policy guardrail compliance governance instructions" },
+    { id: "l-policies", group: "Library", label: "Policies", icon: CertificateIcon, onSelect: go("/connectors?tab=policies"), keywords: "policy guardrail compliance governance instructions" },
     { id: "l-audit", group: "Library", label: "Audit Log", icon: LogIcon, onSelect: go("/extensions?tab=audit"), keywords: "security intrusion blocked ip log" },
     { id: "l-integrations", group: "Library", label: "Extensions — Integrations", icon: Plug, onSelect: go("/extensions?tab=integrations"), keywords: "connect slack telegram github notion social oauth api integrations" },
     { id: "l-connectors", group: "Library", label: "Connectors", icon: Plug, onSelect: go("/connectors"), keywords: "connect company api base url auth connectors google microsoft personal accounts email calendar" },

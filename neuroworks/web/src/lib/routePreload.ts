@@ -16,19 +16,20 @@ type Thunk = () => Promise<unknown>;
 const preloaders: Record<string, Thunk> = {
   "/naxie": () => import("../pages/Naxie"),
   "/chat": () => import("../pages/BoardMeeting"),
-  "/runs": () => import("../pages/Runs"),
-  "/approvals": () => import("../pages/AgentApprovals"),
-  "/my-tasks": () => import("../pages/MyTasks"),
-  "/calendar": () => import("../pages/CalendarPage"),
+  "/runs": () => import("../pages/MyWork"),
+  "/approvals": () => import("../pages/MyWork"),
+  "/planner": () => import("../pages/Planner"),
+  "/my-tasks": () => import("../pages/Planner"),
+  "/calendar": () => import("../pages/Planner"),
   "/schedules": () => import("../pages/Schedules"),
   "/ide": () => import("../pages/IDE"),
   "/library": () => import("../pages/Library"),
-  "/knowledge-packs": () => import("../pages/KnowledgePacks"),
   "/daily-reports": () => import("../pages/DailyReports"),
   "/templates": () => import("../pages/Templates"),
   "/skills": () => import("../pages/Skills"),
   "/extensions": () => import("../pages/Extensions"),
   "/office": () => import("../pages/Office"),
+  "/command": () => import("../pages/CommandCenter"),
   "/connectors": () => import("../pages/Connectors"),
   "/mcp-servers": () => import("../pages/McpServers"),
   "/hermes": () => import("../pages/Hermes"),
@@ -36,7 +37,7 @@ const preloaders: Record<string, Thunk> = {
   "/integrations": () => import("../pages/Integrations"),
   "/policies": () => import("../pages/Policies"),
   "/audit": () => import("../pages/AuditLog"),
-  "/org-dashboard": () => import("../pages/OrgDashboard"),
+  "/org-dashboard": () => import("../pages/CommandCenter"),
   "/cost": () => import("../pages/Extensions"),
   "/ambient": () => import("../pages/AmbientWatch"),
   "/edit": () => import("../pages/DocEditor"),
@@ -61,7 +62,7 @@ export function preloadRoute(path: string): void {
 
 /** After first paint, prefetch the routes a user almost always visits next. */
 export function preloadLikelyRoutes(): void {
-  const run = () => { preloadRoute("/chat"); preloadRoute("/runs"); };
+  const run = () => { preloadRoute("/chat"); preloadRoute("/my-work"); };
   if (typeof (window as any).requestIdleCallback === "function") {
     (window as any).requestIdleCallback(run, { timeout: 2500 });
   } else {

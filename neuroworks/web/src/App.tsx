@@ -17,13 +17,9 @@ const CommandCenter = lazy(() => import("./pages/CommandCenter").then(m => ({ de
 // Agents & Subagents
 const Office = lazy(() => import("./pages/Office").then(m => ({ default: m.Office })));
 
-// Work Queue
-const Runs = lazy(() => import("./pages/Runs").then(m => ({ default: m.Runs })));
+// Work Queue — Runs + Approvals now live inside MyWork; detail stays standalone
 const RunDetail = lazy(() => import("./pages/Runs").then(m => ({ default: m.RunDetail })));
-const AgentApprovals = lazy(() => import("./pages/AgentApprovals").then(m => ({ default: m.AgentApprovals })));
-const MyTasks = lazy(() => import("./pages/MyTasks").then(m => ({ default: m.MyTasks })));
-const Crm = lazy(() => import("./pages/Crm").then(m => ({ default: m.Crm })));
-const CalendarPage = lazy(() => import("./pages/CalendarPage").then(m => ({ default: m.CalendarPage })));
+const Planner = lazy(() => import("./pages/Planner").then(m => ({ default: m.Planner })));
 const Schedules = lazy(() => import("./pages/Schedules").then(m => ({ default: m.Schedules })));
 
 // Build
@@ -31,7 +27,6 @@ const IDE = lazy(() => import("./pages/IDE").then(m => ({ default: m.IDE })));
 
 // Memory & Knowledge
 const Library = lazy(() => import("./pages/Library").then(m => ({ default: m.Library })));
-const KnowledgePacks = lazy(() => import("./pages/KnowledgePacks").then(m => ({ default: m.KnowledgePacks })));
 const DailyReports = lazy(() => import("./pages/DailyReports").then(m => ({ default: m.DailyReports })));
 const Templates = lazy(() => import("./pages/Templates").then(m => ({ default: m.Templates })));
 const Skills = lazy(() => import("./pages/Skills").then(m => ({ default: m.Skills })));
@@ -45,9 +40,8 @@ const Hermes = lazy(() => import("./pages/Hermes").then(m => ({ default: m.Herme
 const Brands = lazy(() => import("./pages/Brands").then(m => ({ default: m.Brands })));
 const GithubAccounts = lazy(() => import("./pages/GithubAccounts").then(m => ({ default: m.GithubAccounts })));
 
-// Govern
-const Policies = lazy(() => import("./pages/Policies").then(m => ({ default: m.Policies })));
-const OrgDashboard = lazy(() => import("./pages/OrgDashboard").then(m => ({ default: m.OrgDashboard })));
+// Govern — Policies now lives as a tab inside Connectors; OrgDashboard merged into CommandCenter
+const PoliciesRedirect = () => <Navigate to="/connectors?tab=policies" replace />;
 
 // Ambient Watch — stub only, no logic yet
 const AmbientWatch = lazy(() => import("./pages/AmbientWatch").then(m => ({ default: m.AmbientWatch })));
@@ -102,14 +96,15 @@ function AppShell() {
         {/* Agents & Subagents */}
         <Route path="/office" element={<Office />} />
 
-        {/* Work Queue */}
-        <Route path="/runs" element={<Runs />} />
+        {/* Work Queue — My Work + Runs + Approvals merged into one Work page */}
+        <Route path="/runs" element={<Navigate to="/my-work?tab=runs" replace />} />
         <Route path="/runs/:jobId" element={<RunDetail />} />
-        <Route path="/approvals" element={<AgentApprovals />} />
-        <Route path="/my-tasks" element={<MyTasks />} />
+        <Route path="/approvals" element={<Navigate to="/my-work?tab=approvals" replace />} />
+        <Route path="/my-tasks" element={<Navigate to="/planner" replace />} />
         <Route path="/brands" element={<Brands />} />
-        <Route path="/crm" element={<Crm />} />
-        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/crm" element={<Navigate to="/naxie" replace />} />
+        <Route path="/planner" element={<Planner />} />
+        <Route path="/calendar" element={<Navigate to="/planner" replace />} />
         <Route path="/schedules" element={<Schedules />} />
 
         {/* Build — Home Base's "Naxion IDE" nav entry links here */}
@@ -117,7 +112,6 @@ function AppShell() {
 
         {/* Memory & Knowledge */}
         <Route path="/library/*" element={<Library />} />
-        <Route path="/knowledge-packs" element={<KnowledgePacks />} />
         <Route path="/daily-reports" element={<DailyReports />} />
         <Route path="/templates" element={<Templates />} />
         <Route path="/skills" element={<Skills />} />
@@ -132,10 +126,10 @@ function AppShell() {
         <Route path="/hermes-bridge" element={<Navigate to="/hermes" replace />} />
         <Route path="/github-accounts" element={<GithubAccounts />} />
 
-        {/* Govern */}
-        <Route path="/policies" element={<Policies />} />
+        {/* Govern — merged */}
+        <Route path="/policies" element={<PoliciesRedirect />} />
         <Route path="/audit" element={<Navigate to="/extensions?tab=audit" replace />} />
-        <Route path="/org-dashboard" element={<OrgDashboard />} />
+        <Route path="/org-dashboard" element={<Navigate to="/command?tab=org" replace />} />
         <Route path="/cost" element={<Navigate to="/extensions?tab=cost" replace />} />
         <Route path="/admin/notifications" element={<Navigate to="/audit" replace />} />
         <Route path="/admin/email-telegram" element={<Navigate to="/connectors" replace />} />
@@ -165,9 +159,10 @@ function AppShell() {
         <Route path="/orchestrate" element={<Navigate to="/office" replace />} />
         <Route path="/spin-up" element={<Navigate to="/office" replace />} />
         <Route path="/skill-forge" element={<Navigate to="/skills?tab=forge" replace />} />
-        <Route path="/governance" element={<Navigate to="/policies" replace />} />
+        <Route path="/governance" element={<Navigate to="/connectors?tab=policies" replace />} />
         <Route path="/security" element={<Navigate to="/audit" replace />} />
         <Route path="/knowledge/*" element={<Navigate to="/library" replace />} />
+        <Route path="/knowledge-packs" element={<Navigate to="/library/datasets" replace />} />
         <Route path="/data-sources" element={<Navigate to="/library/data" replace />} />
         <Route path="/terminal" element={<Navigate to="/ide" replace />} />
 

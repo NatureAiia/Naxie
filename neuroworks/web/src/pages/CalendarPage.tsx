@@ -48,8 +48,8 @@ export function CalendarPage() {
   const [personas, setPersonas] = useState<PersonaLite[]>([]);
   const [departments, setDepartments] = useState<DeptLite[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [view, setView] = useState<"done" | "routines">("done");
-  const [deptFilter, setDeptFilter] = useState<string>("all");
+  const [view, setView] = useState<"done" | "notdone" | "routines">("done");
+  const [deptFilter] = useState<string>("all");
   const [scheduling, setScheduling] = useState<Date | null>(null);
 
   const monthStart = startOfMonth(anchor);
@@ -166,32 +166,10 @@ export function CalendarPage() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setDeptFilter("all")}
-            className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border ${deptFilter === "all" ? "bg-violet-500 border-violet-500 text-white" : "border-ink-700 text-cream-300/70 hover:text-cream-100"}`}
-          >All</button>
-          {departments.map(d => {
-            const color = departmentColor(d.color ?? "slate");
-            const active = deptFilter === d.id;
-            return (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => setDeptFilter(active ? "all" : d.id)}
-                className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border inline-flex items-center gap-1.5"
-                style={active ? { backgroundColor: color, borderColor: color, color: "#fff" } : { borderColor: `${color}` , color }}
-              >
-                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: active ? "#fff" : color }} />
-                {d.name}
-              </button>
-            );
-          })}
-        </div>
+      <div className="flex items-center justify-end">
         <div className="flex items-center rounded-full border border-ink-700 overflow-hidden text-[10px] uppercase tracking-wider">
           <button type="button" onClick={() => setView("done")} className={`px-3 py-1 ${view === "done" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}>Done</button>
+          <button type="button" onClick={() => setView("notdone")} className={`px-3 py-1 ${view === "notdone" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}>Not Done</button>
           <button type="button" onClick={() => setView("routines")} className={`px-3 py-1 ${view === "routines" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}>Routines</button>
         </div>
       </div>
@@ -207,8 +185,11 @@ export function CalendarPage() {
             {grid.map((d, i) => {
               const k = ymd(d);
               const jobs = jobsOn(k);
-              const heat = jobs.length === 0 ? 0 : Math.min(1, jobs.length / maxJobsInDay);
+              const filteredJobs = view === "done" ? jobs.filter(j => j.status === "succeeded") : view === "notdone" ? jobs.filter(j => j.status !== "succeeded") : jobs;
+              const displayJobs = view === "done" || view === "notdone" ? filteredJobs : jobs;
+              const heat = displayJobs.length === 0 ? 0 : Math.min(1, displayJobs.length / maxJobsInDay);
               const dayRoutines = filteredSchedules.filter(s => s.enabled && cadenceMatchesDate(s.cadence, d));
+              const isJobsView = view === "done" || view === "notdone";
               return (
                 <button
                   key={i}
@@ -216,17 +197,17 @@ export function CalendarPage() {
                   onClick={() => setSelected(d)}
                   onDoubleClick={() => setScheduling(d)}
                   title="Click to view · double-click to schedule"
-                  className={`bg-ink-950 px-2 py-2 text-left min-h-[78px] flex flex-col gap-1 group relative nw-fade-up nw-delay-${Math.min(7, Math.floor(i / 7) + 1)} ${inMonth(d) ? "" : "opacity-50"} ${isSelected(d) ? "ring-2 ring-violet-500" : "hover:bg-ink-900"} ${view === "done" && heat > 0 ? "heat-tint" : ""}`}
-                  style={view === "done" && heat > 0 ? { "--heat": `${0.04 + heat * 0.12}` } as React.CSSProperties : undefined}
+                  className={`bg-ink-950 px-2 py-2 text-left min-h-[78px] flex flex-col gap-1 group relative nw-fade-up nw-delay-${Math.min(7, Math.floor(i / 7) + 1)} ${inMonth(d) ? "" : "opacity-50"} ${isSelected(d) ? "ring-2 ring-violet-500" : "hover:bg-ink-900"} ${isJobsView && heat > 0 ? "heat-tint" : ""}`}
+                  style={isJobsView && heat > 0 ? { "--heat": `${0.04 + heat * 0.12}` } as React.CSSProperties : undefined}
                 >
                   <div className="flex items-center justify-between">
                     <span className={`text-xs font-mono ${isToday(d) ? "bg-violet-500 text-cream-50 rounded-full w-5 h-5 grid place-items-center" : "text-cream-100"}`}>{d.getDate()}</span>
-                    {view === "done" && jobs.length > 0 && <span className="text-[9px] font-mono text-cream-300/60">{jobs.length}</span>}
+                    {isJobsView && displayJobs.length > 0 && <span className="text-[9px] font-mono text-cream-300/60">{displayJobs.length}</span>}
                   </div>
-                  {view === "done" ? (
+                  {isJobsView ? (
                     (() => {
                       const byDept = new Map<string, { dept: DeptLite; count: number }>();
-                      for (const j of jobs) {
+                      for (const j of displayJobs) {
                         const dept = deptByPersonaName.get(j.personaName) ?? GENERAL_DEPT;
                         const cur = byDept.get(dept.id);
                         if (cur) cur.count++; else byDept.set(dept.id, { dept, count: 1 });
@@ -279,6 +260,7 @@ export function CalendarPage() {
           <div className="flex justify-end">
             <Button onClick={() => setScheduling(selected)}><Plus size={12} /> Schedule for {selected.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</Button>
           </div>
+          <QuickTaskForDay date={selected} />
           <Card title={selected.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}>
             {!agenda ? (
               <div className="text-sm text-cream-300/60">Loading…</div>
@@ -369,6 +351,34 @@ function RoutinesSidebar({ schedules }: { schedules: Schedule[] }) {
         </div>
       )}
     </Card>
+  );
+}
+
+function QuickTaskForDay({ date }: { date: Date }) {
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function add() {
+    const t = title.trim();
+    if (!t) return;
+    setBusy(true);
+    try {
+      await api.addMyTaskItem({ title: t, dueDate: ymd(date) });
+      setTitle("");
+      showToast(`Task "${t}" added for ${ymd(date)}`, "success");
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter") void add(); }}
+        placeholder={`Add task for ${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}…`}
+        className="flex-1 bg-ink-950 border border-ink-800 rounded-lg px-3 py-1.5 text-xs text-cream-100 placeholder:text-cream-300/40 focus:outline-none focus:border-violet-500/60"
+      />
+      <Button onClick={add} disabled={busy || !title.trim()}><Plus size={12} /> Task</Button>
+    </div>
   );
 }
 

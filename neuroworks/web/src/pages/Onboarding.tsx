@@ -234,7 +234,6 @@ export function Onboarding() {
               <div className="text-sm text-leaf-400 flex items-center gap-2"><Check size={16} /> Workspace set up.</div>
               <ul className="text-[13px] text-cream-200/80 space-y-1 list-disc list-inside">
                 {bundleResult.departments.map(d => <li key={d.id}>{d.departmentName} — {d.personaCount} agent{d.personaCount === 1 ? "" : "s"}</li>)}
-                {bundleResult.knowledgePack.installed && <li>Knowledge pack installed ({bundleResult.knowledgePack.files.length} files)</li>}
                 {bundleResult.suggestedConnectors.length > 0 && (
                   <li>Suggested connectors — add these under Connectors: {bundleResult.suggestedConnectors.map(c => c.label).join(", ")}</li>
                 )}

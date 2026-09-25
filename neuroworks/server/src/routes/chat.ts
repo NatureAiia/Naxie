@@ -126,42 +126,37 @@ const ACTION_PATTERNS: { re: RegExp; templateId: string }[] = [
 ];
 
 chatRouter.post("/", async (req, res) => {
-  // Per-user history capture. Resolve the human caller once, then intercept
-  // res.json so every exit path of handleChat records the exchange under THAT
-  // user's id — the authoritative per-user record behind My Work and the
-  // isolation guarantee (history is only ever written to, and later served
-  // from, the calling token's own user). Token-less machine callers (peers,
-  // workers, schedulers) are not humans and are not recorded.
+  // Per-user history capture. Resolve the human caller; for single-operator
+  // local use (no sign-in) fall back to "local" so the prompt history still
+  // works without a session token. Token-less machine callers are rare on
+  // /api/chat itself, and recording them as "local" is harmless — the UI
+  // benefits from no-auth history.
   const human = callerOf(req);
-  if (human) {
-    const originalJson = res.json.bind(res);
-    (res as any).json = (body: any) => {
-      try {
-        // Record real replies only — skip error envelopes (kind:"error" /
-        // 4xx-5xx) so a failed request doesn't pollute My Work history.
-        const isError = body?.kind === "error" || (typeof res.statusCode === "number" && res.statusCode >= 400);
-        if (!isError && body && typeof body === "object" && typeof body.text === "string") {
-          const msgs = (req.body?.messages ?? []) as { role: string; content: string }[];
-          const lastUser = [...msgs].reverse().find(m => m?.role === "user")?.content?.trim();
-          if (lastUser) {
-            recordChatExchange(human.id, {
-              prompt: lastUser,
-              response: body.text,
-              kind: typeof body.kind === "string" ? body.kind : undefined,
-              jobId: typeof body.jobId === "string" ? body.jobId : undefined,
-              persona: typeof body.activePersona?.name === "string" ? body.activePersona.name : undefined,
-              sessionId: typeof req.body?.sessionId === "string" ? req.body.sessionId : undefined,
-            });
-            // Maybe summarize every 10 turns (Kuwana conversationSummary.ts)
-            void (async () => {
-              try { const { maybeUpdateConversationSummary } = await import("../lib/chat-history.js"); await maybeUpdateConversationSummary(human.id); } catch {}
-            })();
-          }
+  const historyUserId = human?.id ?? "local";
+  const originalJson = res.json.bind(res);
+  (res as any).json = (body: any) => {
+    try {
+      const isError = body?.kind === "error" || (typeof res.statusCode === "number" && res.statusCode >= 400);
+      if (!isError && body && typeof body === "object" && typeof body.text === "string") {
+        const msgs = (req.body?.messages ?? []) as { role: string; content: string }[];
+        const lastUser = [...msgs].reverse().find(m => m?.role === "user")?.content?.trim();
+        if (lastUser) {
+          recordChatExchange(historyUserId, {
+            prompt: lastUser,
+            response: body.text,
+            kind: typeof body.kind === "string" ? body.kind : undefined,
+            jobId: typeof body.jobId === "string" ? body.jobId : undefined,
+            persona: typeof body.activePersona?.name === "string" ? body.activePersona.name : undefined,
+            sessionId: typeof req.body?.sessionId === "string" ? req.body.sessionId : undefined,
+          });
+          void (async () => {
+            try { const { maybeUpdateConversationSummary } = await import("../lib/chat-history.js"); await maybeUpdateConversationSummary(historyUserId); } catch {}
+          })();
         }
-      } catch { /* history must never break the chat response */ }
-      return originalJson(body);
-    };
-  }
+      }
+    } catch { /* history must never break the chat response */ }
+    return originalJson(body);
+  };
   try {
     await handleChat(req, res);
   } catch (e: any) {
@@ -1675,9 +1670,9 @@ import { journal } from "../lib/journal.js";
 // deliverable here.
 chatRouter.get("/history", (req, res) => {
   const human = callerOf(req);
-  if (!human) return res.status(401).json({ error: "sign in to see your chat history" });
+  const userId = human?.id ?? "local";
   const limitRaw = Number(req.query?.limit ?? 50);
-  const entries = listChatHistory(human.id, Number.isFinite(limitRaw) ? limitRaw : 50);
+  const entries = listChatHistory(userId, Number.isFinite(limitRaw) ? limitRaw : 50);
   const history = entries.map(e => {
     if (!e.jobId) return { ...e, jobStatus: undefined };
     const job = loadJobById(e.jobId);
