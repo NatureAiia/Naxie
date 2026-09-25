@@ -14,6 +14,8 @@ import { config } from "../config.js";
 import { getPgPool, isPgAvailable } from "./pg-client.js";
 import { embedText } from "./embeddings.js";
 import { graphNeighbors } from "./vault-graph.js";
+import { recordRagQuery } from "./rag-telemetry.js";
+import { isOffline } from "./offline-mode.js";
 
 export type RagHit = {
   source: "vault" | "memory" | "persona" | "vault-semantic";
@@ -102,8 +104,10 @@ export async function ragSearch(query: string, limit = 8): Promise<RagHit[]> {
   const ck = ragCacheKey(q, limit);
   const cached = ragCache.get(ck);
   if (cached && Date.now() - cached.at < RAG_CACHE_TTL_MS) return cached.hits;
+  const t0 = Date.now();
   const hits: RagHit[] = [];
   const seen = new Set<string>();
+  let scanCount = 0;
 
   // 1) MiniSearch index (fast, ranked)
   try {
@@ -138,6 +142,7 @@ export async function ragSearch(query: string, limit = 8): Promise<RagHit[]> {
         if (seen.has(key)) continue;
         seen.add(key);
         hits.push({ source: "vault", path: h.path, line: h.line, preview: h.preview, score: 1 });
+        scanCount++;
         if (hits.length >= limit) break;
       }
     } catch { /* ignore */ }
@@ -160,6 +165,22 @@ export async function ragSearch(query: string, limit = 8): Promise<RagHit[]> {
   hits.sort((a, b) => b.score - a.score);
   const top = hits.slice(0, limit);
   const noted = withRelatedNotes(top);
+  // Retrieval telemetry for the weekly self-improvement review — counts are
+  // over the full candidate set (pre-limit), so "the semantic path found
+  // nothing" is distinguishable from "it found things that ranked lower".
+  recordRagQuery({
+    query: q,
+    hitCount: noted.length,
+    sources: {
+      index: hits.filter(h => h.source === "vault").length - scanCount,
+      memory: hits.filter(h => h.source === "memory").length,
+      vaultScan: scanCount,
+      vector: hits.filter(h => h.source === "vault-semantic").length,
+    },
+    topScore: noted[0]?.score ?? 0,
+    ms: Date.now() - t0,
+    vectorEnabled: config.pgvectorEnabled && config.openaiEmbeddingEnabled && !isOffline(),
+  });
   ragCache.set(ck, { at: Date.now(), hits: noted });
   // Bound cache size (avoid unbounded growth on long uptime)
   if (ragCache.size > 200) {

@@ -35,6 +35,7 @@ import { preloadRoute, preloadLikelyRoutes } from "../lib/routePreload";
 import { TerminalProvider } from "../lib/terminalContext";
 import { TerminalDrawer } from "./TerminalDrawer";
 import { NaxieWidget } from "./NaxieWidget";
+import { OfflineToggle, OfflineFooterLabel } from "./OfflineToggle";
 
 // Atom Material icons (see FileIcon.tsx) for the nav items with a clean
 // conceptual match; everything else keeps its lucide icon — there's no
@@ -360,7 +361,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="px-3 py-3 border-t border-ink-800">
-            {!collapsed && <div className="px-3 text-[10px] text-cream-300/40">local, 127.0.0.1</div>}
+            {!collapsed && <OfflineFooterLabel />}
           </div>
         </aside>
 
@@ -414,6 +415,7 @@ export function Layout({ children }: { children: ReactNode }) {
                 />
                 <span className="hidden tablet:inline">{statusLabel}</span>
               </div>
+              <OfflineToggle />
               <button
                 type="button"
                 onClick={() => {

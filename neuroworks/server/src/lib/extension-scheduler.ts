@@ -3,6 +3,7 @@ import { EXTENSION_CATALOG, testExtension } from "./extensions.js";
 import { testAllConnections } from "./integrations.js";
 import { listConnectors } from "./connectors.js";
 import { logAudit } from "./audit-log.js";
+import { isOffline } from "./offline-mode.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let lastRunAt: string | null = null;
@@ -11,6 +12,9 @@ let running = false;
 
 async function tick() {
   if (running) return;
+  // Offline mode: every external extension would "fail" — skip so the
+  // health history doesn't fill with false alerts.
+  if (isOffline()) return;
   running = true;
   try {
     const t0 = Date.now();

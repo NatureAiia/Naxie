@@ -106,6 +106,10 @@ export async function fetchWeb(url: string, opts: FetchOptions = {}): Promise<{ 
   // SECURITY: block private / loopback / metadata-service addresses to
   // prevent SSRF via a prompt-injected agent. Override with
   // NEUROWORKS_WEB_ALLOW_PRIVATE=1 for legitimate local-host fetches.
+  // Offline mode: public web is off-limits — fail fast with a clear message
+  // the agent can relay ("use the local vault instead").
+  const { assertOnline } = await import("./offline-mode.js");
+  assertOnline(url);
   const { assertSafePublicUrlAsync } = await import("./security-gates.js");
   await assertSafePublicUrlAsync(url);
   const timeoutMs = opts.timeoutMs ?? 8_000;
@@ -170,6 +174,11 @@ export type SearchHit = { title: string; url: string; snippet: string };
 
 export async function searchWeb(query: string, limit = 8): Promise<{ engine: string; results: SearchHit[]; tried: string[] }> {
   const tried: string[] = [];
+  // Offline mode: no web engines are reachable — return an empty, clearly
+  // labelled result so research flows fall back to the local vault instead
+  // of erroring through every engine in turn.
+  const { isOffline } = await import("./offline-mode.js");
+  if (isOffline()) return { engine: "offline", results: [], tried: ["offline mode — web search disabled, use the local vault"] };
   // FIRECRAWL FIRST when configured. Firecrawl's search has consistently
   // better source quality than DDG/Bing scraping (the engines we fall back
   // to often return spam SEO farms first). When the key isn't set,
@@ -368,6 +377,7 @@ export function webCacheStats() {
 const JS_RENDERED_TEXT_FLOOR = 400;  // under this many chars → suspect SPA
 
 export async function smartFetch(url: string, opts: FetchOptions & { allowBrowser?: boolean } = {}): Promise<{ status: number; contentType: string; text: string; title?: string; fromCache: boolean; usedBrowser: boolean; engine: "http" | "browser" | "firecrawl" }> {
+  { const { assertOnline } = await import("./offline-mode.js"); assertOnline(url); }
   const allowBrowser = opts.allowBrowser !== false;
   let fetchErr: Error | null = null;
   let httpResult: Awaited<ReturnType<typeof fetchWeb>> | null = null;
