@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { simpleGit } from "simple-git";
 import { config } from "../config.js";
+import { isOffline } from "./offline-mode.js";
 import { scanForSecurityRisks } from "./security.js";
 import { buildIndex, invalidateIndex, searchIndex, indexStats, isBuildInProgress } from "./vault-index.js";
 import { scheduleReembed } from "./rag-embed.js";
@@ -466,6 +467,7 @@ export async function vaultAheadBy(): Promise<number | null> {
 export async function pushOnly(): Promise<{ pushed: boolean; error?: string; aheadBy?: number }> {
   // Stale-lock sweep — defensive cleanup before touching the repo. Cheap;
   // does nothing if no lock exists or the lock is recent.
+  if (isOffline()) return { pushed: false, error: "offline mode — commits stay local until you go back online" };
   clearStaleVaultLock();
   const git = simpleGit(VAULT);
   let aheadBy: number | undefined;
@@ -528,6 +530,12 @@ export async function commitAndPush(message: string) {
   if (after.staged.length === 0) return { committed: false };
 
   await git.commit(message);
+
+  // Offline mode: the commit is durable locally; the push is flushed by
+  // pushOnly() when the operator switches back online.
+  if (isOffline()) {
+    return { committed: true, pushed: false, error: "offline mode — commit is local-only until you go back online" };
+  }
 
   // Time-box the push. Vault repos with large pack history can stall HTTP push
   // for minutes before timing out — that hangs every clawbot task. We bound at
@@ -756,6 +764,7 @@ let lastPullResult: { ok: boolean; at: string; details?: string } = { ok: false,
 const PULL_TIMEOUT_MS = 10_000;
 
 export async function pullFromOrigin(): Promise<{ ok: boolean; reason?: string; pulled?: boolean }> {
+  if (isOffline()) return { ok: false, reason: "offline mode — pull skipped" };
   if (!existsSync(VAULT)) {
     return { ok: false, reason: `vault path ${VAULT} not present (drive unmounted?)` };
   }

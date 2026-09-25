@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type OrgTask } from "../lib/api";
-import { Card } from "../components/Card";
+import { Card, showToast } from "../components/Card";
 import { useLoadMore, LoadMoreButton } from "../components/LoadMore";
 
 // Tools that carry a real external side effect — their args are shown in full
@@ -41,7 +41,12 @@ export function AgentApprovals() {
   useEffect(() => { loadOrgTasks(); const i = setInterval(loadOrgTasks, 3000); return () => clearInterval(i); }, []);
   async function resolveOrgTask(id: string, approved: boolean) {
     setOrgBusy(id); setErr("");
-    try { await api.resolveOrgTaskApproval(id, approved); await loadOrgTasks(); }
+    try {
+      const r = await api.resolveOrgTaskApproval(id, approved);
+      // Weekly-reflect proposals apply on approval — tell the operator what happened.
+      if (r.outcome) showToast(r.outcome.message, r.outcome.ok ? "success" : "error", 5000);
+      await loadOrgTasks();
+    }
     catch (e: any) { setErr(e.message); }
     finally { setOrgBusy(null); }
   }
@@ -93,6 +98,24 @@ export function AgentApprovals() {
                     <div className="mt-3 rounded-md border border-violet-500/30 bg-violet-500/5 p-3 text-xs">
                       <div className="text-[10px] uppercase tracking-wider text-violet-300/70 mb-1.5">Naxie would like to:</div>
                       <div className="text-cream-100">{t.pendingApproval?.actionDescription ?? t.detail}</div>
+                      {t.pendingApproval?.improvement && (
+                        <div className="mt-2 space-y-1.5 text-cream-300/80">
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300">{t.pendingApproval.improvement.kind}</span>
+                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-ink-850 border border-ink-700 text-cream-300/70">effort {t.pendingApproval.improvement.effort}</span>
+                            {t.pendingApproval.improvement.reviewDate && <span className="text-[9px] text-cream-300/50 py-0.5">Weekly Reflect {t.pendingApproval.improvement.reviewDate}</span>}
+                          </div>
+                          {t.pendingApproval.improvement.why && <div><span className="text-cream-300/50">Why: </span>{t.pendingApproval.improvement.why}</div>}
+                          {t.pendingApproval.improvement.implementation.length > 0 && (
+                            <div>
+                              <div className="text-cream-300/50">How we'll implement it:</div>
+                              <ol className="list-decimal ml-4 mt-0.5 space-y-0.5">
+                                {t.pendingApproval.improvement.implementation.map((step, i) => <li key={i}>{step}</li>)}
+                              </ol>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {t.pendingApproval?.diff && (
                         <pre className="mt-2 rounded-md border border-ink-700 bg-ink-950 p-2 text-[11px] font-mono overflow-x-auto whitespace-pre">
                           {t.pendingApproval.diff.split("\n").map((line, i) => {

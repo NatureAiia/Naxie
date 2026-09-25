@@ -13,6 +13,7 @@ import { listGovernance } from "../lib/governance.js";
 import { listConnectors } from "../lib/connectors.js";
 import { listConnections } from "../lib/integrations.js";
 import { listProviders } from "../lib/model-providers.js";
+import { isOffline } from "../lib/offline-mode.js";
 
 export const statusRouter = Router();
 
@@ -126,6 +127,7 @@ statusRouter.get("/", async (_req, res) => {
       ? { enabled: true, model: config.openrouterModel }
       : { enabled: false },
     port: config.port,
+    offline: isOffline(),
     inflightJobs: localInflightCount(),
     jobQueue: jobQueueStatus(),
     peers: config.peers,

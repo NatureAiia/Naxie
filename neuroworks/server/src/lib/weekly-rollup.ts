@@ -50,6 +50,15 @@ function collectScans(start: string, end: string, vaultPath: string): string[] {
   } catch { return []; }
 }
 
+function latestImprovementReview(vaultPath: string): string | null {
+  try {
+    const dir = join(vaultPath, "_neuroworks/weekly-improvements");
+    if (!existsSync(dir)) return null;
+    const files = readdirSync(dir).filter(f => f.endsWith(".md")).sort();
+    return files.length ? `_neuroworks/weekly-improvements/${files[files.length - 1]}` : null;
+  } catch { return null; }
+}
+
 export type WeeklyRollupResult = { date:string; path:string; markdown:string; generatedAt:string };
 
 let lastResult: WeeklyRollupResult|null=null;
@@ -77,6 +86,7 @@ export async function runWeeklyRollup(): Promise<WeeklyRollupResult> {
     try { const { config } = await import("../config.js"); vaultPath = config.vaultPath; } catch {}
     const refs = collectReflections(start, end, vaultPath);
     const scans = collectScans(start, end, vaultPath);
+    const latestReview = latestImprovementReview(vaultPath);
     let weatherBlock = "";
     try { const { getWeather } = await import("./host-tools.js"); weatherBlock = await getWeather("auto"); } catch {}
 
@@ -108,6 +118,10 @@ ${refs.length ? refs.map(f=>`- \`${f}\``).join("\n") : "_No reflections this wee
 ## 🔭 Innovation Scans — ${scans.length} ${scans.length===1?"scan":"scans"}
 
 ${scans.length ? scans.map(f=>`- \`${f}\``).join("\n") : "_No scans this week._"}
+
+## 🧠 Weekly Reflect
+
+${latestReview ? `Latest self-improvement review: \`${latestReview}\` — proposals wait in Agent Approvals.` : "_The self-improvement review runs after this rollup (Sunday 10:00)._"}
 
 ## 🔮 Next week — focus
 

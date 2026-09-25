@@ -11,7 +11,7 @@ import { Card } from "../components/Card";
 // version groups by role as columns so the org actually reads as an org,
 // not a single flat table.
 
-const ROLE_ORDER: OrgRole[] = ["scheduler", "admin", "researcher", "executor", "architect", "hermes-reviewer"];
+const ROLE_ORDER: OrgRole[] = ["scheduler", "admin", "researcher", "executor", "architect", "hermes-reviewer", "improver"];
 const ROLE_LABEL: Record<OrgRole, string> = {
   scheduler: "Scheduler",
   admin: "Admin",
@@ -19,6 +19,7 @@ const ROLE_LABEL: Record<OrgRole, string> = {
   executor: "Executor",
   architect: "Architect",
   "hermes-reviewer": "Hermes Reviewer",
+  improver: "Improver",
 };
 const ROLE_BLURB: Record<OrgRole, string> = {
   scheduler: "Time-triggered — reminders, calendar, nudges",
@@ -27,6 +28,7 @@ const ROLE_BLURB: Record<OrgRole, string> = {
   executor: "Multi-step projects needing a standing plan",
   architect: "Self-improvement — always requires approval",
   "hermes-reviewer": "Reviews Hermes' output — always requires approval",
+  improver: "Weekly Reflect proposals — always requires approval",
 };
 const STATUS_ORDER: OrgTaskStatus[] = ["backlog", "active", "blocked", "waiting-on-approval", "done"];
 const STATUS_COLOR: Record<OrgTaskStatus, string> = {

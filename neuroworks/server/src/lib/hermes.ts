@@ -13,6 +13,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
 import { isHermesLocal } from "./executor-mode.js";
+import { isOffline } from "./offline-mode.js";
 
 // Locate the Hermes install root (same resolution order the installer uses):
 // $HERMES_HOME, %LOCALAPPDATA%/hermes on Windows, or ~/.hermes on Unix.
@@ -95,6 +96,12 @@ export function runHermesAgent(
   } = {},
 ): Promise<HermesRunResult> {
   const bin = detectHermesBin();
+  if (isOffline() && !isHermesLocal()) {
+    return Promise.resolve({
+      answer: "Offline mode is on and Hermes is set to a cloud provider, so I couldn't run this task through it. Switch Hermes to local (Admin → Executor) or go back online.",
+      plan: { steps: [] }, runs: [], hermes: true, model: opts.model ?? config.hermesModel, elapsedMs: 0, ok: false, error: "offline mode",
+    });
+  }
   // Local mode (runtime toggle, executor-mode.ts): Hermes talks to the local
   // Ollama daemon — no key, no spend, offline-capable. Explicit opts.model
   // still wins in both modes.

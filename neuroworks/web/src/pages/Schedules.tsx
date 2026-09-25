@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Calendar, Play, Pause, Trash2, Plus, AlertTriangle, ArrowRight } from "lucide-react";
-import { api, type Schedule, type Template } from "../lib/api";
-import { Card, Button } from "../components/Card";
+import { Calendar, Play, Pause, Trash2, Plus, AlertTriangle, ArrowRight, Brain } from "lucide-react";
+import { api, type Schedule, type Template, type WeeklyImprovementStatus } from "../lib/api";
+import { Card, Button, showToast } from "../components/Card";
 import { DAY_LABELS, formatNext, formatCadence } from "../lib/scheduleFormat";
 import { DaemonLoopToggles } from "../components/DaemonLoopToggles";
 
@@ -65,6 +65,8 @@ export function Schedules() {
       )}
 
       <DailyRhythmCard schedules={schedules} />
+
+      <WeeklyReflectCard />
 
       <Card title="Background loops">
         <p className="text-sm text-cream-300/60 mb-3">
@@ -167,11 +169,12 @@ function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const [refl, scan, todo, rollup] = await Promise.all([
+      const [refl, scan, todo, rollup, improve] = await Promise.all([
         api.listReflections().catch(() => null),
         api.listInnovationScans().catch(() => null),
         api.getTodoBriefStatus().catch(() => null),
         api.getWeeklyRollupStatus().catch(() => null),
+        api.getWeeklyImprovementStatus().catch(() => null),
       ]);
       if (cancelled) return;
       const daemons: RhythmRow[] = [
@@ -179,6 +182,7 @@ function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
         { id: "innovation-scan", name: "Innovation scan", kind: "system", nextFireAt: scan?.nextFireAt ?? null, lastLabel: scan?.last?.date ? `Last ${scan.last.date}` : "Never run yet" },
         { id: "todo-brief", name: "Todo brief", kind: "system", nextFireAt: todo?.nextFireAt ?? null, lastLabel: todo?.last?.date ? `Last ${todo.last.date}` : "Never run yet" },
         { id: "weekly-rollup", name: "Weekly rollup", kind: "system", nextFireAt: rollup?.nextFireAt ?? null, lastLabel: rollup?.last?.date ? `Last ${rollup.last.date}` : "Never run yet" },
+        { id: "weekly-improvement", name: "Weekly Reflect (self-improvement)", kind: "system", nextFireAt: improve?.nextFireAt ?? null, lastLabel: improve?.last?.date ? `Last ${improve.last.date}` : "Never run yet" },
       ];
       setRows(daemons);
     }
@@ -207,7 +211,7 @@ function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
   return (
     <Card title="Daily Rhythm">
       <p className="text-xs text-cream-300/60 -mt-2 mb-3">
-        Everything that runs on a cadence, in one place — the 4 always-on background daemons plus your custom schedules below.
+        Everything that runs on a cadence, in one place — the always-on background daemons plus your custom schedules below.
       </p>
 
       <div className="flex items-end gap-px mb-4" role="img" aria-label="24-hour cadence strip">
@@ -247,6 +251,77 @@ function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
             </div>
           ))}
         </div>
+      )}
+    </Card>
+  );
+}
+
+// ── Weekly Reflect ────────────────────────────────────────────────────────
+// Naxie's weekly self-improvement review (server lib/weekly-improvement.ts):
+// looks at the whole week and proposes schedules, code changes, MCP servers,
+// CLI tools, skills and retrieval fixes — each one an approval card.
+function WeeklyReflectCard() {
+  const [status, setStatus] = useState<WeeklyImprovementStatus | null>(null);
+  const [running, setRunning] = useState(false);
+
+  async function load() {
+    try { setStatus(await api.getWeeklyImprovementStatus()); } catch { /* leave as-is */ }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function runNow() {
+    setRunning(true);
+    try {
+      const r = await api.runWeeklyImprovement();
+      showToast(r.taskIds.length ? `${r.taskIds.length} new proposal(s) waiting in Agent Approvals` : "Review written — no new proposals", "success", 4000);
+      await load();
+    } catch (e: any) {
+      showToast(e?.message ?? String(e), "error");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const last = status?.last;
+  return (
+    <Card title="Weekly Reflect">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs text-cream-300/60 -mt-2 mb-3 flex-1">
+          Every week Naxie reviews her own work — reflections, failures, retrieval health, schedules and tools — and proposes
+          what she should have next: schedules, code improvements, MCP servers, CLI tools, skills. Each proposal includes how
+          we'd build it and waits for your approval.
+        </p>
+        <Button variant="subtle" onClick={() => void runNow()} disabled={running}>
+          <span className="flex items-center gap-1.5"><Brain size={14} />{running ? "Reflecting…" : "Run now"}</span>
+        </Button>
+      </div>
+      <div className="text-[11px] text-cream-300/70 flex flex-wrap gap-x-3 gap-y-1 mb-2">
+        <span>Next: <span className="text-cream-100">{formatNext(status?.nextFireAt ?? null)}</span></span>
+        {last && <><span className="text-cream-300/40">·</span><span>Last: <span className="text-cream-100">{last.date}</span>{last.modelUsed ? ` via ${last.modelUsed}` : ""}</span></>}
+        {last && <><span className="text-cream-300/40">·</span><span className="font-mono text-cream-300/60">{last.path}</span></>}
+      </div>
+      {last?.parseFailed && (
+        <div className="text-[11px] text-coral-400 mb-2 flex items-start gap-1">
+          <AlertTriangle size={11} className="mt-0.5" /> The model's last answer couldn't be parsed — only stats and retrieval checks were filed.
+        </div>
+      )}
+      {last && last.proposals.length > 0 ? (
+        <ul className="divide-y divide-ink-800">
+          {last.proposals.map((p, i) => (
+            <li key={i} className="py-2 first:pt-0 last:pb-0 flex items-center gap-2 text-sm">
+              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300 shrink-0">{p.kind}</span>
+              <span className="text-cream-100 truncate flex-1">{p.title}</span>
+              <span className="text-[10px] text-cream-300/50 shrink-0">effort {p.effort}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-cream-300/60">{last ? "No proposals last run." : "Hasn't run yet — it fires Sundays after the weekly rollup, or click Run now."}</p>
+      )}
+      {last && last.taskIds.length > 0 && (
+        <Link to="/approvals" className="mt-3 inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-500">
+          Review proposals <ArrowRight size={11} />
+        </Link>
       )}
     </Card>
   );

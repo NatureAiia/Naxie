@@ -33,6 +33,7 @@ import { fileURLToPath } from "node:url";
 import { scanForSecurityRisks } from "./security.js";
 import { nextSkillVersion } from "./skill-version.js";
 import { logAudit } from "./audit-log.js";
+import { isOffline } from "./offline-mode.js";
 
 const SCAN_DIR = "_neuroworks/innovation-scans";
 
@@ -620,6 +621,9 @@ export function startInnovationScanScheduler(): void {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     if (now.getHours() < SCAN_HOUR || lastRunDate === today) return;
+    // Offline mode: the scan is web research — wait (it catches up the same
+    // day once back online) rather than write an empty scan.
+    if (isOffline()) return;
     try {
       const { existsSync, readdirSync, statSync } = await import("node:fs");
       const { join } = await import("node:path");
