@@ -151,7 +151,7 @@ export type OperatorIdentity = {
   name: string; email: string; title?: string; sector?: string; orgName?: string; language: string; summary: string;
 };
 
-export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect" | "hermes-reviewer";
+export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect" | "hermes-reviewer" | "improver";
 export type OrgTaskStatus = "backlog" | "active" | "blocked" | "waiting-on-approval" | "done";
 export type OrgTaskPriority = "low" | "normal" | "high" | "urgent" | "crown";
 export type OrgTask = {
@@ -166,8 +166,26 @@ export type OrgTask = {
   createdAt: string;
   updatedAt: string;
   createdBy: "naxie" | "user" | "daemon";
-  pendingApproval?: { actionDescription: string; kind: string; requestedAt: string; diff?: string };
+  pendingApproval?: { actionDescription: string; kind: string; requestedAt: string; diff?: string; improvement?: ImprovementProposal };
 };
+
+export type ImprovementKind = "schedule" | "code" | "mcp" | "cli" | "skill" | "retrieval" | "other";
+export type ImprovementProposal = {
+  kind: ImprovementKind;
+  title: string;
+  why: string;
+  implementation: string[];
+  effort: "S" | "M" | "L";
+  payload?: Record<string, unknown>;
+  reviewDate?: string;
+};
+
+export type WeeklyImprovementStatus = {
+  last: { date: string; path: string; generatedAt: string; modelUsed?: string; proposals: { kind: ImprovementKind; title: string; effort: string }[]; taskIds: string[]; parseFailed: boolean } | null;
+  nextFireAt: number | null;
+};
+
+export type OfflineModeState = { offline: boolean; since?: string };
 
 export type QualityFlag = {
   jobId: string;
@@ -285,7 +303,7 @@ export const api = {
     return req<{ tasks: OrgTask[] }>(`/api/org-tasks${qs ? `?${qs}` : ""}`);
   },
   resolveOrgTaskApproval: (id: string, approved: boolean) =>
-    req<{ task: OrgTask }>(`/api/org-tasks/${encodeURIComponent(id)}/resolve`, { method: "PATCH", body: JSON.stringify({ approved }) }),
+    req<{ task: OrgTask; outcome?: { ok: boolean; message: string } }>(`/api/org-tasks/${encodeURIComponent(id)}/resolve`, { method: "PATCH", body: JSON.stringify({ approved }) }),
   brainLatestDigest: () => req<{ content: string }>("/api/brain/digest/latest"),
   brainPromote: (path: string, opts?: { title?: string; tags?: string; keepOriginal?: boolean }) => req<{ promoted: true; from: string; to: string; archived: boolean }>("/api/brain/promote", { method: "POST", body: JSON.stringify({ path, ...opts }) }),
   brainDiscard: (path: string) => req<{ deleted: string[]; count: number }>("/api/brain/discard", { method: "POST", body: JSON.stringify({ path }) }),
@@ -307,6 +325,12 @@ export const api = {
   // Daily Rhythm — the two daemons with no other HTTP surface of their own.
   getTodoBriefStatus: () => req<{ last: any; nextFireAt: number | null }>("/api/todo-brief"),
   getWeeklyRollupStatus: () => req<{ last: any; nextFireAt: number | null }>("/api/weekly-rollup"),
+  // Weekly self-improvement review ("Weekly Reflect") — proposals land in Agent Approvals.
+  getWeeklyImprovementStatus: () => req<WeeklyImprovementStatus>("/api/weekly-improvement"),
+  runWeeklyImprovement: () => req<{ date: string; path: string; proposals: number; taskIds: string[]; modelUsed?: string; parseFailed: boolean }>("/api/weekly-improvement/run", { method: "POST", body: JSON.stringify({}) }),
+  // Offline mode — header "Go offline" switch (local + LAN only).
+  offlineMode: () => req<OfflineModeState>("/api/offline-mode"),
+  setOfflineMode: (offline: boolean) => req<OfflineModeState>("/api/offline-mode", { method: "POST", body: JSON.stringify({ offline }) }),
   listSystemAudits: () => req<{ audits: { date: string; path: string; preview: string; stats?: any }[]; last?: any; inventory: any }>("/api/system-audit"),
   runSystemAudit: () => req<{ date: string; path: string; stats: any; report: string; generatedAt: string; modelUsed?: string }>("/api/system-audit/run", { method: "POST", body: JSON.stringify({}) }),
   getSystemAudit: (date: string) => req<{ date: string; path: string; body: string }>(`/api/system-audit/${encodeURIComponent(date)}`),

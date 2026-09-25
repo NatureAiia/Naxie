@@ -83,7 +83,7 @@ let inFlight: Promise<ReflectionResult> | null = null;
 // Dedupe by id. Disk wins over memory wins over peers, since disk
 // reflects FINAL status; in-memory may be mid-run; peer responses are a
 // snapshot in time.
-async function collectJobsInWindow(windowStartMs: number, windowEndMs: number): Promise<Job[]> {
+export async function collectJobsInWindow(windowStartMs: number, windowEndMs: number): Promise<Job[]> {
   const seen = new Set<string>();
   const out: Job[] = [];
   // LAST record per id wins. The journal is append-only: a job persists once
@@ -141,7 +141,7 @@ async function collectJobsInWindow(windowStartMs: number, windowEndMs: number): 
   return out;
 }
 
-function aggregate(jobs: Job[], windowStartMs: number, windowEndMs: number): DailyStats {
+export function aggregate(jobs: Job[], windowStartMs: number, windowEndMs: number): DailyStats {
   const date = new Date(windowStartMs).toISOString().slice(0, 10);
   const byKind: DailyStats["byKind"] = {};
   const byTemplate: Record<string, { total: number; ok: number; failed: number; totalSec: number }> = {};

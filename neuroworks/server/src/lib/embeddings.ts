@@ -8,6 +8,7 @@
 // module — one concern, one file, easy to find.
 
 import { config } from "../config.js";
+import { isOffline, isLocalUrl } from "./offline-mode.js";
 
 const EMBEDDING_MODEL = config.openaiEmbeddingModel;
 // OpenAI's /v1/embeddings accepts a batch of inputs per call; keep batches
@@ -30,6 +31,9 @@ export async function embedText(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
   if (!config.openaiEmbeddingEnabled) {
     throw new EmbeddingsUnavailable("OPENAI_EMBEDDING_API_KEY not set");
+  }
+  if (isOffline() && !isLocalUrl(config.openaiEmbeddingBaseUrl)) {
+    throw new EmbeddingsUnavailable("offline mode");
   }
 
   const out: number[][] = [];

@@ -31,6 +31,7 @@ import { startInnovationScanScheduler, stopInnovationScanScheduler } from "./lib
 import { startSystemAuditScheduler, stopSystemAuditScheduler, startWeeklyBoardScheduler, stopWeeklyBoardScheduler } from "./lib/system-audit.js";
 import { startTodoBriefScheduler, stopTodoBriefScheduler } from "./lib/todo-brief.js";
 import { startWeeklyRollupScheduler, stopWeeklyRollupScheduler } from "./lib/weekly-rollup.js";
+import { startWeeklyImprovementScheduler, stopWeeklyImprovementScheduler } from "./lib/weekly-improvement.js";
 import { startWikiCompileScheduler, stopWikiCompileScheduler, startWikiDigestScheduler, stopWikiDigestScheduler } from "./lib/wiki-compile.js";
 import { ensureAgentsMdExists } from "./lib/agents-routing.js";
 import { abortInflightJobs } from "./lib/jobs.js";
@@ -38,6 +39,7 @@ import { reflectionRouter } from "./routes/reflection.js";
 import { innovationScanRouter } from "./routes/innovation-scan.js";
 import { todoBriefRouter } from "./routes/todo-brief.js";
 import { weeklyRollupRouter } from "./routes/weekly-rollup.js";
+import { weeklyImprovementRouter } from "./routes/weekly-improvement.js";
 import { systemAuditRouter } from "./routes/system-audit.js";
 import { wikiCompileRouter } from "./routes/wiki-compile.js";
 import { skillsRouter } from "./routes/skills.js";
@@ -51,6 +53,8 @@ import { schedulesRouter } from "./routes/schedules.js";
 import { startScheduleScheduler, stopScheduleScheduler } from "./lib/schedules.js";
 import { hostToolsRouter } from "./routes/host-tools.js";
 import { daemonSettingsRouter } from "./routes/daemon-settings.js";
+import { offlineModeRouter } from "./routes/offline-mode.js";
+import { installOfflineNetworkGuard, onOfflineChange, isOffline } from "./lib/offline-mode.js";
 import { orgTasksRouter } from "./routes/org-tasks.js";
 import { oauthConnectorsRouter } from "./routes/oauth-connectors.js";
 import { localFolderRouter } from "./routes/local-folder.js";
@@ -113,6 +117,23 @@ import { applyRagOverrides } from "./lib/rag-config.js";
 // Fail-fast: refuse to boot on a fatal misconfiguration (bad port, SERVE_WEB
 // without a build, missing required env in production). No-op warnings locally.
 validateConfig();
+// Offline mode (header "Go offline" button) — wrap fetch + outbound sockets
+// before any background job can open a connection. Local + LAN stay allowed.
+installOfflineNetworkGuard();
+onOfflineChange((offline) => {
+  void (async () => {
+    try { const { clearConnectivityCache } = await import("./lib/connectivity.js"); clearConnectivityCache(); } catch { /* best-effort */ }
+    if (!offline) {
+      // Back online — flush vault commits that stayed local while offline.
+      try {
+        const { pushOnly } = await import("./lib/vault.js");
+        const r = await pushOnly();
+        console.log(`[offline-mode] back online — vault push ${r.pushed ? "ok" : `deferred (${r.error ?? "unknown"})`}`);
+      } catch (e: any) { console.warn(`[offline-mode] vault push after reconnect failed: ${e?.message ?? e}`); }
+    }
+  })();
+});
+if (isOffline()) console.log("  ⓘ offline mode is ON — internet disabled, local + LAN only");
 // UI-settable vector-store credentials (see routes/extensions.ts's /rag/config)
 // win over whatever config.ts already picked from .env — apply them before
 // anything reads config.pgvectorEnabled/openaiEmbeddingEnabled.
@@ -248,6 +269,7 @@ app.use("/api/reflection", reflectionRouter);
 app.use("/api/innovation-scan", innovationScanRouter);
 app.use("/api/todo-brief", todoBriefRouter);
 app.use("/api/weekly-rollup", weeklyRollupRouter);
+app.use("/api/weekly-improvement", weeklyImprovementRouter);
 app.use("/api/system-audit", systemAuditRouter);
 app.use("/api/wiki-compile", wikiCompileRouter);
 app.use("/api/skills", skillsRouter);
@@ -260,6 +282,7 @@ app.use("/api/workforce", workforceRouter);
 app.use("/api/schedules", schedulesRouter);
 app.use("/api/host-tools", hostToolsRouter);
 app.use("/api/daemon-settings", daemonSettingsRouter);
+app.use("/api/offline-mode", offlineModeRouter);
 app.use("/api/org-tasks", orgTasksRouter);
 app.use("/api/local-folder", localFolderRouter); // "My documents" indexing — native replacement for naxionai/backend's local-folder endpoints
 app.use("/api/governance", governanceRouter);
@@ -597,6 +620,14 @@ const server = app.listen(config.port, config.bindHost, async () => {
     console.log(`  ⓘ weekly rollup scheduler armed (dow=${process.env.NEUROWORKS_WEEKLY_ROLLUP_DOW ?? "0"} hour=${process.env.NEUROWORKS_WEEKLY_ROLLUP_HOUR ?? "9"})`);
   }
 
+  // Weekly self-improvement review ("Weekly Reflect") Sundays 10am — right
+  // after the rollup. Proposes schedules/code/MCP/CLI/skills/retrieval fixes
+  // as approval cards; nothing auto-applies.
+  if (process.env.NEUROWORKS_WEEKLY_IMPROVEMENT !== "0" && config.role === "primary") {
+    startWeeklyImprovementScheduler();
+    console.log(`  ⓘ weekly self-improvement review armed (dow=${process.env.NEUROWORKS_WEEKLY_IMPROVEMENT_DOW ?? "0"} hour=${process.env.NEUROWORKS_WEEKLY_IMPROVEMENT_HOUR ?? "10"})`);
+  }
+
   // Second-brain wiki compile — distills raw captures (_archive/) into
   // compiled wiki entries (_wiki/) nightly, then emails/toasts a morning
   // digest a few hours later. Same primary-only, opt-out convention as
@@ -717,6 +748,8 @@ async function gracefulExit(signal: string) {
   try { stopTodoBriefScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopWeeklyRollupScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopWeeklyImprovementScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopWikiCompileScheduler(); stopWikiDigestScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }

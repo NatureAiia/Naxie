@@ -204,7 +204,10 @@ function flagIfGovernanceSensitive(filePath: string, rationale: string): string 
 // pending-approval OrgTask with the resulting proposal. Never writes to
 // disk, never runs shell/git, never auto-applies — see docs §7 and the
 // module header above.
-export async function runArchitectReview(): Promise<{ created: boolean; taskId?: string; reason?: string }> {
+// `focus` — an operator-approved improvement (from the weekly
+// self-improvement review) the architect should turn into a concrete diff,
+// instead of picking its own target. The diff is still its own approval.
+export async function runArchitectReview(opts: { focus?: string } = {}): Promise<{ created: boolean; taskId?: string; reason?: string }> {
   const auditContext = queryAudit({ limit: 30 }).events
     .map(e => `${e.ts} [${e.level}] ${e.actor} ${e.action} ${e.target} — ${e.result}`)
     .join("\n");
@@ -216,7 +219,10 @@ export async function runArchitectReview(): Promise<{ created: boolean; taskId?:
   const sourceFilesRead: string[] = [];
   let auditQueried = false;
   let orgTasksQueried = false;
-  let transcript = `Recent audit log (most recent first, up to 30):\n${auditContext || "(empty)"}\n\nRecent OrgTasks (up to 20):\n${orgTaskContext || "(empty)"}\n\nBegin. Call a tool.`;
+  const focusBlock = opts.focus
+    ? `The operator approved this improvement — implement it (or the smallest first step of it) as your ONE proposal:\n${opts.focus.slice(0, 3000)}\n\n`
+    : "";
+  let transcript = focusBlock + `Recent audit log (most recent first, up to 30):\n${auditContext || "(empty)"}\n\nRecent OrgTasks (up to 20):\n${orgTaskContext || "(empty)"}\n\nBegin. Call a tool.`;
 
   for (let step = 0; step < MAX_TOOL_LOOP_STEPS; step++) {
     const call = await callArchitectLLM(transcript);

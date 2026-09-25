@@ -3,6 +3,7 @@ import { pickModelFor, type TaskNeeds } from "./models.js";
 import { openrouterGenerateWithMeta, openrouterHealth, isTransientError, openrouterCircuitOpen, openrouterDailyQuotaExhausted, openrouterBillingExhausted } from "./openrouter.js";
 import { recordLlmCost, recordLlmFailure } from "./cost-tracker.js";
 import { isCloudReachableCached } from "./connectivity.js";
+import { isOffline } from "./offline-mode.js";
 
 export type LLMCallOptions = {
   model?: string;
@@ -152,6 +153,15 @@ async function chooseBackendAndModel(opts: LLMCallOptions, prompt: string, syste
   // the effort dial.
   const sizeTriggered = isTooBigForLocal(prompt, system);
   const isComplex = isComplexCall(opts, sizeTriggered);
+
+  // Offline mode (Settings → header "Go offline"): never route to a cloud
+  // provider or its fallback pool — local Ollama only, sized by profile.
+  if (isOffline()) {
+    const model = opts.model && !looksRemote(opts.model)
+      ? opts.model
+      : opts.profile ? await pickModelFor(opts.profile, config.ollamaModel) : config.ollamaModel;
+    return { backend: "ollama", model, reason: "offline mode — local model only" };
+  }
 
   if (opts.model) {
     if (looksRemote(opts.model) && config.openrouterEnabled) {
@@ -491,3 +501,6 @@ export async function llmHealth(): Promise<{
     primary,
   };
 }
+
+// Test hook — routing decision only, no generation.
+export const _chooseBackendAndModelForTests = chooseBackendAndModel;

@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { presentApproval, handleApprovalReply } from "./action-approvals.js";
+import { isOffline } from "./offline-mode.js";
 
 const BASE = `http://127.0.0.1:${config.port}`;
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -670,6 +671,9 @@ export async function startTelegramBridge(): Promise<void> {
   void (async () => {
     while (!abort) {
       refreshLock(); // keep the single-poller lease alive
+      // Offline mode: pause the long-poll quietly instead of erroring every
+      // few seconds; resumes on its own once the operator goes back online.
+      if (isOffline()) { state.lastError = "offline mode — paused"; await sleep(15_000); continue; }
       try {
         const res = await tg(token, "getUpdates", { offset, timeout: pollTimeout, allowed_updates: ["message", "channel_post", "callback_query"] }, (pollTimeout + 10) * 1000);
         if (res?.ok && Array.isArray(res.result)) {

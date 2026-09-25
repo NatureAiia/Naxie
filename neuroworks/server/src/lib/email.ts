@@ -30,6 +30,7 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { importBinaryIntoVault, writeVaultFile } from "./vault.js";
 import { extractDocText } from "./doc-extractor.js";
 import { enqueueVaultCommit } from "./commit-queue.js";
+import { isOffline } from "./offline-mode.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
@@ -1150,6 +1151,7 @@ export async function startEmailBridge(): Promise<void> {
     }
 
     const tick = async () => {
+      if (isOffline()) return; // offline mode — IMAP polling paused
       if (pollingAccounts.has(account.id)) return;
       pollingAccounts.add(account.id);
       try {

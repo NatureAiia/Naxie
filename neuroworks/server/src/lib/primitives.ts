@@ -26,6 +26,7 @@ import {
 } from "./host-tools.js";
 import { publishDataset, listDatasets } from "./adrs.js";
 import { acquire as omniAcquire, acquireAndPublish as omniAcquirePublish, type OmniSpec } from "./omnisignal.js";
+import { isOffline } from "./offline-mode.js";
 
 export type ArgSpec = { name: string; type: "string" | "number" | "boolean"; required: boolean; description: string };
 
@@ -3263,6 +3264,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "timeoutMs", type: "number", required: false, description: "Wall budget for the Hermes call (default 240000, max 600000)" },
     ],
     handler: async (args) => {
+      if (isOffline()) throw new Error("offline mode — hermes.delegate needs the internet; answer from the local vault and local model instead");
       const { existsSync } = await import("node:fs");
       const path = await import("node:path");
       const { spawn } = await import("node:child_process");

@@ -4,6 +4,7 @@
 // timeout and caches the result for 45s so every Naxie turn doesn't pay a probe.
 
 import { config } from "../config.js";
+import { isOffline } from "./offline-mode.js";
 
 let cache: { at: number; online: boolean } | null = null;
 const TTL_MS = 45_000;
@@ -31,6 +32,7 @@ async function probeUrl(url: string): Promise<boolean> {
 }
 
 export async function isCloudReachable(): Promise<boolean> {
+  if (isOffline()) return false;
   if (!config.openrouterEnabled) return false;
   if (cache && Date.now() - cache.at < TTL_MS) return cache.online;
   // Probe the configured base URL's /models endpoint if it looks like
@@ -54,6 +56,7 @@ export async function isCloudReachable(): Promise<boolean> {
 }
 
 export function isCloudReachableCached(): boolean | null {
+  if (isOffline()) return false;
   if (!cache || Date.now() - cache.at >= TTL_MS) return null;
   return cache.online;
 }

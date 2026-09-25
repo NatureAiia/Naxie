@@ -9,7 +9,7 @@ import { listOrgTasks, getOrgTask, resolveApproval, ORG_TASK_PRIORITIES, type Or
 
 export const orgTasksRouter = Router();
 
-const VALID_ROLES: OrgRole[] = ["scheduler", "researcher", "executor", "admin", "architect", "hermes-reviewer"];
+const VALID_ROLES: OrgRole[] = ["scheduler", "researcher", "executor", "admin", "architect", "hermes-reviewer", "improver"];
 const VALID_STATUSES: OrgTaskStatus[] = ["backlog", "active", "blocked", "waiting-on-approval", "done"];
 
 // Pure — exported for testing. An unrecognized or absent value silently
@@ -40,9 +40,18 @@ orgTasksRouter.get("/:id", (req, res) => {
 // approved:true moves it back to active (the caller runs the approved action
 // separately, same division of responsibility as Job); approved:false moves
 // it to blocked so a rejection doesn't silently vanish from the board.
-orgTasksRouter.patch("/:id/resolve", (req, res) => {
+orgTasksRouter.patch("/:id/resolve", async (req, res) => {
   const approved = req.body?.approved;
   if (typeof approved !== "boolean") return res.status(400).json({ error: "body.approved (boolean) is required" });
+  // Weekly self-improvement proposals carry their own apply step — approving
+  // one actually creates the schedule / queues the reindex / hands the code
+  // change to the architect, then marks the task done (or blocked on error).
+  if (getOrgTask(req.params.id)?.role === "improver") {
+    const { resolveImprovementApproval } = await import("../lib/weekly-improvement.js");
+    const out = await resolveImprovementApproval(req.params.id, approved);
+    if (!out) return res.status(404).json({ error: "org task not found, or not currently waiting-on-approval" });
+    return res.json(out);
+  }
   const task = resolveApproval(req.params.id, approved);
   if (!task) return res.status(404).json({ error: "org task not found, or not currently waiting-on-approval" });
   res.json({ task });

@@ -2,7 +2,7 @@
 // be tracked, routed, and executed reliably instead of getting lost in one
 // undifferentiated job list. See docs/naxie-architecture.md §3-§5.
 //
-// The six roles (scheduler/researcher/executor/admin/architect/hermes-reviewer)
+// The seven roles (scheduler/researcher/executor/admin/architect/hermes-reviewer/improver)
 // are pure implementation detail — Naxie never names them in conversation (§0, §8).
 // This store exists so the org's internals are inspectable via the
 // diagnostics dashboard (§8.5) and so approvals/audit have something
@@ -26,14 +26,14 @@ const FILE = join(STATE_DIR, "org-tasks.json");
 
 // Single-user product (docs/naxie-architecture.md §0) — deliberately no
 // ownerId anywhere in this module.
-export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect" | "hermes-reviewer";
+export type OrgRole = "scheduler" | "researcher" | "executor" | "admin" | "architect" | "hermes-reviewer" | "improver";
 export type OrgTaskStatus = "backlog" | "active" | "blocked" | "waiting-on-approval" | "done";
 export type OrgTaskPriority = "low" | "normal" | "high" | "urgent" | "crown";
 // Ascending rank — single source of truth for both request validation
 // (routes/naxie.ts) and the priority-first sort in listOrgTasks() below, so
 // a future 6th tier only needs updating here.
 export const ORG_TASK_PRIORITIES: readonly OrgTaskPriority[] = ["low", "normal", "high", "urgent", "crown"];
-export type PendingApprovalKind = "external-comms" | "spend" | "calendar-external" | "host-tool" | "architect-change" | "hermes-review" | "other";
+export type PendingApprovalKind = "external-comms" | "spend" | "calendar-external" | "host-tool" | "architect-change" | "hermes-review" | "improvement" | "other";
 
 // Architect-specific proposal payload (docs/naxie-architecture.md §7) — a
 // self-contained code-change proposal riding alongside the plain-language
@@ -61,6 +61,21 @@ export type HermesReviewProposal = {
   suggestedAction?: string;
 };
 
+// Weekly self-improvement proposal (lib/weekly-improvement.ts) — one
+// suggested schedule / code change / MCP server / CLI tool / skill /
+// retrieval fix, with the evidence behind it and how it would be built.
+// Approving it runs applyImprovementProposal(); nothing auto-applies.
+export type ImprovementKind = "schedule" | "code" | "mcp" | "cli" | "skill" | "retrieval" | "other";
+export type ImprovementProposal = {
+  kind: ImprovementKind;
+  title: string;
+  why: string;
+  implementation: string[];
+  effort: "S" | "M" | "L";
+  payload?: Record<string, unknown>;
+  reviewDate?: string; // the weekly review that produced it
+};
+
 export type PendingApproval = {
   actionDescription: string;   // plain language, e.g. "Send email to X saying Y" — never names the internal role
   kind: PendingApprovalKind;
@@ -68,6 +83,7 @@ export type PendingApproval = {
   diff?: string;               // optional unified-diff-format text for review UIs
   proposal?: ArchitectProposal; // Architect-only: structured diff/rationale payload
   hermesReview?: HermesReviewProposal; // Hermes-reviewer-only: structured critique payload
+  improvement?: ImprovementProposal;    // Improver-only: weekly self-improvement proposal
 };
 
 export type OrgTask = {
@@ -105,6 +121,10 @@ export const ROLE_AUTONOMY: Record<OrgRole, { autonomous: readonly AutonomyCateg
   // external, less-trusted agent, so nothing it produces auto-applies. It
   // only ever writes a critique into the approval queue for a human to read.
   "hermes-reviewer": { autonomous: ["read", "own-backlog-update"], alwaysRequiresApproval: true },
+  // Weekly self-improvement review — proposes changes to the whole system
+  // (schedules, code, MCP, CLI, skills, retrieval). Same unconditional gate
+  // as architect: every proposal is a pending-approval card.
+  improver: { autonomous: ["read", "own-backlog-update"], alwaysRequiresApproval: true },
 };
 
 // The one rule with no override anywhere in this system (docs §5, §7): a
