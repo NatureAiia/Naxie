@@ -441,7 +441,7 @@ const PLAN_TIMEOUT_MS = Number(process.env.NEUROWORKS_PLAN_TIMEOUT_MS ?? "18000"
 // hints don't reach).
 const VAULT_FIRST_RULE = "\n\nIdentity rule: always search the vault (vault.search) before answering from general training data. If the vault, a connected database, or a connector already has the answer, use it and cite it — never answer a business question from memory when the operator's own systems cover it.\n";
 
-export async function plan(task: string, _personaSystemSuffix?: string, push?: (msg: string) => void, workMode?: "agent" | "hybrid" | "human", learn?: { taskKind?: string; persona?: string }): Promise<Plan> {
+export async function plan(task: string, _personaSystemSuffix?: string, push?: (msg: string) => void, workMode?: "agent" | "hybrid" | "human", learn?: { taskKind?: string; persona?: string }, toolAllowlist?: string[]): Promise<Plan> {
   // Persona deliberately omitted from the TOOL CHOICE prompt: tool selection
   // is mechanical and must not be gated by role. (Head of AI asking about
   // NeuroWorks is still allowed to search the vault.) The persona colors the
@@ -718,7 +718,7 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   } catch { /* optional */ }
 
   // Compact catalog: ~40% smaller prompt → faster planning on small models.
-  const sys = injectLanguagePrompt(PLAN_SYSTEM, "plan") + primitivesPromptCatalog({ compact: true }) + vaultContext + researchContext + companyDataContext + agentsRoutingContext + localFsContext + githubContext + emailContext + socialContext + activityContext + memoryContext + financeContext + orgContext + imageGenContext + mediaSendContext + scheduleContext + explicitToolContext + workModeContext + fanOutContext + learnedContext;
+  const sys = injectLanguagePrompt(PLAN_SYSTEM, "plan") + primitivesPromptCatalog({ compact: true, allowlist: toolAllowlist }) + vaultContext + researchContext + companyDataContext + agentsRoutingContext + localFsContext + githubContext + emailContext + socialContext + activityContext + memoryContext + financeContext + orgContext + imageGenContext + mediaSendContext + scheduleContext + explicitToolContext + workModeContext + fanOutContext + learnedContext;
 
 
   // Race the planner LLM call against PLAN_TIMEOUT_MS. If the LLM stalls,
@@ -761,6 +761,10 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   for (const s of json.steps) {
     if (!s || typeof s.tool !== "string") continue;
     if (!findPrimitive(s.tool)) continue;
+    // Suspenders: the catalog above already hid disallowed tools from the
+    // prompt, but a model can still hallucinate a tool name it saw in
+    // training data or an earlier turn in this same conversation.
+    if (toolAllowlist && toolAllowlist.length > 0 && !toolAllowlist.includes(s.tool)) continue;
     const args = s.args ?? {};
     steps.push({ tool: s.tool, args, rationale: s.rationale, label: humanStepLabel(s.tool, args) });
   }
@@ -862,7 +866,7 @@ const FATAL_ERROR_RE = /\b(?:401|403|model not found|model not pulled|API key|in
 // more, longer-spaced attempt would likely have recovered them.
 const STEP_RETRY_BACKOFF_MS = [1500, 4000, 8000];
 
-export async function executePlan(p: Plan, push: (msg: string) => void, onProgress?: (runs: StepRun[]) => void, signal?: AbortSignal, scopeId?: string, callerPersonaId?: string): Promise<{ runs: StepRun[]; hadWrites: boolean; budgets?: { llm: number; io: number; idlePeers: number }; subagentTimings?: { wave: number; elapsedMs: number; ioCount: number; llmCount: number }[]; cancelled?: boolean; delegatedApproval?: { tools: string[]; plan?: Plan } }> {
+export async function executePlan(p: Plan, push: (msg: string) => void, onProgress?: (runs: StepRun[]) => void, signal?: AbortSignal, scopeId?: string, callerPersonaId?: string, toolAllowlist?: string[]): Promise<{ runs: StepRun[]; hadWrites: boolean; budgets?: { llm: number; io: number; idlePeers: number }; subagentTimings?: { wave: number; elapsedMs: number; ioCount: number; llmCount: number }[]; cancelled?: boolean; delegatedApproval?: { tools: string[]; plan?: Plan } }> {
   // Per-run offload archive id — see context-offload.ts. Large step-result
   // fields get archived under .neuroworks/offload/<offloadRunId>/ and
   // replaced in the running history with a short preview, so steps 2..N of
@@ -909,6 +913,14 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
   async function runStep(i: number) {
     if (aborted || signal?.aborted) return;
     const step = p.steps[i];
+    // Tool-allowlist scoping (workflow-tree.ts) — rejected here too, not just
+    // in plan()'s step-validation, since preplan/custom-template replays skip
+    // plan() entirely and go straight to executePlan.
+    if (toolAllowlist && toolAllowlist.length > 0 && !toolAllowlist.includes(step.tool)) {
+      runs[i] = { step, ok: false, durationMs: 0, error: `tool "${step.tool}" is not in this task's allowlist` };
+      onProgress?.([...runs]);
+      return;
+    }
     const tool = findPrimitive(step.tool)!;
     const args = resolveArgs(step.args, runs);
     push(`Step ${i + 1} of ${p.steps.length}: ${step.label ?? step.tool}`);
@@ -1323,7 +1335,7 @@ export async function planAndExecute(
   task: string,
   push: (msg: string) => void,
   onProgress?: (patch: Partial<AgentResult> & { phase?: string }) => void,
-  opts: { personaSystemSuffix?: string; autoReview?: boolean; preplan?: Plan; workMode?: "agent" | "hybrid" | "human"; testMode?: boolean; signal?: AbortSignal; skipApprovalGate?: boolean; taskKind?: string; persona?: string; personaId?: string; scopeId?: string } = {},
+  opts: { personaSystemSuffix?: string; autoReview?: boolean; preplan?: Plan; workMode?: "agent" | "hybrid" | "human"; testMode?: boolean; signal?: AbortSignal; skipApprovalGate?: boolean; taskKind?: string; persona?: string; personaId?: string; scopeId?: string; toolAllowlist?: string[] } = {},
 ): Promise<AgentResult> {
   // Human-worker gate: a hire whose workMode is "human" doesn't get an agent
   // loop at all — the task is logged, parked in waiting_on_human, and the
@@ -1404,7 +1416,7 @@ export async function planAndExecute(
     const { runs, hadWrites } = await executePlan(p, push, (rs) => {
       runsBuffer.splice(0, runsBuffer.length, ...rs);
       onProgress?.({ runs: [...rs] });
-    }, undefined, opts.scopeId, opts.personaId);
+    }, undefined, opts.scopeId, opts.personaId, opts.toolAllowlist);
     const preplanHumanReq = extractHumanRequest(runs);
     if (preplanHumanReq) {
       return { task, plan: p, runs, answer: humanWaitAnswer(preplanHumanReq), hadWrites, humanRequest: preplanHumanReq };
@@ -1921,7 +1933,7 @@ export async function planAndExecute(
     push(`Synthesising from the attached context.`);
   } else {
     push(`Thinking about the best approach…`);
-    p = await plan(task, opts.personaSystemSuffix, push, opts.workMode, { taskKind: opts.taskKind, persona: opts.persona });
+    p = await plan(task, opts.personaSystemSuffix, push, opts.workMode, { taskKind: opts.taskKind, persona: opts.persona }, opts.toolAllowlist);
   }
   if (p.steps.length === 0 && !taskHasAttachments) {
     // Vault-first fallback uses bareTask so extractTopic doesn't fold the
@@ -2066,7 +2078,7 @@ export async function planAndExecute(
 
   onProgress?.({ phase: "executing", plan: p, runs: [] });
 
-  const { runs, hadWrites, budgets, subagentTimings, cancelled, delegatedApproval } = await executePlan(p, push, (runs) => onProgress?.({ runs: [...runs] }), opts.signal, opts.scopeId, opts.personaId);
+  const { runs, hadWrites, budgets, subagentTimings, cancelled, delegatedApproval } = await executePlan(p, push, (runs) => onProgress?.({ runs: [...runs] }), opts.signal, opts.scopeId, opts.personaId, opts.toolAllowlist);
   if (budgets) onProgress?.({ budgets, subagentTimings });
 
   // A delegated sub-task parked for approval — re-park THIS (parent) job. Carry

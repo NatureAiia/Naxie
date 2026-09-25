@@ -4727,9 +4727,18 @@ export function findPrimitive(name: string): Primitive | undefined {
   return primitives.find(p => p.name === name);
 }
 
-export function primitivesPromptCatalog(opts: { compact?: boolean } = {}): string {
+export function primitivesPromptCatalog(opts: { compact?: boolean; allowlist?: string[] } = {}): string {
   const compact = opts.compact === true;
-  return primitives.map(p => {
+  // Tool-allowlist scoping (workflow-tree.ts nodes, personas, templates —
+  // see docs/naxie-architecture "Phase 0/1/2"): when a caller resolves a
+  // scoped subset, hide everything else from the planner prompt entirely
+  // (belt) — plan()'s step-validation loop is the suspenders. Absent/empty
+  // allowlist means "no scoping" — every existing caller keeps seeing the
+  // full catalog exactly as before this option existed.
+  const pool = opts.allowlist && opts.allowlist.length > 0
+    ? primitives.filter(p => opts.allowlist!.includes(p.name))
+    : primitives;
+  return pool.map(p => {
     if (compact) {
       // Compact mode: just args by name (drop types) and the first sentence of
       // the description. Cuts the planner prompt by ~40% without losing the

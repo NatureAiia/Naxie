@@ -29,7 +29,8 @@ import { ensureAllPersonasHaveTemplates } from "./lib/persona-templates.js";
 import { startReflectionScheduler, stopReflectionScheduler } from "./lib/reflection.js";
 import { startInnovationScanScheduler, stopInnovationScanScheduler } from "./lib/innovation-scan.js";
 import { startSystemAuditScheduler, stopSystemAuditScheduler, startWeeklyBoardScheduler, stopWeeklyBoardScheduler } from "./lib/system-audit.js";
-import { startTodoBriefScheduler, stopTodoBriefScheduler } from "./lib/todo-brief.js";
+import { startTodoBriefScheduler, stopTodoBriefScheduler, runTodoBrief } from "./lib/todo-brief.js";
+import { startWorkflowTreeScheduler, stopWorkflowTreeScheduler, registerNativeHandler, seedNodeIfMissing } from "./lib/workflow-tree.js";
 import { startWeeklyRollupScheduler, stopWeeklyRollupScheduler } from "./lib/weekly-rollup.js";
 import { startWeeklyImprovementScheduler, stopWeeklyImprovementScheduler } from "./lib/weekly-improvement.js";
 import { startWikiCompileScheduler, stopWikiCompileScheduler, startWikiDigestScheduler, stopWikiDigestScheduler } from "./lib/wiki-compile.js";
@@ -603,8 +604,24 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // report, then the 8am innovation scan.
   // Primary-only. Disable with NEUROWORKS_TODO_BRIEF=0.
   if (process.env.NEUROWORKS_TODO_BRIEF !== "0" && config.role === "primary") {
-    startTodoBriefScheduler();
-    console.log(`  ⓘ todo brief scheduler armed (hour=${process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"}, delivers to Telegram if connected)`);
+    // Phase 0 proof migration (see docs/naxie-architecture's tree-model
+    // plan): with NEUROWORKS_WORKFLOW_TREE=1, todo-brief is driven by the
+    // generic _workflows/ tree engine instead of its own bespoke scheduler.
+    // Default stays off for one release so a revert is this one env var,
+    // not a code rollback — see lib/workflow-tree.ts's header comment.
+    if (process.env.NEUROWORKS_WORKFLOW_TREE === "1") {
+      registerNativeHandler("todo-brief", () => runTodoBrief());
+      seedNodeIfMissing(
+        "_workflows/ops-daemons/todo-brief",
+        `id: todo-brief\nenabled: true\ncadence:\n  daysOfWeek: []\n  hour: ${process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"}\n  minute: 0\ntools:\n  - vault.write\ndata:\n  - _neuroworks/\noutputPath: "_neuroworks/todo-briefs/{date}.md"\nhandler: "native:todo-brief"`,
+        "Daily todo brief — today's tasks + remaining for the week, with weather and a Top 3. Migrated from lib/todo-brief.ts's own scheduler as the Phase 0 proof (see lib/workflow-tree.ts).",
+      );
+      startWorkflowTreeScheduler();
+      console.log(`  ⓘ todo brief now driven by the workflow tree (_workflows/ops-daemons/todo-brief, edit its task.md to change cadence)`);
+    } else {
+      startTodoBriefScheduler();
+      console.log(`  ⓘ todo brief scheduler armed (hour=${process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"}, delivers to Telegram if connected)`);
+    }
   }
 
   // MD Weekly Board — Monday 08:00, convenes on latest audit's top improvements
@@ -755,6 +772,8 @@ async function gracefulExit(signal: string) {
   try { stopWeeklyBoardScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopTodoBriefScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopWorkflowTreeScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopWeeklyRollupScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
