@@ -14,7 +14,7 @@ const EDITABLE_ARGS: Record<string, string[]> = {
   "connector.call": ["connector", "id", "path", "endpoint"],
 };
 
-export function AgentApprovals() {
+export function AgentApprovals({ embedded = false }: { embedded?: boolean }) {
   const [jobs, setJobs] = useState<any[]>([]);
   const jobList = useLoadMore(jobs);
   const [busy, setBusy] = useState<string | null>(null);
@@ -81,10 +81,12 @@ export function AgentApprovals() {
 
   return (
     <div className="space-y-6">
+      {!embedded && (
       <div>
         <h1 className="font-display text-3xl text-cream-50">Agent Approvals</h1>
         <p className="text-sm text-cream-300/70 mt-1">When an agent wants to write to GitHub or your vault, it asks here for you to greenlight it first.</p>
       </div>
+      )}
 
       {orgTasks.length > 0 && (
         <ul className="space-y-2">

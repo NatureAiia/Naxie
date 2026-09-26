@@ -43,8 +43,8 @@ export function NaxieResultCard({ turn, onReplay, onDismiss, onApprove, onReject
           <span className={compact ? "text-[11px] text-cream-100" : "text-sm text-cream-100"}>{turn.text}</span>
         </div>
         {forcesFullPage ? (
-          <Link to="/approvals" className={`text-amber-300 hover:text-amber-200 font-medium ${compact ? "text-[11px]" : "text-sm"}`}>
-            This needs a real look — review on Approvals →
+          <Link to="/my-work" className={`text-amber-300 hover:text-amber-200 font-medium ${compact ? "text-[11px]" : "text-sm"}`}>
+            This needs a real look — review in My Inbox →
           </Link>
         ) : taskId && onApprove && onReject ? (
           <div className="flex items-center gap-2">
@@ -60,7 +60,7 @@ export function NaxieResultCard({ turn, onReplay, onDismiss, onApprove, onReject
             ><X size={compact ? 11 : 12} /> Reject</button>
           </div>
         ) : (
-          <Link to="/approvals" className={`text-amber-300 hover:text-amber-200 font-medium ${compact ? "text-[11px]" : "text-sm"}`}>Review on Approvals →</Link>
+          <Link to="/my-work" className={`text-amber-300 hover:text-amber-200 font-medium ${compact ? "text-[11px]" : "text-sm"}`}>Review in My Inbox →</Link>
         )}
       </div>
     );

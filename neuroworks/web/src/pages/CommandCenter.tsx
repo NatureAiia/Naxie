@@ -149,7 +149,7 @@ function OverviewTab({ onGoOrg }: { onGoOrg: () => void }) {
           )}
           <div className="mt-3 flex gap-4 text-xs">
             <Link to="/runs" className="text-violet-400 hover:text-violet-300">All runs →</Link>
-            <Link to="/approvals" className="text-violet-400 hover:text-violet-300">Approvals →</Link>
+            <Link to="/my-work" className="text-violet-400 hover:text-violet-300">Inbox →</Link>
           </div>
         </Cell>
 

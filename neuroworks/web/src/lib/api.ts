@@ -821,7 +821,7 @@ export type AccessLayer = "superadmin" | "admin" | "staff";
 export const layerOfRole = (role?: UserRole): AccessLayer =>
   role === "superadmin" ? "superadmin" : role === "admin" ? "admin" : "staff";
 export type UserStatus = "active" | "invited" | "disabled" | "pending";
-export type WorkMode = "agent" | "hybrid" | "human";
+export type WorkMode = "agent" | "hybrid";
 export type User = {
   id: string;
   name: string;

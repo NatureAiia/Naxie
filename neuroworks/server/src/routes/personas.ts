@@ -30,7 +30,7 @@ personasRouter.post("/", requireLayer("admin"), async (req, res) => {
     tone: meta.tone,
     responsibilities: meta.responsibilities,
     systemPromptOverride: systemPromptOverride ? String(systemPromptOverride) : undefined,
-    workMode: (["agent", "hybrid", "human"] as const).includes(workMode as any) ? workMode : undefined,
+    workMode: (["agent", "hybrid"] as const).includes(workMode as any) ? workMode : (workMode as string) === "human" ? "hybrid" as any : undefined,
     createdAt: new Date().toISOString(),
   };
   addPersona(persona);
@@ -57,7 +57,7 @@ personasRouter.post("/", requireLayer("admin"), async (req, res) => {
   res.json({ persona, generatedTemplateIds: generated.map(g => g.id) });
 });
 
-// Patch an existing hire — primarily the work mode (agent / hybrid / human),
+// Patch an existing hire — primarily the work mode (agent / hybrid),
 // plus tone/description tweaks from the Workforce page.
 personasRouter.patch("/:id", requireLayer("admin"), (req, res) => {
   const p = updatePersona(String(req.params.id), req.body ?? {});

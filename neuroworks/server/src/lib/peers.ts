@@ -1,6 +1,18 @@
 import { config } from "../config.js";
 import { listJobs } from "./jobs.js";
 import { listActivePeers, noteHealthResult } from "./peer-registry.js";
+import { isOffline, isLocalHost } from "./offline-mode.js";
+
+// Offline mode = local + LAN only. Remote peers are unreachable by design
+// (the network guard blocks them), so don't even consider them — only LAN
+// peers can take work while offline.
+function offlinePeerFilter<T extends { url: string }>(peers: T[]): T[] {
+  if (!isOffline()) return peers;
+  return peers.filter(p => {
+    try { return isLocalHost(new URL(p.url).hostname); }
+    catch { return false; }
+  });
+}
 
 export type PeerInfo = {
   url: string;
@@ -51,7 +63,7 @@ export function localInflightCount(): number {
 // Pick the peer with the lowest inflight count. Returns null if no peer is
 // reachable+ready, or every peer is at least as busy as we are.
 export async function pickLightestIdlePeer(localInflight = localInflightCount()): Promise<PeerInfo | null> {
-  const all = await pollPeers();
+  const all = offlinePeerFilter(await pollPeers());
   const candidates = all.filter(p => p.ok && p.ready);
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => (a.inflightJobs ?? 0) - (b.inflightJobs ?? 0));
@@ -66,7 +78,7 @@ export async function pickLightestIdlePeer(localInflight = localInflightCount())
 // rest sat idle. Sorting by inflightJobs distributes across the role pool so
 // every available worker actually executes tasks.
 export async function pickPeerByRole(role: string): Promise<PeerInfo | null> {
-  const all = await pollPeers();
+  const all = offlinePeerFilter(await pollPeers());
   const matches = all.filter(p => p.ok && p.ready && (p.role ?? "").toLowerCase() === role.toLowerCase());
   if (matches.length === 0) return null;
   matches.sort((a, b) => (a.inflightJobs ?? 0) - (b.inflightJobs ?? 0));
@@ -97,7 +109,7 @@ export type RoutingDecision = {
 
 export async function pickExecutor(opts: { preferRole?: string; localInflight?: number } = {}): Promise<RoutingDecision> {
   const localInflight = opts.localInflight ?? localInflightCount();
-  const all = await pollPeers();
+  const all = offlinePeerFilter(await pollPeers());
   const live = all.filter(p => p.ok && p.ready);
   const candidates = all.map(p => ({
     url: p.url, role: p.role, inflight: p.inflightJobs ?? 0,
@@ -327,7 +339,7 @@ export async function delegateToPeer(peer: PeerInfo, args: {
 // elapsed time so the caller can show provenance in the UI.
 export async function delegateToBestPeer(args: { task: string; persona?: string }): Promise<any> {
   const peer = await pickLightestIdlePeer();
-  if (!peer) throw new Error("no idle peer available");
+  if (!peer) throw new Error(isOffline() ? "no idle LAN peer available (offline mode — Naxie works locally only)" : "no idle peer available");
   const base = peer.url.replace(/\/+$/, "");
   const t0 = Date.now();
   await preflightPing(base, (peer as any).name);

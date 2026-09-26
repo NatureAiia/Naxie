@@ -21,6 +21,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
+import { isOffline, OfflineError } from "./offline-mode.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const MEDIA_DIR = resolve(__dirname, "../../../.neuroworks/media");
@@ -266,6 +267,10 @@ async function muapiGenerate(prompt: string, opts: StudioImageOptions): Promise<
 // configured (the primitive turns that into a friendly message).
 export async function generateStudioImage(prompt: string, opts: StudioImageOptions = {}): Promise<StudioImageResult> {
   if (!prompt.trim()) throw new Error("studio-image: prompt is required");
+  // All image providers are cloud (Ideogram / Muapi / OpenRouter) — Ollama
+  // is text-only. Fail fast with a clear message instead of letting the
+  // fetch hit the offline guard mid-flight.
+  if (isOffline()) throw new OfflineError("image provider (offline mode — Naxie uses local models only)");
   const provider = resolveProvider(opts.provider);
   if (!provider) {
     throw new Error("no image provider configured — image generation needs IDEOGRAM_API_KEY or MUAPI_API_KEY, or an active OpenRouter provider (Integrations)");

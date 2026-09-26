@@ -384,7 +384,7 @@ function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dorman
     risks.push(`${usage.orgTasks.blocked} OrgTasks blocked — work is accumulating without resolution`);
   }
   if (usage.orgTasks.staleApprovals > 3) {
-    improvements.push({ area: "Approvals", issue: `${usage.orgTasks.staleApprovals} items waiting on approval — bottleneck`, evidence: `waiting-on-approval=${usage.orgTasks.staleApprovals}`, recommendation: "Clear approval queue on /approvals — stale approvals block downstream work.", effort: "S", priority: "high" });
+    improvements.push({ area: "Approvals", issue: `${usage.orgTasks.staleApprovals} items waiting on approval — bottleneck`, evidence: `waiting-on-approval=${usage.orgTasks.staleApprovals}`, recommendation: "Clear approval queue in My Inbox (/my-work) — stale approvals block downstream work.", effort: "S", priority: "high" });
     risks.push(`Approval bottleneck: ${usage.orgTasks.staleApprovals} tasks parked waiting-on-approval`);
   }
   if (usage.orgTasks.total === 0) {

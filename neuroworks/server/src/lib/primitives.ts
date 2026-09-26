@@ -3480,7 +3480,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "personas.list",
-    description: "List the organization's AI agents (personas / neuros) — id, name, role title, one-line description, job description, responsibilities, department lane, and work mode (agent / hybrid / human). THE source for 'what agents do we have?', 'how are agents integrated into the org?', org-design or job-description tasks that must reflect the real agent workforce. Use together with users.list (humans) and org.* (reporting lines) to see the whole organization.",
+    description: "List the organization's AI agents (personas / neuros) — id, name, role title, one-line description, job description, responsibilities, department lane, and work mode (agent / hybrid). THE source for 'what agents do we have?', 'how are agents integrated into the org?', org-design or job-description tasks that must reflect the real agent workforce. Use together with users.list (humans) and org.* (reporting lines) to see the whole organization.",
     readonly: true,
     args: [],
     handler: async () => {
@@ -3504,7 +3504,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "personas.manage",
-    description: "Create, update, or retire an org persona (agent/hire). NAXIE-ONLY — any other caller is refused. Every call pauses for the operator's approval before it runs (see Approvals), so use this to PROPOSE a roster change, not to sneak one through. action=\"create\" needs name+jobDescription; action=\"update\" needs personaId + one or more of tone/description/role/systemPromptOverride/workMode(agent|hybrid|human); action=\"retire\" needs personaId and permanently deletes that persona + its generated templates (built-in personas can't be retired). Use personas.list first to find the right personaId and to justify the change with real usage evidence (e.g. a system-audit dormancy finding).",
+    description: "Create, update, or retire an org persona (agent/hire). NAXIE-ONLY — any other caller is refused. Every call pauses for the operator's approval before it runs (see Approvals), so use this to PROPOSE a roster change, not to sneak one through. action=\"create\" needs name+jobDescription; action=\"update\" needs personaId + one or more of tone/description/role/systemPromptOverride/workMode(agent|hybrid); action=\"retire\" needs personaId and permanently deletes that persona + its generated templates (built-in personas can't be retired). Use personas.list first to find the right personaId and to justify the change with real usage evidence (e.g. a system-audit dormancy finding).",
     readonly: false,
     args: [
       { name: "action", type: "string", required: true, description: "\"create\" | \"update\" | \"retire\"" },
@@ -3515,7 +3515,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "description", type: "string", required: false, description: "One-line summary" },
       { name: "tone", type: "string", required: false, description: "e.g. \"concise · warm · formal\"" },
       { name: "systemPromptOverride", type: "string", required: false, description: "Override the generated system prompt" },
-      { name: "workMode", type: "string", required: false, description: "\"agent\" | \"hybrid\" | \"human\"" },
+      { name: "workMode", type: "string", required: false, description: "\"agent\" | \"hybrid\"" },
       { name: "reason", type: "string", required: true, description: "Why this change — cite the evidence (e.g. a system-audit finding, usage stats)" },
     ],
     handler: async (args) => {
@@ -3543,7 +3543,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
           tone: meta.tone,
           responsibilities: meta.responsibilities,
           systemPromptOverride: args.systemPromptOverride ? String(args.systemPromptOverride) : undefined,
-          workMode: (["agent", "hybrid", "human"] as const).includes(args.workMode as any) ? (args.workMode as "agent" | "hybrid" | "human") : undefined,
+          workMode: (["agent", "hybrid"] as const).includes(args.workMode as any) ? (args.workMode as "agent" | "hybrid") : (args.workMode as string) === "human" ? "hybrid" as const : undefined,
           createdAt: new Date().toISOString(),
         };
         addPersona(persona);

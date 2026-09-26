@@ -123,7 +123,17 @@ installOfflineNetworkGuard();
 onOfflineChange((offline) => {
   void (async () => {
     try { const { clearConnectivityCache } = await import("./lib/connectivity.js"); clearConnectivityCache(); } catch { /* best-effort */ }
-    if (!offline) {
+    if (offline) {
+      // Going offline — Hermes must run on the local model too (its cloud
+      // path would just fail). The operator can switch it back manually.
+      try {
+        const { getExecutorConfig, setExecutorConfig } = await import("./lib/executor-mode.js");
+        if (!getExecutorConfig().hermesLocal) {
+          setExecutorConfig({ hermesLocal: true });
+          console.log("[offline-mode] Hermes switched to local model (offline — local models only)");
+        }
+      } catch { /* best-effort */ }
+    } else {
       // Back online — flush vault commits that stayed local while offline.
       try {
         const { pushOnly } = await import("./lib/vault.js");
@@ -453,11 +463,12 @@ const server = app.listen(config.port, config.bindHost, async () => {
         .then(() => console.log(`  ✓ warmed ${model} in ${Math.round((Date.now() - t0) / 1000)}s`))
         .catch((e: any) => console.warn(`  ⚠ warm-up failed for ${model}: ${e?.message ?? e}`));
     }
-    // Pre-warm OpenRouter too if configured. First OR request pays a DNS+TLS
+    // Pre-warm OpenRouter too if configured (skipped offline — Naxie uses
+    // local models only). First OR request pays a DNS+TLS
     // round-trip (~500-1000ms) — warming it knocks that off the first user
     // task. We hit the cheap default model; a tiny 5-token prompt is
     // sufficient to establish the TLS session.
-    if (config.openrouterEnabled) {
+    if (config.openrouterEnabled && !isOffline()) {
       const t0 = Date.now();
       void import("./lib/openrouter.js").then(m =>
         m.openrouterGenerate("ok", "Reply with a single word.", { model: config.openrouterModel, maxTokens: 4 })

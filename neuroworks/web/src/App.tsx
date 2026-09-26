@@ -96,10 +96,10 @@ function AppShell() {
         {/* Agents & Subagents */}
         <Route path="/office" element={<Office />} />
 
-        {/* Work Queue — My Work + Runs + Approvals merged into one Work page */}
+        {/* Work Queue — My Work + Runs merged into one Work page; approvals live in the Inbox */}
         <Route path="/runs" element={<Navigate to="/my-work?tab=runs" replace />} />
         <Route path="/runs/:jobId" element={<RunDetail />} />
-        <Route path="/approvals" element={<Navigate to="/my-work?tab=approvals" replace />} />
+        <Route path="/approvals" element={<Navigate to="/my-work" replace />} />
         <Route path="/my-tasks" element={<Navigate to="/planner" replace />} />
         <Route path="/brands" element={<Brands />} />
         <Route path="/crm" element={<Navigate to="/naxie" replace />} />

@@ -12,6 +12,7 @@ import { newOffloadRun, offloadLargeFields, recoverFullText } from "./context-of
 import { listSources as listDataSources, getSourceByLabel } from "./data-sources.js";
 import { appendMissionNote, dailyScopeId } from "./mission-log.js";
 import type { OrgTaskPriority } from "./org-tasks.js"; // type-only — erased at runtime, no import cycle
+import { isOffline } from "./offline-mode.js";
 
 // Shared local-filesystem detector — "does this task point at a file on the
 // operator's PC?" Used at three points (the planner's system-prompt hint,
@@ -441,7 +442,7 @@ const PLAN_TIMEOUT_MS = Number(process.env.NEUROWORKS_PLAN_TIMEOUT_MS ?? "18000"
 // hints don't reach).
 const VAULT_FIRST_RULE = "\n\nIdentity rule: always search the vault (vault.search) before answering from general training data. If the vault, a connected database, or a connector already has the answer, use it and cite it — never answer a business question from memory when the operator's own systems cover it.\n";
 
-export async function plan(task: string, _personaSystemSuffix?: string, push?: (msg: string) => void, workMode?: "agent" | "hybrid" | "human", learn?: { taskKind?: string; persona?: string }): Promise<Plan> {
+export async function plan(task: string, _personaSystemSuffix?: string, push?: (msg: string) => void, workMode?: "agent" | "hybrid", learn?: { taskKind?: string; persona?: string }): Promise<Plan> {
   // Persona deliberately omitted from the TOOL CHOICE prompt: tool selection
   // is mechanical and must not be gated by role. (Head of AI asking about
   // NeuroWorks is still allowed to search the vault.) The persona colors the
@@ -684,6 +685,16 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   const workModeContext = workMode === "hybrid"
     ? `\n\nHybrid role context: this hire is part agent, part human. Split the work deliberately — plan agent steps for everything the catalog can do, and add ONE human.request step (with typed items) for the parts that genuinely need the person: internal figures not in the vault/connectors/databases, judgment calls, sign-offs, offline actions, or documents only they hold. Do NOT fabricate content to avoid asking.\n`
     : "";
+  // Offline-mode hint: Naxie runs local-only (Ollama + vault + memory +
+  // LAN peers). The planner must NOT emit cloud steps — no web.search /
+  // web.scrape / research.deep / research.multiperspective (no internet),
+  // no media.image (cloud image providers), no peer.delegate unless the
+  // peer is on the local network, no email.send/whatsapp.send/social.post
+  // (all need the internet). Answer from the vault, memory, local files,
+  // and the local model; say plainly when something needs reconnecting.
+  const offlineContext = isOffline()
+    ? `\n\nOffline mode is ON — Naxie is working locally only (local Ollama models, vault, memory, local files, LAN peers). Plan LOCAL steps only: vault.search, vault.read, memory.search, memory.recall, fs.*, db.query, connector.call (local connectors only), ollama.generate, quality.check. Do NOT plan web.search, web.scrape, web.fetch of public URLs, research.deep, research.multiperspective, media.image, email.send, whatsapp.*, social.post, or peer.delegate to a non-local peer — all of those need the internet and will fail. If the task genuinely cannot be done offline, return an empty plan and say plainly what needs reconnecting instead of planning cloud steps.\n`
+    : "";
   // Learned context — the reinforcement loop. Quality (Feature A): if past runs
   // of this task-kind/persona score low on a specific quality axis, steer this
   // plan to fix it. Bottlenecks (Feature B): if reflection recorded a recurring
@@ -718,7 +729,7 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   } catch { /* optional */ }
 
   // Compact catalog: ~40% smaller prompt → faster planning on small models.
-  const sys = injectLanguagePrompt(PLAN_SYSTEM, "plan") + primitivesPromptCatalog({ compact: true }) + vaultContext + researchContext + companyDataContext + agentsRoutingContext + localFsContext + githubContext + emailContext + socialContext + activityContext + memoryContext + financeContext + orgContext + imageGenContext + mediaSendContext + scheduleContext + explicitToolContext + workModeContext + fanOutContext + learnedContext;
+  const sys = injectLanguagePrompt(PLAN_SYSTEM, "plan") + primitivesPromptCatalog({ compact: true }) + offlineContext + vaultContext + researchContext + companyDataContext + agentsRoutingContext + localFsContext + githubContext + emailContext + socialContext + activityContext + memoryContext + financeContext + orgContext + imageGenContext + mediaSendContext + scheduleContext + explicitToolContext + workModeContext + fanOutContext + learnedContext;
 
 
   // Race the planner LLM call against PLAN_TIMEOUT_MS. If the LLM stalls,
@@ -1323,21 +1334,11 @@ export async function planAndExecute(
   task: string,
   push: (msg: string) => void,
   onProgress?: (patch: Partial<AgentResult> & { phase?: string }) => void,
-  opts: { personaSystemSuffix?: string; autoReview?: boolean; preplan?: Plan; workMode?: "agent" | "hybrid" | "human"; testMode?: boolean; signal?: AbortSignal; skipApprovalGate?: boolean; taskKind?: string; persona?: string; personaId?: string; scopeId?: string } = {},
+  opts: { personaSystemSuffix?: string; autoReview?: boolean; preplan?: Plan; workMode?: "agent" | "hybrid"; testMode?: boolean; signal?: AbortSignal; skipApprovalGate?: boolean; taskKind?: string; persona?: string; personaId?: string; scopeId?: string } = {},
 ): Promise<AgentResult> {
-  // Human-worker gate: a hire whose workMode is "human" doesn't get an agent
-  // loop at all — the task is logged, parked in waiting_on_human, and the
-  // person does the work. The system's job here is tracking (who owes what,
-  // for how long), not doing.
-  if (opts.workMode === "human") {
-    const hr: HumanRequest = {
-      items: [{ type: "action", prompt: `Complete this task and report back with the outcome or deliverable: ${parseUserRequestFromTask(task).slice(0, 600)}` }],
-      reason: "This role is staffed by a human worker — the system tracks the work; a person performs it.",
-      requestedAt: new Date().toISOString(),
-    };
-    push(`This hire is a human worker — parking the task in the waiting queue instead of running the agent loop.`);
-    return { task, plan: { steps: [] }, runs: [], answer: humanWaitAnswer(hr), hadWrites: false, humanRequest: hr };
-  }
+  // Legacy "human" workMode (pre agents+hybrid-only system) is treated as
+  // hybrid — you + agents working together. No human-only parking anymore.
+  if ((opts.workMode as string) === "human") opts.workMode = "hybrid";
   // CRITICAL: every heuristic below MUST run against the bare user text, not
   // the enriched task (which is prefixed with persona framing + thread
   // context + interpretation/deliverable blocks). Otherwise:
@@ -3551,6 +3552,21 @@ export function defaultVaultPlan(task: string, opts: { hasAttachments?: boolean 
     };
   }
   const topic = extractTopic(task);
+  // Offline mode: research.deep needs the internet — fall back to a
+  // vault-only search so the last-resort path still answers from local
+  // notes instead of planning a cloud step that instantly fails.
+  if (isOffline()) {
+    return {
+      steps: [{
+        tool: "vault.search",
+        args: { query: topic },
+        rationale: "default fallback (offline): search local vault only — no internet",
+        label: humanStepLabel("vault.search", { query: topic }),
+      }],
+      summary: `Default offline plan for: ${topic}`,
+      waves: [[0]],
+    };
+  }
   const steps: PlanStep[] = [
     {
       tool: "research.deep",

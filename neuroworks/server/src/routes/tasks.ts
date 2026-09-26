@@ -154,9 +154,8 @@ tasksRouter.post("/jobs/:id/human-input", async (req, res) => {
     const { planAndExecute, crownBypassesApproval } = await import("../lib/agent.js");
     const { getActivePersona, personaSystemSuffix } = await import("../lib/personas.js");
     const persona = getActivePersona();
-    // Deliberately NOT re-passing workMode "human" here — a continuation with
-    // supplied input is agent work again (the human already did their part).
-    const wm = persona?.workMode === "human" ? undefined : persona?.workMode;
+    // Legacy "human" maps to hybrid (agents + you) — no human-only parking.
+    const wm = (persona?.workMode as string) === "human" ? "hybrid" as const : persona?.workMode;
     const r = await planAndExecute(contTask, push, (patch) => progress(patch as Record<string, unknown>), {
       personaSystemSuffix: personaSystemSuffix(persona),
       workMode: wm,

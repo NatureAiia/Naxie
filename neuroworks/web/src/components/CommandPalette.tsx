@@ -2,7 +2,7 @@ import { Command } from "cmdk";
 import { useEffect, useState, type ComponentType } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  MessageSquare, Users, ListChecks, CheckCircle2,
+  MessageSquare, Users, ListChecks,
   BookOpen, Sparkles, Terminal,
   UserCircle, PlusCircle, Search as SearchIcon, Calendar,
   Plug,
@@ -63,8 +63,7 @@ export function CommandPalette() {
     { id: "n-terminal", group: "Navigate", label: "IDE", icon: Terminal, onSelect: go("/ide"), keywords: "shell console command exec code editor" },
     { id: "n-runs", group: "Navigate", label: "Runs", icon: ListChecks, onSelect: go("/runs"), keywords: "jobs queue tasks results outputs activity" },
     { id: "n-knowledge", group: "Navigate", label: "Library", icon: BookOpen, onSelect: go("/library"), keywords: "vault notes search files" },
-    { id: "n-approvals", group: "Navigate", label: "Agent Approvals", icon: CheckCircle2, onSelect: go("/approvals"), keywords: "review pending" },
-    { id: "n-my-work", group: "Navigate", label: "My Work", icon: Users, onSelect: go("/my-work"), keywords: "handoffs assignments human loop upload submit delegate" },
+    { id: "n-my-work", group: "Navigate", label: "My Inbox", icon: Users, onSelect: go("/my-work"), keywords: "handoffs assignments human loop upload submit delegate review pending approval" },
     { id: "n-schedules", group: "Navigate", label: "Schedules", icon: Calendar, onSelect: go("/schedules"), keywords: "cron recurring schedule" },
 
     { id: "a-new-chat", group: "Actions", label: "New board meeting", icon: PlusCircle, onSelect: go("/chat"), keywords: "start fresh session council" },

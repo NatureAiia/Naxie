@@ -20,9 +20,9 @@ export type Persona = {
   systemPromptOverride?: string;
   // Hybrid-workforce split for this hire: agent (fully autonomous, default),
   // hybrid (agent runs what it can, pauses on a structured human.request for
-  // the rest), human (tracked human worker — tasks park in the waiting queue,
-  // no agent loop). Absent = "agent" for back-compat with existing hires.
-  workMode?: "agent" | "hybrid" | "human";
+  // the rest — you + agents working together). Absent = "agent" for
+  // back-compat with existing hires.
+  workMode?: "agent" | "hybrid";
   // Pin this agent to a language regardless of the org-wide onboarding
   // default (see sector-packs.ts OnboardingState.language). Absent = follow
   // the org default. Department templates can set a default that flows down
@@ -482,14 +482,13 @@ export function addPersona(p: Persona): void {
 }
 
 // Patch a subset of a persona's fields (Workforce page edits — work mode,
-// tone, description). Built-ins accept workMode changes too: parking the
-// built-in researcher as "human" is a legitimate org decision.
+// tone, description).
 export function updatePersona(id: string, patch: Partial<Pick<Persona, "workMode" | "tone" | "description" | "role" | "systemPromptOverride" | "language" | "department">>): Persona | null {
   const s = loadPersonas();
   const p = s.personas.find(x => x.id === id);
   if (!p) return null;
   if (patch.workMode !== undefined) {
-    p.workMode = (["agent", "hybrid", "human"] as const).includes(patch.workMode as any) ? patch.workMode : undefined;
+    p.workMode = (["agent", "hybrid"] as const).includes(patch.workMode as any) ? patch.workMode : (patch.workMode as string) === "human" ? "hybrid" as any : undefined;
   }
   if (typeof patch.tone === "string" && patch.tone.trim()) p.tone = patch.tone.trim();
   if (typeof patch.description === "string") p.description = patch.description;

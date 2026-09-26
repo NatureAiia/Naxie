@@ -9,7 +9,7 @@ import { LinkPreview } from "./LinkPreview";
 export function ResultPanel({ job }: { job: any }) {
   if (!job) return null;
   if (job.status === "awaiting-approval") {
-    return <Card title="Awaiting approval"><div className="text-sm text-cream-300">Open the Approvals page to approve or reject this task.</div></Card>;
+    return <Card title="Awaiting approval"><div className="text-sm text-cream-300">Open My Inbox to approve or reject this task.</div></Card>;
   }
   if (job.status === "running" || job.status === "pending") {
     // Agent tasks (general-task + saved customs) stream their plan/runs/phase
