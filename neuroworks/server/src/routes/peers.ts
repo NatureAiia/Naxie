@@ -357,8 +357,14 @@ peersRouter.post("/delegate", async (req, res) => {
       if (resolvedPersona?.name) job.personaName = resolvedPersona.name;
       // Suffix is captured from THIS run's persona, not from global state.
       // Concurrent delegations with different personas no longer collide.
+      // taskKind + persona keep the planner's learned-quality loop closed on
+      // the worker: without them qualityHintFor never fires here, which is
+      // why peer:delegate sat weakest on persona_fit (2026-09-28 innovation
+      // scan) — the self-improvement hint only ran on the primary.
+      // personaId is deliberately NOT forwarded: it gates tool-permission
+      // scoping in executePlan, which must stay local to the worker.
       const suffix = personaSystemSuffix(resolvedPersona);
-      const r = await planAndExecute(task, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: suffix, workMode: resolvedPersona?.workMode, skipApprovalGate: crownBypassesApproval(job.priority) });
+      const r = await planAndExecute(task, push, (patch) => progress(patch as Record<string, unknown>), { personaSystemSuffix: suffix, workMode: resolvedPersona?.workMode, taskKind: job.kind, persona: resolvedPersona?.name ?? undefined, skipApprovalGate: crownBypassesApproval(job.priority) });
       return {
         answer: r.answer,
         plan: r.plan,

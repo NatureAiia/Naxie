@@ -619,6 +619,16 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
           prompt_alignment: num(q.prompt_alignment),
         };
         const hasAxes = Object.values(axes).some(v => v !== undefined);
+        // Grader-outage guard: when quality.check itself failed (scorer error,
+        // no JSON, unparseable JSON) it returns all-zeros — persona_fit: 0 and
+        // prompt_alignment: 0 together. Recording those as signal taught the
+        // learning loop that the PERSONA was weak, when the GRADER was down
+        // (2026-09-28 innovation scan: peer:delegate + Naxie "weakest on
+        // persona_fit" were outage zeros, not tone drift). Skip them so
+        // scorer outages never masquerade as quality regressions.
+        const qIssues: string[] = Array.isArray((q as any).issues) ? (q as any).issues.map((i: any) => String(i)) : [];
+        const graderFailed = qIssues.some(i => /scorer (failed|returned no JSON|JSON unparseable)/i.test(i));
+        if (!graderFailed) {
         void import("./quality.js").then(({ flagQuality }) => {
           flagQuality({
             jobId: j.id,
@@ -634,6 +644,7 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
             ts: new Date().toISOString(),
           });
         }).catch(() => { /* quality logging is best-effort */ });
+        }
       }
     } catch { /* never let QA logging fail a job */ }
     // Notify SSE subscribers the job ended so they can close their

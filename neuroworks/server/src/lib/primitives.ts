@@ -2498,7 +2498,14 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
               return await ollamaGenerate(scorePrompt, sys + classNote + contextNote, { profile: "extraction", maxTokens: 256, temperature: 0 });
             } catch (e: any) {
               const msg = String(e?.message ?? e);
-              if (!/429|rate[\s-]?limit|fetch\s+failed|terminated|ECONNRESET|HTTP\s+5\d\d|timeout|other\s+side\s+closed/i.test(msg)) throw e;
+              // Auth/config errors still throw — a broken key must surface,
+              // not silently grade locally forever. EVERYTHING else falls
+              // back to local: the grader is advisory, and a cloud miss that
+              // records all-zeros poisons the persona_fit learning signal
+              // (the 2026-09-28 scan's "Naxie weakest on persona_fit" was
+              // grader-outage zeros from the failing cloud tier, not tone
+              // drift). A local grade beats a zero every time.
+              if (/401|403|unauthorized|invalid(?:\s+api)?\s*key|api\s*key\s+(missing|invalid|required)|forbidden/i.test(msg)) throw e;
               return await ollamaGenerate(scorePrompt, sys + classNote + contextNote, { profile: undefined, maxTokens: 256, temperature: 0 });
             }
           })(),

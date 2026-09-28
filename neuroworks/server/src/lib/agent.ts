@@ -2179,7 +2179,12 @@ export async function planAndExecute(
         // evidence-less direct answer to a knowledge question is graded as
         // ungrounded (persona_fit-led) so the research rubric doesn't inflate
         // factuality_risk on correct-but-uncited prose. Mirrors the Hermes gate.
-        args: { task, answer: synth.answer, sources: evidenceForQA, grounded: evidenceForQA.trim().length > 0 || taskWantsResearch(task) },
+        args: { task, answer: synth.answer, sources: evidenceForQA, grounded: evidenceForQA.trim().length > 0 || taskWantsResearch(task),
+          // Persona-anchored grading: without this the scorer judges
+          // persona_fit against the bare task line, which zeroes delegated /
+          // specialist runs even when the voice is right (2026-09-28 scan).
+          // Only attached when the caller named the acting persona.
+          ...(opts.persona ? { context: `Acting persona: ${opts.persona} — judge persona_fit and prompt_alignment against this role's expected tone, structure, and what the request asked this role to deliver.` } : {}) },
         rationale: "auto-injected: score factuality, citation coverage, persona fit (evidence-aware)",
         label: humanStepLabel("quality.check", {}),
       },
