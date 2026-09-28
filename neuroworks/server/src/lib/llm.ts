@@ -80,30 +80,33 @@ function pickLargeOpenRouterModel(profile: LLMCallOptions["profile"]): string {
 
 // Decide whether a given profile should route to OpenRouter.
 //   1. OR must be enabled (key present)
-//   2. AND either: profile has its own OPENROUTER_<PROFILE>_MODEL env pin,
-//      OR profile is listed in OPENROUTER_PROFILES,
-//      OR OPENROUTER_PROFILES is empty AND no Ollama-side env pin exists
-//      (treating an unconfigured profile as "OR is the default if enabled").
+//
+// CLOUD-FIRST (operator policy): when online, everything rides the cloud
+// tiers — small/fast by default, large on complexity — and local models are
+// the last resort (transient-failure fallback) or the offline-mode engine.
+// Unprofiled calls land on the cheap small tier; triage follows the same
+// default now (it used to stay local — a remote Flash-class call is fast
+// enough that the latency argument no longer holds).
+//
+// Explicit scoping still wins: a per-profile OPENROUTER_<PROFILE>_MODEL pin,
+// a non-empty OPENROUTER_PROFILES list (unlisted profiles stay local), or
+// NEUROWORKS_LOCAL_TRIAGE=1 (restores local-only triage).
 //
 // The empty-profiles fallback only kicks in when OPENROUTER_PROFILES is
 // genuinely unset. If the user sets OPENROUTER_PROFILES=planning, they're
 // scoping OR to ONLY planning — synthesis stays on Ollama.
 function shouldRouteToOpenRouter(profile?: LLMCallOptions["profile"]): boolean {
   if (!config.openrouterEnabled) return false;
-  if (!profile) return false;
   // Live reachability gate (task 2): if we've probed recently and are
   // offline, don't route to cloud at all — go straight to Ollama ordered
   // by size. `null` means no fresh probe, so we still try.
   const cached = isCloudReachableCached();
   if (cached === false) return false;
-  // SPECIAL CASE: triage stays LOCAL by default even when OR is enabled.
-  // Triage is a yes/no classifier with a 16-token output budget; bouncing
-  // it to a remote API just adds network latency for zero quality lift.
-  // Explicit opt-in via OPENROUTER_TRIAGE_MODEL or listing triage in
-  // OPENROUTER_PROFILES.
+  if (!profile) return true;
   if (profile === "triage") {
+    if (process.env.NEUROWORKS_LOCAL_TRIAGE === "1") return false;
     if (process.env[PROFILE_ENV_KEYS[profile]]?.trim()) return true;
-    return config.openrouterProfiles.includes(profile);
+    return config.openrouterProfiles.length > 0 ? config.openrouterProfiles.includes(profile) : true;
   }
   if (process.env[PROFILE_ENV_KEYS[profile]]?.trim()) return true;
   if (config.openrouterProfiles.length > 0) return config.openrouterProfiles.includes(profile);
@@ -397,9 +400,28 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
         // Local Ollama stays the final safety net, exactly as before.
         try {
           const { getFallbackChain } = await import("./model-providers.js");
+          const { isFreeModelId, getModelPolicy } = await import("./model-policy.js");
+          // Paid-model gate for failover: the primary-pick gate above keeps
+          // paid models off unless approved, but this loop used to dispatch
+          // fp.largeModel verbatim — silently spending on e.g. Anthropic
+          // Fable while policy said paid OFF (2026-09-28: $0.08 on
+          // openai/gpt-4o with allowPaidModels=false). Same rule here:
+          // prefer the fallback's cheap tier when it's free, else skip the
+          // provider entirely. Policy-unreadable fails open (availability
+          // wins) to match the primary gate's best-effort shape.
+          let paidAllowed = true;
+          try { paidAllowed = getModelPolicy().allowPaidModels; } catch { /* best-effort */ }
           const isComplex = isComplexCall(opts, isTooBigForLocal(prompt, system));
           for (const fp of getFallbackChain()) {
-            const fbModel = isComplex ? fp.largeModel : fp.smallModel;
+            let fbModel = isComplex ? fp.largeModel : fp.smallModel;
+            if (!paidAllowed && !isFreeModelId(fbModel)) {
+              if (isFreeModelId(fp.smallModel) && fp.smallModel !== fbModel) {
+                fbModel = fp.smallModel;
+              } else {
+                console.warn(`[llm] skipping fallback ${fp.label} — "${fbModel}" is paid and paid models aren't approved (Settings → Models)`);
+                continue;
+              }
+            }
             try {
               console.warn(`[llm] active provider failed — trying ${fp.label} (${fbModel})`);
               if (opts.onRoutingDecision) {
