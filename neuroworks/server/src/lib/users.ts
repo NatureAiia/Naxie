@@ -36,8 +36,8 @@ const VALID_ROLES: Role[] = ["superadmin", "admin", "staff", "member", "viewer"]
 export type UserStatus = "active" | "invited" | "disabled" | "pending";
 // Hybrid-workforce split: how much of this person's work the system performs.
 // agent = fully autonomous hire; hybrid = agent does what it can, pauses on
-// human.request for the rest; human = tracked human worker (no agent loop).
-export type WorkMode = "agent" | "hybrid" | "human";
+// human.request for the rest.
+export type WorkMode = "agent" | "hybrid";
 
 type StoredUser = {
   id: string;
@@ -158,7 +158,7 @@ export function addUser(input: { name: string; email: string; role?: Role; title
     title: input.title?.trim() || undefined,
     department: input.department?.trim() || undefined,
     status: "active",
-    workMode: (["agent", "hybrid", "human"] as const).includes(input.workMode as WorkMode) ? input.workMode : undefined,
+    workMode: (["agent", "hybrid"] as const).includes(input.workMode as WorkMode) ? input.workMode : (input.workMode as string) === "human" ? "hybrid" as WorkMode : undefined,
     salaryMonthly: Number.isFinite(Number(input.salaryMonthly)) && Number(input.salaryMonthly) > 0 ? Number(input.salaryMonthly) : undefined,
     passwordHash: input.password ? hashPassword(input.password) : undefined,
     createdAt: new Date().toISOString(),
@@ -199,7 +199,7 @@ export function updateUser(id: string, patch: { name?: string; email?: string; r
   if (patch.department !== undefined) u.department = patch.department.trim() || undefined;
   if (patch.status !== undefined && ["active", "invited", "disabled", "pending"].includes(patch.status)) u.status = patch.status;
   if (patch.workMode !== undefined) {
-    u.workMode = patch.workMode !== null && ["agent", "hybrid", "human"].includes(patch.workMode) ? patch.workMode : undefined;
+    u.workMode = patch.workMode !== null && ["agent", "hybrid"].includes(patch.workMode as string) ? patch.workMode as WorkMode : (patch.workMode as string) === "human" ? "hybrid" : undefined;
   }
   if (patch.salaryMonthly !== undefined) {
     const n = Number(patch.salaryMonthly);
@@ -564,7 +564,8 @@ export function approveUser(id: string, patch: { role?: Role; department?: strin
   if (patch.role && ["superadmin", "admin", "staff", "member", "viewer"].includes(patch.role)) u.role = patch.role;
   if (patch.department !== undefined) u.department = String(patch.department).trim() || undefined;
   if (patch.title !== undefined) u.title = String(patch.title).trim() || undefined;
-  if (patch.workMode && ["agent", "hybrid", "human"].includes(patch.workMode)) u.workMode = patch.workMode;
+  if (patch.workMode && ["agent", "hybrid"].includes(patch.workMode as string)) u.workMode = patch.workMode as WorkMode;
+  else if ((patch.workMode as string) === "human") u.workMode = "hybrid";
   saveUsers(list);
   return toPublic(u);
 }
@@ -615,18 +616,19 @@ export function orgOverview(): {
   total: number; pending: number; disabled: number;
   byDepartment: { department: string; count: number }[];
   byLayer: Record<"superadmin" | "admin" | "staff", number>;
-  byWorkMode: Record<"agent" | "hybrid" | "human" | "unset", number>;
+  byWorkMode: Record<"agent" | "hybrid" | "unset", number>;
 } {
   const list = loadUsers();
   const byDept = new Map<string, number>();
   const byLayer = { superadmin: 0, admin: 0, staff: 0 };
-  const byWorkMode = { agent: 0, hybrid: 0, human: 0, unset: 0 };
+  const byWorkMode: Record<"agent" | "hybrid" | "unset", number> = { agent: 0, hybrid: 0, unset: 0 };
   for (const u of list) {
     const d = u.department?.trim() || "Unassigned";
     byDept.set(d, (byDept.get(d) ?? 0) + 1);
     const layer = u.role === "superadmin" ? "superadmin" : u.role === "admin" ? "admin" : "staff";
     byLayer[layer] += 1;
-    byWorkMode[(u.workMode ?? "unset") as keyof typeof byWorkMode] += 1;
+    const wm = (u.workMode as string) === "human" ? "hybrid" : (u.workMode ?? "unset");
+    byWorkMode[wm as keyof typeof byWorkMode] += 1;
   }
   return {
     total: list.length,

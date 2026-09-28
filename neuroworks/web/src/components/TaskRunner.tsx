@@ -32,7 +32,7 @@ export function TaskRunner({ template, onClose, prefill }: { template: Template;
     try {
       const r = await api.runTemplate(template.id, inputs);
       onClose();
-      nav(r.requiresApproval ? "/approvals" : `/tasks?focus=${r.jobId}`);
+      nav(r.requiresApproval ? "/my-work" : `/tasks?focus=${r.jobId}`);
     } catch (e: any) {
       setErr(e.message);
       setBusy(false);

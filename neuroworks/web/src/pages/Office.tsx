@@ -386,11 +386,10 @@ function PersonaChatPanel({ persona, isActive, onClose, onActivate, onDeactivate
                   value={persona.workMode ?? "agent"}
                   onChange={e => onWorkModeChange(e.target.value as WorkMode)}
                   className="bg-ink-800 border border-ink-700 text-[11px] text-cream-200 rounded px-1.5 py-0.5"
-                  title="agent = fully autonomous · hybrid = agent + pauses for your input · human = person does the work, system tracks it"
+                  title="agent = fully autonomous · hybrid = agent + pauses for your input"
                 >
                   <option value="agent">agent</option>
                   <option value="hybrid">hybrid</option>
-                  <option value="human">human</option>
                 </select>
               </div>
 

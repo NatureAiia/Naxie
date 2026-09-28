@@ -74,7 +74,7 @@ const primaryNav: NavItem[] = [
 const agentsNav: NavItem[] = [];
 
 const workNav: NavItem[] = [
-  { to: "/my-work", label: "Work", icon: Inbox, badgeKey: "approvals" },
+  { to: "/my-work", label: "My Inbox", icon: Inbox, badgeKey: "approvals" },
   { to: "/brands", label: "Brands", icon: Megaphone },
   { to: "/planner", label: "Planner", icon: CalendarDays },
   { to: "/schedules", label: "Schedules", icon: EventFolderIcon },

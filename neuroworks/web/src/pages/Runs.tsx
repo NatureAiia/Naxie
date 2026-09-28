@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { marked } from "marked";
-import { ArrowRight, HandHelping, Square, ThumbsUp, ThumbsDown, BarChart3, AlertTriangle } from "lucide-react";
+import { HandHelping, Square, ThumbsUp, ThumbsDown, BarChart3, AlertTriangle } from "lucide-react";
 import { api, type WaitingTask } from "../lib/api";
 import { Card, SkeletonList } from "../components/Card";
 import { useLoadMore, LoadMoreButton } from "../components/LoadMore";
@@ -14,15 +14,15 @@ import { VoiceDiscussion } from "../components/VoiceDiscussion";
 // ─────────────────────────────────────────────────────────────────────────
 // Runs — the merged job list. Folds together what used to be four separate
 // pages:
-//   - Tasks.tsx        → status filters, "waiting on you" panel, live
-//                         activity strip, cancel/resume/human-input actions,
-//                         the two-column "Board" view with a detail panel.
-//   - Results.tsx       → ResultsIndex's "Reports" browsing (all/captured/
-//                         delegated) folded in as an additional filter, not
-//                         a separate page. Results (the per-job document) is
-//                         exported below as `RunDetail`, basically as-is.
-//   - Activity.tsx      → the plain timeline, now the default/simplest view
-//                         mode ("Timeline" vs "Board").
+//   - Tasks.tsx        → "waiting on you" panel, live activity strip,
+//                         cancel/resume/human-input actions, the two-column
+//                         Board view with a detail panel. The old plain
+//                         timeline (Activity.tsx) now lives INSIDE the board
+//                         as its left-column feed — one view, no toggle.
+//   - Results.tsx       → ResultsIndex's "Reports" browsing (all/captured)
+//                         folded in as filters, not a separate page. Results
+//                         (the per-job document) is exported below as
+//                         `RunDetail`, basically as-is.
 //   - Quality.tsx       → a "Low quality" filter chip (getLowQualityRuns,
 //                         cross-referenced against jobs by flagged jobId /
 //                         persona) plus a compact, expandable quality-signals
@@ -81,13 +81,11 @@ export function Runs() {
   const focusId = params.get("focus");
   const [jobs, setJobs] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<"all" | "running" | "succeeded" | "failed">("all");
-  const [reportFilter, setReportFilter] = useState<"all" | "reports" | "captured" | "delegated">("all");
-  const [qualityOnly, setQualityOnly] = useState(false);
-  // Timeline is the plain, simplest view (old Activity.tsx); Board is the
-  // richer Tasks.tsx-style two-column layout with a detail panel. A job
-  // focused via ?focus= implies the operator wants the detail view.
-  const [viewMode, setViewMode] = useState<"timeline" | "board">(focusId ? "board" : "timeline");
+  // One unified filter — status (running/failed) and kind (reports/saved/
+  // low-quality) live in the same row. Single-operator: no "by employee".
+  const [filter, setFilter] = useState<"all" | "running" | "failed" | "reports" | "captured" | "low-quality">(
+    params.get("filter") === "quality" ? "low-quality" : "all"
+  );
   const [eta, setEta] = useState<EtaStats | null>(null);
   const [now, setNow] = useState(Date.now());
   const [waiting, setWaiting] = useState<WaitingTask[]>([]);
@@ -132,22 +130,21 @@ export function Runs() {
 
   const filtered = useMemo(() => {
     let list = jobs;
-    if (statusFilter !== "all") list = list.filter(j => j.status === statusFilter);
-    if (reportFilter !== "all") {
-      list = list.filter(j => (j.status === "succeeded" || j.status === "failed") && isReportShaped(j));
-      if (reportFilter === "captured") list = list.filter(j => j.result?.curation?.captured === true);
-      if (reportFilter === "delegated") list = list.filter(j => j.result?.delegated === true);
-    }
-    if (qualityOnly) list = list.filter(j => isLowQuality(j, downFlaggedJobIds, lowQualityRuns));
+    if (filter === "running") list = list.filter(j => j.status === "running");
+    else if (filter === "failed") list = list.filter(j => j.status === "failed");
+    else if (filter === "reports") list = list.filter(j => (j.status === "succeeded" || j.status === "failed") && isReportShaped(j));
+    else if (filter === "captured") list = list.filter(j => (j.status === "succeeded" || j.status === "failed") && isReportShaped(j) && j.result?.curation?.captured === true);
+    else if (filter === "low-quality") list = list.filter(j => isLowQuality(j, downFlaggedJobIds, lowQualityRuns));
     return list;
-  }, [jobs, statusFilter, reportFilter, qualityOnly, downFlaggedJobIds, lowQualityRuns]);
+  }, [jobs, filter, downFlaggedJobIds, lowQualityRuns]);
 
   const taskList = useLoadMore(filtered);
   const focused = focusId ? jobs.find(j => j.id === focusId) : null;
   const runningJobs = useMemo(() => jobs.filter(j => j.status === "running" || j.status === "pending"), [jobs]);
+  const runningCount = useMemo(() => jobs.filter(j => j.status === "running").length, [jobs]);
+  const failedCount = useMemo(() => jobs.filter(j => j.status === "failed").length, [jobs]);
   const lowQualityCount = useMemo(() => jobs.filter(j => isLowQuality(j, downFlaggedJobIds, lowQualityRuns)).length, [jobs, downFlaggedJobIds, lowQualityRuns]);
   const savedCount = useMemo(() => jobs.filter(j => j.result?.curation?.captured === true).length, [jobs]);
-  const delegatedCount = useMemo(() => jobs.filter(j => j.result?.delegated === true).length, [jobs]);
 
   // Tick a 1s clock ONLY while something is running, so the elapsed time and
   // ETA countdown update live without re-polling the server.
@@ -157,8 +154,7 @@ export function Runs() {
     return () => clearInterval(i);
   }, [runningJobs.length]);
 
-  function openInBoard(jobId: string) {
-    setViewMode("board");
+  function focusJob(jobId: string) {
     params.set("focus", jobId);
     setParams(params);
   }
@@ -170,45 +166,31 @@ export function Runs() {
           <h1 className="text-2xl font-semibold tracking-tight text-cream-50">Runs</h1>
           <p className="text-sm text-cream-300/70 mt-1">Everything the workforce is doing — tasks, reports, and quality, all in one place.</p>
         </div>
-        <div className="flex items-center gap-1 bg-ink-950 rounded-md p-0.5 border border-ink-800 shrink-0">
-          {(["timeline", "board"] as const).map(v => (
-            <button key={v} type="button" onClick={() => setViewMode(v)} className={`px-3 py-1.5 rounded text-xs capitalize ${viewMode === v ? "bg-ink-800 text-cream-50" : "text-cream-300/70 hover:text-cream-100"}`}>
-              {v}
-            </button>
-          ))}
-        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1">
-          {(["all", "running", "succeeded", "failed"] as const).map(f => (
-            <button key={f} type="button" onClick={() => setStatusFilter(f)} className={`px-3 py-1.5 rounded-md text-xs ${statusFilter === f ? "bg-ink-800 text-cream-50 border border-ink-700" : "text-cream-300 hover:text-cream-100 border border-transparent"}`}>
-              {f}
-              <span className="ml-1.5 opacity-60 font-mono">{f === "all" ? jobs.length : jobs.filter(j => j.status === f).length}</span>
-            </button>
-          ))}
-        </div>
-        <div className="w-px h-4 bg-ink-800" />
-        <div className="flex gap-1">
-          {([
-            { id: "all" as const, label: "All" },
-            { id: "reports" as const, label: "Reports" },
-            { id: "captured" as const, label: `Saved to vault (${savedCount})` },
-            { id: "delegated" as const, label: `By employee (${delegatedCount})` },
-          ]).map(f => (
-            <button key={f.id} type="button" onClick={() => setReportFilter(f.id)} className={`px-3 py-1.5 rounded-md text-xs border ${reportFilter === f.id ? "bg-violet-500/15 border-violet-500/40 text-violet-300" : "border-transparent text-cream-300/70 hover:text-cream-100"}`}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <div className="w-px h-4 bg-ink-800" />
-        <button
-          type="button"
-          onClick={() => setQualityOnly(q => !q)}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border ${qualityOnly ? "bg-coral-500/15 border-coral-500/40 text-coral-300" : "border-transparent text-cream-300/70 hover:text-cream-100"}`}
-        >
-          <AlertTriangle className="w-3.5 h-3.5" /> Low quality{lowQualityCount > 0 ? ` (${lowQualityCount})` : ""}
-        </button>
+      <div className="flex flex-wrap items-center gap-1">
+        {([
+          { id: "all" as const, label: `All (${jobs.length})` },
+          { id: "running" as const, label: `Running (${runningCount})` },
+          { id: "failed" as const, label: `Failed (${failedCount})` },
+          { id: "reports" as const, label: "Reports" },
+          { id: "captured" as const, label: `Saved to vault (${savedCount})` },
+          { id: "low-quality" as const, label: `Low quality${lowQualityCount > 0 ? ` (${lowQualityCount})` : ""}`, alert: true },
+        ]).map(f => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setFilter(f.id)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border ${
+              filter === f.id
+                ? f.alert ? "bg-coral-500/15 border-coral-500/40 text-coral-300" : "bg-violet-500/15 border-violet-500/40 text-violet-300"
+                : "border-transparent text-cream-300/70 hover:text-cream-100"
+            }`}
+          >
+            {f.alert && <AlertTriangle className="w-3.5 h-3.5" />}
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {/* Quality signals strip — compact by default, expandable for the full
@@ -219,11 +201,11 @@ export function Runs() {
       {/* Waiting on you — tasks the agents paused because only the operator can
           supply the next piece (info, approval, an offline action). Answering
           resumes the loop automatically as a continuation task. */}
-      {waiting.length > 0 && <WaitingOnYouPanel waiting={waiting} onResumed={(newJobId) => { loadWaiting(); load(); openInBoard(newJobId); }} />}
+      {waiting.length > 0 && <WaitingOnYouPanel waiting={waiting} onResumed={(newJobId) => { loadWaiting(); load(); focusJob(newJobId); }} />}
 
       {/* Live activity strip — only when something's actively running. The
           row shows the operator's view of WHAT is happening, in plain English. */}
-      {runningJobs.length > 0 && <LiveActivityStrip jobs={runningJobs} eta={eta} now={now} onOpenActivity={setActivityJobId} onOpenJob={openInBoard} onCancel={async (id) => { try { await api.cancelJob(id); } catch {} await load(); }} />}
+      {runningJobs.length > 0 && <LiveActivityStrip jobs={runningJobs} eta={eta} now={now} onOpenActivity={setActivityJobId} onOpenJob={focusJob} onCancel={async (id) => { try { await api.cancelJob(id); } catch {} await load(); }} />}
 
       {/* Full-screen step-by-step activity view for one running task, driven by
           its live plan progress. Auto-hides when the task leaves running. */}
@@ -234,42 +216,58 @@ export function Runs() {
         return <MultiStepLoader loadingStates={states} loading currentState={current} onClose={() => setActivityJobId(null)} />;
       })()}
 
-      {viewMode === "timeline" ? (
-        <TimelineList
-          loaded={loaded}
-          taskList={taskList}
-          filterActive={statusFilter !== "all" || reportFilter !== "all" || qualityOnly}
-          downFlaggedJobIds={downFlaggedJobIds}
-          lowQualityRuns={lowQualityRuns}
-          onOpen={openInBoard}
-        />
-      ) : (
-        <div className="grid grid-cols-1 tablet:grid-cols-5 gap-5">
-          <div className="tablet:col-span-2 space-y-2">
-            {!loaded && <Card><SkeletonList rows={6} /></Card>}
-            {loaded && filtered.length === 0 && <Card><div className="text-sm text-cream-300/60 text-center py-8">No runs match this filter.</div></Card>}
-            {taskList.visible.map((j, i) => (
-              <div key={j.id} className={`nw-fade-up nw-delay-${Math.min(7, i + 1)}`}>
-                <TaskRow
-                  job={j}
-                  focused={focusId === j.id}
-                  eta={eta}
-                  now={now}
-                  lowQuality={isLowQuality(j, downFlaggedJobIds, lowQualityRuns)}
-                  onClick={() => { params.set("focus", j.id); setParams(params); }}
-                />
-              </div>
-            ))}
-            <LoadMoreButton state={taskList} noun="runs" />
-          </div>
-
-          <div className="col-span-3">
-            {focused ? <ResultPanel job={focused} /> : (
-              <Card><div className="text-sm text-cream-300/60 text-center py-8">Pick a run to inspect it.</div></Card>
+      {/* Board — timeline feed on the left, detail panel on the right.
+          Clicking a run focuses it in the detail panel. */}
+      <div className="grid grid-cols-1 tablet:grid-cols-5 gap-5">
+        <div className="tablet:col-span-2">
+          <Card>
+            {!loaded && <SkeletonList rows={6} />}
+            {loaded && filtered.length === 0 && <div className="text-sm text-cream-300/60 text-center py-8">No runs {filter !== "all" ? "match this filter" : "yet"}.</div>}
+            {loaded && filtered.length > 0 && (
+              <ul className="relative">
+                <div className="absolute left-2 top-2 bottom-2 w-px bg-ink-700" />
+                {taskList.visible.map(j => {
+                  const lowQuality = isLowQuality(j, downFlaggedJobIds, lowQualityRuns);
+                  const captured = j.result?.curation?.captured === true;
+                  const finishedReport = isReportShaped(j) && (j.status === "succeeded" || j.status === "failed");
+                  const preview = typeof j.result?.answer === "string"
+                    ? j.result.answer.replace(/^#+\s+.*$/m, "").replace(/[#*`>[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 160)
+                    : "";
+                  const isFocused = focusId === j.id;
+                  return (
+                    <li key={j.id} className="relative pl-8 py-3 border-b border-ink-800 last:border-0">
+                      <span className={`absolute left-0.5 top-4 w-3.5 h-3.5 rounded-full border-2 ${isFocused ? "border-violet-500" : "border-ink-900"} ${j.status === "succeeded" ? "bg-leaf-500" : j.status === "failed" ? "bg-coral-500" : j.status === "running" ? "bg-flame-400" : "bg-cream-300/30"}`} />
+                      <button
+                        type="button"
+                        onClick={() => { params.set("focus", j.id); setParams(params); }}
+                        className={`w-full text-left rounded-lg px-2 -mx-2 py-1 transition-colors ${isFocused ? "bg-violet-500/10" : "hover:bg-ink-800/60"}`}
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm text-cream-50">{friendlyTitle(j)}</span>
+                          {lowQuality && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-coral-500/40 text-coral-400 bg-coral-500/10">low quality</span>}
+                          {captured && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-leaf-500/40 text-leaf-400 bg-leaf-500/10">saved to vault</span>}
+                        </div>
+                        {preview && <p className="text-xs text-cream-300/70 mt-0.5 line-clamp-1">{preview}</p>}
+                        <div className="text-[11px] text-cream-300/50 mt-0.5 font-mono">{new Date(j.startedAt).toLocaleString()} · {j.status}</div>
+                      </button>
+                      {finishedReport && (
+                        <Link to={`/runs/${j.id}`} className="text-[11px] text-violet-400 hover:text-violet-500">open report →</Link>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-          </div>
+            <LoadMoreButton state={taskList} noun="runs" />
+          </Card>
         </div>
-      )}
+
+        <div className="col-span-3">
+          {focused ? <ResultPanel job={focused} /> : (
+            <Card><div className="text-sm text-cream-300/60 text-center py-8">Pick a run to inspect it.</div></Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -633,124 +631,6 @@ function LiveActivityStrip({ jobs, eta, now, onOpenActivity, onOpenJob, onCancel
         })}
       </div>
     </div>
-  );
-}
-
-// Board-view row — Tasks.tsx's original row, now also carrying a "low
-// quality" badge (from the merged-in Quality filter) and a link to the
-// polished RunDetail document (was Results.tsx's /results/:jobId).
-function TaskRow({ job, focused, eta, now, lowQuality, onClick }: { job: any; focused: boolean; eta: EtaStats | null; now: number; lowQuality?: boolean; onClick: () => void }) {
-  const isRunning = job.status === "running" || job.status === "pending";
-  const r = job.result ?? {};
-  const runs: any[] = r.runs ?? [];
-  const totalSteps = r.plan?.steps?.length ?? 0;
-  const doneCount = runs.filter((x: any) => x?.ok === true).length;
-  const startedAt = new Date(job.startedAt);
-  const dur = job.finishedAt && job.startedAt
-    ? Math.max(1, Math.round((new Date(job.finishedAt).getTime() - startedAt.getTime()) / 1000))
-    : null;
-  const stepPct = totalSteps > 0 ? Math.round((doneCount / totalSteps) * 100) : null;
-  const info = isRunning ? computeEta(job, eta, now, stepPct) : null;
-  const peerName = r.peer?.name ?? r.delegatedPeer?.name ?? null;
-  const isGeneral = job.template === "general-task" || (job.template ?? "").startsWith("custom-") || job.template === "peer:delegate";
-  const captured = r.curation?.captured === true;
-  return (
-    <button type="button" onClick={onClick}
-      className={`w-full text-left bg-ink-900 border rounded-xl p-4 transition-colors ${focused ? "border-violet-500/60" : "border-ink-800 hover:border-ink-700"}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-          <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
-            job.status === "succeeded" ? "bg-leaf-500" :
-            job.status === "failed" || job.status === "rejected" ? "bg-coral-500" :
-            job.status === "waiting_on_human" ? "bg-amber-400" :
-            isRunning ? "bg-violet-500 animate-pulse" : "bg-cream-300/30"
-          }`} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="text-sm text-cream-50 font-medium truncate">{friendlyTitle(job)}</div>
-              {lowQuality && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-coral-500/40 text-coral-400 bg-coral-500/10 shrink-0">low quality</span>}
-              {captured && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-leaf-500/40 text-leaf-400 bg-leaf-500/10 shrink-0">saved</span>}
-            </div>
-            <div className="text-[11px] text-cream-300/70 mt-0.5">{friendlyPhase(job)}</div>
-            {info && (
-              <div className="mt-1.5">
-                {info.pct != null && (
-                  <div className="h-1 bg-ink-800 rounded-full overflow-hidden mb-1">
-                    <div className={`h-full transition-all ${info.overrun ? "bg-amber-500/80" : "bg-gradient-to-r from-violet-500 to-leaf-500"}`} style={{ width: `${info.pct}%` }} />
-                  </div>
-                )}
-                <div className={`text-[10px] ${info.overrun ? "text-amber-300/90" : "text-violet-300/80"}`}>{info.label}</div>
-              </div>
-            )}
-            <div className="flex items-center gap-2 mt-1 text-[10px] text-cream-300/50 flex-wrap">
-              <span>{friendlyKind(job)}</span>
-              {peerName && <><span>·</span><span>on {peerName}</span></>}
-              {dur != null && <><span>·</span><span>{dur >= 60 ? `${Math.round(dur / 60)}m ${dur % 60}s` : `${dur}s`}</span></>}
-              {totalSteps > 0 && isRunning && <><span>·</span><span>{doneCount}/{totalSteps}</span></>}
-            </div>
-          </div>
-        </div>
-        {!isRunning && isGeneral && job.status === "succeeded" && (
-          <Link to={`/runs/${job.id}`} onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-500 shrink-0 mt-0.5">
-            Report <ArrowRight size={11} />
-          </Link>
-        )}
-      </div>
-    </button>
-  );
-}
-
-// Timeline view — the plain, simplest browsing mode (was Activity.tsx). Every
-// filter above still applies; this just renders the result as a flat,
-// timestamped feed instead of the Board's two-column layout.
-function TimelineList({ loaded, taskList, filterActive, downFlaggedJobIds, lowQualityRuns, onOpen }: {
-  loaded: boolean;
-  taskList: ReturnType<typeof useLoadMore<any>>;
-  filterActive: boolean;
-  downFlaggedJobIds: Set<string>;
-  lowQualityRuns: LowQualityRun[];
-  onOpen: (jobId: string) => void;
-}) {
-  if (!loaded) return <Card><SkeletonList rows={6} /></Card>;
-  if (taskList.total === 0) {
-    return <Card><div className="text-sm text-cream-300/60 text-center py-8">No runs {filterActive ? "match this filter" : "yet"}.</div></Card>;
-  }
-  return (
-    <Card>
-      <ul className="relative">
-        <div className="absolute left-2 top-2 bottom-2 w-px bg-ink-700" />
-        {taskList.visible.map(j => {
-          const lowQuality = isLowQuality(j, downFlaggedJobIds, lowQualityRuns);
-          const captured = j.result?.curation?.captured === true;
-          const finishedReport = isReportShaped(j) && (j.status === "succeeded" || j.status === "failed");
-          const preview = typeof j.result?.answer === "string"
-            ? j.result.answer.replace(/^#+\s+.*$/m, "").replace(/[#*`>[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 160)
-            : "";
-          return (
-            <li key={j.id} className="relative pl-8 py-3 border-b border-ink-800 last:border-0">
-              <span className={`absolute left-0.5 top-4 w-3.5 h-3.5 rounded-full border-2 border-ink-900 ${j.status === "succeeded" ? "bg-leaf-500" : j.status === "failed" ? "bg-coral-500" : j.status === "running" ? "bg-flame-400" : "bg-cream-300/30"}`} />
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm text-cream-50">{friendlyTitle(j)}</span>
-                    {lowQuality && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-coral-500/40 text-coral-400 bg-coral-500/10">low quality</span>}
-                    {captured && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-leaf-500/40 text-leaf-400 bg-leaf-500/10">saved to vault</span>}
-                  </div>
-                  {preview && <p className="text-xs text-cream-300/70 mt-0.5 line-clamp-1">{preview}</p>}
-                  <div className="text-[11px] text-cream-300/50 mt-0.5 font-mono">{new Date(j.startedAt).toLocaleString()} · {j.status}</div>
-                </div>
-                {finishedReport ? (
-                  <Link to={`/runs/${j.id}`} className="text-xs text-violet-400 hover:text-violet-500 shrink-0">view</Link>
-                ) : (
-                  <button type="button" onClick={() => onOpen(j.id)} className="text-xs text-violet-400 hover:text-violet-500 shrink-0">view</button>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-      <LoadMoreButton state={taskList} noun="runs" />
-    </Card>
   );
 }
 

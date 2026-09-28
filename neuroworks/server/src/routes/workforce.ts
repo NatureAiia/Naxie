@@ -55,7 +55,7 @@ type AgentEntry = {
   builtin: boolean;
   // Hybrid-workforce tier — mirrors Persona.workMode; absent means "agent"
   // (fully autonomous), same back-compat convention as Persona itself.
-  workMode?: "agent" | "hybrid" | "human";
+  workMode?: "agent" | "hybrid";
   // How to reach this worker: activate it, dispatch a chat, or add to a team.
   contact: { activate: string; chat: string };
 };

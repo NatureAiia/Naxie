@@ -242,7 +242,7 @@ extensionsRouter.post("/webhook/:id", async (req, res) => {
       void runJob(job, async (push, progress) => {
         const r = await planAndExecute(taskText, push, (patch) => progress(patch as any), {
           personaSystemSuffix: personaSystemSuffix(persona),
-          workMode: persona?.workMode === "human" ? undefined : persona?.workMode,
+          workMode: (persona?.workMode as string) === "human" ? "hybrid" as const : persona?.workMode,
           skipApprovalGate: crownBypassesApproval(job.priority),
         });
         return r as any;

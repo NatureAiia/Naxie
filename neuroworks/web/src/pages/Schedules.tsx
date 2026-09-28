@@ -319,7 +319,7 @@ function WeeklyReflectCard() {
         <p className="text-xs text-cream-300/60">{last ? "No proposals last run." : "Hasn't run yet — it fires Sundays after the weekly rollup, or click Run now."}</p>
       )}
       {last && last.taskIds.length > 0 && (
-        <Link to="/approvals" className="mt-3 inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-500">
+        <Link to="/my-work" className="mt-3 inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-500">
           Review proposals <ArrowRight size={11} />
         </Link>
       )}

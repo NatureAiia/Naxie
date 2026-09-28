@@ -512,12 +512,11 @@ export function KnowledgeGraph({ focusId }: { focusId?: string | null }) {
           ctx!.stroke();
         }
 
-        // Autonomy-tier ring — agent (fully autonomous) green, hybrid amber,
-        // human blue. Absent workMode is already normalized to "agent" at
+        // Autonomy-tier ring — agent (fully autonomous) green, hybrid amber.
+        // Absent workMode is already normalized to "agent" at
         // fetch time.
         if (node.kind === "persona") {
           const tierColor = node.workMode === "hybrid" ? "hsl(40, 90%, 60%)"
-            : node.workMode === "human" ? "hsl(210, 75%, 65%)"
             : "hsl(140, 60%, 55%)";
           ctx!.beginPath();
           ctx!.arc(node.x, node.y, radius + 3, 0, Math.PI * 2);
