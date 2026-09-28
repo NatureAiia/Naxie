@@ -6,6 +6,7 @@ import { persistJobRecord, loadJobsInWindow } from "./job-store.js";
 import { logAudit } from "./audit-log.js";
 import { classifyOrgRole, createOrgTask, updateOrgTaskStatus, requestApproval, type OrgTaskPriority } from "./org-tasks.js";
 import type { Plan } from "./agent.js"; // type-only — erased at runtime, no import cycle
+import { recordUsage } from "./tool-dna.js";
 
 export type Job = {
   id: string;
@@ -558,6 +559,9 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
     // appendFileSync is fast, and persistJobRecord swallows errors so a
     // disk hiccup can't fail the response.
     persistJobRecord(j);
+    // Tool DNA (opt-in usage-preference memory, see lib/tool-dna.ts) — one
+    // write site, right alongside the other per-job bookkeeping above.
+    try { recordUsage({ template: j.template, skill: (j.result as any)?.skillUsed, personaId: j.personaId }); } catch { /* best-effort */ }
     // Audit trail — one event per finished job so the Audit Log page has a real
     // "what ran, by whom, did it succeed" record. Best-effort; the audit lib was
     // dead (logAudit had no callers) so the page always showed empty.
