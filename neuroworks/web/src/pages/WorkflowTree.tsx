@@ -5,6 +5,7 @@ import { PageHeader } from "../components/PageHeader";
 import { Notice } from "../components/Notice";
 import { Modal, ConfirmDialog } from "../components/Modal";
 import { EmptyState } from "../components/States";
+import { Option } from "../components/Option";
 import { apiResult } from "../lib/apiResult";
 import { DAY_LABELS, formatCadence, formatNext } from "../lib/scheduleFormat";
 
@@ -243,7 +244,7 @@ export function WorkflowTree() {
               <div className="space-y-2 pl-1 border-l-2 border-ink-800 ml-1">
                 <div className="flex flex-wrap gap-1 pl-3">
                   {DAY_LABELS.map((d, i) => (
-                    <button key={d} type="button" onClick={() => toggleDay(i)} className={`text-xs px-3 py-1.5 rounded border ${form.days.includes(i) ? "bg-violet-500/15 border-violet-500/40 text-violet-200" : "bg-ink-950 border-ink-800 text-cream-300 hover:border-ink-700"}`}>{d}</button>
+                    <Option key={d} selected={form.days.includes(i)} onToggle={() => toggleDay(i)}>{d}</Option>
                   ))}
                 </div>
                 <div className="flex items-center gap-2 pl-3">
