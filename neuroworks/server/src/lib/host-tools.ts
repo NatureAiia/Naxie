@@ -145,6 +145,37 @@ const WEATHER_EMOJI: Record<string, string> = {
   "Slight snow": "🌨️", "Rain showers": "🌧️", "Thunderstorm": "⛈️",
 };
 
+// Provider-fallback-with-labeling (ported from KimmyDeku/sebastian's
+// src/lib/server/weather.ts): try a premium provider when configured, catch
+// ANY failure silently, fall back to the always-free Open-Meteo path — and
+// tell the caller which one actually answered, so the markdown block never
+// claims a source it didn't use. Open-Meteo alone (today's only behavior)
+// is unaffected when NEUROWORKS_GOOGLE_WEATHER_API_KEY is unset.
+async function getGoogleWeather(lat: number, lon: number): Promise<{ current: any; hourly: { humidity?: number }; daily: { max?: number; min?: number } } | null> {
+  const key = process.env.NEUROWORKS_GOOGLE_WEATHER_API_KEY;
+  if (!key) return null;
+  try {
+    const url = `https://weather.googleapis.com/v1/currentConditions:lookup?key=${key}&location.latitude=${lat}&location.longitude=${lon}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const cc = data?.currentConditions ?? data;
+    if (!cc) return null;
+    return {
+      current: {
+        weathercode: undefined, // Google's condition text is used directly instead of a WMO code
+        temperature: cc.temperature?.degrees,
+        windspeed: cc.wind?.speed?.value,
+        windgusts: cc.wind?.gust?.value,
+        time: cc.currentTime,
+        conditionText: cc.weatherCondition?.description?.text,
+      },
+      hourly: { humidity: cc.relativeHumidity },
+      daily: { max: cc.currentConditionsHistory?.maxTemperature?.degrees, min: cc.currentConditionsHistory?.minTemperature?.degrees },
+    };
+  } catch { return null; } // any failure (network, quota, malformed key) — fall through to Open-Meteo
+}
+
 export async function getWeather(location = "auto"): Promise<string> {
   try {
     let lat = 51.5074, lon = -0.1278, locName = "London";
@@ -159,13 +190,24 @@ export async function getWeather(location = "auto"): Promise<string> {
         locName = `${first.name}, ${(first.country_code ?? "").toUpperCase()}`;
       }
     }
-    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=temperature_2m,relativehumidity_2m,windspeed_10m,daily=temperature_2m_max,temperature_2m_min&timezone=auto`;
-    const wRes = await fetch(weatherUrl, { headers: { "User-Agent": "NeuroWorks/1.0" }, signal: AbortSignal.timeout(5000) });
-    const wData: any = await wRes.json();
-    const current = wData?.current_weather ?? {};
-    const hourly = wData?.hourly ?? {};
-    const daily = wData?.daily ?? {};
-    const desc = WEATHER_DESCRIPTIONS[current.weathercode] ?? "Clear";
+    let provider = "Open-Meteo";
+    let current: any, hourly: any, daily: any, descOverride: string | undefined;
+    const google = await getGoogleWeather(lat, lon);
+    if (google) {
+      provider = "Google Weather";
+      current = google.current;
+      hourly = { relativehumidity_2m: [google.hourly.humidity] };
+      daily = { temperature_2m_max: [google.daily.max], temperature_2m_min: [google.daily.min] };
+      descOverride = google.current.conditionText;
+    } else {
+      const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=temperature_2m,relativehumidity_2m,windspeed_10m,daily=temperature_2m_max,temperature_2m_min&timezone=auto`;
+      const wRes = await fetch(weatherUrl, { headers: { "User-Agent": "NeuroWorks/1.0" }, signal: AbortSignal.timeout(5000) });
+      const wData: any = await wRes.json();
+      current = wData?.current_weather ?? {};
+      hourly = wData?.hourly ?? {};
+      daily = wData?.daily ?? {};
+    }
+    const desc = descOverride ?? WEATHER_DESCRIPTIONS[current.weathercode] ?? "Clear";
     const emoji = WEATHER_EMOJI[desc] ?? "🌡️";
     const temp = current.temperature ?? "—";
     const wind = current.windspeed ?? "—";
@@ -184,7 +226,9 @@ export async function getWeather(location = "auto"): Promise<string> {
       `|---|---|---|`,
       `| ${wind} km/h${windGust ? ` (gusts ${windGust})` : ""} | ${humidity !== "" ? `${humidity}%` : "—"} | ${current.time ?? "now"} |`,
       ``,
-      `_Source: Open-Meteo · ${locName} (${lat.toFixed(2)}, ${lon.toFixed(2)})_`,
+      // Naxie's own reading of the forecast, not an official warning — same
+      // framing discipline as the ported pattern's advisories().
+      `_Source: ${provider} · ${locName} (${lat.toFixed(2)}, ${lon.toFixed(2)})_`,
     ].join("\n");
   } catch (e: any) {
     return `## ⚠️ Weather\n\n_Could not retrieve weather: ${e?.message ?? e}_`;

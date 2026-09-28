@@ -2,6 +2,7 @@ import { Router } from "express";
 import { loadJobsInWindow } from "../lib/job-store.js";
 import { listJobs } from "../lib/jobs.js";
 import { filterJobsForCaller } from "../lib/job-visibility.js";
+import { buildIcs, googleCalendarUrl, type ExportableEvent } from "../lib/calendar-export.js";
 
 // Activity-calendar endpoints. The Calendar page asks "what did the agents
 // actually do on each day?" — that's a journal aggregation over [from, to],
@@ -160,6 +161,79 @@ calendarRouter.get("/agenda", async (req, res) => {
     } catch { /* schedules optional */ }
 
     res.json({ date, activity: jobs, meetings, meetingsError, schedules, events });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e).slice(0, 300) });
+  }
+});
+
+// Add-to-calendar (see lib/calendar-export.ts) — a Schedule's next fire time
+// as a "Add to Google Calendar" deep link. Pre-filled only; the operator
+// confirms the actual save in Google, same as every other export here.
+calendarRouter.get("/:id/google", async (req, res) => {
+  try {
+    const { getSchedule, nextFireAt } = await import("../lib/schedules.js");
+    const s = getSchedule(req.params.id);
+    if (!s) return res.status(404).json({ error: "schedule not found" });
+    const next = nextFireAt(s.cadence);
+    if (!next) return res.status(400).json({ error: "this schedule has no upcoming fire time" });
+    const url = googleCalendarUrl({
+      id: s.id,
+      title: s.name,
+      start: new Date(next).toISOString(),
+      description: `Naxie schedule · runs ${s.templateId}`,
+    });
+    res.redirect(url);
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e).slice(0, 300) });
+  }
+});
+
+// Downloads one .ics file covering a day's full agenda (meetings + dated
+// events + schedules due that day) — reuses the exact same assembly as
+// GET /agenda so the two never drift, then maps into ExportableEvent and
+// streams a VCALENDAR document. No server-side calendar account involved.
+calendarRouter.get("/export.ics", async (req, res) => {
+  try {
+    const date = String(req.query.date ?? localYmd(new Date()));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+
+    const events: ExportableEvent[] = [];
+
+    const icalSource = process.env.NEUROWORKS_CALENDAR_ICAL_URL;
+    if (icalSource) {
+      try {
+        const { readICalSource } = await import("../lib/calendar-ical.js");
+        const all = await readICalSource(icalSource);
+        for (const m of all.filter(e => localYmd(new Date(e.start)) === date)) {
+          events.push({ id: `meeting-${m.start}-${m.summary}`, title: m.summary, start: m.start, end: m.end, location: m.location, description: m.description });
+        }
+      } catch { /* meetings optional */ }
+    }
+    try {
+      const { datedFactsInWindow } = await import("../lib/memory.js");
+      for (const f of datedFactsInWindow(date, date)) {
+        events.push({ id: `event-${f.subject}-${f.date}`, title: f.fact, start: `${f.date}T09:00:00`, allDay: true });
+      }
+    } catch { /* memory optional */ }
+    try {
+      const { listSchedules } = await import("../lib/schedules.js");
+      const targetDow = new Date(date + "T12:00:00").getDay();
+      for (const s of listSchedules()) {
+        const days = s.cadence?.daysOfWeek ?? [];
+        if (!s.enabled || (days.length > 0 && !days.includes(targetDow))) continue;
+        events.push({
+          id: `schedule-${s.id}-${date}`,
+          title: s.name,
+          start: `${date}T${String(s.cadence.hour).padStart(2, "0")}:${String(s.cadence.minute).padStart(2, "0")}:00`,
+          description: `Naxie schedule · runs ${s.templateId}`,
+        });
+      }
+    } catch { /* schedules optional */ }
+
+    const ics = buildIcs(events);
+    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="naxie-${date}.ics"`);
+    res.send(ics);
   } catch (e: any) {
     res.status(500).json({ error: String(e?.message ?? e).slice(0, 300) });
   }

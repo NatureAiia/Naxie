@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Calendar, Play, Pause, Trash2, Plus, AlertTriangle, ArrowRight, Brain } from "lucide-react";
+import { Calendar, Play, Pause, Trash2, Plus, AlertTriangle, ArrowRight, Brain, CalendarPlus, Download } from "lucide-react";
 import { api, type Schedule, type Template, type WeeklyImprovementStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { DAY_LABELS, formatNext, formatCadence } from "../lib/scheduleFormat";
@@ -118,6 +118,16 @@ export function Schedules() {
                       )}
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
+                      <a
+                        href={`/api/calendar/${encodeURIComponent(s.id)}/google`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-cream-300/70 hover:text-cream-100 p-1.5 rounded hover:bg-ink-800"
+                        title="Add next run to Google Calendar"
+                        aria-label="Add next run to Google Calendar"
+                      >
+                        <CalendarPlus size={14} />
+                      </a>
                       <button
                         type="button"
                         onClick={() => togglePause(s)}
@@ -209,7 +219,18 @@ function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
   }
 
   return (
-    <Card title="Daily Rhythm">
+    <Card
+      title="Daily Rhythm"
+      action={
+        <a
+          href="/api/calendar/export.ics"
+          className="flex items-center gap-1.5 text-xs text-cream-300/70 hover:text-cream-100"
+          title="Download today's agenda as a calendar file"
+        >
+          <Download size={12} /> Download .ics
+        </a>
+      }
+    >
       <p className="text-xs text-cream-300/60 -mt-2 mb-3">
         Everything that runs on a cadence, in one place — the always-on background daemons plus your custom schedules below.
       </p>
