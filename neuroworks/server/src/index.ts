@@ -57,6 +57,7 @@ import { startApprovalEscalationSweep, stopApprovalEscalationSweep } from "./lib
 import { hostToolsRouter } from "./routes/host-tools.js";
 import { daemonSettingsRouter } from "./routes/daemon-settings.js";
 import { toolDnaRouter } from "./routes/tool-dna.js";
+import { workflowTreeRouter } from "./routes/workflow-tree.js";
 import { offlineModeRouter } from "./routes/offline-mode.js";
 import { installOfflineNetworkGuard, onOfflineChange, isOffline } from "./lib/offline-mode.js";
 import { orgTasksRouter } from "./routes/org-tasks.js";
@@ -297,6 +298,7 @@ app.use("/api/schedules", schedulesRouter);
 app.use("/api/host-tools", hostToolsRouter);
 app.use("/api/daemon-settings", daemonSettingsRouter);
 app.use("/api/tool-dna", toolDnaRouter);
+app.use("/api/workflow-tree", workflowTreeRouter);
 app.use("/api/offline-mode", offlineModeRouter);
 app.use("/api/org-tasks", orgTasksRouter);
 app.use("/api/local-folder", localFolderRouter); // "My documents" indexing — native replacement for naxionai/backend's local-folder endpoints

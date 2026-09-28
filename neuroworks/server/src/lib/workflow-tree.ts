@@ -23,7 +23,7 @@
 // full phase breakdown.
 
 import { config } from "../config.js";
-import { listVault, readVaultFile, writeVaultFile } from "./vault.js";
+import { listVault, readVaultFile, writeVaultFile, deleteVaultEntry } from "./vault.js";
 import { nextFireAt, type Cadence, type ScheduleDelivery } from "./schedules.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -245,6 +245,104 @@ export async function runNode(node: TaskNode): Promise<{ ok: boolean; error?: st
   // but not used by any Phase 0 node; a later phase wires this to
   // planAndExecute(node.body, ..., { toolAllowlist: node.tools }).
   return { ok: false, error: `template handlers are not wired up yet (Phase 0 only supports native:*)` };
+}
+
+// ─── management API — read/write a node's task.md from the UI ─────────────
+// (see routes/workflow-tree.ts). Every write goes through here so the file
+// format stays exactly what the tick/walker above expects — the UI never
+// hand-assembles frontmatter text itself.
+
+function serializeCadence(c: Cadence): string {
+  const lines = [`  daysOfWeek: [${c.daysOfWeek.join(", ")}]`, `  hour: ${c.hour}`, `  minute: ${c.minute}`];
+  if (c.once) lines.push(`  once: "${c.once}"`);
+  return `cadence:\n${lines.join("\n")}`;
+}
+
+function serializeStringList(key: string, items: string[]): string {
+  if (items.length === 0) return `${key}: []`;
+  return `${key}:\n${items.map(t => `  - ${t}`).join("\n")}`;
+}
+
+function serializeFrontmatter(fields: Omit<TaskNode, "path" | "body">): string {
+  const lines = [
+    `id: ${fields.id}`,
+    `enabled: ${fields.enabled}`,
+  ];
+  if (fields.cadence) lines.push(serializeCadence(fields.cadence));
+  lines.push(serializeStringList("tools", fields.tools));
+  lines.push(serializeStringList("data", fields.data));
+  if (fields.outputPath) lines.push(`outputPath: "${fields.outputPath}"`);
+  if (fields.deliver?.email) lines.push(`deliver:\n  email: "${fields.deliver.email}"`);
+  if (fields.handler) lines.push(`handler: "${fields.handler}"`);
+  return lines.join("\n");
+}
+
+export function getNode(nodePath: string): TaskNode | null {
+  try { return nodeFromFrontmatter(nodePath, readVaultFile(`${nodePath}/task.md`)); }
+  catch { return null; }
+}
+
+// Merges a partial patch onto the node's current fields and rewrites its
+// task.md. Callers (routes/workflow-tree.ts) pass only the fields a form
+// actually changed; everything else is preserved from disk, so a UI edit
+// can never silently drop a field the form didn't render.
+export function updateNode(nodePath: string, patch: Partial<Omit<TaskNode, "path">>): TaskNode | null {
+  const existing = getNode(nodePath);
+  if (!existing) return null;
+  // Only fields the caller actually set survive into the merge — a PATCH
+  // route destructuring req.body ends up with `undefined` for every field
+  // the form didn't touch, and a naive spread would overwrite the existing
+  // value with that undefined instead of leaving it alone.
+  const definedPatch = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  const merged: TaskNode = { ...existing, ...definedPatch, path: nodePath };
+  const content = `---\n${serializeFrontmatter(merged)}\n---\n${merged.body.trim()}\n`;
+  writeVaultFile(`${nodePath}/task.md`, content);
+  return merged;
+}
+
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+export function createNode(workflowId: string, taskId: string, fields: Partial<Omit<TaskNode, "path" | "id" | "body">> & { body?: string }): { ok: true; node: TaskNode } | { ok: false; error: string } {
+  if (!SLUG_RE.test(workflowId) || !SLUG_RE.test(taskId)) {
+    return { ok: false, error: "workflow and task ids must be lowercase letters, numbers and hyphens only (max 64 chars)" };
+  }
+  const nodePath = `${ROOT}/${workflowId}/${taskId}`;
+  if (getNode(nodePath)) return { ok: false, error: `a node already exists at ${nodePath}` };
+  const node: TaskNode = {
+    path: nodePath,
+    id: taskId,
+    enabled: fields.enabled ?? true,
+    cadence: fields.cadence,
+    tools: fields.tools ?? [],
+    data: fields.data ?? [],
+    outputPath: fields.outputPath,
+    deliver: fields.deliver,
+    handler: fields.handler,
+    body: fields.body ?? "",
+  };
+  const content = `---\n${serializeFrontmatter(node)}\n---\n${node.body.trim()}\n`;
+  writeVaultFile(`${nodePath}/task.md`, content);
+  return { ok: true, node };
+}
+
+// Deletes the whole node folder (task.md + anything the operator dropped
+// alongside it) and its run-state entry, via the vault's own generic
+// delete — same guardrails (path confinement) every other vault write uses.
+export function deleteNode(nodePath: string): boolean {
+  if (!getNode(nodePath)) return false;
+  deleteVaultEntry(nodePath);
+  const s = loadState();
+  if (s[nodePath]) { delete s[nodePath]; saveState(s); }
+  return true;
+}
+
+// Whether the live scheduler is actually armed in THIS process — the UI
+// uses this to explain why a node with a cadence might not be firing yet
+// (NEUROWORKS_WORKFLOW_TREE is a boot-time flag, deliberately not a live
+// toggle — see index.ts's comment on why that's the safe rollback story
+// for Phase 0's one proof migration).
+export function isEngineArmed(): boolean {
+  return scheduler !== null;
 }
 
 // Writes a node's task.md only if it doesn't already exist — lets a fresh

@@ -127,6 +127,16 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/slack",
     source: "reference",
   },
+  {
+    id: "firecrawl",
+    label: "Firecrawl",
+    description: "Web search, single-page scrape-to-markdown, multi-page crawl/map, and structured extraction — stronger than the built-in web.search/web.fetch tools for sites that need JS rendering or bulk crawling.",
+    command: "npx",
+    args: ["-y", "firecrawl-mcp"],
+    env: [{ name: "FIRECRAWL_API_KEY", description: "API key from firecrawl.dev — sign in or create a free account, then copy a key from the dashboard", required: true }],
+    homepage: "https://github.com/firecrawl/firecrawl-mcp-server",
+    source: "community",
+  },
 ];
 
 export function listMcpCatalog(): McpCatalogEntry[] {
