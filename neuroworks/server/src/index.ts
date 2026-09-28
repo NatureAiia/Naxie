@@ -12,6 +12,7 @@ import { storageRouter } from "./routes/storage.js";
 import { filesRouter } from "./routes/files.js";
 import { tasksRouter } from "./routes/tasks.js";
 import { myTasksRouter } from "./routes/my-tasks.js";
+import { personalFinanceRouter } from "./routes/personal-finance.js";
 import { templatesRouter } from "./routes/templates.js";
 import { chatRouter } from "./routes/chat.js";
 import { personasRouter } from "./routes/personas.js";
@@ -272,6 +273,7 @@ app.use("/api/storage", storageRouter);
 app.use("/api/files", filesRouter);
 app.use("/api/tasks", tasksRouter);
 app.use("/api/my-tasks", myTasksRouter); // operator's personal to-do list — distinct from the agent job queue above
+app.use("/api/personal-finance", personalFinanceRouter); // operator's own budget — distinct from Aria's company/market finance feed
 app.use("/api/templates", templatesRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/personas", personasRouter);
