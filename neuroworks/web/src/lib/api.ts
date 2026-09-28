@@ -318,6 +318,7 @@ export const api = {
   getWeeklyRollupStatus: () => req<{ last: any; nextFireAt: number | null }>("/api/weekly-rollup"),
   // Weekly self-improvement review ("Weekly Reflect") — proposals land in Agent Approvals.
   getWeeklyImprovementStatus: () => req<WeeklyImprovementStatus>("/api/weekly-improvement"),
+  getWeeklyImprovementNote: (date: string) => req<{ date: string; markdown: string }>(`/api/weekly-improvement/${encodeURIComponent(date)}`),
   runWeeklyImprovement: () => req<{ date: string; path: string; proposals: number; taskIds: string[]; modelUsed?: string; parseFailed: boolean }>("/api/weekly-improvement/run", { method: "POST", body: JSON.stringify({}) }),
   // Offline mode — header "Go offline" switch (local + LAN only).
   offlineMode: () => req<OfflineModeState>("/api/offline-mode"),

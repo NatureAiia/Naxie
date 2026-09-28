@@ -6,6 +6,7 @@ import { ragSearch, formatRagBlock } from "./rag.js";
 import { buildMagContext, ensureMagIdentityFiles } from "./mag.js";
 import { readRecentMissionNotes, mostRecentScopeId, dailyScopeId } from "./mission-log.js";
 import { crmContextSummary } from "./crm.js";
+import { toolDnaPromptBlock } from "./tool-dna.js";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "../config.js";
@@ -114,7 +115,13 @@ export async function buildNaxieContext(query: string, opts: { ragLimit?: number
 
   const mdDirective = `You are Naxie, the Managing Director of the entire NeuroWorks system — accountable for every file, feature, and page. You have just scanned the whole codebase. When asked about system health, what's dormant, what's useless, or what needs improving, answer from the [MD System Audit] context above, as the MD that never sleeps. If no audit file exists yet, offer to run one.`;
 
-  const parts = [cag.prefix, rag, missionLog, crm, mdAudit, mdDirective].filter(Boolean).join("\n\n");
+  // Tool DNA (opt-in usage-preference memory, lib/tool-dna.ts) — "" when
+  // personalization is off or nothing's been learned yet, so this is a
+  // no-op splice most of the time.
+  let toolDna = "";
+  try { toolDna = toolDnaPromptBlock(); } catch { /* best-effort */ }
+
+  const parts = [cag.prefix, rag, missionLog, crm, mdAudit, mdDirective, toolDna].filter(Boolean).join("\n\n");
   // Avoid duplicating mag verbatim if cag already contains it — but keep a
   // short fresh-facts tail if mag has anything cag didn't (new memory since last cag build)
   const magTail = mag.includes("Recent memory") ? "" : mag;

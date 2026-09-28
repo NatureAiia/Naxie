@@ -21,6 +21,7 @@ import {
   Megaphone,
   Building2,
   MessageCircle,
+  PiggyBank,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -77,6 +78,7 @@ const workNav: NavItem[] = [
   { to: "/my-work", label: "My Inbox", icon: Inbox, badgeKey: "approvals" },
   { to: "/brands", label: "Brands", icon: Megaphone },
   { to: "/planner", label: "Planner", icon: CalendarDays },
+  { to: "/my-finances", label: "My Finances", icon: PiggyBank },
   { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
   { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
 ];

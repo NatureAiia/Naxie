@@ -12,6 +12,7 @@ import { storageRouter } from "./routes/storage.js";
 import { filesRouter } from "./routes/files.js";
 import { tasksRouter } from "./routes/tasks.js";
 import { myTasksRouter } from "./routes/my-tasks.js";
+import { personalFinanceRouter } from "./routes/personal-finance.js";
 import { templatesRouter } from "./routes/templates.js";
 import { chatRouter } from "./routes/chat.js";
 import { personasRouter } from "./routes/personas.js";
@@ -29,7 +30,8 @@ import { ensureAllPersonasHaveTemplates } from "./lib/persona-templates.js";
 import { startReflectionScheduler, stopReflectionScheduler } from "./lib/reflection.js";
 import { startInnovationScanScheduler, stopInnovationScanScheduler } from "./lib/innovation-scan.js";
 import { startSystemAuditScheduler, stopSystemAuditScheduler, startWeeklyBoardScheduler, stopWeeklyBoardScheduler } from "./lib/system-audit.js";
-import { startTodoBriefScheduler, stopTodoBriefScheduler } from "./lib/todo-brief.js";
+import { startTodoBriefScheduler, stopTodoBriefScheduler, runTodoBrief } from "./lib/todo-brief.js";
+import { startWorkflowTreeScheduler, stopWorkflowTreeScheduler, registerNativeHandler, seedNodeIfMissing } from "./lib/workflow-tree.js";
 import { startWeeklyRollupScheduler, stopWeeklyRollupScheduler } from "./lib/weekly-rollup.js";
 import { startWeeklyImprovementScheduler, stopWeeklyImprovementScheduler } from "./lib/weekly-improvement.js";
 import { startWikiCompileScheduler, stopWikiCompileScheduler, startWikiDigestScheduler, stopWikiDigestScheduler } from "./lib/wiki-compile.js";
@@ -54,6 +56,7 @@ import { startScheduleScheduler, stopScheduleScheduler } from "./lib/schedules.j
 import { startApprovalEscalationSweep, stopApprovalEscalationSweep } from "./lib/action-approvals.js";
 import { hostToolsRouter } from "./routes/host-tools.js";
 import { daemonSettingsRouter } from "./routes/daemon-settings.js";
+import { toolDnaRouter } from "./routes/tool-dna.js";
 import { offlineModeRouter } from "./routes/offline-mode.js";
 import { installOfflineNetworkGuard, onOfflineChange, isOffline } from "./lib/offline-mode.js";
 import { orgTasksRouter } from "./routes/org-tasks.js";
@@ -270,6 +273,7 @@ app.use("/api/storage", storageRouter);
 app.use("/api/files", filesRouter);
 app.use("/api/tasks", tasksRouter);
 app.use("/api/my-tasks", myTasksRouter); // operator's personal to-do list — distinct from the agent job queue above
+app.use("/api/personal-finance", personalFinanceRouter); // operator's own budget — distinct from Aria's company/market finance feed
 app.use("/api/templates", templatesRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/personas", personasRouter);
@@ -292,6 +296,7 @@ app.use("/api/workforce", workforceRouter);
 app.use("/api/schedules", schedulesRouter);
 app.use("/api/host-tools", hostToolsRouter);
 app.use("/api/daemon-settings", daemonSettingsRouter);
+app.use("/api/tool-dna", toolDnaRouter);
 app.use("/api/offline-mode", offlineModeRouter);
 app.use("/api/org-tasks", orgTasksRouter);
 app.use("/api/local-folder", localFolderRouter); // "My documents" indexing — native replacement for naxionai/backend's local-folder endpoints
@@ -614,8 +619,24 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // report, then the 8am innovation scan.
   // Primary-only. Disable with NEUROWORKS_TODO_BRIEF=0.
   if (process.env.NEUROWORKS_TODO_BRIEF !== "0" && config.role === "primary") {
-    startTodoBriefScheduler();
-    console.log(`  ⓘ todo brief scheduler armed (hour=${process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"}, delivers to Telegram if connected)`);
+    // Phase 0 proof migration (see docs/naxie-architecture's tree-model
+    // plan): with NEUROWORKS_WORKFLOW_TREE=1, todo-brief is driven by the
+    // generic _workflows/ tree engine instead of its own bespoke scheduler.
+    // Default stays off for one release so a revert is this one env var,
+    // not a code rollback — see lib/workflow-tree.ts's header comment.
+    if (process.env.NEUROWORKS_WORKFLOW_TREE === "1") {
+      registerNativeHandler("todo-brief", () => runTodoBrief());
+      seedNodeIfMissing(
+        "_workflows/ops-daemons/todo-brief",
+        `id: todo-brief\nenabled: true\ncadence:\n  daysOfWeek: []\n  hour: ${process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"}\n  minute: 0\ntools:\n  - vault.write\ndata:\n  - _neuroworks/\noutputPath: "_neuroworks/todo-briefs/{date}.md"\nhandler: "native:todo-brief"`,
+        "Daily todo brief — today's tasks + remaining for the week, with weather and a Top 3. Migrated from lib/todo-brief.ts's own scheduler as the Phase 0 proof (see lib/workflow-tree.ts).",
+      );
+      startWorkflowTreeScheduler();
+      console.log(`  ⓘ todo brief now driven by the workflow tree (_workflows/ops-daemons/todo-brief, edit its task.md to change cadence)`);
+    } else {
+      startTodoBriefScheduler();
+      console.log(`  ⓘ todo brief scheduler armed (hour=${process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"}, delivers to Telegram if connected)`);
+    }
   }
 
   // MD Weekly Board — Monday 08:00, convenes on latest audit's top improvements
@@ -766,6 +787,8 @@ async function gracefulExit(signal: string) {
   try { stopWeeklyBoardScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopTodoBriefScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopWorkflowTreeScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopWeeklyRollupScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }

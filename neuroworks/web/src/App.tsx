@@ -20,6 +20,7 @@ const Office = lazy(() => import("./pages/Office").then(m => ({ default: m.Offic
 // Work Queue — Runs + Approvals now live inside MyWork; detail stays standalone
 const RunDetail = lazy(() => import("./pages/Runs").then(m => ({ default: m.RunDetail })));
 const Planner = lazy(() => import("./pages/Planner").then(m => ({ default: m.Planner })));
+const MyFinances = lazy(() => import("./pages/MyFinances").then(m => ({ default: m.MyFinances })));
 const Schedules = lazy(() => import("./pages/Schedules").then(m => ({ default: m.Schedules })));
 
 // Build
@@ -104,6 +105,7 @@ function AppShell() {
         <Route path="/brands" element={<Brands />} />
         <Route path="/crm" element={<Navigate to="/naxie" replace />} />
         <Route path="/planner" element={<Planner />} />
+        <Route path="/my-finances" element={<MyFinances />} />
         <Route path="/calendar" element={<Navigate to="/planner" replace />} />
         <Route path="/schedules" element={<Schedules />} />
 

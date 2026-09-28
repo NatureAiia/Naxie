@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Cable, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Power, ListTree, Sparkles } from "lucide-react";
 import { api, type McpServer, type McpServerInput, type McpCatalogEntry, type McpTool, type McpCallResult } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
+import { ConfirmDialog } from "../components/Modal";
 
 // MCP-client servers — register EXTERNAL MCP servers (community catalog, e.g.
 // github.com/punkpeye/awesome-mcp-servers: filesystem, browser, Postgres,
@@ -161,8 +162,13 @@ function AddMcpServerModal({ prefill, onClose, onSaved }: { prefill: McpCatalogE
   const [envJson, setEnvJson] = useState(prefill?.env?.length ? JSON.stringify(Object.fromEntries(prefill.env.map(e => [e.name, ""])), null, 2) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Confirm-before-external-action (ported from KimmyDeku/sebastian's
+  // ConfirmDialog pattern): filling the form doesn't start the process —
+  // "Add server" opens a confirm step naming exactly what will run, and
+  // nothing calls the API until that's confirmed.
+  const [pendingBody, setPendingBody] = useState<McpServerInput | null>(null);
 
-  async function submit() {
+  function review() {
     setErr(null);
     let env: Record<string, string> | undefined;
     if (envJson.trim()) {
@@ -171,13 +177,17 @@ function AddMcpServerModal({ prefill, onClose, onSaved }: { prefill: McpCatalogE
     }
     // args: split on whitespace, respecting simple "quoted strings"
     const args = (argsText.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map(a => a.replace(/^['"]|['"]$/g, ""));
-    const body: McpServerInput = { label, description: description || undefined, command, args, env };
+    setPendingBody({ label, description: description || undefined, command, args, env });
+  }
+
+  async function confirmAdd() {
+    if (!pendingBody) return;
     setSaving(true);
     try {
-      await api.addMcpServer(body);
+      await api.addMcpServer(pendingBody);
       showToast("MCP server added", "success");
       onSaved();
-    } catch (e: any) { setErr(e?.message ?? String(e)); }
+    } catch (e: any) { setErr(e?.message ?? String(e)); setPendingBody(null); }
     finally { setSaving(false); }
   }
 
@@ -226,10 +236,26 @@ function AddMcpServerModal({ prefill, onClose, onSaved }: { prefill: McpCatalogE
 
           {err && <div className="text-sm text-coral-400 flex items-center gap-2 p-3 rounded-lg bg-coral-500/5 border border-coral-500/20"><AlertTriangle size={16} /> {err}</div>}
           <div className="flex justify-end pt-2">
-            <Button onClick={submit} disabled={saving || !label || !command} className="px-6 py-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Add server</Button>
+            <Button onClick={review} disabled={!label || !command} className="px-6 py-2"><Plus size={16} /> Add server</Button>
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingBody !== null}
+        title="Add this MCP server?"
+        rows={pendingBody ? [
+          ["Label", pendingBody.label],
+          ["Command", [pendingBody.command, ...(pendingBody.args ?? [])].join(" ")],
+          ["Description", pendingBody.description ?? "—"],
+          ["Env vars", pendingBody.env ? Object.keys(pendingBody.env).join(", ") : "none"],
+        ] : []}
+        body="This starts a new local process the next time the agent uses it, with its own OS permissions. Nothing runs until you confirm — and every tool call it makes still needs your approval afterward."
+        confirmLabel="Add server"
+        busy={saving}
+        onConfirm={confirmAdd}
+        onCancel={() => setPendingBody(null)}
+      />
     </div>
   );
 }

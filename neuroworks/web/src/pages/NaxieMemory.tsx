@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Sparkles, Brain, Users, Database, Radio, Save, Search, RefreshCw } from "lucide-react";
+import { Sparkles, Brain, Users, Database, Radio, Save, Search, RefreshCw, Trash2 } from "lucide-react";
+import { ToggleRow } from "../components/ToggleRow";
+import { ConfirmDialog } from "../components/Modal";
+
+type ToolDna = { templates: Record<string, number>; skills: Record<string, number>; personas: Record<string, number> };
+type ToolDnaState = { dna: ToolDna; settings: { personalizationEnabled: boolean } };
+
+function topEntries(counts: Record<string, number>, n = 8): [string, number][] {
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, n);
+}
 
 type Ctx = {
   operator: { name: string; email: string; title?: string; sector?: string; orgName?: string; language: string; summary: string };
@@ -22,6 +31,33 @@ export function NaxieMemory() {
   const [teach, setTeach] = useState({ subject: "operator", fact: "", date: "" });
   const [teachBusy, setTeachBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [dna, setDna] = useState<ToolDnaState | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  async function loadDna() {
+    try { setDna(await (await fetch("/api/tool-dna")).json()); } catch { /* panel just doesn't render */ }
+  }
+  useEffect(() => { void loadDna(); }, []);
+
+  async function togglePersonalization(next: boolean) {
+    const prev = dna;
+    setDna(d => d ? { ...d, settings: { personalizationEnabled: next } } : d);
+    try {
+      const r = await fetch("/api/tool-dna/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personalizationEnabled: next }) });
+      if (!r.ok) throw new Error((await r.json()).error);
+    } catch (e: any) { setDna(prev); setMsg(String(e?.message ?? e)); }
+  }
+
+  async function confirmResetDna() {
+    setResetting(true);
+    try {
+      await fetch("/api/tool-dna", { method: "DELETE" });
+      await loadDna();
+      setConfirmReset(false);
+    } catch (e: any) { setMsg(String(e?.message ?? e)); }
+    finally { setResetting(false); }
+  }
 
   async function load(query = q) {
     setBusy(true);
@@ -119,6 +155,50 @@ export function NaxieMemory() {
             <pre className="text-[11px] font-mono bg-ink-950 border border-ink-800 rounded-md p-3 whitespace-pre-wrap max-h-64 overflow-auto">{ctx.rag || "(no hits)"}</pre>
           </div>
 
+          {dna && (
+            <div className="bg-ink-900 border border-ink-800 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold flex items-center gap-1.5"><Sparkles size={12} className="text-violet-400" /> Naxie's learned habits (Tool DNA)</div>
+                <button onClick={() => setConfirmReset(true)} disabled={resetting} className="inline-flex items-center gap-1 text-[11px] text-cream-300/60 hover:text-coral-400" title="Reset learned habits">
+                  <Trash2 size={11} /> Reset
+                </button>
+              </div>
+              <ToggleRow
+                label="Let Naxie learn from what I use"
+                checked={dna.settings.personalizationEnabled}
+                onChange={next => void togglePersonalization(next)}
+                compact
+              />
+              <p className="text-[10px] text-cream-300/40">
+                Frequency counts of templates and skills you've actually used — nothing else. Off means nothing new is
+                recorded, not just hidden. Naxie folds your top habits into her own context so she can anticipate what
+                you reach for most.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-cream-300/40 mb-1">Templates</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {topEntries(dna.dna.templates).length === 0
+                      ? <span className="text-[11px] text-cream-300/50">nothing learned yet</span>
+                      : topEntries(dna.dna.templates).map(([name, count]) => (
+                          <span key={name} className="px-2 py-0.5 rounded-full bg-ink-950 border border-ink-800 text-[11px]">{name} · {count}</span>
+                        ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-cream-300/40 mb-1">Skills</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {topEntries(dna.dna.skills).length === 0
+                      ? <span className="text-[11px] text-cream-300/50">nothing learned yet</span>
+                      : topEntries(dna.dna.skills).map(([name, count]) => (
+                          <span key={name} className="px-2 py-0.5 rounded-full bg-ink-950 border border-ink-800 text-[11px]">{name} · {count}</span>
+                        ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="bg-ink-900 border border-ink-800 rounded-xl p-4 space-y-3">
             <div className="text-xs font-semibold flex items-center gap-1.5"><Save size={12} /> Teach Naxie (so she never forgets)</div>
             <div className="grid grid-cols-1 md:grid-cols-[140px_1fr_140px_auto] gap-2">
@@ -131,6 +211,17 @@ export function NaxieMemory() {
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmReset}
+        title="Reset Naxie's learned habits?"
+        body="This clears every template and skill usage count. Naxie won't lose your teachings above or her memory — only this habit tracker."
+        confirmLabel="Reset"
+        danger
+        busy={resetting}
+        onConfirm={confirmResetDna}
+        onCancel={() => setConfirmReset(false)}
+      />
     </div>
   );
 }
