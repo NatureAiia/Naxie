@@ -32,12 +32,16 @@ vi.mock("../src/lib/vault.js", async (importOriginal) => ({
     return files.get(rel)!;
   },
   writeVaultFile: (rel: string, content: string) => vaultWrite(rel, content),
+  deleteVaultEntry: (rel: string) => {
+    for (const key of [...files.keys()]) if (key === rel || key.startsWith(`${rel}/`)) files.delete(key);
+  },
 }));
 
 import { nextFireAt } from "../src/lib/schedules.js";
 import {
   parseFrontmatter, walkWorkflowTree, seedNodeIfMissing, registerNativeHandler, runNode,
   getNodeStatus, startWorkflowTreeScheduler, stopWorkflowTreeScheduler, _resetForTests,
+  getNode, updateNode, createNode, deleteNode,
 } from "../src/lib/workflow-tree.js";
 import { primitivesPromptCatalog } from "../src/lib/primitives.js";
 import { plan, executePlan } from "../src/lib/agent.js";
@@ -187,5 +191,89 @@ describe("engine lifecycle", () => {
     startWorkflowTreeScheduler(); // idempotent — second call is a no-op
     stopWorkflowTreeScheduler();
     stopWorkflowTreeScheduler(); // idempotent — stopping twice doesn't throw
+  });
+});
+
+// Management API — the UI's create/edit/delete/run-now surface (see
+// routes/workflow-tree.ts). Every write here round-trips through the same
+// serializer, so a node written by the UI parses back identically to one
+// hand-edited in Obsidian.
+describe("createNode / getNode / updateNode / deleteNode", () => {
+  it("creates a node with a full field set, and getNode reads it back identically", () => {
+    const result = createNode("ops", "weekly-digest", {
+      enabled: true,
+      cadence: { daysOfWeek: [1], hour: 9, minute: 30 },
+      tools: ["vault.search", "vault.write"],
+      data: ["_neuroworks/"],
+      outputPath: "_neuroworks/digests/{date}.md",
+      handler: "native:todo-brief",
+      body: "Weekly digest instructions.",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.node.path).toBe("_workflows/ops/weekly-digest");
+    const read = getNode("_workflows/ops/weekly-digest");
+    expect(read).toMatchObject({
+      id: "weekly-digest",
+      enabled: true,
+      cadence: { daysOfWeek: [1], hour: 9, minute: 30 },
+      tools: ["vault.search", "vault.write"],
+      data: ["_neuroworks/"],
+      outputPath: "_neuroworks/digests/{date}.md",
+      handler: "native:todo-brief",
+    });
+    expect(read!.body.trim()).toBe("Weekly digest instructions.");
+  });
+
+  it("rejects an invalid slug rather than writing a malformed path", () => {
+    const result = createNode("Ops Team", "weekly-digest", {});
+    expect(result.ok).toBe(false);
+  });
+
+  it("refuses to overwrite an existing node", () => {
+    createNode("ops", "a", {});
+    const result = createNode("ops", "a", {});
+    expect(result.ok).toBe(false);
+  });
+
+  it("defaults to enabled:true, empty tools/data, no cadence (on-demand) when fields are omitted", () => {
+    const result = createNode("ops", "adhoc", {});
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.node.enabled).toBe(true);
+    expect(result.node.cadence).toBeUndefined();
+    expect(result.node.tools).toEqual([]);
+  });
+
+  it("updateNode merges a patch, preserving fields the patch didn't touch", () => {
+    createNode("ops", "b", { enabled: true, tools: ["vault.search"], body: "original" });
+    const updated = updateNode("_workflows/ops/b", { enabled: false });
+    expect(updated).toMatchObject({ enabled: false, tools: ["vault.search"] });
+    expect(updated!.body.trim()).toBe("original");
+    expect(getNode("_workflows/ops/b")).toMatchObject({ enabled: false, tools: ["vault.search"] });
+  });
+
+  it("updateNode with only ONE field set (the rest undefined, as a real PATCH body destructures) never wipes untouched fields", () => {
+    createNode("ops", "d", { tools: ["vault.search"], data: ["_neuroworks/"], body: "keep me" });
+    // Mirrors routes/workflow-tree.ts's PATCH handler: destructuring req.body
+    // for a request that only sent {enabled:false} leaves every other key
+    // present on the object with value undefined.
+    const patch = { enabled: false, cadence: undefined, tools: undefined, data: undefined, outputPath: undefined, deliver: undefined, body: undefined, handler: undefined };
+    const updated = updateNode("_workflows/ops/d", patch);
+    expect(updated).toMatchObject({ enabled: false, tools: ["vault.search"], data: ["_neuroworks/"] });
+    expect(updated!.body.trim()).toBe("keep me");
+    const reread = getNode("_workflows/ops/d");
+    expect(reread).toMatchObject({ enabled: false, tools: ["vault.search"], data: ["_neuroworks/"] });
+  });
+
+  it("updateNode returns null for a node that doesn't exist", () => {
+    expect(updateNode("_workflows/ops/missing", { enabled: false })).toBeNull();
+  });
+
+  it("deleteNode removes the node and its run-state, and is idempotent-safe (false on a second call)", () => {
+    createNode("ops", "c", {});
+    expect(deleteNode("_workflows/ops/c")).toBe(true);
+    expect(getNode("_workflows/ops/c")).toBeNull();
+    expect(deleteNode("_workflows/ops/c")).toBe(false);
   });
 });

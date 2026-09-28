@@ -23,6 +23,7 @@ import {
   MessageCircle,
   PiggyBank,
   Brain,
+  FolderTree,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -81,6 +82,7 @@ const workNav: NavItem[] = [
   { to: "/planner", label: "Planner", icon: CalendarDays },
   { to: "/my-finances", label: "My Finances", icon: PiggyBank },
   { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
+  { to: "/workflow-tree", label: "Workflow Tree", icon: FolderTree },
   { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
 ];
 
