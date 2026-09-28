@@ -89,7 +89,7 @@ function AcquirePublishPanel({ kinds, onPublished }: { kinds: OmniSourceKindInfo
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
   const [sector, setSector] = useState("");
-  const [acquireResult, setAcquireResult] = useState<{ total: number; report: { source: string; count: number; error?: string }[] } | null>(null);
+  const [acquireResult, setAcquireResult] = useState<{ total: number; report: { source: string; count: number; error?: string }[]; structuredCount: number } | null>(null);
   const [acquiring, setAcquiring] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [err, setErr] = useState("");
@@ -110,7 +110,12 @@ function AcquirePublishPanel({ kinds, onPublished }: { kinds: OmniSourceKindInfo
     setErr(""); setAcquiring(true); setAcquireResult(null);
     try {
       const r = await api.acquireOmni([buildSpec()]);
-      setAcquireResult({ total: r.total, report: r.report });
+      // json_ld / price are attached by omnisignal.ts only for web_page
+      // records that carried structured data (structured-extract.ts) — a
+      // quick signal that this fetch found schema.org/price info worth
+      // trusting over free-text guessing.
+      const structuredCount = r.records.filter(rec => rec.json_ld || rec.price).length;
+      setAcquireResult({ total: r.total, report: r.report, structuredCount });
     } catch (e: any) {
       setErr(e?.message ?? String(e));
     } finally {
@@ -193,6 +198,11 @@ function AcquirePublishPanel({ kinds, onPublished }: { kinds: OmniSourceKindInfo
           {acquireResult && (
             <div className="text-xs text-cream-300/70 bg-ink-900 border border-ink-800 rounded-lg px-3 py-2">
               {acquireResult.total} record{acquireResult.total === 1 ? "" : "s"} acquired.
+              {acquireResult.structuredCount > 0 && (
+                <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300">
+                  {acquireResult.structuredCount} with schema.org/price data
+                </span>
+              )}
               {acquireResult.report.some(r => r.error) && (
                 <div className="text-flame-400 mt-1">{acquireResult.report.filter(r => r.error).map(r => r.error).join("; ")}</div>
               )}

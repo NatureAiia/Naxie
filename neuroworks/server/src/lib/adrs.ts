@@ -27,6 +27,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { writeVaultFile } from "./vault.js";
+import { publishEvent } from "./webhook-delivery.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = process.env.NEUROWORKS_STATE_DIR
@@ -602,6 +603,19 @@ export function publishDataset(input: PublishInput): PublishResult {
   const list = loadRegistry();
   list.push(manifest);
   saveRegistry(list);
+
+  // Notify any registered webhook targets — fire-and-forget so a slow or
+  // failing external endpoint never delays the publish itself; the delivery
+  // retry engine (webhook-delivery.ts) handles anything that fails here.
+  void publishEvent("dataset.published", {
+    id: manifest.id,
+    name: manifest.name,
+    sector: manifest.sector,
+    source: manifest.source,
+    recordCount: manifest.recordCount,
+    avgConfidence: manifest.avgConfidence,
+    rootHash: manifest.rootHash,
+  }).catch(() => { /* publishEvent already records the failure per-delivery */ });
 
   return { manifest };
 }
