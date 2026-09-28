@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Calendar, Play, Pause, Trash2, Plus, AlertTriangle, ArrowRight, Brain, CalendarPlus, Download } from "lucide-react";
+import { Calendar, Play, Pause, Trash2, Plus, AlertTriangle, ArrowRight, Brain, CalendarPlus, Download, Volume2 } from "lucide-react";
+import { ReadAloud } from "../components/ReadAloud";
 import { api, type Schedule, type Template, type WeeklyImprovementStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { DAY_LABELS, formatNext, formatCadence } from "../lib/scheduleFormat";
@@ -284,6 +285,15 @@ function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
 function WeeklyReflectCard() {
   const [status, setStatus] = useState<WeeklyImprovementStatus | null>(null);
   const [running, setRunning] = useState(false);
+  const [reading, setReading] = useState<{ title: string; markdown: string } | null>(null);
+
+  async function openReadAloud() {
+    if (!status?.last) return;
+    try {
+      const r = await api.getWeeklyImprovementNote(status.last.date);
+      setReading({ title: `Weekly Reflect — ${status.last.date}`, markdown: r.markdown });
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+  }
 
   async function load() {
     try { setStatus(await api.getWeeklyImprovementStatus()); } catch { /* leave as-is */ }
@@ -339,11 +349,19 @@ function WeeklyReflectCard() {
       ) : (
         <p className="text-xs text-cream-300/60">{last ? "No proposals last run." : "Hasn't run yet — it fires Sundays after the weekly rollup, or click Run now."}</p>
       )}
-      {last && last.taskIds.length > 0 && (
-        <Link to="/my-work" className="mt-3 inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-500">
-          Review proposals <ArrowRight size={11} />
-        </Link>
-      )}
+      <div className="mt-3 flex items-center gap-4">
+        {last && last.taskIds.length > 0 && (
+          <Link to="/my-work" className="inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-500">
+            Review proposals <ArrowRight size={11} />
+          </Link>
+        )}
+        {last && (
+          <button type="button" onClick={() => void openReadAloud()} className="inline-flex items-center gap-1 text-xs text-cream-300/70 hover:text-cream-100">
+            <Volume2 size={12} /> Read aloud
+          </button>
+        )}
+      </div>
+      {reading && <ReadAloud open onClose={() => setReading(null)} title={reading.title} markdown={reading.markdown} />}
     </Card>
   );
 }
