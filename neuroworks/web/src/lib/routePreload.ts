@@ -15,6 +15,8 @@ type Thunk = () => Promise<unknown>;
 
 const preloaders: Record<string, Thunk> = {
   "/naxie": () => import("../pages/Naxie"),
+  "/naxie/memory": () => import("../pages/NaxieMemory"),
+  "/my-finances": () => import("../pages/MyFinances"),
   "/chat": () => import("../pages/BoardMeeting"),
   "/runs": () => import("../pages/MyWork"),
   "/approvals": () => import("../pages/MyWork"),

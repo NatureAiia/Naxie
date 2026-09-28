@@ -5,7 +5,7 @@ import {
   MessageSquare, Users, ListChecks,
   BookOpen, Sparkles, Terminal,
   UserCircle, PlusCircle, Search as SearchIcon, Calendar,
-  Plug,
+  Plug, PiggyBank, Brain, LayoutDashboard,
 } from "lucide-react";
 import { Kbd, MetaKey } from "./Kbd";
 import { matIcon } from "./FileIcon";
@@ -64,11 +64,17 @@ export function CommandPalette() {
     { id: "n-runs", group: "Navigate", label: "Runs", icon: ListChecks, onSelect: go("/runs"), keywords: "jobs queue tasks results outputs activity" },
     { id: "n-knowledge", group: "Navigate", label: "Library", icon: BookOpen, onSelect: go("/library"), keywords: "vault notes search files" },
     { id: "n-my-work", group: "Navigate", label: "My Inbox", icon: Users, onSelect: go("/my-work"), keywords: "handoffs assignments human loop upload submit delegate review pending approval" },
-    { id: "n-schedules", group: "Navigate", label: "Schedules", icon: Calendar, onSelect: go("/schedules"), keywords: "cron recurring schedule" },
+    { id: "n-planner", group: "Navigate", label: "Planner", icon: Calendar, onSelect: go("/planner"), keywords: "tasks todo plan my tasks calendar" },
+    { id: "n-finances", group: "Navigate", label: "My Finances", icon: PiggyBank, onSelect: go("/my-finances"), keywords: "budget money savings plans income expense personal finance" },
+    { id: "n-schedules", group: "Navigate", label: "Schedules", icon: Calendar, onSelect: go("/schedules"), keywords: "cron recurring schedule daily rhythm calendar export ics read aloud" },
+    { id: "n-memory", group: "Navigate", label: "Naxie Memory", icon: Brain, onSelect: go("/naxie/memory"), keywords: "memory rag teach tool dna habits personalization learned" },
+    { id: "n-command", group: "Navigate", label: "Command Center", icon: LayoutDashboard, onSelect: go("/command"), keywords: "org dashboard command center roles" },
+    { id: "n-daily", group: "Navigate", label: "Daily Reports", icon: ChangelogIcon, onSelect: go("/daily-reports"), keywords: "daily reports digest rollup" },
 
     { id: "a-new-chat", group: "Actions", label: "New board meeting", icon: PlusCircle, onSelect: go("/chat"), keywords: "start fresh session council" },
     { id: "a-search-vault", group: "Actions", label: "Search the vault", icon: SearchIcon, onSelect: go("/library") },
     { id: "a-new-schedule", group: "Actions", label: "Create a schedule", icon: Calendar, onSelect: go("/schedules"), keywords: "recurring template fire" },
+    { id: "a-export-cal", group: "Actions", label: "Download agenda (.ics)", icon: Calendar, onSelect: () => { window.open("/api/calendar/export.ics", "_blank"); setOpen(false); }, keywords: "calendar export ics google agenda daily rhythm" },
 
     { id: "l-templates", group: "Library", label: "Templates", icon: TemplateIcon, onSelect: go("/templates") },
     { id: "l-skills", group: "Library", label: "Skills", icon: Sparkles, onSelect: go("/skills") },

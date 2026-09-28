@@ -22,6 +22,7 @@ import {
   Building2,
   MessageCircle,
   PiggyBank,
+  Brain,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -84,6 +85,7 @@ const workNav: NavItem[] = [
 ];
 
 const memoryNav: NavItem[] = [
+  { to: "/naxie/memory", label: "Naxie Memory", icon: Brain },
   { to: "/library", label: "Library", icon: DocsFolderIcon },
   { to: "/templates", label: "Templates", icon: TemplateIcon },
   { to: "/skills", label: "Skills", icon: TemplateIcon },
