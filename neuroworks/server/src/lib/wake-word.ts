@@ -13,11 +13,10 @@ import { createRequire } from "node:module";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
-// Mirrors Python's _VOSK_MODEL_DIR = backend/media/vosk_model
-// In TS: neuroworks/server/media/vosk_model (sibling to vosk_model at repo level if needed)
+// Model home: neuroworks/server/media/vosk_model (moved out of the retired
+// naxionai/backend — same files, git history preserved via rename).
 const VOSK_MODEL_CANDIDATES = [
   resolve(__dirname, "../../../media/vosk_model"),
-  resolve(__dirname, "../../../../naxionai/backend/media/vosk_model"),
   resolve(__dirname, "../../media/vosk_model"),
 ];
 
