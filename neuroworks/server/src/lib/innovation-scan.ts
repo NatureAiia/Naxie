@@ -403,9 +403,12 @@ Rules:
 
   const attemptSynthesis = async (): Promise<{ text: string; modelUsed?: string }> => {
     let lastErr: any;
+    // Bounded per-attempt budget — same stall-fast reasoning as the system
+    // audit's synthesis (8-min outer cap burned whole scans on slow backends).
+    const timeoutMs = Math.max(60_000, Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000"));
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high" } as any);
+        const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs } as any);
         if (attempt > 0) console.log(`[innovation-scan] LLM call succeeded on retry`);
         return { text: meta.text.trim(), modelUsed: meta.model };
       } catch (e: any) {

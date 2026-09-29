@@ -14,6 +14,11 @@ export type OpenRouterCallOptions = {
   onToken?: (chunk: string, accumulated: string) => void;
   temperature?: number;
   maxTokens?: number;
+  // Wall-clock budget for this call (ms) — aborts connect+retry+stream when
+  // exceeded. Absent = 15 min legacy default. Callers with their own outer
+  // cap (scan/audit synthesis) pass less so attempts fail fast instead of
+  // outliving the race they're in.
+  timeoutMs?: number;
   // Point this ONE call at a different OpenAI-compatible endpoint (the
   // provider-pool fallback chain in llm.ts — OpenAI / Anthropic secondary
   // when OpenRouter is down). When set, the OpenRouter circuit breaker is
@@ -143,7 +148,7 @@ export async function openrouterGenerateWithMeta(
   const effectiveMax = REASONING_MODEL_RE.test(model) ? Math.max(requestedMax * 4, 4096) : requestedMax;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15 * 60_000);
+  const timer = setTimeout(() => ctrl.abort(), Math.max(5_000, opts.timeoutMs ?? 15 * 60_000));
   try {
     // Establish the streaming response with retry-on-transient. Retries happen
     // BEFORE any token is emitted, so the consumer never sees partial output

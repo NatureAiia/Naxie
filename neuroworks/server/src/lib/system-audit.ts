@@ -178,11 +178,20 @@ export function scanInventory(): FileInventory {
     } catch { /* ignore */ }
   }
   try {
-    // Schedules: count JSON file
-    const sRaw = readFileSync(join(REPO_ROOT, ".neuroworks/schedules.json"), "utf8");
-    const s = JSON.parse(sRaw);
-    const arr = Array.isArray(s) ? s : (s.schedules ?? []);
-    schedules = arr.length;
+    // Schedules: count JSON file. Lives under neuroworks/.neuroworks (same
+    // STATE_DIR as schedules.ts) — the repo-root path is a legacy location
+    // that no longer exists, which is why the audit reported "Schedules: 0"
+    // while 4 were enabled (2026-09-28).
+    let sArr: any[] = [];
+    for (const p of [join(REPO_ROOT, ".neuroworks/schedules.json"), join(REPO_ROOT, "neuroworks/.neuroworks/schedules.json")]) {
+      try {
+        const sRaw = readFileSync(p, "utf8");
+        const s = JSON.parse(sRaw);
+        sArr = Array.isArray(s) ? s : (s.schedules ?? []);
+        if (sArr.length > 0) break;
+      } catch { /* try next location */ }
+    }
+    schedules = sArr.length;
   } catch { /* 0 */ }
   try {
     const cRaw = readFileSync(join(REPO_ROOT, ".neuroworks/connectors.json"), "utf8");
@@ -224,7 +233,11 @@ async function collectUsage(): Promise<UsageSignals> {
       byTemplate[tpl].total++;
       if (r.status === "succeeded") byTemplate[tpl].ok++;
       if (r.status === "failed") byTemplate[tpl].failed++;
-      const personaName = r.personaName ?? (r as any).persona?.name;
+      // PersistedJob.persona is a plain string (job-store persistJobRecord) —
+      // the old `persona?.name` object read never matched, so byPersona was
+      // always empty and every persona looked dormant (2026-09-28).
+      const rawPersona: any = (r as any).personaName ?? (r as any).persona;
+      const personaName = typeof rawPersona === "string" ? rawPersona : rawPersona?.name;
       if (personaName) byPersona[personaName] = (byPersona[personaName] ?? 0) + 1;
     }
   } catch { /* tolerate */ }
@@ -270,8 +283,15 @@ async function collectUsage(): Promise<UsageSignals> {
 
   let schedulesEnabled = 0, schedulesDisabled = 0;
   try {
-    const raw = readFileSync(join(REPO_ROOT, ".neuroworks/schedules.json"), "utf8");
-    const arr: any[] = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : (JSON.parse(raw).schedules ?? []);
+    // Same dual-location read as scanInventory above — root path is legacy.
+    let arr: any[] = [];
+    for (const p of [join(REPO_ROOT, ".neuroworks/schedules.json"), join(REPO_ROOT, "neuroworks/.neuroworks/schedules.json")]) {
+      try {
+        const parsed = JSON.parse(readFileSync(p, "utf8"));
+        arr = Array.isArray(parsed) ? parsed : (parsed.schedules ?? []);
+        if (arr.length > 0) break;
+      } catch { /* try next location */ }
+    }
     for (const s of arr) (s.enabled === false ? schedulesDisabled++ : schedulesEnabled++);
   } catch { /* tolerate */ }
 
@@ -351,9 +371,15 @@ function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dorman
   // ("/runs/abc123"). Match by regex (":param" -> "[^/]+"), not exact
   // string equality, or every dynamic route would be falsely flagged
   // dormant regardless of real traffic.
+  // Normalise BOTH sides first: the beacon sends real URL paths
+  // ("/mcp-servers" — leading slash, dashes) while inventory routes are
+  // bare slugs ("mcpservers"). Without this every visited page mismatched
+  // and all 32 pages read dormant (2026-09-28).
+  const normPath = (p: string) => p.toLowerCase().replace(/[^a-z0-9/:]/g, "");
   for (const pg of inventory.pages) {
-    const pattern = new RegExp("^" + pg.route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:[^/]+/g, "[^/]+") + "/?$");
-    const seen = [...usage.pageViewPaths].some(p => pattern.test(p));
+    const routeNorm = normPath(pg.route).replace(/:[^/]+/g, "\u0000");
+    const pattern = new RegExp("^/?" + routeNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\u0000/g, "[^/]+") + "/?$");
+    const seen = [...usage.pageViewPaths].some(p => pattern.test(normPath(p)));
     if (!seen) {
       dormant.push({ kind: "page", name: pg.route, reason: "No page views in last 30 days", severity: "dormant" });
     }
@@ -749,9 +775,13 @@ Write the Managing Director's system update.`;
 
   const attempt = async (): Promise<{ text: string; modelUsed?: string }> => {
     let lastErr: any;
+    // Bounded per-attempt budget: a stalled backend must fail fast into the
+    // retry/findings-fallback instead of hanging to the 8-min outer cap
+    // (which is what burned whole audits on the 2026-09-28 outage).
+    const timeoutMs = Math.max(60_000, Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000"));
     for (let attemptIdx = 0; attemptIdx < 2; attemptIdx++) {
       try {
-        const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high" } as any);
+        const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs } as any);
         if (attemptIdx > 0) console.log(`[system-audit] LLM synthesis succeeded on retry`);
         return { text: meta.text.trim(), modelUsed: meta.model };
       } catch (e: any) {
@@ -861,7 +891,7 @@ ${result.modelUsed ? `model: ${result.modelUsed}\n` : ""}---
 <details><summary>Raw stats snapshot</summary>
 
 \`\`\`json
-${JSON.stringify(s, null, 2)}
+${JSON.stringify(s, (_k, v) => (v instanceof Set ? [...v] : v), 2)}
 \`\`\`
 
 </details>

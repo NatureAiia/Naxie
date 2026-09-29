@@ -21,6 +21,13 @@ export type LLMCallOptions = {
   // mean the model stops generating sooner, which on local Ollama is the
   // dominant cost on simple tasks. Default is 1024 (~750 words).
   maxTokens?: number;
+  // Wall-clock budget for THIS call (ms). Bounds the whole attempt — connect,
+  // retries, and streaming — so a stalled backend fails fast instead of
+  // hanging to the caller's outer cap (the scan/audit synthesis loops raced
+  // an 8-min cap against attempts with only a 15-min abort, so every stall
+  // burned the full 8 min before the findings-only fallback could land).
+  // Absent = provider default (15 min). Synthesis-grade callers pass ~3 min.
+  timeoutMs?: number;
   // Override the default sampling temperature (Ollama default 0.3, OR default
   // 0.3). Pass 0 to pin deterministic output — useful for scorers/graders
   // where run-to-run noise corrupts the metric. Applies to both backends.
@@ -222,7 +229,7 @@ const OLLAMA_KEEP_ALIVE = (process.env.NEUROWORKS_OLLAMA_KEEP_ALIVE ?? "30m").tr
 
 // Raw Ollama streaming call — same as the original ollamaGenerate body but
 // without the routing logic (that's now upstream in llmGenerateWithMeta).
-async function callOllamaStream(prompt: string, system: string | undefined, model: string, onToken?: LLMCallOptions["onToken"], maxTokens?: number, temperature?: number): Promise<{ text: string; model: string }> {
+async function callOllamaStream(prompt: string, system: string | undefined, model: string, onToken?: LLMCallOptions["onToken"], maxTokens?: number, temperature?: number, timeoutMs?: number): Promise<{ text: string; model: string }> {
   // qwen3 ships with reasoning mode on by default. The /no_think directive in
   // the SYSTEM prompt (not user) suppresses the <think>…</think> block.
   const isQwen3 = /qwen3/i.test(model) && !/qwen3\.5/i.test(model);
@@ -230,7 +237,7 @@ async function callOllamaStream(prompt: string, system: string | undefined, mode
   const numPredict = typeof maxTokens === "number" && maxTokens > 0 ? Math.min(8192, Math.max(8, Math.floor(maxTokens))) : 1024;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15 * 60_000);
+  const timer = setTimeout(() => ctrl.abort(), Math.max(5_000, timeoutMs ?? 15 * 60_000));
   try {
     const res = await fetch(`${config.ollamaHost}/api/generate`, {
       method: "POST",
@@ -386,7 +393,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
       ? (chunk: string, acc: string) => { streamed = true; opts.onToken!(chunk, acc); }
       : undefined;
     try {
-      return await openrouterGenerateWithMeta(prompt, system, { model, onToken, maxTokens: opts.maxTokens, temperature: opts.temperature });
+      return await openrouterGenerateWithMeta(prompt, system, { model, onToken, maxTokens: opts.maxTokens, temperature: opts.temperature, timeoutMs: opts.timeoutMs });
     } catch (e: any) {
       const fallbackOn = process.env.NEUROWORKS_OR_FALLBACK_OLLAMA !== "0";
       if (isTransientError(e) && fallbackOn && !streamed) {
@@ -429,6 +436,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
               }
               return await openrouterGenerateWithMeta(prompt, system, {
                 model: fbModel, onToken, maxTokens: opts.maxTokens, temperature: opts.temperature,
+                timeoutMs: opts.timeoutMs,
                 endpoint: { baseUrl: fp.baseUrl, apiKey: fp.apiKey },
               });
             } catch (fe: any) {
@@ -442,7 +450,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
         if (opts.onRoutingDecision) {
           try { opts.onRoutingDecision({ backend: "ollama", model: localModel, reason: `OpenRouter rate-limited/unavailable — fell back to local ${localModel}`, tokenEstimate }); } catch { /* consumer error */ }
         }
-        return callOllamaStream(prompt, system, localModel, opts.onToken, opts.maxTokens, opts.temperature);
+        return callOllamaStream(prompt, system, localModel, opts.onToken, opts.maxTokens, opts.temperature, opts.timeoutMs);
       }
       throw e;
     }
@@ -466,7 +474,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
       // fall through to the normal Ollama dispatch
     }
   }
-  return callOllamaStream(prompt, system, model, opts.onToken, opts.maxTokens, opts.temperature);
+  return callOllamaStream(prompt, system, model, opts.onToken, opts.maxTokens, opts.temperature, opts.timeoutMs);
 }
 
 export async function llmGenerate(prompt: string, system?: string, opts: LLMCallOptions = {}): Promise<string> {
