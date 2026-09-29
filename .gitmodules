@@ -1,3 +1,6 @@
 [submodule "mailjet-mcp-server"]
 	path = mailjet-mcp-server
 	url = https://github.com/mailgun/mailjet-mcp-server.git
+[submodule "strix"]
+	path = strix
+	url = https://github.com/usestrix/strix.git
