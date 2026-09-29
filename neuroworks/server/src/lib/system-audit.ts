@@ -26,6 +26,23 @@ const WEB_SRC = resolve(REPO_ROOT, "neuroworks/web/src");
 
 const AUDIT_DIR = "_neuroworks/system-audits";
 
+// schedules.json lives under neuroworks/.neuroworks (same STATE_DIR as
+// schedules.ts). `<repo-root>/.neuroworks/schedules.json` is a legacy
+// location from before that move — it normally doesn't exist, but a stale
+// leftover copy there must never win over the real, current file. Read the
+// real path FIRST; only fall back to the legacy path when the real one is
+// missing/empty (e.g. a truly fresh install with nothing written yet).
+function readSchedulesArray(): any[] {
+  for (const p of [join(REPO_ROOT, "neuroworks/.neuroworks/schedules.json"), join(REPO_ROOT, ".neuroworks/schedules.json")]) {
+    try {
+      const parsed = JSON.parse(readFileSync(p, "utf8"));
+      const arr = Array.isArray(parsed) ? parsed : (parsed.schedules ?? []);
+      if (arr.length > 0) return arr;
+    } catch { /* try next location */ }
+  }
+  return [];
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────
 export type FileInventory = {
   pages: { file: string; route: string }[];
@@ -178,20 +195,7 @@ export function scanInventory(): FileInventory {
     } catch { /* ignore */ }
   }
   try {
-    // Schedules: count JSON file. Lives under neuroworks/.neuroworks (same
-    // STATE_DIR as schedules.ts) — the repo-root path is a legacy location
-    // that no longer exists, which is why the audit reported "Schedules: 0"
-    // while 4 were enabled (2026-09-28).
-    let sArr: any[] = [];
-    for (const p of [join(REPO_ROOT, ".neuroworks/schedules.json"), join(REPO_ROOT, "neuroworks/.neuroworks/schedules.json")]) {
-      try {
-        const sRaw = readFileSync(p, "utf8");
-        const s = JSON.parse(sRaw);
-        sArr = Array.isArray(s) ? s : (s.schedules ?? []);
-        if (sArr.length > 0) break;
-      } catch { /* try next location */ }
-    }
-    schedules = sArr.length;
+    schedules = readSchedulesArray().length;
   } catch { /* 0 */ }
   try {
     const cRaw = readFileSync(join(REPO_ROOT, ".neuroworks/connectors.json"), "utf8");
@@ -283,16 +287,7 @@ async function collectUsage(): Promise<UsageSignals> {
 
   let schedulesEnabled = 0, schedulesDisabled = 0;
   try {
-    // Same dual-location read as scanInventory above — root path is legacy.
-    let arr: any[] = [];
-    for (const p of [join(REPO_ROOT, ".neuroworks/schedules.json"), join(REPO_ROOT, "neuroworks/.neuroworks/schedules.json")]) {
-      try {
-        const parsed = JSON.parse(readFileSync(p, "utf8"));
-        arr = Array.isArray(parsed) ? parsed : (parsed.schedules ?? []);
-        if (arr.length > 0) break;
-      } catch { /* try next location */ }
-    }
-    for (const s of arr) (s.enabled === false ? schedulesDisabled++ : schedulesEnabled++);
+    for (const s of readSchedulesArray()) (s.enabled === false ? schedulesDisabled++ : schedulesEnabled++);
   } catch { /* tolerate */ }
 
   let vaultNotes = 0, vaultSizeMb = 0;
@@ -778,7 +773,11 @@ Write the Managing Director's system update.`;
     // Bounded per-attempt budget: a stalled backend must fail fast into the
     // retry/findings-fallback instead of hanging to the 8-min outer cap
     // (which is what burned whole audits on the 2026-09-28 outage).
-    const timeoutMs = Math.max(60_000, Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000"));
+    const rawTimeoutMs = Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000");
+    // A non-numeric override (e.g. "3m") must not silently become NaN — Math.max
+    // with a NaN operand returns NaN, which setTimeout coerces to a ~1ms delay,
+    // aborting every synthesis call almost instantly.
+    const timeoutMs = Math.max(60_000, Number.isFinite(rawTimeoutMs) ? rawTimeoutMs : 180_000);
     for (let attemptIdx = 0; attemptIdx < 2; attemptIdx++) {
       try {
         const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs } as any);
@@ -857,6 +856,15 @@ Write the Managing Director's system update.`;
   }
 }
 
+// SystemAuditResult nests stats.usage.pageViewPaths as a Set, which
+// JSON.stringify/res.json silently serialize to "{}" with no replacer.
+// Routes that hand a SystemAuditResult straight to res.json() (not just this
+// markdown footer) must use this too, or the API's pageViewPaths comes back
+// empty while the vault markdown for the same run shows it correctly.
+export function jsonSafeReplacer(_k: string, v: unknown): unknown {
+  return v instanceof Set ? [...v] : v;
+}
+
 function renderMarkdown(result: { stats: SystemAuditStats; report: string; generatedAt: string; modelUsed?: string }): string {
   const s = result.stats;
   const niceDate = new Date(s.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -891,7 +899,7 @@ ${result.modelUsed ? `model: ${result.modelUsed}\n` : ""}---
 <details><summary>Raw stats snapshot</summary>
 
 \`\`\`json
-${JSON.stringify(s, (_k, v) => (v instanceof Set ? [...v] : v), 2)}
+${JSON.stringify(s, jsonSafeReplacer, 2)}
 \`\`\`
 
 </details>

@@ -405,7 +405,11 @@ Rules:
     let lastErr: any;
     // Bounded per-attempt budget — same stall-fast reasoning as the system
     // audit's synthesis (8-min outer cap burned whole scans on slow backends).
-    const timeoutMs = Math.max(60_000, Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000"));
+    const rawTimeoutMs = Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000");
+    // A non-numeric override (e.g. "3m") must not silently become NaN — Math.max
+    // with a NaN operand returns NaN, which setTimeout coerces to a ~1ms delay,
+    // aborting every synthesis call almost instantly.
+    const timeoutMs = Math.max(60_000, Number.isFinite(rawTimeoutMs) ? rawTimeoutMs : 180_000);
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs } as any);

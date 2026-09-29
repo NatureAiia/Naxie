@@ -13,6 +13,9 @@
 // operator action via the Add modal. Keep this list short and trustworthy
 // rather than exhaustive; re-verify against upstream before adding entries.
 
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 export type McpCatalogEnvVar = {
   name: string;
   description: string;
@@ -135,6 +138,22 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     args: ["-y", "firecrawl-mcp"],
     env: [{ name: "FIRECRAWL_API_KEY", description: "API key from firecrawl.dev — sign in or create a free account, then copy a key from the dashboard", required: true }],
     homepage: "https://github.com/firecrawl/firecrawl-mcp-server",
+    source: "community",
+  },
+  {
+    id: "strix-pentest",
+    label: "Strix Pentest (this NeuroWorks instance)",
+    // Our own thin proxy (server/mcp/pentest-mcp-server.mjs — same shape as
+    // neuroworks-dispatch-mcp.mjs) over the local /api/pentest REST surface,
+    // NOT a third-party server. Adding it here lets the agent call scans via
+    // the generic mcp.call primitive too, on top of the dedicated
+    // pentest.scan/check_run/list_runs primitives already registered in
+    // primitives.ts. The same file is also meant for EXTERNAL MCP hosts
+    // (Claude Desktop, etc.) to register directly — see the file's own header.
+    description: "Trigger and read Strix-backed security scans (real exploit attempts, not static analysis) — proxies this NeuroWorks instance's own /api/pentest routes, no separate credentials needed.",
+    command: "node",
+    args: [resolve(dirname(fileURLToPath(import.meta.url)), "../../mcp/pentest-mcp-server.mjs")],
+    homepage: "https://github.com/usestrix/strix",
     source: "community",
   },
 ];

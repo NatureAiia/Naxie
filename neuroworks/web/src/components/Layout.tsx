@@ -24,6 +24,7 @@ import {
   PiggyBank,
   Brain,
   FolderTree,
+  ShieldAlert,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -102,6 +103,7 @@ const connectNav: NavItem[] = [
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
   { to: "/hermes", label: "Hermes", icon: ArrowLeftRight },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
+  { to: "/pentest", label: "Security Scan", icon: ShieldAlert },
   { to: "/connectors?tab=policies", label: "Policies", icon: CertificateIcon },
 ];
 

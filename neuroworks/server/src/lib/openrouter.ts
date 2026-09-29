@@ -195,7 +195,15 @@ export async function openrouterGenerateWithMeta(
           signal: ctrl.signal,
         });
       } catch (e: any) {
-        // Network-level failure (DNS, reset, abort) — transient, retry.
+        // opts.timeoutMs elapsed. This is a per-caller budget, not evidence the
+        // provider is down — a caller with a tight timeout (e.g. a 180s
+        // audit job) shouldn't trip the circuit breaker shared by every other
+        // caller (e.g. interactive chat with a 15min budget) that would have
+        // succeeded fine. It also can't be retried: ctrl.signal is already
+        // permanently aborted, so every subsequent attempt on it would fail
+        // the same way instantly, burning the retry budget for nothing.
+        if (ctrl.signal.aborted) throw markTransient(new Error(`OpenRouter request timed out after ${attempt} attempt(s): ${e?.message ?? e}`));
+        // Network-level failure (DNS, reset) — transient, retry.
         if (attempt < MAX_ATTEMPTS) { await sleep(backoffMs(attempt)); continue; }
         if (!isFallbackEndpoint) cbRecordFailure(); // sustained connection failure → trip the breaker
         throw markTransient(new Error(`OpenRouter request failed after ${attempt} attempts: ${e?.message ?? e}`));
@@ -251,7 +259,20 @@ export async function openrouterGenerateWithMeta(
 
     // SSE format — each event is "data: { ... }\n\n" with a final "data: [DONE]".
     while (true) {
-      const { value, done } = await reader.read();
+      let value: Uint8Array | undefined, done: boolean;
+      try {
+        ({ value, done } = await reader.read());
+      } catch (e: any) {
+        // The abort timer fires mid-stream (e.g. a slow model outlives
+        // opts.timeoutMs) — this is the SAME kind of stall the pre-stream
+        // fetch() catch above already marks transient so isTransientError()
+        // in llm.ts routes it to the local-Ollama fallback. Without this,
+        // a mid-stream abort throws a bare AbortError and the documented
+        // "stall-fast + recover" behavior never triggers for the most
+        // likely stall case (a connection that opened fine but then hangs).
+        if (ctrl.signal.aborted) throw markTransient(new Error(`OpenRouter stream aborted (timeout): ${e?.message ?? e}`));
+        throw e;
+      }
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       let nl: number;
