@@ -24,6 +24,7 @@ import {
   PiggyBank,
   Brain,
   FolderTree,
+  Webhook as WebhookIcon,
   ShieldAlert,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
@@ -101,6 +102,7 @@ const connectNav: NavItem[] = [
   { to: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
   { to: "/connectors", label: "Connectors", icon: Boxes },
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
+  { to: "/webhooks", label: "Webhooks", icon: WebhookIcon },
   { to: "/hermes", label: "Hermes", icon: ArrowLeftRight },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
   { to: "/pentest", label: "Security Scan", icon: ShieldAlert },

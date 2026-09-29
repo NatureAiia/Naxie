@@ -58,6 +58,9 @@ import { hostToolsRouter } from "./routes/host-tools.js";
 import { daemonSettingsRouter } from "./routes/daemon-settings.js";
 import { toolDnaRouter } from "./routes/tool-dna.js";
 import { workflowTreeRouter } from "./routes/workflow-tree.js";
+import { webhooksRouter } from "./routes/webhooks.js";
+import { registerEngine } from "./lib/scheduler-registry.js";
+import { retryFailedDeliveries } from "./lib/webhook-delivery.js";
 import { offlineModeRouter } from "./routes/offline-mode.js";
 import { installOfflineNetworkGuard, onOfflineChange, isOffline } from "./lib/offline-mode.js";
 import { orgTasksRouter } from "./routes/org-tasks.js";
@@ -300,6 +303,7 @@ app.use("/api/host-tools", hostToolsRouter);
 app.use("/api/daemon-settings", daemonSettingsRouter);
 app.use("/api/tool-dna", toolDnaRouter);
 app.use("/api/workflow-tree", workflowTreeRouter);
+app.use("/api/webhooks", webhooksRouter);
 app.use("/api/offline-mode", offlineModeRouter);
 app.use("/api/org-tasks", orgTasksRouter);
 app.use("/api/local-folder", localFolderRouter); // "My documents" indexing — native replacement for naxionai/backend's local-folder endpoints
@@ -712,6 +716,16 @@ const server = app.listen(config.port, config.bindHost, async () => {
   if (config.role === "primary") {
     try { startGithubWatcher(); console.log(`  ⓘ github watcher armed (${process.env.NEUROWORKS_GITHUB_WATCH_INTERVAL_SECONDS ?? "300"}s interval)`); }
     catch (e: any) { console.warn(`  ⚠ github watcher failed: ${e?.message ?? e}`); }
+  }
+
+  // Webhook delivery retry — same orchestration core, retries any "failed"
+  // outbound webhook delivery every 5 minutes until it succeeds or exhausts
+  // its retry budget (dead_letter). Primary-only, same reasoning as above.
+  if (config.role === "primary") {
+    try {
+      registerEngine({ name: "webhook-retry", intervalSeconds: 300, run: async () => { await retryFailedDeliveries(); } });
+      console.log("  ⓘ webhook retry engine armed (300s interval)");
+    } catch (e: any) { console.warn(`  ⚠ webhook retry engine failed: ${e?.message ?? e}`); }
   }
 
   // MAG memory wipe-recovery (docs/naxie-storage-architecture.md §5) — only

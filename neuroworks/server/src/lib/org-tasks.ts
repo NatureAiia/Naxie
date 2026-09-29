@@ -99,6 +99,15 @@ export type OrgTask = {
   updatedAt: string;
   createdBy: "naxie" | "user" | "daemon";
   pendingApproval?: PendingApproval;
+  // On-demand composite priority score (lib/priority-score.ts) — a separate
+  // 0-100 ranking number alongside the operator's own manual `priority` tier,
+  // set only when explicitly requested (POST /:id/score), never automatic.
+  priorityScore?: {
+    composite: number;
+    subScores: Record<"urgency" | "impact" | "effort" | "risk", number>;
+    rationale: string;
+    scoredAt: string;
+  };
 };
 
 // ─── Per-role default autonomy (docs/naxie-architecture.md §5) ────────────
@@ -366,6 +375,19 @@ export function updateOrgTaskStatus(
     result: status === "done" ? "success" : status === "blocked" ? "failure" : "pending",
   });
   return next;
+}
+
+// Stores a freshly computed priority score (lib/priority-score.ts) against a
+// task. Pure persistence — the actual LLM call lives in the route handler
+// (routes/org-tasks.ts's POST /:id/score) so this module stays free of an
+// llm.ts dependency, matching every other CRUD function here.
+export function setOrgTaskPriorityScore(id: string, score: OrgTask["priorityScore"]): OrgTask | null {
+  const s = load();
+  const idx = s.tasks.findIndex(t => t.id === id);
+  if (idx === -1) return null;
+  s.tasks[idx] = { ...s.tasks[idx], priorityScore: score, updatedAt: new Date().toISOString() };
+  persist();
+  return s.tasks[idx];
 }
 
 // Request approval for a specific action. This is the entry point the
