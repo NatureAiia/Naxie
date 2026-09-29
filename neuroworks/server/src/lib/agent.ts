@@ -128,7 +128,7 @@ const SOCIAL_TASK_RE = new RegExp(`\\b${SOCIAL_ACTION}\\b[^]{0,60}?\\b${SOCIAL_P
 // flipping a system-access toggle, however low-risk the specific action
 // looks, because this tool set didn't exist before and the operator asked
 // for a human in the loop on all of it, not just the destructive half.
-export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "system_control", "manage_clipboard", "git_pull", "personas.manage", "system.admin", "whatsapp.send", "whatsapp.broadcast"]);
+export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "system_control", "manage_clipboard", "git_pull", "personas.manage", "system.admin", "whatsapp.send", "whatsapp.broadcast", "pentest.scan"]);
 
 // Crown Job priority (org-tasks.ts's OrgTaskPriority) bypasses ONLY the
 // generic sensitive-tool checkpoint below (opts.skipApprovalGate) — the same

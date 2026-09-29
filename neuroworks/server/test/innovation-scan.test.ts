@@ -98,7 +98,7 @@ describe("renderMarkdown", () => {
     const md = renderMarkdown({
       date: "2026-09-06",
       targeted: [{ weaknessQuery: "q", reason: "r", summary: "s", sources: [] }],
-      broad: { repos: [], news: [] },
+      broad: { repos: [], news: [], curated: [] },
       digest: "## Fixing our weak spots\nSome fix.\n\n## What's new and interesting\nSome news.",
       generatedAt: new Date().toISOString(),
       modelUsed: "test-model",
@@ -107,7 +107,7 @@ describe("renderMarkdown", () => {
     expect(md).toContain("## What's new and interesting");
     expect(md).toContain("type: innovation-scan");
     expect(md).toContain("date: 2026-09-06");
-    expect(md).toContain("# Innovation Scan — 2026-09-06");
+    expect(md).toContain("# 🔭 Innovation Scan — Sunday, September 6, 2026");
     expect(md).toContain("<details>");
   });
 });

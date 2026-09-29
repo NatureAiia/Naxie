@@ -25,6 +25,7 @@ import {
   Brain,
   FolderTree,
   Webhook as WebhookIcon,
+  ShieldAlert,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -104,6 +105,7 @@ const connectNav: NavItem[] = [
   { to: "/webhooks", label: "Webhooks", icon: WebhookIcon },
   { to: "/hermes", label: "Hermes", icon: ArrowLeftRight },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
+  { to: "/pentest", label: "Security Scan", icon: ShieldAlert },
   { to: "/connectors?tab=policies", label: "Policies", icon: CertificateIcon },
 ];
 

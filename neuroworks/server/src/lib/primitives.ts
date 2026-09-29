@@ -3407,6 +3407,64 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     },
   },
   {
+    name: "pentest.scan",
+    description: "Run a real, autonomous penetration test via Strix (github.com/usestrix/strix) against a target — a local code path, URL, or domain. Strix performs ACTUAL exploit attempts, not just static analysis. This tool is gated behind the operator's sensitive-action approval checkpoint (see SENSITIVE_APPROVAL_TOOLS in agent.ts) — every call pauses for the operator to review the exact target before it runs, same as email.send or db.query. Only propose this when the operator has clearly asked for a security scan of a specific, named target. A scan can take minutes (quick) to hours (deep) — this starts it in the background and returns a job id; use pentest.check_run to poll it or point the operator at the Security Scan page.",
+    readonly: false,
+    args: [
+      { name: "target", type: "string", required: true, description: "Local path, URL, or domain to scan — must be something the operator is authorized to test" },
+      { name: "mode", type: "string", required: false, description: "'quick' (minutes, default) or 'deep' (can take hours)" },
+      { name: "max_budget", type: "number", required: false, description: "Optional LLM-call budget cap passed through to strix --max-budget" },
+    ],
+    handler: async (args) => {
+      const target = String(args.target ?? "").trim();
+      if (!target) return { error: "target is required" };
+      const modeArg = String(args.mode ?? "quick").toLowerCase();
+      const mode = modeArg === "deep" ? "deep" : "quick";
+      const maxBudget = args.max_budget != null && Number.isFinite(Number(args.max_budget)) ? Number(args.max_budget) : undefined;
+      const { startPentestJob } = await import("./pentest.js");
+      const { jobId, title } = await startPentestJob(target, { mode, maxBudget });
+      return {
+        started: true,
+        jobId,
+        title,
+        message: `Scan started in the background (job ${jobId}). Use pentest.check_run with this jobId to see progress, or check the Security Scan page.`,
+      };
+    },
+  },
+  {
+    name: "pentest.check_run",
+    description: "Check the status/log/findings of a Strix scan previously started with pentest.scan.",
+    readonly: true,
+    args: [
+      { name: "job_id", type: "string", required: true, description: "The jobId returned by pentest.scan" },
+    ],
+    handler: async (args) => {
+      const jobId = String(args.job_id ?? "").trim();
+      if (!jobId) return { error: "job_id is required" };
+      const { getJob } = await import("./jobs.js");
+      const j = getJob(jobId);
+      if (!j) return { error: `no in-memory job ${jobId} — it may have been evicted or the server restarted; try pentest.list_runs` };
+      return {
+        jobId: j.id,
+        status: j.status,
+        title: j.title,
+        log: j.log.slice(-40),
+        result: j.result,
+        error: j.error,
+      };
+    },
+  },
+  {
+    name: "pentest.list_runs",
+    description: "List past and in-progress Strix pentest scans (target, mode, status, finding count).",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listPentestRunSummaries } = await import("./pentest.js");
+      return { runs: await listPentestRunSummaries() };
+    },
+  },
+  {
     name: "browser.harness_exec",
     description: "Run a short Python snippet against a REAL Chrome browser tab via browser-harness (github.com/browser-use/browser-harness) — CDP-level control: navigate, click by pixel coordinate, extract via JS, screenshot. Pre-imported helpers available in the snippet: new_tab(url) (use for FIRST navigation), ensure_real_tab(), page_info(), capture_screenshot(), click_at_xy(x,y), wait_for_load(), js(expr) for DOM extraction, cdp(\"Domain.method\", ...) for raw CDP. Use print(...) to return data — stdout is what comes back. Prefer this over web.interact when a site needs real browser rendering/login state the headless path can't reach. GATED: requires NEUROWORKS_BROWSER_HARNESS=1 (off by default — executes arbitrary Python with live browser + network access; only enable in trusted environments). Requires local Chrome with chrome://inspect/#remote-debugging enabled (the harness will prompt on first use) OR `browser-harness auth login` for a cloud browser.",
     readonly: false,
@@ -4853,6 +4911,7 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "orchestration.plan": return "Orchestrating parallel sub-agents for this task";
     case "quality.check":      return "Quality-checking the draft";
     case "security.scan":      return s("kind") ? `Security-scanning the ${s("kind")}` : "Security-scanning the content";
+    case "pentest.scan":       return s("target") ? `Running a pentest scan against ${s("target")}` : "Running a pentest scan";
     case "governance.check":   return "Checking against governance policies";
     case "finance.snapshot":   return "Reading the latest Aiia Finance figures";
     default:                   return tool;

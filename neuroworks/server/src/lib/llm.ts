@@ -21,6 +21,13 @@ export type LLMCallOptions = {
   // mean the model stops generating sooner, which on local Ollama is the
   // dominant cost on simple tasks. Default is 1024 (~750 words).
   maxTokens?: number;
+  // Wall-clock budget for THIS call (ms). Bounds the whole attempt — connect,
+  // retries, and streaming — so a stalled backend fails fast instead of
+  // hanging to the caller's outer cap (the scan/audit synthesis loops raced
+  // an 8-min cap against attempts with only a 15-min abort, so every stall
+  // burned the full 8 min before the findings-only fallback could land).
+  // Absent = provider default (15 min). Synthesis-grade callers pass ~3 min.
+  timeoutMs?: number;
   // Override the default sampling temperature (Ollama default 0.3, OR default
   // 0.3). Pass 0 to pin deterministic output — useful for scorers/graders
   // where run-to-run noise corrupts the metric. Applies to both backends.
@@ -80,30 +87,33 @@ function pickLargeOpenRouterModel(profile: LLMCallOptions["profile"]): string {
 
 // Decide whether a given profile should route to OpenRouter.
 //   1. OR must be enabled (key present)
-//   2. AND either: profile has its own OPENROUTER_<PROFILE>_MODEL env pin,
-//      OR profile is listed in OPENROUTER_PROFILES,
-//      OR OPENROUTER_PROFILES is empty AND no Ollama-side env pin exists
-//      (treating an unconfigured profile as "OR is the default if enabled").
+//
+// CLOUD-FIRST (operator policy): when online, everything rides the cloud
+// tiers — small/fast by default, large on complexity — and local models are
+// the last resort (transient-failure fallback) or the offline-mode engine.
+// Unprofiled calls land on the cheap small tier; triage follows the same
+// default now (it used to stay local — a remote Flash-class call is fast
+// enough that the latency argument no longer holds).
+//
+// Explicit scoping still wins: a per-profile OPENROUTER_<PROFILE>_MODEL pin,
+// a non-empty OPENROUTER_PROFILES list (unlisted profiles stay local), or
+// NEUROWORKS_LOCAL_TRIAGE=1 (restores local-only triage).
 //
 // The empty-profiles fallback only kicks in when OPENROUTER_PROFILES is
 // genuinely unset. If the user sets OPENROUTER_PROFILES=planning, they're
 // scoping OR to ONLY planning — synthesis stays on Ollama.
 function shouldRouteToOpenRouter(profile?: LLMCallOptions["profile"]): boolean {
   if (!config.openrouterEnabled) return false;
-  if (!profile) return false;
   // Live reachability gate (task 2): if we've probed recently and are
   // offline, don't route to cloud at all — go straight to Ollama ordered
   // by size. `null` means no fresh probe, so we still try.
   const cached = isCloudReachableCached();
   if (cached === false) return false;
-  // SPECIAL CASE: triage stays LOCAL by default even when OR is enabled.
-  // Triage is a yes/no classifier with a 16-token output budget; bouncing
-  // it to a remote API just adds network latency for zero quality lift.
-  // Explicit opt-in via OPENROUTER_TRIAGE_MODEL or listing triage in
-  // OPENROUTER_PROFILES.
+  if (!profile) return true;
   if (profile === "triage") {
+    if (process.env.NEUROWORKS_LOCAL_TRIAGE === "1") return false;
     if (process.env[PROFILE_ENV_KEYS[profile]]?.trim()) return true;
-    return config.openrouterProfiles.includes(profile);
+    return config.openrouterProfiles.length > 0 ? config.openrouterProfiles.includes(profile) : true;
   }
   if (process.env[PROFILE_ENV_KEYS[profile]]?.trim()) return true;
   if (config.openrouterProfiles.length > 0) return config.openrouterProfiles.includes(profile);
@@ -219,7 +229,7 @@ const OLLAMA_KEEP_ALIVE = (process.env.NEUROWORKS_OLLAMA_KEEP_ALIVE ?? "30m").tr
 
 // Raw Ollama streaming call — same as the original ollamaGenerate body but
 // without the routing logic (that's now upstream in llmGenerateWithMeta).
-async function callOllamaStream(prompt: string, system: string | undefined, model: string, onToken?: LLMCallOptions["onToken"], maxTokens?: number, temperature?: number): Promise<{ text: string; model: string }> {
+async function callOllamaStream(prompt: string, system: string | undefined, model: string, onToken?: LLMCallOptions["onToken"], maxTokens?: number, temperature?: number, timeoutMs?: number): Promise<{ text: string; model: string }> {
   // qwen3 ships with reasoning mode on by default. The /no_think directive in
   // the SYSTEM prompt (not user) suppresses the <think>…</think> block.
   const isQwen3 = /qwen3/i.test(model) && !/qwen3\.5/i.test(model);
@@ -227,7 +237,7 @@ async function callOllamaStream(prompt: string, system: string | undefined, mode
   const numPredict = typeof maxTokens === "number" && maxTokens > 0 ? Math.min(8192, Math.max(8, Math.floor(maxTokens))) : 1024;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15 * 60_000);
+  const timer = setTimeout(() => ctrl.abort(), Math.max(5_000, timeoutMs ?? 15 * 60_000));
   try {
     const res = await fetch(`${config.ollamaHost}/api/generate`, {
       method: "POST",
@@ -383,7 +393,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
       ? (chunk: string, acc: string) => { streamed = true; opts.onToken!(chunk, acc); }
       : undefined;
     try {
-      return await openrouterGenerateWithMeta(prompt, system, { model, onToken, maxTokens: opts.maxTokens, temperature: opts.temperature });
+      return await openrouterGenerateWithMeta(prompt, system, { model, onToken, maxTokens: opts.maxTokens, temperature: opts.temperature, timeoutMs: opts.timeoutMs });
     } catch (e: any) {
       const fallbackOn = process.env.NEUROWORKS_OR_FALLBACK_OLLAMA !== "0";
       if (isTransientError(e) && fallbackOn && !streamed) {
@@ -397,9 +407,28 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
         // Local Ollama stays the final safety net, exactly as before.
         try {
           const { getFallbackChain } = await import("./model-providers.js");
+          const { isFreeModelId, getModelPolicy } = await import("./model-policy.js");
+          // Paid-model gate for failover: the primary-pick gate above keeps
+          // paid models off unless approved, but this loop used to dispatch
+          // fp.largeModel verbatim — silently spending on e.g. Anthropic
+          // Fable while policy said paid OFF (2026-09-28: $0.08 on
+          // openai/gpt-4o with allowPaidModels=false). Same rule here:
+          // prefer the fallback's cheap tier when it's free, else skip the
+          // provider entirely. Policy-unreadable fails open (availability
+          // wins) to match the primary gate's best-effort shape.
+          let paidAllowed = true;
+          try { paidAllowed = getModelPolicy().allowPaidModels; } catch { /* best-effort */ }
           const isComplex = isComplexCall(opts, isTooBigForLocal(prompt, system));
           for (const fp of getFallbackChain()) {
-            const fbModel = isComplex ? fp.largeModel : fp.smallModel;
+            let fbModel = isComplex ? fp.largeModel : fp.smallModel;
+            if (!paidAllowed && !isFreeModelId(fbModel)) {
+              if (isFreeModelId(fp.smallModel) && fp.smallModel !== fbModel) {
+                fbModel = fp.smallModel;
+              } else {
+                console.warn(`[llm] skipping fallback ${fp.label} — "${fbModel}" is paid and paid models aren't approved (Settings → Models)`);
+                continue;
+              }
+            }
             try {
               console.warn(`[llm] active provider failed — trying ${fp.label} (${fbModel})`);
               if (opts.onRoutingDecision) {
@@ -407,6 +436,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
               }
               return await openrouterGenerateWithMeta(prompt, system, {
                 model: fbModel, onToken, maxTokens: opts.maxTokens, temperature: opts.temperature,
+                timeoutMs: opts.timeoutMs,
                 endpoint: { baseUrl: fp.baseUrl, apiKey: fp.apiKey },
               });
             } catch (fe: any) {
@@ -420,7 +450,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
         if (opts.onRoutingDecision) {
           try { opts.onRoutingDecision({ backend: "ollama", model: localModel, reason: `OpenRouter rate-limited/unavailable — fell back to local ${localModel}`, tokenEstimate }); } catch { /* consumer error */ }
         }
-        return callOllamaStream(prompt, system, localModel, opts.onToken, opts.maxTokens, opts.temperature);
+        return callOllamaStream(prompt, system, localModel, opts.onToken, opts.maxTokens, opts.temperature, opts.timeoutMs);
       }
       throw e;
     }
@@ -444,7 +474,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
       // fall through to the normal Ollama dispatch
     }
   }
-  return callOllamaStream(prompt, system, model, opts.onToken, opts.maxTokens, opts.temperature);
+  return callOllamaStream(prompt, system, model, opts.onToken, opts.maxTokens, opts.temperature, opts.timeoutMs);
 }
 
 export async function llmGenerate(prompt: string, system?: string, opts: LLMCallOptions = {}): Promise<string> {

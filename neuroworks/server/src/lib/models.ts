@@ -1,4 +1,6 @@
 import { config } from "../config.js";
+import { isOffline } from "./offline-mode.js";
+import { isCloudReachableCached } from "./connectivity.js";
 
 export type ModelInfo = {
   name: string;
@@ -236,7 +238,14 @@ function applyEffort(needs: TaskNeeds, effort: "auto" | "low" | "high"): TaskNee
 
 // Convenience for primitives that want to ask "give me the right model for this kind of task".
 export async function pickModelFor(profile: keyof typeof TASK_PROFILES, fallback?: string): Promise<string> {
-  const cacheKey = `${profile}|${fallback ?? ""}|${config.effortMode}`;
+  // OFFLINE = QUALITY-FIRST (operator policy): with no cloud to lean on, the
+  // local pick biases to the most capable installed model even if the operator
+  // left the effort dial on auto/low — a slow right answer beats a fast weak
+  // one when there's nowhere else to escalate to. Same when cloud is
+  // configured but probed unreachable (outage/quota): local carries the load.
+  const cloudDown = isCloudReachableCached() === false;
+  const effort = (isOffline() || cloudDown) ? "high" : config.effortMode;
+  const cacheKey = `${profile}|${fallback ?? ""}|${effort}`;
   const hit = PICK_CACHE.get(cacheKey);
   if (hit && Date.now() - hit.at < PICK_CACHE_MS) return hit.name;
   // Env override wins over the scorer (and over the effort dial — an explicit
@@ -244,7 +253,7 @@ export async function pickModelFor(profile: keyof typeof TASK_PROFILES, fallback
   // not, we fall back to the scorer to avoid a hard failure when the user has
   // a stale env pinned to a deleted model.
   const envName = process.env[ENV_OVERRIDE_KEYS[profile]]?.trim();
-  const needs = applyEffort(TASK_PROFILES[profile], config.effortMode);
+  const needs = applyEffort(TASK_PROFILES[profile], effort);
   let name: string;
   if (envName) {
     const all = await listModels();

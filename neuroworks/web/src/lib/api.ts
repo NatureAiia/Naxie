@@ -184,6 +184,16 @@ export type WeeklyImprovementStatus = {
 
 export type OfflineModeState = { offline: boolean; since?: string };
 
+export type PentestRun = {
+  jobId: string;
+  target: string;
+  mode: string;
+  status: string;
+  startedAt: string;
+  finishedAt?: string;
+  vulnerabilityCount?: number;
+};
+
 export type QualityFlag = {
   jobId: string;
   rating: "up" | "down";
@@ -337,6 +347,12 @@ export const api = {
   systemAuditInventory: () => req<{ inventory: { pages: number; routes: number; lib: number; templates: number; personas: number } }>("/api/system-audit/inventory"),
   systemAuditHealthTrend: () => req<{ trend: { date: string; healthScore: number }[] }>("/api/system-audit/health-trend"),
   systemAuditVaultHygiene: () => req<{ duplicates: { hash: string; files: string[] }[]; staleNotes: { path: string; daysOld: number }[]; totalNotes: number }>("/api/system-audit/vault-hygiene"),
+  // Strix-backed security/pentest scans — scan status/logs are plain Jobs, so
+  // getJob() above (which hits /api/templates/jobs/:id, kind-agnostic) is
+  // reused for polling instead of a dedicated endpoint here.
+  startPentestScan: (body: { target: string; mode?: "quick" | "deep"; maxBudget?: number; confirmAuthorized: boolean }) =>
+    req<{ jobId: string }>("/api/pentest/scan", { method: "POST", body: JSON.stringify(body) }),
+  listPentestRuns: () => req<{ runs: PentestRun[] }>("/api/pentest/runs"),
   systemAuditDeadCode: () => req<{ deadCode: { file: string; reason: string }[] }>("/api/system-audit/dead-code"),
   systemAuditPersonaMerges: () => req<{ merges: { a: string; b: string; similarity: number; reason: string }[] }>("/api/system-audit/persona-merges"),
   systemAuditIntegrationHealth: () => req<{ health: { id: string; label: string; ok: boolean; detail: string }[] }>("/api/system-audit/integration-health"),

@@ -399,7 +399,7 @@ Write the reflection. Honest, terse, numerically grounded.`;
     let lastErr: any;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const meta = await import("./llm.js").then(m => m.llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high" }));
+        const meta = await import("./llm.js").then(m => m.llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs: SYNTH_TIMEOUT_MS } as any));
         if (attempt > 0) {
           console.log(`[reflection] LLM call succeeded on retry`);
         }
@@ -432,7 +432,8 @@ Write the reflection. Honest, terse, numerically grounded.`;
   // abandoned attemptSynthesis() promise keeps running against its own 15-min
   // per-call caps in the background — harmless for a nightly job, and its cost
   // is still recorded — but the reflection RUN no longer waits on it.
-  const SYNTH_TIMEOUT_MS = Math.max(60_000, Number(process.env.NEUROWORKS_REFLECTION_SYNTH_TIMEOUT_MS ?? String(8 * 60_000)));
+  const rawReflectionTimeoutMs = Number(process.env.NEUROWORKS_REFLECTION_SYNTH_TIMEOUT_MS ?? String(8 * 60_000));
+  const SYNTH_TIMEOUT_MS = Math.max(60_000, Number.isFinite(rawReflectionTimeoutMs) ? rawReflectionTimeoutMs : 8 * 60_000);
   let capTimer: NodeJS.Timeout | undefined;
   const cap = new Promise<{ text: string; modelUsed?: string }>((resolve) => {
     capTimer = setTimeout(() => {

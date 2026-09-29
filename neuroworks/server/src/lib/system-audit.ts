@@ -26,6 +26,23 @@ const WEB_SRC = resolve(REPO_ROOT, "neuroworks/web/src");
 
 const AUDIT_DIR = "_neuroworks/system-audits";
 
+// schedules.json lives under neuroworks/.neuroworks (same STATE_DIR as
+// schedules.ts). `<repo-root>/.neuroworks/schedules.json` is a legacy
+// location from before that move — it normally doesn't exist, but a stale
+// leftover copy there must never win over the real, current file. Read the
+// real path FIRST; only fall back to the legacy path when the real one is
+// missing/empty (e.g. a truly fresh install with nothing written yet).
+function readSchedulesArray(): any[] {
+  for (const p of [join(REPO_ROOT, "neuroworks/.neuroworks/schedules.json"), join(REPO_ROOT, ".neuroworks/schedules.json")]) {
+    try {
+      const parsed = JSON.parse(readFileSync(p, "utf8"));
+      const arr = Array.isArray(parsed) ? parsed : (parsed.schedules ?? []);
+      if (arr.length > 0) return arr;
+    } catch { /* try next location */ }
+  }
+  return [];
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────
 export type FileInventory = {
   pages: { file: string; route: string }[];
@@ -178,11 +195,7 @@ export function scanInventory(): FileInventory {
     } catch { /* ignore */ }
   }
   try {
-    // Schedules: count JSON file
-    const sRaw = readFileSync(join(REPO_ROOT, ".neuroworks/schedules.json"), "utf8");
-    const s = JSON.parse(sRaw);
-    const arr = Array.isArray(s) ? s : (s.schedules ?? []);
-    schedules = arr.length;
+    schedules = readSchedulesArray().length;
   } catch { /* 0 */ }
   try {
     const cRaw = readFileSync(join(REPO_ROOT, ".neuroworks/connectors.json"), "utf8");
@@ -224,7 +237,11 @@ async function collectUsage(): Promise<UsageSignals> {
       byTemplate[tpl].total++;
       if (r.status === "succeeded") byTemplate[tpl].ok++;
       if (r.status === "failed") byTemplate[tpl].failed++;
-      const personaName = r.personaName ?? (r as any).persona?.name;
+      // PersistedJob.persona is a plain string (job-store persistJobRecord) —
+      // the old `persona?.name` object read never matched, so byPersona was
+      // always empty and every persona looked dormant (2026-09-28).
+      const rawPersona: any = (r as any).personaName ?? (r as any).persona;
+      const personaName = typeof rawPersona === "string" ? rawPersona : rawPersona?.name;
       if (personaName) byPersona[personaName] = (byPersona[personaName] ?? 0) + 1;
     }
   } catch { /* tolerate */ }
@@ -270,9 +287,7 @@ async function collectUsage(): Promise<UsageSignals> {
 
   let schedulesEnabled = 0, schedulesDisabled = 0;
   try {
-    const raw = readFileSync(join(REPO_ROOT, ".neuroworks/schedules.json"), "utf8");
-    const arr: any[] = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : (JSON.parse(raw).schedules ?? []);
-    for (const s of arr) (s.enabled === false ? schedulesDisabled++ : schedulesEnabled++);
+    for (const s of readSchedulesArray()) (s.enabled === false ? schedulesDisabled++ : schedulesEnabled++);
   } catch { /* tolerate */ }
 
   let vaultNotes = 0, vaultSizeMb = 0;
@@ -351,9 +366,15 @@ function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dorman
   // ("/runs/abc123"). Match by regex (":param" -> "[^/]+"), not exact
   // string equality, or every dynamic route would be falsely flagged
   // dormant regardless of real traffic.
+  // Normalise BOTH sides first: the beacon sends real URL paths
+  // ("/mcp-servers" — leading slash, dashes) while inventory routes are
+  // bare slugs ("mcpservers"). Without this every visited page mismatched
+  // and all 32 pages read dormant (2026-09-28).
+  const normPath = (p: string) => p.toLowerCase().replace(/[^a-z0-9/:]/g, "");
   for (const pg of inventory.pages) {
-    const pattern = new RegExp("^" + pg.route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:[^/]+/g, "[^/]+") + "/?$");
-    const seen = [...usage.pageViewPaths].some(p => pattern.test(p));
+    const routeNorm = normPath(pg.route).replace(/:[^/]+/g, "\u0000");
+    const pattern = new RegExp("^/?" + routeNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\u0000/g, "[^/]+") + "/?$");
+    const seen = [...usage.pageViewPaths].some(p => pattern.test(normPath(p)));
     if (!seen) {
       dormant.push({ kind: "page", name: pg.route, reason: "No page views in last 30 days", severity: "dormant" });
     }
@@ -749,9 +770,17 @@ Write the Managing Director's system update.`;
 
   const attempt = async (): Promise<{ text: string; modelUsed?: string }> => {
     let lastErr: any;
+    // Bounded per-attempt budget: a stalled backend must fail fast into the
+    // retry/findings-fallback instead of hanging to the 8-min outer cap
+    // (which is what burned whole audits on the 2026-09-28 outage).
+    const rawTimeoutMs = Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000");
+    // A non-numeric override (e.g. "3m") must not silently become NaN — Math.max
+    // with a NaN operand returns NaN, which setTimeout coerces to a ~1ms delay,
+    // aborting every synthesis call almost instantly.
+    const timeoutMs = Math.max(60_000, Number.isFinite(rawTimeoutMs) ? rawTimeoutMs : 180_000);
     for (let attemptIdx = 0; attemptIdx < 2; attemptIdx++) {
       try {
-        const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high" } as any);
+        const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs } as any);
         if (attemptIdx > 0) console.log(`[system-audit] LLM synthesis succeeded on retry`);
         return { text: meta.text.trim(), modelUsed: meta.model };
       } catch (e: any) {
@@ -827,6 +856,15 @@ Write the Managing Director's system update.`;
   }
 }
 
+// SystemAuditResult nests stats.usage.pageViewPaths as a Set, which
+// JSON.stringify/res.json silently serialize to "{}" with no replacer.
+// Routes that hand a SystemAuditResult straight to res.json() (not just this
+// markdown footer) must use this too, or the API's pageViewPaths comes back
+// empty while the vault markdown for the same run shows it correctly.
+export function jsonSafeReplacer(_k: string, v: unknown): unknown {
+  return v instanceof Set ? [...v] : v;
+}
+
 function renderMarkdown(result: { stats: SystemAuditStats; report: string; generatedAt: string; modelUsed?: string }): string {
   const s = result.stats;
   const niceDate = new Date(s.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -861,7 +899,7 @@ ${result.modelUsed ? `model: ${result.modelUsed}\n` : ""}---
 <details><summary>Raw stats snapshot</summary>
 
 \`\`\`json
-${JSON.stringify(s, null, 2)}
+${JSON.stringify(s, jsonSafeReplacer, 2)}
 \`\`\`
 
 </details>

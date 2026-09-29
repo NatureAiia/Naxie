@@ -2,7 +2,7 @@ import { Router } from "express";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../config.js";
-import { runSystemAudit, lastSystemAudit, quickInventoryCounts, scanInventory, getHealthTrend, logPageView, getVaultHygiene, getDeadCode, getPersonaMergeCandidates, getIntegrationHealth } from "../lib/system-audit.js";
+import { runSystemAudit, lastSystemAudit, quickInventoryCounts, scanInventory, getHealthTrend, logPageView, getVaultHygiene, getDeadCode, getPersonaMergeCandidates, getIntegrationHealth, jsonSafeReplacer } from "../lib/system-audit.js";
 import { requireLayer } from "../lib/access.js";
 
 export const systemAuditRouter = Router();
@@ -37,7 +37,9 @@ systemAuditRouter.get("/", (_req, res) => {
       } catch { /* tolerate */ }
       return { date, path: `${AUDIT_DIR_REL}/${f}`, preview, stats };
     });
-    res.json({ audits, last: lastSystemAudit(), inventory: quickInventoryCounts() });
+    // last: lastSystemAudit() nests stats.usage.pageViewPaths as a Set — plain
+    // res.json() would silently serialize it to "{}" (see jsonSafeReplacer).
+    res.type("application/json").send(JSON.stringify({ audits, last: lastSystemAudit(), inventory: quickInventoryCounts() }, jsonSafeReplacer));
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? String(e) });
   }
@@ -120,7 +122,8 @@ systemAuditRouter.post("/architect-pr", requireLayer("admin"), async (req, res) 
 systemAuditRouter.post("/run", requireLayer("admin"), async (_req, res) => {
   try {
     const r = await runSystemAudit();
-    res.json(r);
+    // r.stats.usage.pageViewPaths is a Set — see jsonSafeReplacer.
+    res.type("application/json").send(JSON.stringify(r, jsonSafeReplacer));
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? String(e) });
   }

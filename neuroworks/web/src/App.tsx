@@ -42,6 +42,7 @@ const McpServers = lazy(() => import("./pages/McpServers").then(m => ({ default:
 const Hermes = lazy(() => import("./pages/Hermes").then(m => ({ default: m.Hermes })));
 const Brands = lazy(() => import("./pages/Brands").then(m => ({ default: m.Brands })));
 const GithubAccounts = lazy(() => import("./pages/GithubAccounts").then(m => ({ default: m.GithubAccounts })));
+const Pentest = lazy(() => import("./pages/Pentest").then(m => ({ default: m.Pentest })));
 
 // Govern — Policies now lives as a tab inside Connectors; OrgDashboard merged into CommandCenter
 const PoliciesRedirect = () => <Navigate to="/connectors?tab=policies" replace />;
@@ -131,6 +132,7 @@ function AppShell() {
         <Route path="/hermes" element={<Hermes />} />
         <Route path="/hermes-bridge" element={<Navigate to="/hermes" replace />} />
         <Route path="/github-accounts" element={<GithubAccounts />} />
+        <Route path="/pentest" element={<Pentest />} />
 
         {/* Govern — merged */}
         <Route path="/policies" element={<PoliciesRedirect />} />

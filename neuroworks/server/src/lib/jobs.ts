@@ -4,7 +4,7 @@ import { journal } from "./journal.js";
 import { getActivePersona } from "./personas.js";
 import { persistJobRecord, loadJobsInWindow } from "./job-store.js";
 import { logAudit } from "./audit-log.js";
-import { classifyOrgRole, createOrgTask, updateOrgTaskStatus, requestApproval, type OrgTaskPriority } from "./org-tasks.js";
+import { classifyOrgRole, createOrgTask, updateOrgTaskStatus, requestApproval, listOrgTasks, type OrgTaskPriority } from "./org-tasks.js";
 import type { Plan } from "./agent.js"; // type-only — erased at runtime, no import cycle
 import { recordUsage } from "./tool-dna.js";
 
@@ -588,7 +588,25 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
         // though they're real runtime states. Comparing as plain strings
         // sidesteps that instead of fighting it.
         const finalStatus: string = j.status;
-        if (finalStatus === "succeeded") updateOrgTaskStatus(j.orgTaskId, "done");
+        if (finalStatus === "succeeded") {
+          updateOrgTaskStatus(j.orgTaskId, "done");
+          // Supersede stale blocked scheduler reruns: every scheduled run
+          // files its own OrgTask, so one failed run's "blocked" sat forever
+          // even after later runs succeeded (2026-09-28: 3× "Innovation scan"
+          // + "Daily briefing" blocked since 9/21 while 9/28 ran fine).
+          // A success closes older daemon-created same-title blockeds —
+          // operator/naxie-created tasks are never touched.
+          try {
+            const title = j.title ?? j.template ?? j.kind ?? null;
+            if (title) {
+              for (const t of listOrgTasks({ status: "blocked" })) {
+                if (t.id !== j.orgTaskId && t.createdBy === "daemon" && t.title === title) {
+                  updateOrgTaskStatus(t.id, "done");
+                }
+              }
+            }
+          } catch { /* supersede is best-effort */ }
+        }
         else if (finalStatus === "failed" || finalStatus === "rejected" || finalStatus === "waiting_on_human") updateOrgTaskStatus(j.orgTaskId, "blocked");
         else if (finalStatus === "awaiting-approval") {
           requestApproval(j.orgTaskId, {

@@ -403,9 +403,16 @@ Rules:
 
   const attemptSynthesis = async (): Promise<{ text: string; modelUsed?: string }> => {
     let lastErr: any;
+    // Bounded per-attempt budget — same stall-fast reasoning as the system
+    // audit's synthesis (8-min outer cap burned whole scans on slow backends).
+    const rawTimeoutMs = Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000");
+    // A non-numeric override (e.g. "3m") must not silently become NaN — Math.max
+    // with a NaN operand returns NaN, which setTimeout coerces to a ~1ms delay,
+    // aborting every synthesis call almost instantly.
+    const timeoutMs = Math.max(60_000, Number.isFinite(rawTimeoutMs) ? rawTimeoutMs : 180_000);
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high" } as any);
+        const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs } as any);
         if (attempt > 0) console.log(`[innovation-scan] LLM call succeeded on retry`);
         return { text: meta.text.trim(), modelUsed: meta.model };
       } catch (e: any) {
@@ -455,13 +462,19 @@ export function renderMarkdown(result: {
   modelUsed?: string;
 }): string {
   const niceDate = new Date(result.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  // Degraded runs can hand us partial shapes (today's scan had empty broad
+  // sections when the digest cap aborted) — never crash the renderer on a
+  // missing array.
+  const repos = result.broad.repos ?? [];
+  const news = result.broad.news ?? [];
+  const curated = result.broad.curated ?? [];
   const header = `---
 type: innovation-scan
 date: ${result.date}
 targetedCount: ${result.targeted.length}
-repoCount: ${result.broad.repos.length}
-newsCount: ${result.broad.news.length}
-curatedCount: ${result.broad.curated.length}
+repoCount: ${repos.length}
+newsCount: ${news.length}
+curatedCount: ${curated.length}
 generated: ${result.generatedAt}
 ${result.modelUsed ? `model: ${result.modelUsed}\n` : ""}---
 
@@ -471,7 +484,7 @@ ${result.modelUsed ? `model: ${result.modelUsed}\n` : ""}---
 
 | 🔧 Weak spots | 📦 Trending repos | 📰 News | 📡 Curated |
 |---|---|---|---|
-| **${result.targeted.length}** investigated | **${result.broad.repos.length}** | **${result.broad.news.length}** | **${result.broad.curated.length}** |
+| **${result.targeted.length}** investigated | **${repos.length}** | **${news.length}** | **${curated.length}** |
 
 ---
 
@@ -479,8 +492,8 @@ ${result.modelUsed ? `model: ${result.modelUsed}\n` : ""}---
   // Deliberately NOT run through the digest LLM above — rendered straight
   // from the fetched feed data so every title/link here is exactly what the
   // feed published; the LLM never touches this text.
-  const curatedSection = result.broad.curated.length > 0
-    ? `\n\n## 📡 Verified feed roundup (last 48h)\n_Straight from the source feeds — titles and links exactly as published._\n\n${result.broad.curated.slice(0, 20).map(c => `- [${c.source}] ${c.title} — ${c.url}`).join("\n")}\n`
+  const curatedSection = curated.length > 0
+    ? `\n\n## 📡 Verified feed roundup (last 48h)\n_Straight from the source feeds — titles and links exactly as published._\n\n${curated.slice(0, 20).map(c => `- [${c.source}] ${c.title} — ${c.url}`).join("\n")}\n`
     : "";
   const footer = `
 
