@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sun, Star, Plus, Trash2, X, Repeat, Bell, CalendarDays, ChevronDown, ChevronRight, List as ListIcon } from "lucide-react";
+import { Sun, Star, Plus, Trash2, X, Repeat, Bell, CalendarDays, ChevronDown, ChevronRight, List as ListIcon, Zap, Pause, Search } from "lucide-react";
 import {
   Inbox, Send, Loader2, CheckCircle2, XCircle, Play, Paperclip, Bot,
   User as UserIcon, Clock, AlertTriangle, RotateCcw, Download,
   FileText, ListChecks, History,
 } from "lucide-react";
-import { api, type MyTaskItem, type MyTaskList, type RepeatRule } from "../lib/api";
+import { api, type MyTaskItem, type MyTaskList, type RepeatRule, type TaskAutomation } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
+import { Modal } from "../components/Modal";
+import { Option } from "../components/Option";
+import { DAY_LABELS, formatCadence } from "../lib/scheduleFormat";
 import { CalendarPage } from "./CalendarPage";
 
 type ViewKey = "my-day" | "important" | "calendar" | `list:${string}`;
@@ -268,6 +271,7 @@ function TaskDetail({ item, lists, onClose, onChange, onDeleted }: {
     if (!confirm(`Delete "${item.title}"?`)) return;
     try { await api.removeMyTaskItem(item.id); onDeleted(); } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
   }
+  const [automating, setAutomating] = useState(false);
   const [decomposing, setDecomposing] = useState(false);
   async function decomposeWithNaxie() {
     setDecomposing(true);
@@ -284,6 +288,25 @@ function TaskDetail({ item, lists, onClose, onChange, onDeleted }: {
       showToast(`Added ${lines.length} steps via Naxie`, "success");
     } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
     finally { setDecomposing(false); }
+  }
+  const [automationBusy, setAutomationBusy] = useState(false);
+  async function toggleAutomationEnabled() {
+    if (!item.automation) return;
+    setAutomationBusy(true);
+    try { const r = await api.setTaskAutomation(item.id, { enabled: !item.automation.enabled }); onChange(r.item); }
+    catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setAutomationBusy(false); }
+  }
+  async function runAutomationNow() {
+    setAutomationBusy(true);
+    try { const r = await api.runTaskAutomation(item.id); onChange(r.item); showToast(`Ran "${item.title}"`, "success"); }
+    catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setAutomationBusy(false); }
+  }
+  async function removeAutomation() {
+    if (!confirm(`Remove the automation from "${item.title}"? It stays as a regular to-do.`)) return;
+    try { const r = await api.removeTaskAutomation(item.id); onChange(r.item); }
+    catch (e: any) { showToast(e?.message ?? String(e), "error"); }
   }
 
   const FIELD = "w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/60";
@@ -367,9 +390,162 @@ function TaskDetail({ item, lists, onClose, onChange, onDeleted }: {
         </div>
       )}
 
+      <div className="pt-2 border-t border-ink-800">
+        <label className="flex items-center gap-1.5 text-[11px] text-cream-300/70 mb-1.5"><Zap size={12} /> Automation</label>
+        {item.automation ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-cream-300/70">
+              {!item.automation.enabled && <span className="text-[10px] uppercase tracking-wider text-cream-300/50 bg-ink-850 border border-ink-700 rounded px-1.5 py-0.5">paused</span>}
+              <span>{item.automation.cadence ? formatCadence(item.automation.cadence) : "On-demand"}</span>
+              <span className="text-cream-300/40">·</span>
+              <span>{item.automation.tools.length} tool{item.automation.tools.length === 1 ? "" : "s"}</span>
+            </div>
+            {item.automation.lastFiredAt && (
+              <div className="text-[10px] text-cream-300/50">Last fired {new Date(item.automation.lastFiredAt).toLocaleString()}</div>
+            )}
+            {item.automation.lastError && (
+              <div className="text-[10px] text-coral-400 flex items-start gap-1"><AlertTriangle size={11} className="mt-0.5" /> {item.automation.lastError}</div>
+            )}
+            <div className="flex items-center gap-1 pt-0.5">
+              <button type="button" onClick={runAutomationNow} disabled={automationBusy} className="text-cream-300 hover:text-cream-50 p-1.5 rounded hover:bg-ink-800" title="Run now" aria-label="Run now"><Play size={13} /></button>
+              <button type="button" onClick={toggleAutomationEnabled} disabled={automationBusy} className="text-cream-300 hover:text-cream-50 p-1.5 rounded hover:bg-ink-800" title={item.automation.enabled ? "Pause" : "Resume"} aria-label={item.automation.enabled ? "Pause" : "Resume"}>
+                {item.automation.enabled ? <Pause size={13} /> : <Play size={13} />}
+              </button>
+              <button type="button" onClick={() => setAutomating(true)} className="text-cream-300 hover:text-cream-50 text-[11px] px-2 py-1 rounded hover:bg-ink-800">Edit</button>
+              <button type="button" onClick={removeAutomation} className="text-cream-300/70 hover:text-coral-400 p-1.5 rounded hover:bg-ink-800" title="Remove automation" aria-label="Remove automation"><Trash2 size={13} /></button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setAutomating(true)} className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg border border-ink-800 bg-ink-950/50 text-cream-300 hover:border-violet-500/50 hover:text-cream-50">
+            <Zap size={12} /> Make this a scheduled automation
+          </button>
+        )}
+      </div>
+
       <button type="button" onClick={remove} className="flex items-center gap-1.5 text-[12px] text-coral-400/80 hover:text-coral-400">
         <Trash2 size={13} /> Delete task
       </button>
+
+      {automating && (
+        <AutomationModal item={item} onClose={() => setAutomating(false)} onSaved={saved => { onChange(saved); setAutomating(false); }} />
+      )}
     </div>
+  );
+}
+
+type ToolInfo = { name: string; description?: string; readonly?: boolean };
+
+// Editor for a task's automation config — ported from the retired Workflow
+// Tree page's node form, minus the workflow/task-id fields (this attaches to
+// an EXISTING planner task, it doesn't create a new one).
+function AutomationModal({ item, onClose, onSaved }: { item: MyTaskItem; onClose: () => void; onSaved: (item: MyTaskItem) => void }) {
+  const a = item.automation;
+  const [hasCadence, setHasCadence] = useState(!!a?.cadence);
+  const [days, setDays] = useState<number[]>(a?.cadence?.daysOfWeek ?? [1, 2, 3, 4, 5]);
+  const [hour, setHour] = useState(a?.cadence?.hour ?? 9);
+  const [minute, setMinute] = useState(a?.cadence?.minute ?? 0);
+  const [tools, setTools] = useState<string[]>(a?.tools ?? []);
+  const [data, setData] = useState((a?.data ?? []).join(", "));
+  const [outputPath, setOutputPath] = useState(a?.outputPath ?? "");
+  const [toolCatalog, setToolCatalog] = useState<ToolInfo[]>([]);
+  const [toolFilter, setToolFilter] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { api.automationToolCatalog().then(r => setToolCatalog(r.tools)).catch(() => {}); }, []);
+
+  function toggleDay(d: number) {
+    setDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort((x, y) => x - y));
+  }
+  function toggleTool(name: string) {
+    setTools(prev => prev.includes(name) ? prev.filter(t => t !== name) : [...prev, name]);
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const patch: Partial<TaskAutomation> = {
+        enabled: a?.enabled ?? true,
+        cadence: hasCadence ? { daysOfWeek: days, hour, minute } : undefined,
+        tools,
+        data: data.split(",").map(s => s.trim()).filter(Boolean),
+        outputPath: outputPath.trim() || undefined,
+      };
+      const r = await api.setTaskAutomation(item.id, patch);
+      showToast(a ? "Automation saved" : "Automation created", "success");
+      onSaved(r.item);
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setSaving(false); }
+  }
+
+  const filteredTools = toolCatalog.filter(t => !toolFilter.trim() || t.name.toLowerCase().includes(toolFilter.toLowerCase()) || t.description?.toLowerCase().includes(toolFilter.toLowerCase()));
+  const FIELD = "w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/60";
+
+  return (
+    <Modal open onClose={onClose} title={a ? `Edit automation — "${item.title}"` : `Automate "${item.title}"`} className="max-w-2xl">
+      <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+        <label className="flex items-center gap-2 text-sm text-cream-100">
+          <input type="checkbox" checked={hasCadence} onChange={e => setHasCadence(e.target.checked)} />
+          Runs on a schedule (otherwise on-demand only — use "Run now")
+        </label>
+
+        {hasCadence && (
+          <div className="space-y-2 pl-1 border-l-2 border-ink-800 ml-1">
+            <div className="flex flex-wrap gap-1 pl-3">
+              {DAY_LABELS.map((d, i) => (
+                <Option key={d} selected={days.includes(i)} onToggle={() => toggleDay(i)}>{d}</Option>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 pl-3">
+              <input type="number" min={0} max={23} value={hour} onChange={e => setHour(Number(e.target.value))} className="w-16 bg-ink-950 border border-ink-800 rounded-md px-2 py-1.5 text-sm" />
+              <span className="text-cream-300/50">:</span>
+              <input type="number" min={0} max={59} value={minute} onChange={e => setMinute(Number(e.target.value))} className="w-16 bg-ink-950 border border-ink-800 rounded-md px-2 py-1.5 text-sm" />
+              <span className="text-xs text-cream-300/50">local time</span>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-[11px] uppercase tracking-wider text-cream-300/60 mb-1">Vault paths this automation may read (optional, comma-separated)</label>
+          <input value={data} onChange={e => setData(e.target.value)} placeholder="_neuroworks/" className={`${FIELD} font-mono`} />
+        </div>
+
+        <div>
+          <label className="block text-[11px] uppercase tracking-wider text-cream-300/60 mb-1">Output path (optional)</label>
+          <input value={outputPath} onChange={e => setOutputPath(e.target.value)} placeholder="_neuroworks/reports/{date}.md" className={`${FIELD} font-mono`} />
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-[11px] uppercase tracking-wider text-cream-300/60">Tools this automation may call ({tools.length} selected)</label>
+          </div>
+          <div className="relative mb-1.5">
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-cream-300/40" />
+            <input value={toolFilter} onChange={e => setToolFilter(e.target.value)} placeholder="Filter tools…" className="w-full bg-ink-950 border border-ink-800 rounded-md pl-7 pr-3 py-1.5 text-xs" />
+          </div>
+          <div className="max-h-40 overflow-y-auto border border-ink-800 rounded-md divide-y divide-ink-800">
+            {filteredTools.map(t => (
+              <label key={t.name} className="flex items-start gap-2 px-2 py-1.5 text-xs hover:bg-ink-900 cursor-pointer">
+                <input type="checkbox" checked={tools.includes(t.name)} onChange={() => toggleTool(t.name)} className="mt-0.5" />
+                <span className="font-mono text-cream-100 shrink-0">{t.name}</span>
+                <span className="text-cream-300/50 truncate">{t.description}</span>
+              </label>
+            ))}
+            {filteredTools.length === 0 && <div className="px-2 py-3 text-xs text-cream-300/50 text-center">No tools match.</div>}
+          </div>
+        </div>
+
+        {a?.handler && (
+          <div className="text-[11px] text-cream-300/50 font-mono">Handler: {a.handler} (not editable here)</div>
+        )}
+
+        <div className="text-xs text-cream-300/60 bg-ink-900/50 border border-ink-800 rounded-xl px-4 py-3 leading-relaxed">
+          An automation runs with the tool allowlist above whenever its schedule fires, or immediately via "Run now" — same trust level as a scheduled job.
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 pt-4 border-t border-ink-800 mt-4">
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button onClick={() => void save()} disabled={saving}>{a ? "Save" : "Create automation"}</Button>
+      </div>
+    </Modal>
   );
 }

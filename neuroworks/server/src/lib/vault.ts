@@ -873,10 +873,20 @@ export function searchVaultFilenames(query: string, limit = 5, opts?: { excludeA
   return out;
 }
 
-export function searchVault(query: string, limit = 50): SearchHit[] {
+// excludeAgentCaptures mirrors searchVaultFilenames' option of the same name
+// (see its comment) — the agent's own prior output (job trackers, reflections,
+// memory) under _neuroworks/ is not real user knowledge. The filter MUST run
+// INSIDE the search, before the result set is capped to `limit`, not after:
+// filtering a capped set that happens to be dominated by captures can leave
+// the caller with zero real evidence even though plenty exists just past the
+// cutoff (caught live: a reflection backlog of agent telemetry mentioning
+// "NeuroWorks" on nearly every line crowded the one real product-description
+// note out of the top results research.deep actually reads).
+export function searchVault(query: string, limit = 50, opts?: { excludeAgentCaptures?: boolean }): SearchHit[] {
   assertVaultExists();
+  const excludeAgentCaptures = opts?.excludeAgentCaptures ?? false;
   const q = query.toLowerCase();
-  const key = `${q}|${limit}`;
+  const key = `${q}|${limit}|${excludeAgentCaptures}`;
   const hit = SEARCH_CACHE.get(key);
   if (hit && Date.now() - hit.at < SEARCH_CACHE_TTL_MS) {
     return hit.results;
@@ -885,18 +895,32 @@ export function searchVault(query: string, limit = 50): SearchHit[] {
   // when the index hasn't built yet (cold start) or when MiniSearch declines
   // a query. Index builds lazily; first call after a cache invalidation
   // rebuilds it before serving.
-  if (!indexStats().ready) {
+  const stats = indexStats();
+  if (!stats.ready) {
     void buildIndex(VAULT);
   } else {
-    const indexed = searchIndex(query, VAULT, limit);
+    // Stale (a vault write happened since the last build) still serves —
+    // just kick a background refresh alongside it so the index eventually
+    // catches up instead of staying stale forever.
+    if (stats.stale) void buildIndex(VAULT);
+    // Over-fetch when filtering so excluding captures doesn't just shrink
+    // the capped set — pull a larger candidate pool, filter, then cap.
+    const fetchLimit = excludeAgentCaptures ? Math.max(limit * 5, 100) : limit;
+    const indexed = searchIndex(query, VAULT, fetchLimit);
     if (indexed && indexed.length > 0) {
-      const results = indexed.map(h => ({ path: h.path, line: h.line, preview: h.preview }));
-      SEARCH_CACHE.set(key, { at: Date.now(), results });
-      return results;
+      const filtered = excludeAgentCaptures ? indexed.filter(h => !isMachineStatePath(h.path)) : indexed;
+      if (filtered.length > 0) {
+        const results = filtered.slice(0, limit).map(h => ({ path: h.path, line: h.line, preview: h.preview }));
+        SEARCH_CACHE.set(key, { at: Date.now(), results });
+        return results;
+      }
+      // Every indexed hit was a capture — fall through to the legacy walk,
+      // which excludes capture DIRECTORIES from its traversal entirely.
+    } else {
+      // Index returned [] — let the legacy walk run too, since MiniSearch's
+      // AND combiner can be stricter than substring matching. If the walk
+      // also returns nothing the user gets the same answer either way.
     }
-    // Index returned [] — let the legacy walk run too, since MiniSearch's
-    // AND combiner can be stricter than substring matching. If the walk
-    // also returns nothing the user gets the same answer either way.
   }
   const out: SearchHit[] = [];
   function walk(dir: string) {
@@ -907,8 +931,12 @@ export function searchVault(query: string, limit = 50): SearchHit[] {
       if (out.length >= limit) return;
       if (HIDDEN_PREFIXES.some(p => e.name.startsWith(p))) continue;
       const full = join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (e.name.endsWith(".md") && statSync(full).size < 1_000_000) {
+      if (e.isDirectory()) {
+        if (excludeAgentCaptures && isMachineStatePath(relative(VAULT, full))) continue;
+        walk(full);
+        continue;
+      }
+      if (e.name.endsWith(".md") && statSync(full).size < 1_000_000) {
         try {
           const content = readFileSync(full, "utf8");
           const lines = content.split("\n");

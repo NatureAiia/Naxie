@@ -150,6 +150,10 @@ export function aggregate(jobs: Job[], windowStartMs: number, windowEndMs: numbe
   const failureBuckets: Record<string, { count: number; templates: Set<string> }> = {};
   const slowSteps: { tool: string; durationSec: number; jobId: string }[] = [];
   const toolBuckets: Record<string, { runs: number; ok: number; failed: number; totalSec: number }> = {};
+  // Which templates each tool ran under — lets step-level tool failures feed
+  // topFailures with template attribution (Fix 3). Without this, a failing
+  // step inside an otherwise-succeeded job was invisible to the reflection.
+  const toolTemplates: Record<string, Set<string>> = {};
   const retries: { jobId: string; title?: string }[] = [];
   const continuations: DailyStats["continuations"] = [];
   const skillBuckets: Record<string, { runs: number; ok: number; failed: number; totalScore: number }> = {};
@@ -246,6 +250,8 @@ export function aggregate(jobs: Job[], windowStartMs: number, windowEndMs: numbe
     const runs = !r.peer && Array.isArray(r.runs) ? r.runs : [];
     for (const run of runs) {
       const tool = run?.step?.tool ?? "unknown";
+      toolTemplates[tool] = toolTemplates[tool] ?? new Set();
+      toolTemplates[tool].add(tpl);
       toolBuckets[tool] = toolBuckets[tool] ?? { runs: 0, ok: 0, failed: 0, totalSec: 0 };
       toolBuckets[tool].runs++;
       if (run.ok) toolBuckets[tool].ok++;
@@ -256,6 +262,17 @@ export function aggregate(jobs: Job[], windowStartMs: number, windowEndMs: numbe
     }
   }
 
+  // Merge step-level tool failures into the job-level buckets (Fix 3): a step
+  // can fail (ok:false) while its parent job still lands "succeeded" (e.g. a
+  // peer.review rejection that fell back to a draft), which previously left
+  // topFailures empty despite toolStats showing failures.
+  for (const [tool, v] of Object.entries(toolBuckets)) {
+    if (v.failed <= 0) continue;
+    const key = `tool:${tool} step failed ${v.failed}/${v.runs} runs`;
+    failureBuckets[key] = failureBuckets[key] ?? { count: 0, templates: new Set() };
+    failureBuckets[key].count += v.failed;
+    for (const t of toolTemplates[tool] ?? []) failureBuckets[key].templates.add(t);
+  }
   const topFailures = Object.entries(failureBuckets)
     .map(([error, v]) => ({ error, count: v.count, templates: [...v.templates] }))
     .sort((a, b) => b.count - a.count)
@@ -307,9 +324,11 @@ export function aggregate(jobs: Job[], windowStartMs: number, windowEndMs: numbe
   };
 }
 
-// Ask the LLM to synthesize a reflection. complexity: "high" so the dispatcher
-// hands it off to the large-tier OR model when configured — this prompt is
-// long-ish and the customer reads it the next morning, so quality matters.
+// Ask the LLM to synthesize a reflection. Uses complexity:"normal" + capped
+// maxTokens so the call routes to the fast tier (Fix 1): a daily digest does
+// not need the large reasoning tier, and the large tier is what kept tripping
+// the synthesis budget. When the LLM is unavailable, a deterministic
+// heuristic digest lands instead — same headings, numbers-grounded.
 async function synthesizeReflection(stats: DailyStats): Promise<{ text: string; modelUsed?: string }> {
   if (stats.totalTasks === 0) {
     return {
@@ -388,18 +407,25 @@ ${stats.continuations.length > 0 ? `### Continuation chains _(tasks that picked 
 
 Write the reflection. Honest, terse, numerically grounded.`;
 
-  // Single retry before falling back. The reflection LLM call is a
-  // big complex synthesis (large context, complexity:"high") that goes
-  // through OpenRouter when configured — a transient 429 or network
-  // blip would otherwise lose the whole day's reflection. One retry
-  // with a 2s backoff catches the common transient failures (TLS
-  // hiccup, rate-limit window) without dragging the run out if the
-  // underlying problem is real (auth, model not pulled).
+  // Overall wall-clock budget for the synthesis (Fix 1 root cause: the old
+  // code passed the FULL 8-min budget as each attempt's per-call timeout AND
+  // raced the whole thing against the same 8-min cap with complexity:"high"
+  // forcing the slowest large-tier model — so attempt 1 alone could consume
+  // the cap and the retry never had room to succeed).
+  const rawReflectionTimeoutMs = Number(process.env.NEUROWORKS_REFLECTION_SYNTH_TIMEOUT_MS ?? String(8 * 60_000));
+  const SYNTH_TIMEOUT_MS = Math.max(60_000, Number.isFinite(rawReflectionTimeoutMs) ? rawReflectionTimeoutMs : 8 * 60_000);
+  // Two attempts must fit inside the cap with a 2s backoff between them.
+  const PER_ATTEMPT_MS = Math.max(60_000, Math.floor((SYNTH_TIMEOUT_MS - 5_000) / 2));
+
+  // Single retry before falling back. Uses complexity:"normal" + a bounded
+  // maxTokens so the call routes to the fast tier instead of the large model
+  // (Fix 1) — a daily digest does not need the heaviest reasoning tier, and
+  // the large tier is what kept tripping the cap on 2026-09-27/28.
   const attemptSynthesis = async (): Promise<{ text: string; modelUsed?: string }> => {
     let lastErr: any;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const meta = await import("./llm.js").then(m => m.llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs: SYNTH_TIMEOUT_MS } as any));
+        const meta = await import("./llm.js").then(m => m.llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "normal", maxTokens: 1500, timeoutMs: PER_ATTEMPT_MS } as any));
         if (attempt > 0) {
           console.log(`[reflection] LLM call succeeded on retry`);
         }
@@ -414,34 +440,22 @@ Write the reflection. Honest, terse, numerically grounded.`;
         }
       }
     }
-    // Fallback: produce a stat-only reflection so the file still lands.
-    return {
-      text: `_LLM reflection failed after retry (\`${String(lastErr?.message ?? lastErr).slice(0, 100)}\`). The raw stats above are still valid — review them manually._\n\n## What to try next\n- Investigate the LLM error above and re-run \`/api/reflection/run\` once it's resolved.`,
-    };
+    // Fallback: deterministic heuristic digest so the file still lands WITH
+    // insight (Fix 2), not a "review manually" stub.
+    return { text: await buildHeuristicFallback(stats, `LLM synthesis failed after retry (\`${String(lastErr?.message ?? lastErr).slice(0, 100)}\`)`) };
   };
 
-  // Overall wall-clock cap on the synthesis. Each individual provider call is
-  // already bounded (OpenRouter/Ollama abort at 15min in llm.ts), but nothing
-  // capped the WHOLE synthesis: generateWithMetaInner walks the provider
-  // fallback chain (primary → OpenAI → Anthropic → local Ollama) on transient
-  // failures, and this function retries the entire thing once. A hung/slow
-  // backend therefore stacked several 15-min timeouts × 2 attempts — the
-  // nightly reflection:daily ran 8,430s (2.34h) on 2026-07-26 doing exactly
-  // that. Race the synthesis against a single budget so a wedged backend costs
-  // minutes, not hours; the stat-only fallback still lands a usable file. The
-  // abandoned attemptSynthesis() promise keeps running against its own 15-min
-  // per-call caps in the background — harmless for a nightly job, and its cost
-  // is still recorded — but the reflection RUN no longer waits on it.
-  const rawReflectionTimeoutMs = Number(process.env.NEUROWORKS_REFLECTION_SYNTH_TIMEOUT_MS ?? String(8 * 60_000));
-  const SYNTH_TIMEOUT_MS = Math.max(60_000, Number.isFinite(rawReflectionTimeoutMs) ? rawReflectionTimeoutMs : 8 * 60_000);
+  // Race the synthesis against the single budget so a wedged backend costs
+  // minutes, not hours; the heuristic fallback still lands a usable file.
+  // The abandoned attemptSynthesis() promise keeps running against its own
+  // per-call caps in the background — harmless for a nightly job — but the
+  // reflection RUN no longer waits on it.
+  const capReason = `LLM synthesis exceeded its ${Math.round(SYNTH_TIMEOUT_MS / 60_000)}min budget on ${stats.date} (per-attempt cap ${Math.round(PER_ATTEMPT_MS / 1000)}s, complexity:normal, 1 retry)`;
   let capTimer: NodeJS.Timeout | undefined;
   const cap = new Promise<{ text: string; modelUsed?: string }>((resolve) => {
     capTimer = setTimeout(() => {
-      const mins = Math.round(SYNTH_TIMEOUT_MS / 60_000);
-      console.warn(`[reflection] synthesis exceeded ${mins}min cap — abandoning the LLM call and writing the stat-only reflection`);
-      resolve({
-        text: `_LLM reflection exceeded the ${mins}min synthesis cap and was abandoned so the nightly run wouldn't stall (reflection:daily ran 2.34h on 2026-07-26 stacking backend timeouts). The raw stats above are still valid — review them manually, or re-run \`/api/reflection/run\` once the LLM backend is healthy._\n\n## What to try next\n- Check the LLM backend (OpenRouter/OpenAI/Anthropic/Ollama): a hung or very slow provider call, not a code fault, drove the timeout. Raise \`NEUROWORKS_REFLECTION_SYNTH_TIMEOUT_MS\` only if legitimate synthesis is being cut short.`,
-      });
+      console.warn(`[reflection] synthesis exceeded budget — writing heuristic fallback`);
+      void buildHeuristicFallback(stats, capReason).then(text => resolve({ text }));
     }, SYNTH_TIMEOUT_MS);
     if (typeof capTimer.unref === "function") capTimer.unref();
   });
@@ -450,6 +464,126 @@ Write the reflection. Honest, terse, numerically grounded.`;
   } finally {
     if (capTimer) clearTimeout(capTimer);
   }
+}
+
+// Templates averaging at or above this are flagged as perf bottlenecks (Fix 4).
+const PERF_BUDGET_SEC = 600;
+
+export function slowTemplatesOf(stats: DailyStats) {
+  return Object.entries(stats.byTemplate)
+    .map(([template, v]) => ({ template, avgDurationSec: v.avgDurationSec, total: v.total, failed: v.failed }))
+    .filter(t => t.avgDurationSec >= PERF_BUDGET_SEC)
+    .sort((a, b) => b.avgDurationSec - a.avgDurationSec);
+}
+
+// Day-over-day deltas from the last few landed reflection files (Fix 5).
+// Best-effort: unparsable/missing history yields an empty list, never a throw.
+export async function trendLines(excludeDate: string, take = 3): Promise<string[]> {
+  try {
+    const { existsSync, readdirSync, readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const dir = join(config.vaultPath, REFLECTION_DIR);
+    if (!existsSync(dir)) return [];
+    const files = readdirSync(dir)
+      .filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f) && !f.startsWith(excludeDate))
+      .sort()
+      .slice(-take);
+    const out: string[] = [];
+    for (const f of files) {
+      try {
+        const raw = readFileSync(join(dir, f), "utf8");
+        const fm = raw.match(/^---\n([\s\S]*?)\n---/);
+        const total = fm?.[1].match(/^totalTasks:\s*(\d+)/m)?.[1] ?? "?";
+        const rate = fm?.[1].match(/^successRate:\s*([\d.]+)/m)?.[1];
+        const pct = rate !== undefined ? `${Math.round(Number(rate) * 100)}% success` : "rate n/a";
+        out.push(`- ${f.slice(0, 10)}: ${total} tasks, ${pct}`);
+      } catch { /* one bad file must not kill the trend */ }
+    }
+    return out;
+  } catch { return []; }
+}
+
+// Deterministic, numbers-grounded digest used when the LLM is unavailable
+// (Fixes 2 + 6). Same four headings the lessons extractor looks for, so the
+// lessons loop keeps working on fallback nights; copy names the date, the
+// reason, and concrete next steps instead of a stale incident reference.
+export async function buildHeuristicFallback(stats: DailyStats, reason: string): Promise<string> {
+  const pct = Math.round(stats.successRate * 100);
+  const slow = slowTemplatesOf(stats);
+  const weakSkills = stats.skillStats.filter(s => s.avgScore < 20);
+  const failingTools = [...stats.toolStats].sort((a, b) => b.failureRate - a.failureRate).filter(t => t.failed > 0);
+  const trends = await trendLines(stats.date);
+  const trendAvg = trends.length
+    ? (trends.map(t => Number(t.match(/(\d+) tasks/)?.[1] ?? NaN)).filter(Number.isFinite) as number[])
+    : [];
+  const avgVol = trendAvg.length ? Math.round(trendAvg.reduce((a, b) => a + b, 0) / trendAvg.length) : null;
+
+  const well: string[] = [];
+  well.push(`Held a ${pct}% success rate across ${stats.totalTasks} tasks (${stats.succeeded} ok, ${stats.failed} failed, ${stats.rejected} rejected${stats.cancelled ? `, ${stats.cancelled} operator-cancelled` : ""}).`);
+  if (stats.topFailures.length === 0) well.push(`Zero recorded failures at job or step level — clean night.`);
+  else if (stats.failed === 0 && stats.rejected === 0) well.push(`Zero job-level failures — the ${stats.topFailures.length} flagged item(s) are step-level issues inside otherwise-succeeded jobs.`);
+  const busiest = Object.entries(stats.byTemplate).sort((a, b) => b[1].total - a[1].total)[0];
+  if (busiest) well.push(`Busiest template \`${busiest[0]}\`: ${busiest[1].total} runs, ${busiest[1].failed} failed.`);
+
+  const wrong: string[] = [];
+  for (const f of stats.topFailures.slice(0, 4)) {
+    wrong.push(`"${f.error}" — ${f.count}x (templates: ${f.templates.join(", ") || "n/a"}).`);
+  }
+  for (const s of slow) {
+    wrong.push(`\`${s.template}\` averaged ${s.avgDurationSec}s over ${s.total} run(s) — over the ${PERF_BUDGET_SEC}s perf budget.`);
+  }
+  for (const sk of weakSkills.slice(0, 3)) {
+    wrong.push(`Skill picker weak on \`${sk.skill}\`: avg score ${sk.avgScore} (keyword-only) over ${sk.runs} run(s).`);
+  }
+  if (wrong.length === 0) wrong.push(`No failures, slow templates, or weak skill picks recorded — quiet night.`);
+
+  const notice: string[] = [];
+  if (avgVol !== null) {
+    const delta = stats.totalTasks - avgVol;
+    notice.push(`Volume ${stats.totalTasks} vs trailing avg ${avgVol} (${delta >= 0 ? "+" : ""}${delta}) across ${trends.length} prior night(s).`);
+  } else {
+    notice.push(`No prior reflection history to trend against yet.`);
+  }
+  const topPersona = Object.entries(stats.byPersona).sort((a, b) => b[1] - a[1])[0];
+  if (topPersona) notice.push(`Persona concentration: \`${topPersona[0]}\` handled ${topPersona[1]}/${stats.totalTasks} tasks.`);
+  else notice.push(`No persona attribution recorded — attribution may be missing on these jobs.`);
+  if (Object.keys(stats.byPeer).length === 0) notice.push(`No peer delegations — all work ran locally.`);
+  if (stats.continuations.length > 0) notice.push(`${stats.continuations.length} continuation chain(s) — users supplying follow-up context mid-task.`);
+  if (stats.retries.length > 0) notice.push(`${stats.retries.length} retried task(s).`);
+
+  const next: string[] = [];
+  if (slow.length > 0) next.push(`Split \`${slow[0].template}\` into parallel sub-agents or trim its heaviest steps — it is the fleet bottleneck at ~${Math.round(slow[0].avgDurationSec / 60)} min/run.`);
+  if (failingTools.length > 0) next.push(`Investigate tool \`${failingTools[0].tool}\`: ${failingTools[0].failed}/${failingTools[0].runs} step runs failed — check its error output before the next scheduled run.`);
+  if (weakSkills.length > 0) next.push(`Enrich the \`${weakSkills[0].skill}\` skill metadata (intent phrases) so the picker stops matching on keywords alone.`);
+  next.push(`Re-run \`POST /api/reflection/run\` once the LLM backend is healthy to replace this deterministic digest with a full synthesis.`);
+  if (next.length > 4) next.length = 4;
+
+  const sections = [
+    `_Deterministic digest for ${stats.date} — ${reason}. Computed directly from run stats with no model involved._`,
+    ``,
+    `## What went well`,
+    ...well.map(b => `- ${b}`),
+    ``,
+    `## What went wrong`,
+    ...wrong.map(b => `- ${b}`),
+    ``,
+    `## What I notice`,
+    ...notice.map(b => `- ${b}`),
+    ``,
+    `## What to try next`,
+    ...next.map(b => `- ${b}`),
+    ``,
+    `## Trend (prior nights)`,
+    ...(trends.length > 0 ? trends : [`- _(no prior reflections on disk)_`]),
+  ];
+  if (slow.length > 0) {
+    sections.push(
+      ``,
+      `## Bottlenecks (≥${PERF_BUDGET_SEC}s avg)`,
+      ...slow.map(s => `- \`${s.template}\`: avg ${s.avgDurationSec}s × ${s.total} run(s), ${s.failed} failed — over budget, candidate for parallelisation.`),
+    );
+  }
+  return sections.join("\n");
 }
 
 function renderMarkdown(result: { stats: DailyStats; text: string; generatedAt: string; modelUsed?: string }): string {
@@ -462,7 +596,7 @@ successRate: ${s.successRate}
 continuationChains: ${s.continuations.length}
 retries: ${s.retries.length}
 generated: ${result.generatedAt}
-${result.modelUsed ? `model: ${result.modelUsed}\n` : ""}---
+${result.modelUsed ? `model: ${result.modelUsed}\n` : "synthesis: heuristic-fallback\n"}---
 
 # Daily reflection — ${s.date}
 
@@ -544,8 +678,10 @@ export async function runReflection(opts: { windowHours?: number; force?: boolea
     // concrete "avoid X, do Y" directive on its next run, not just prose in the
     // synth prompt.
     try {
-      const { updateBottlenecksFromStats } = await import("./reflection-bottlenecks.js");
+      const { updateBottlenecksFromStats, noteSlowTemplates } = await import("./reflection-bottlenecks.js");
       updateBottlenecksFromStats(stats);
+      // Slow-but-green templates also enter the planner-visible index (Fix 4).
+      noteSlowTemplates(stats.date, slowTemplatesOf(stats));
     } catch (e: any) {
       console.warn(`[reflection] bottleneck index update failed (non-fatal): ${e?.message ?? e}`);
     }

@@ -128,7 +128,7 @@ const SOCIAL_TASK_RE = new RegExp(`\\b${SOCIAL_ACTION}\\b[^]{0,60}?\\b${SOCIAL_P
 // flipping a system-access toggle, however low-risk the specific action
 // looks, because this tool set didn't exist before and the operator asked
 // for a human in the loop on all of it, not just the destructive half.
-export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "system_control", "manage_clipboard", "git_pull", "personas.manage", "system.admin", "whatsapp.send", "whatsapp.broadcast", "pentest.scan"]);
+export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "system_control", "manage_clipboard", "git_pull", "personas.manage", "system.admin", "whatsapp.send", "whatsapp.broadcast", "whatsapp.cloud_send", "pentest.scan"]);
 
 // Crown Job priority (org-tasks.ts's OrgTaskPriority) bypasses ONLY the
 // generic sensitive-tool checkpoint below (opts.skipApprovalGate) — the same
@@ -216,7 +216,18 @@ function parseSelfContainedEmail(t: string): { to: string; subject: string; body
 // notes"), so "make a note" / "my notes app" don't false-trigger.
 const NOTEPAD_RE = /\bnote\s?pad\b/i;
 
-const ORG_STRUCTURE_RE = /\b(job\s+descriptions?|org(?:ani[sz]ational?)?\s+(?:structure|chart|outline|design)|reporting\s+lines?|team\s+structure|company\s+structure|agents?\s+(?:integrated|incorporated|in\s+the\s+org)|(?:role|position)\s+(?:profiles?|specs?)|staffing\s+(?:plan|structure)|workforce\s+(?:structure|design)|who\s+reports\s+to|(?:our|the\s+company'?s?|aiia'?s?)\s+(?:org(?:ani[sz]ation)?|departments?|teams?|structure|workforce|agents?|personas?|neuros?|staff|people|employees|hires?)\b|what\s+departments?\b|departments?\s+(?:exist|do\s+we\s+have)|(?:list|show|name)\s+(?:all\s+)?(?:the\s+|our\s+)?(?:departments?|teams?|agents?|personas?|neuros?|employees|staff)\b|who\s+(?:works|is)\s+(?:in|on)\s+(?:the\s+)?\w+\s+(?:department|team)\b|how\s+many\s+(?:agents?|personas?|neuros?|employees|people|staff|departments?|teams?)\b)/i;
+const ORG_STRUCTURE_RE = /\b(job\s+descriptions?|org(?:ani[sz]ational?)?\s+(?:structure|chart|outline|design)|reporting\s+lines?|team\s+structure|company\s+structure|agents?\s+(?:integrated|incorporated|in\s+the\s+org)|(?:role|position)\s+(?:profiles?|specs?)|staffing\s+(?:plan|structure)|workforce\s+(?:structure|design)|who\s+(?:does|do)\s+\S+(?:\s+\S+){0,3}\s+reports?\s+to|who\s+reports\s+to|(?:our|the\s+company'?s?|aiia'?s?)\s+(?:org(?:ani[sz]ation)?|departments?|teams?|structure|workforce|agents?|personas?|neuros?|staff|people|employees|hires?)\b|what\s+departments?\b|departments?\s+(?:exist|do\s+we\s+have)|(?:list|show|name)\s+(?:all\s+)?(?:the\s+|our\s+)?(?:departments?|teams?|agents?|personas?|neuros?|employees|staff)\b|who\s+(?:works|is)\s+(?:in|on)\s+(?:the\s+)?\w+\s+(?:department|team)\b|how\s+many\s+(?:agents?|personas?|neuros?|employees|people|staff|departments?|teams?)\b|\brole\b[\s\S]{0,60}\bdepartment\b|\bdepartment\b[\s\S]{0,60}\brole\b)/i;
+
+// Questions about a specific uploaded company document (strategic plan,
+// governance policy, brand guidelines, a priced schedule, a summit deck, …).
+// These can ONLY be answered from the org's own _company/ uploads — never
+// world knowledge, no matter how "what does X say" the phrasing looks.
+// Paired with ORG_STRUCTURE_RE below the same veto covers both real asks
+// (company-strategic-plan, company-github-governance, …) and the honesty
+// counterparts that ask about a document/person that doesn't exist — the
+// veto must fire on the SHAPE of the question, not on whether the answer
+// happens to exist, or the honest "not found" path never gets reached.
+const COMPANY_DOCS_RE = /\b(?:strategic\s+plan|governance\s+polic(?:y|ies)|brand\s+guidelines?|price\s+schedule|logistics\s+(?:expansion\s+)?plan)\b|\bsummit\b[\s\S]{0,40}\b(?:deck|price\s+schedule)\b|\b(?:deck|price\s+schedule)\b[\s\S]{0,40}\bsummit\b/i;
 
 // Parse the "Interpretation: intent=foo, target=..." line that chat.ts
 // appends to enriched tasks. Returns the intent label when present, or
@@ -924,7 +935,7 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
   async function runStep(i: number) {
     if (aborted || signal?.aborted) return;
     const step = p.steps[i];
-    // Tool-allowlist scoping (workflow-tree.ts) — rejected here too, not just
+    // Tool-allowlist scoping (my-tasks.ts's task automations) — rejected here too, not just
     // in plan()'s step-validation, since preplan/custom-template replays skip
     // plan() entirely and go straight to executePlan.
     if (toolAllowlist && toolAllowlist.length > 0 && !toolAllowlist.includes(step.tool)) {
@@ -1206,6 +1217,10 @@ export function looksLikeDirectAnswer(task: string): boolean {
   // (users.list / personas.list / org.* / company.department_data) — never
   // world knowledge, no matter how short the prompt is.
   if (ORG_STRUCTURE_RE.test(t)) return false;
+  // Same guard for an uploaded company document — "what does our strategic
+  // plan say" is exactly the "what does X say" shape the world-knowledge
+  // patterns below would otherwise catch.
+  if (COMPANY_DOCS_RE.test(t)) return false;
   // Image generation + studio-model discovery are tool tasks (media.image /
   // media.studio_models), never a direct persona answer — a persona whose
   // lane isn't design would otherwise refuse ("outside my lane").
@@ -1290,6 +1305,10 @@ async function llmTriage(task: string): Promise<boolean> {
   // the persona preamble pushes these tasks past looksLikeDirectAnswer's
   // length cap and into this LLM path.
   if (ORG_STRUCTURE_RE.test(task)) return false;
+  // Same reasoning as looksLikeDirectAnswer's COMPANY_DOCS_RE guard — an
+  // uploaded company document question must never reach the small triage
+  // model, which misclassifies "what does our strategic plan say" as DIRECT.
+  if (COMPANY_DOCS_RE.test(task)) return false;
   // Image / studio-model tasks are tool work — never a direct answer.
   if (IMAGE_GEN_RE.test(task) || AD_CREATIVE_RE.test(task) || /\b(?:image|studio|generation|generative)\s+models?\b/i.test(task)) return false;
   if (NOTEPAD_RE.test(task)) return false;
@@ -2523,7 +2542,15 @@ export function extractTopic(task: string): string {
     .replace(/^\s*(?:please\s+)?(?:can\s+you\s+|could\s+you\s+|kindly\s+)?/i, "")
     .replace(/^(?:give\s+me\s+|tell\s+me\s+|show\s+me\s+|share\s+|provide\s+)/i, "")
     .replace(/^(?:a\s+|the\s+|an\s+)?(?:summary|overview|recap|tldr|brief|update|status|rundown)\s+(?:on|of|about|for|regarding)\s+/i, "")
-    .replace(/^(?:summari[sz]e|recap|brief\s+me\s+on|tell\s+me\s+about|what(?:'?s|\s+is)\s+(?:up\s+with\s+|going\s+on\s+with\s+)?|what\s+do\s+(?:we|i|you)\s+know\s+about)\s+/i, "")
+    // NOTE: trailing \s* (not \s+) is deliberate. The "what is/'s" branch
+    // already ends in its own optional "up with "/"going on with " group; when
+    // that optional group matches empty (the common case — "what is X" has no
+    // "up with"), its OWN mandatory \s+ sits directly against this outer
+    // separator with nothing between them, so an outer \s+ would demand TWO
+    // real space characters where the input has only one and never match at
+    // all — "What is NeuroWorks?" silently passed through unstripped. \s*
+    // still consumes the separator when one is needed by the other branches.
+    .replace(/^(?:summari[sz]e|recap|brief\s+me\s+on|tell\s+me\s+about|what(?:'?s|\s+is)\s+(?:up\s+with\s+|going\s+on\s+with\s+)?|what\s+do\s+(?:we|i|you)\s+know\s+about)\s*/i, "")
     // "what my vault says about X" / "what my notes have on X" /
     // "what we know about X" / "what i have on X" tail — by this
     // point the verb prefix ("summarise", "tell me", etc.) has
@@ -2534,6 +2561,21 @@ export function extractTopic(task: string): string {
     // neuroworks" as the topic, which then routed a literal web
     // search that hit Slovak-language sites matching "my".
     .replace(/^what\s+(?:my\s+(?:vault|notes?|brain|second\s+brain|knowledge|repo|repos?|files?|docs?|inbox)|the\s+(?:vault|repo|inbox)|we|i|you)\s+(?:says?|has|have|knows?|got|contain|contains|covers?|mentions?)\s+(?:about\s+|on\s+|of\s+|regarding\s+)?/i, "")
+    // "what does/do/is/are (the rules in) our X (say/cover/mean)?" → "X".
+    // The DOCUMENT is the retrieval term; what the asker wants from it is
+    // not. A trailing bare "deck" is stripped too — it names the container
+    // (any file can be "a deck"), not the subject, and no filename contains
+    // it; other document-type nouns (certificate, policy, plan, guidelines)
+    // are kept since those ARE the actual search term. $2 (not $1) because
+    // the whole match must consume the verb tail — a global "$1" capture
+    // with no trailing anchor would leave "say/cover" et al. in the output.
+    .replace(/^what\s+(?:does|do|is|are)\s+(?:the\s+rules?\s+in\s+)?our\s+(.+?)(?:\s+deck)?(?:\s+(?:says?|covers?|means?|states?|specif(?:y|ies))\b.*)?$/i, "$1")
+    // "according to our X chart, ..." → "X". Everything after the comma is
+    // the asker's follow-up ask, not part of the retrieval term.
+    .replace(/^according\s+to\s+our\s+(.+?)(?:\s+chart)?\s*,.*$/i, "$1")
+    // "what can X do (for ...)?" → "X" — the subject sits BEFORE "do" here,
+    // unlike the "our X (say|cover)" shape above where it follows "our".
+    .replace(/^what\s+can\s+(.+?)\s+do\b.*$/i, "$1")
     // Drafting verbs: "draft an Aiia Reference Letter" → "Aiia Reference
     // Letter". Without this strip, the triage vault check searches for the
     // verb-prefixed phrase ("draft aiia reference letter") and gets zero
@@ -2546,6 +2588,12 @@ export function extractTopic(task: string): string {
     // neuroworks" when the summary strip narrowly misses. Drop the bare
     // preposition so the topic is the actual subject.
     .replace(/^(?:about|regarding|concerning|on|of)\s+/i, "")
+    // "how does/do/can/should (the/a/an) X work/function/operate" → "X".
+    // Left whole, "how does the clawbot work" ANDs "how", "does", "work" —
+    // tokens no vault note contains — against the one word (the proper noun)
+    // that would actually hit. Unlike the strips above this one replaces the
+    // WHOLE string (prefix AND suffix), not just a leading prefix.
+    .replace(/^how\s+(?:does|do|can|could|should)\s+(?:the\s+|a\s+|an\s+)?(.+?)\s+(?:works?|functions?|operates?)\s*[?!.]*$/i, "$1")
     .replace(/[?!.]+$/, "")
     .trim();
   return stripped || task.trim();

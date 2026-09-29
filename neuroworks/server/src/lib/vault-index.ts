@@ -42,6 +42,13 @@ let index: MiniSearch<IndexedDoc> | null = null;
 let buildTimer: NodeJS.Timeout | null = null;
 let lastBuiltAt = 0;
 let buildPromise: Promise<void> | null = null;
+// True after invalidateIndex() until the next successful rebuild. A vault
+// write means the on-disk content moved out from under the index, but the
+// index itself is still a perfectly good (if slightly outdated) ranked
+// index — nulling it outright (the previous behaviour) silently downgraded
+// every search to the unranked O(n) linear walk for the whole rebuild
+// window, which on a continuously-written vault meant "most of the time".
+let stale = false;
 // True while the IIFE inside buildIndex is reading vault files. The watcher
 // in vault.ts can fire spurious events during this window (subst-mapped
 // drives on Windows + fs.watch is a known-flaky combination); if we let
@@ -159,6 +166,23 @@ export function buildIndex(vaultRoot: string): Promise<void> {
     // version left buildPromise as a rejected Promise on any unhandled throw
     // (e.g. a transient ENOENT from a watcher race on a deleted file), which
     // looked like "index never settles" externally. Try/finally fixes that.
+    //
+    // This await MUST be the first statement. Without it, the rest of this
+    // function body (which has no other await — every fs call is sync) runs
+    // to completion SYNCHRONOUSLY, inside the evaluation of the assignment
+    // `buildPromise = (async () => {...})()` below. That means the finally
+    // block's `buildPromise = null` executes and is then immediately
+    // clobbered back to a resolved promise by that same assignment finishing
+    // — buildIndex() never actually returns to a null buildPromise after the
+    // first call. The next invalidateIndex() + buildIndex() then hits the
+    // `if (buildPromise) return buildPromise` guard forever: the returned
+    // promise is already-settled, so callers see it resolve instantly, but
+    // the index itself is never rebuilt again for the life of the process —
+    // every search silently and permanently degrades to the legacy linear
+    // walk after the very first vault write. Forcing a suspend here ensures
+    // the outer assignment completes BEFORE any of this runs, so the later
+    // finally reset actually sticks.
+    await Promise.resolve();
     buildInProgress = true;
     try {
       if (!existsSync(vaultRoot)) return;
@@ -183,6 +207,7 @@ export function buildIndex(vaultRoot: string): Promise<void> {
         } catch { /* tolerate one bad file */ }
       }
       index = next;
+      stale = false;
       lastBuiltAt = Date.now();
       const elapsed = Date.now() - t0;
       console.log(`[vault-index] built — ${count} docs in ${elapsed}ms`);
@@ -207,19 +232,26 @@ export function buildIndex(vaultRoot: string): Promise<void> {
 // search() call triggers a lazy rebuild. This keeps a burst of writes
 // from triggering N rebuilds in a row.
 export function invalidateIndex(): void {
-  index = null;
+  // Mark stale, don't discard. The comment below has always said "stale
+  // indexes still serve queries" — this used to null `index` outright
+  // instead, which contradicted it: every search between a vault write and
+  // the next completed rebuild silently fell back to the unranked O(n)
+  // linear walk, which on a continuously-written vault (jobs, reflections,
+  // backups landing every few minutes) meant "most of the time".
+  stale = true;
   if (buildTimer) { clearTimeout(buildTimer); buildTimer = null; }
 }
 
 // Returns true if the index exists AND is fresher than a configurable
 // max-age. Stale indexes still serve queries (caller decides whether to
 // rebuild); this is just a probe used by /api/status surfacing.
-export function indexStats(): { ready: boolean; docs: number; ageMs: number; built: boolean } {
+export function indexStats(): { ready: boolean; docs: number; ageMs: number; built: boolean; stale: boolean } {
   return {
     ready: index !== null,
     docs: index ? index.documentCount : 0,
     ageMs: index ? Date.now() - lastBuiltAt : -1,
     built: lastBuiltAt > 0,
+    stale,
   };
 }
 

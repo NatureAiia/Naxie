@@ -12,6 +12,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { nextFireAt, type Cadence, type ScheduleDelivery } from "./schedules.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
@@ -20,6 +21,29 @@ const CONFIG_PATH = resolve(CONFIG_DIR, "my-tasks.json");
 export type TaskStep = { id: string; title: string; done: boolean };
 
 export type RepeatRule = { freq: "daily" | "weekly" | "monthly"; interval: number };
+
+// Absorbed from the retired lib/workflow-tree.ts (Phase 0 tree engine, never
+// armed by default and only ever wired to one daemon — todo-brief). Rather
+// than a separate vault-file tree, an automation is just a bolt-on to a
+// regular planner task: the same item the operator sees and can pause/edit
+// in Planner IS the schedule, tool allowlist and run history. `native:<name>`
+// is the only handler kind (the tree's unused "template:" path — planned for
+// planAndExecute(body, {toolAllowlist}) but never wired up — is dropped here;
+// a later pass can add it back onto this same field if it's actually needed).
+export type TaskHandler = `native:${string}`;
+
+export type TaskAutomation = {
+  enabled: boolean;
+  cadence?: Cadence;        // absent = on-demand only (never auto-fires, "Run now" still works)
+  tools: string[];
+  data: string[];
+  outputPath?: string;
+  deliver?: ScheduleDelivery;
+  handler?: TaskHandler;
+  lastFiredAt?: string;
+  lastError?: string;
+  fireCount: number;
+};
 
 export type TaskItem = {
   id: string;
@@ -37,6 +61,9 @@ export type TaskItem = {
   completedAt?: string;
   createdAt: string;
   order: number;
+  // Present only on tasks the operator has turned into a scheduled
+  // automation (see TaskAutomation above) — absent on every plain to-do.
+  automation?: TaskAutomation;
 };
 
 export type TaskList = {
@@ -242,4 +269,143 @@ export function removeStep(ownerEmail: string, itemId: string, stepId: string): 
   item.steps = item.steps.filter(s => s.id !== stepId);
   save(store);
   return item;
+}
+
+// ─── automation (absorbed from lib/workflow-tree.ts) ───────────────────────
+// Turns a regular planner task into a scheduled/on-demand job the tick loop
+// below can fire. Unlike the rest of this file, these operate across ALL
+// owners by id — the tick has no request/caller context, and an admin
+// managing automations may not be the item's own owner.
+
+function findItemById(id: string): { store: Store; item: TaskItem } | null {
+  const store = load();
+  const item = store.items.find(i => i.id === id);
+  return item ? { store, item } : null;
+}
+
+export function getAutomationItem(id: string): TaskItem | null {
+  return findItemById(id)?.item ?? null;
+}
+
+// Merge-patches automation fields onto an item, creating `automation` (with
+// fireCount 0) on first use. Only fields the caller actually sent survive
+// the merge — same "undefined never overwrites" rule as updateItem above.
+export function setAutomation(id: string, patch: Partial<Omit<TaskAutomation, "lastFiredAt" | "lastError" | "fireCount">>): TaskItem | null {
+  const found = findItemById(id);
+  if (!found) return null;
+  const { store, item } = found;
+  const base: TaskAutomation = item.automation ?? { enabled: true, tools: [], data: [], fireCount: 0 };
+  const definedPatch = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  item.automation = { ...base, ...definedPatch };
+  save(store);
+  return item;
+}
+
+export function removeAutomation(id: string): TaskItem | null {
+  const found = findItemById(id);
+  if (!found) return null;
+  const { store, item } = found;
+  delete item.automation;
+  save(store);
+  return item;
+}
+
+export function getAutomationStatus(item: TaskItem): { lastFiredAt?: string; lastError?: string; nextFireAt: number | null } {
+  const a = item.automation;
+  if (!a) return { nextFireAt: null };
+  const nextFireAt_ = a.cadence ? nextFireAt(a.cadence, a.lastFiredAt ? new Date(a.lastFiredAt) : new Date(0)) : null;
+  return { lastFiredAt: a.lastFiredAt, lastError: a.lastError, nextFireAt: nextFireAt_ };
+}
+
+// Scans every owner's items for one with an active automation — the tick
+// loop and the admin "all automations" listing both need this cross-owner
+// view; every other function in this file is intentionally owner-scoped.
+export function listAllAutomations(): TaskItem[] {
+  return load().items.filter(i => !!i.automation);
+}
+
+// Phase 0's dispatch path, unchanged from workflow-tree.ts: a static
+// registry of existing run<X>() functions, registered by index.ts at boot
+// (avoids a static import cycle between this leaf module and the daemons).
+type NativeHandler = () => Promise<unknown>;
+const NATIVE_HANDLERS = new Map<string, NativeHandler>();
+
+export function registerNativeHandler(name: string, fn: NativeHandler): void {
+  NATIVE_HANDLERS.set(name, fn);
+}
+
+function recordFire(id: string, ok: boolean, error?: string): void {
+  const found = findItemById(id);
+  if (!found) return;
+  const { store, item } = found;
+  if (!item.automation) return;
+  item.automation.lastFiredAt = new Date().toISOString();
+  item.automation.fireCount += 1;
+  item.automation.lastError = ok ? undefined : error;
+  save(store);
+}
+
+export async function runAutomation(id: string): Promise<{ ok: boolean; error?: string }> {
+  const item = getAutomationItem(id);
+  if (!item?.automation) return { ok: false, error: "task has no automation configured" };
+  const handler = item.automation.handler;
+  if (!handler) return { ok: false, error: `automation on "${item.title}" has no handler` };
+  const name = handler.slice("native:".length);
+  const fn = NATIVE_HANDLERS.get(name);
+  if (!fn) return { ok: false, error: `no native handler registered for "${name}"` };
+  try { await fn(); recordFire(id, true); return { ok: true }; }
+  catch (e: any) { const error = String(e?.message ?? e); recordFire(id, false, error); return { ok: false, error }; }
+}
+
+// Seeds one automation-backed task if a task with this exact title doesn't
+// already exist for this owner — mirrors workflow-tree.ts's
+// seedNodeIfMissing so a fresh install gets a sensible default without ever
+// clobbering an operator's own edits on every boot.
+export function seedAutomationIfMissing(ownerEmail: string, title: string, automation: Omit<TaskAutomation, "lastFiredAt" | "lastError" | "fireCount">, notes?: string): void {
+  const store = load();
+  if (store.items.some(i => i.ownerEmail === ownerEmail && i.title === title && i.automation)) return;
+  const listId = ensureDefaultList(store, ownerEmail).id;
+  const order = store.items.filter(i => i.ownerEmail === ownerEmail && i.listId === listId).length;
+  const item: TaskItem = {
+    id: randomUUID(), listId, ownerEmail, title, notes, steps: [],
+    important: false, completed: false, createdAt: new Date().toISOString(), order,
+    automation: { ...automation, fireCount: 0 },
+  };
+  store.items.push(item);
+  save(store);
+}
+
+let scheduler: NodeJS.Timeout | null = null;
+
+async function tick(): Promise<void> {
+  const now = new Date();
+  for (const item of listAllAutomations()) {
+    const a = item.automation!;
+    if (!a.enabled || !a.cadence) continue;
+    const from = a.lastFiredAt ? new Date(a.lastFiredAt) : new Date(now.getTime() - 25 * 3600_000);
+    const due = nextFireAt(a.cadence, from);
+    if (due === null || due > now.getTime()) continue;
+    console.log(`[my-tasks] firing automation "${item.title}" (handler=${a.handler ?? "none"})`);
+    await runAutomation(item.id);
+  }
+}
+
+export function isAutomationEngineArmed(): boolean {
+  return scheduler !== null;
+}
+
+export function startTaskAutomationScheduler(): void {
+  if (scheduler) return;
+  scheduler = setInterval(() => { void tick(); }, 10 * 60_000);
+  scheduler.unref?.();
+  void tick();
+}
+
+export function stopTaskAutomationScheduler(): void {
+  if (scheduler) { clearInterval(scheduler); scheduler = null; }
+}
+
+export function _resetForTests(): void {
+  stopTaskAutomationScheduler();
+  NATIVE_HANDLERS.clear();
 }

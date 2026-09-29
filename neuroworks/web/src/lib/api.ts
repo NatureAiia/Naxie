@@ -188,6 +188,20 @@ export type PentestRun = {
   vulnerabilityCount?: number;
 };
 
+// Rules-of-engagement scope allowlist (see server/src/lib/pentest-roe.ts).
+export type PentestScope = {
+  id: string;
+  label: string;
+  pattern: string;
+  notes?: string;
+  createdAt: string;
+  expiresAt?: string;
+};
+export type PentestScopeCheck =
+  | { allowed: true; reason: "local" }
+  | { allowed: true; reason: "matched"; scope: PentestScope }
+  | { allowed: false; reason: "no-match" | "expired" | "local-out-of-root"; scope?: PentestScope };
+
 export type QualityFlag = {
   jobId: string;
   rating: "up" | "down";
@@ -342,9 +356,16 @@ export const api = {
   // Strix-backed security/pentest scans — scan status/logs are plain Jobs, so
   // getJob() above (which hits /api/templates/jobs/:id, kind-agnostic) is
   // reused for polling instead of a dedicated endpoint here.
-  startPentestScan: (body: { target: string; mode?: "quick" | "deep"; maxBudget?: number; confirmAuthorized: boolean }) =>
+  startPentestScan: (body: { target: string; mode?: "quick" | "deep" | "simulated"; maxBudget?: number; confirmAuthorized: boolean }) =>
     req<{ jobId: string }>("/api/pentest/scan", { method: "POST", body: JSON.stringify(body) }),
   listPentestRuns: () => req<{ runs: PentestRun[] }>("/api/pentest/runs"),
+  listPentestScopes: () => req<{ scopes: PentestScope[] }>("/api/pentest/scopes"),
+  addPentestScope: (body: { label: string; pattern: string; notes?: string; expiresAt?: string }) =>
+    req<{ scope: PentestScope }>("/api/pentest/scopes", { method: "POST", body: JSON.stringify(body) }),
+  removePentestScope: (id: string) => req<{ ok: true }>(`/api/pentest/scopes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  checkPentestScope: (target: string) => req<{ check: PentestScopeCheck }>(`/api/pentest/scopes/check?target=${encodeURIComponent(target)}`),
+  pentestExportUrl: (jobId: string, format: "json" | "md") => `/api/pentest/runs/${encodeURIComponent(jobId)}/export?format=${format}`,
+  cancelPentestScan: (jobId: string) => req<{ ok: true }>(`/api/pentest/runs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
   systemAuditDeadCode: () => req<{ deadCode: { file: string; reason: string }[] }>("/api/system-audit/dead-code"),
   systemAuditPersonaMerges: () => req<{ merges: { a: string; b: string; similarity: number; reason: string }[] }>("/api/system-audit/persona-merges"),
   systemAuditIntegrationHealth: () => req<{ health: { id: string; label: string; ok: boolean; detail: string }[] }>("/api/system-audit/integration-health"),
@@ -768,6 +789,11 @@ export const api = {
   addMyTaskStep: (itemId: string, title: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/steps`, { method: "POST", body: JSON.stringify({ title }) }),
   toggleMyTaskStep: (itemId: string, stepId: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/steps/${encodeURIComponent(stepId)}`, { method: "PATCH" }),
   removeMyTaskStep: (itemId: string, stepId: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/steps/${encodeURIComponent(stepId)}`, { method: "DELETE" }),
+  automationToolCatalog: () => req<{ tools: { name: string; description?: string; readonly?: boolean }[] }>("/api/my-tasks/automations/tool-catalog"),
+  setTaskAutomation: (itemId: string, patch: Partial<Pick<TaskAutomation, "enabled" | "cadence" | "tools" | "data" | "outputPath" | "deliver" | "handler">>) =>
+    req<{ item: MyTaskItem; automationStatus: AutomationStatus }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/automation`, { method: "PATCH", body: JSON.stringify(patch) }),
+  removeTaskAutomation: (itemId: string) => req<{ item: MyTaskItem }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/automation`, { method: "DELETE" }),
+  runTaskAutomation: (itemId: string) => req<{ item: MyTaskItem; automationStatus: AutomationStatus }>(`/api/my-tasks/items/${encodeURIComponent(itemId)}/automation/run`, { method: "POST" }),
 
   // Auth (identity layer) + Users directory.
   login: (email: string, password: string) =>
@@ -967,11 +993,28 @@ export type ConnectorInput = {
 // Personal to-do list (native, offline — distinct from the agent job queue's Tasks page).
 export type TaskStep = { id: string; title: string; done: boolean };
 export type RepeatRule = { freq: "daily" | "weekly" | "monthly"; interval: number };
+// Absorbed from the retired Workflow Tree page — a scheduled/on-demand job
+// bolted onto a regular planner task (see server/src/lib/my-tasks.ts).
+export type TaskAutomation = {
+  enabled: boolean;
+  cadence?: Cadence;
+  tools: string[];
+  data: string[];
+  outputPath?: string;
+  deliver?: { email?: string };
+  handler?: string;
+  lastFiredAt?: string;
+  lastError?: string;
+  fireCount: number;
+};
+export type AutomationStatus = { lastFiredAt?: string; lastError?: string; nextFireAt: number | null };
+
 export type MyTaskItem = {
   id: string; listId: string; title: string; notes?: string; steps: TaskStep[];
   dueDate?: string; reminderAt?: string; repeat?: RepeatRule | null;
   important: boolean; myDay?: string; completed: boolean; completedAt?: string;
   createdAt: string; order: number;
+  automation?: TaskAutomation;
 };
 export type MyTaskList = { id: string; name: string; color?: string; order: number; createdAt: string };
 

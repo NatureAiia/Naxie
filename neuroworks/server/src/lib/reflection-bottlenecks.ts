@@ -25,6 +25,7 @@ type BottleneckEntry = {
   topError: string;         // most recent recurring error for this template
   remedy: string;           // concrete instruction for the planner
   lastSeen: string;         // ISO date of the last reflection that touched it
+  slow?: boolean;           // true when flagged purely for exceeding the perf budget (Fix 4)
 };
 
 type BottleneckIndex = { updatedAt: string; entries: Record<string, BottleneckEntry> };
@@ -118,6 +119,40 @@ export function updateBottlenecksFromStats(stats: StatsLike): void {
   save(idx);
 }
 
+// Record templates that blow the perf budget even when they SUCCEED (Fix 4).
+// Slow-but-green templates never met MIN_FAILURE_RATE, so the planner never
+// learned about them — yet a 21-min news run is a bottleneck regardless of
+// its exit code. Merged into the same accumulating index so a single noisy
+// night doesn't dominate and 30-day ageing still applies.
+export function noteSlowTemplates(
+  date: string,
+  items: { template: string; avgDurationSec: number; total: number; failed: number }[],
+  budgetSec = 600,
+): void {
+  if (items.length === 0) return;
+  const idx = load();
+  const now = new Date().toISOString();
+  for (const item of items) {
+    if (!item.template || item.total <= 0) continue;
+    const prev = idx.entries[item.template];
+    const totalRuns = (prev?.totalRuns ?? 0) + item.total;
+    const totalFailed = (prev?.totalFailed ?? 0) + item.failed;
+    idx.entries[item.template] = {
+      template: item.template,
+      totalRuns,
+      totalFailed,
+      failureRate: totalRuns > 0 ? Math.round((totalFailed / totalRuns) * 100) / 100 : 0,
+      avgDurationSec: item.avgDurationSec,
+      topError: prev?.topError ?? `(slow: avg ${item.avgDurationSec}s vs ${budgetSec}s budget, 0 failures)`,
+      remedy: `prior runs of this type are SLOW (avg ~${Math.round(item.avgDurationSec)}s vs a ${budgetSec}s budget) — split the work into parallel independent sub-agents and avoid unnecessarily heavy steps.`,
+      lastSeen: date || now,
+      slow: true,
+    };
+  }
+  idx.updatedAt = now;
+  save(idx);
+}
+
 // The full index (for the on-demand review endpoint / dashboards).
 export function listBottlenecks(): BottleneckEntry[] {
   return Object.values(load().entries).sort((a, b) => b.failureRate - a.failureRate);
@@ -135,6 +170,11 @@ export function bottleneckHintFor(opts: { taskKind?: string; template?: string }
     entries.find(e => ids.includes(e.template)) ||
     entries.find(e => ids.some(id => id.includes(e.template) || e.template.includes(id)));
   if (!match) return null;
+  // Slow-but-green entries surface on duration alone (Fix 4) — they will
+  // rarely clear the failure-rate gate by design.
+  if (match.slow && match.totalRuns >= 2 && match.avgDurationSec >= 600) {
+    return `LEARNED BOTTLENECK (slow) — ${match.remedy}`;
+  }
   if (match.totalRuns < MIN_RUNS || match.failureRate < MIN_FAILURE_RATE) return null;
   return `LEARNED BOTTLENECK — ${match.remedy}${match.topError ? ` (most common failure: "${match.topError}")` : ""}`;
 }

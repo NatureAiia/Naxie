@@ -163,6 +163,16 @@ const hermesProvider = pick("HERMES_PROVIDER", "openrouter");
 const hermesLocalModel = pick("HERMES_LOCAL_MODEL", "north-mini-code-10");
 const hermesLocalProvider = pick("HERMES_LOCAL_PROVIDER", "ollama");
 
+// WhatsApp Cloud API (Meta official) — ported by behavior from
+// naxionai/backend/whatsapp_client.py + api/whatsapp_webhook.py (sender half
+// only). Distinct from the Baileys device bridge (lib/whatsapp-bridge.ts):
+// Cloud API is vendor-supported, needs no linked phone/QR, and can't get the
+// number banned for automation. Blank = whatsapp.cloud_send reports
+// not-configured; the Baileys whatsapp.send path is unaffected.
+const whatsappPhoneNumberId = pick("WHATSAPP_PHONE_NUMBER_ID", "");
+const whatsappAccessToken = pick("WHATSAPP_ACCESS_TOKEN", "");
+const whatsappVerifyToken = pick("WHATSAPP_VERIFY_TOKEN", "");
+
 const port = Number(pick("NEUROWORKS_PORT", "7471"));
 // Comma-separated list of peer clawbot base URLs. Each peer is another running
 // instance of this same server (different port, optionally different model).
@@ -263,8 +273,12 @@ export const config = {
   studioImageEnabled: ideogramApiKey.length > 0 || muapiApiKey.length > 0 || openrouterApiKey.length > 0,
   hermesModel,
   hermesProvider,
-  hermesLocalModel,
+   hermesLocalModel,
   hermesLocalProvider,
+  whatsappPhoneNumberId,
+  whatsappAccessToken,
+  whatsappVerifyToken,
+  whatsappCloudEnabled: whatsappPhoneNumberId.length > 0 && whatsappAccessToken.length > 0,
   port,
   peers,
   name,

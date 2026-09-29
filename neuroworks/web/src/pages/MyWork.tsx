@@ -6,20 +6,22 @@ import { useLoadMore, LoadMoreButton } from "../components/LoadMore";
 import {
   Inbox, Send, Loader2, Bot,
   ChevronDown, ChevronUp,
-  ListChecks, History,
+  ListChecks, History, Radar,
 } from "lucide-react";
 import { Runs } from "./Runs";
 import { AgentApprovals } from "./AgentApprovals";
+import { AmbientWatch } from "./AmbientWatch";
 
 // Unified Work page — My Inbox (Naxie approvals + neuro handoffs) +
-// Runs (timeline/board) + History (prompts). One canonical list route
-// (/my-work); /runs redirects here and /runs/:jobId stays standalone for
-// deep links. Single-operator model: you are the only human, so every
-// approval from Naxie lands in your inbox.
+// Runs (timeline/board) + Ambient (background watcher, stub) + History
+// (prompts). One canonical list route (/my-work); /runs redirects here and
+// /runs/:jobId stays standalone for deep links. Single-operator model: you
+// are the only human, so every approval from Naxie lands in your inbox.
 export function MyWork() {
   const [searchParams, setSearchParams] = useSearchParams();
   const raw = searchParams.get("tab");
-  const tab: "inbox" | "runs" | "history" = raw === "runs" ? "runs" : raw === "history" ? "history" : "inbox";
+  const tab: "inbox" | "runs" | "ambient" | "history" =
+    raw === "runs" ? "runs" : raw === "ambient" ? "ambient" : raw === "history" ? "history" : "inbox";
   // Legacy aliases (approvals tab merged into inbox; work/reports predate tabs)
   const legacy = raw === "approvals" ? "inbox" : raw === "work" ? "inbox" : raw === "reports" ? "runs" : null;
   useEffect(() => {
@@ -40,7 +42,7 @@ export function MyWork() {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-1 border-b border-ink-800">
-        {([["inbox", "Inbox", Inbox], ["runs", "Runs", ListChecks], ["history", "History", History]] as const).map(([id, label, Icon]) => (
+        {([["inbox", "Inbox", Inbox], ["runs", "Runs", ListChecks], ["ambient", "Ambient", Radar], ["history", "History", History]] as const).map(([id, label, Icon]) => (
           <button
             key={id}
             type="button"
@@ -53,7 +55,7 @@ export function MyWork() {
           </button>
         ))}
       </div>
-      {tab === "inbox" ? <MyWorkInner /> : tab === "runs" ? <Runs /> : <MyWorkHistory />}
+      {tab === "inbox" ? <MyWorkInner /> : tab === "runs" ? <Runs /> : tab === "ambient" ? <AmbientWatch /> : <MyWorkHistory />}
     </div>
   );
 }

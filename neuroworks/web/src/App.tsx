@@ -21,7 +21,6 @@ const Office = lazy(() => import("./pages/Office").then(m => ({ default: m.Offic
 const RunDetail = lazy(() => import("./pages/Runs").then(m => ({ default: m.RunDetail })));
 const Planner = lazy(() => import("./pages/Planner").then(m => ({ default: m.Planner })));
 const MyFinances = lazy(() => import("./pages/MyFinances").then(m => ({ default: m.MyFinances })));
-const WorkflowTree = lazy(() => import("./pages/WorkflowTree").then(m => ({ default: m.WorkflowTree })));
 const Schedules = lazy(() => import("./pages/Schedules").then(m => ({ default: m.Schedules })));
 
 // Build
@@ -46,8 +45,8 @@ const Pentest = lazy(() => import("./pages/Pentest").then(m => ({ default: m.Pen
 // Govern — Policies now lives as a tab inside Connectors; OrgDashboard merged into CommandCenter
 const PoliciesRedirect = () => <Navigate to="/connectors?tab=policies" replace />;
 
-// Ambient Watch — stub only, no logic yet
-const AmbientWatch = lazy(() => import("./pages/AmbientWatch").then(m => ({ default: m.AmbientWatch })));
+// Ambient Watch — now a tab inside My Work (see pages/MyWork.tsx), not its own page.
+const AmbientRedirect = () => <Navigate to="/my-work?tab=ambient" replace />;
 
 // Misc / unchanged
 const DocEditor = lazy(() => import("./pages/DocEditor").then(m => ({ default: m.DocEditor })));
@@ -108,7 +107,6 @@ function AppShell() {
         <Route path="/crm" element={<Navigate to="/naxie" replace />} />
         <Route path="/planner" element={<Planner />} />
         <Route path="/my-finances" element={<MyFinances />} />
-        <Route path="/workflow-tree" element={<WorkflowTree />} />
         <Route path="/calendar" element={<Navigate to="/planner" replace />} />
         <Route path="/schedules" element={<Schedules />} />
 
@@ -140,8 +138,8 @@ function AppShell() {
         <Route path="/admin/notifications" element={<Navigate to="/audit" replace />} />
         <Route path="/admin/email-telegram" element={<Navigate to="/connectors" replace />} />
 
-        {/* Ambient Watch — stub */}
-        <Route path="/ambient" element={<AmbientWatch />} />
+        {/* Ambient Watch moved into My Work as a tab */}
+        <Route path="/ambient" element={<AmbientRedirect />} />
 
         {/* Misc, unchanged */}
         <Route path="/edit" element={<DocEditor />} />

@@ -364,6 +364,30 @@ export const primitives: Primitive[] = [
     },
   },
   {
+    name: "audio.transcribe",
+    description: "Transcribe an audio/video file to text (meeting recording, voice note, call audio). Local STT sidecar first when NEUROWORKS_STT_URL is set, OpenAI cloud fallback — whichever runs returns the transcript text plus engine/model/duration metadata. Use when the customer asks what's in an audio file or to turn a recording into notes/action items (then feed the text to the usual transform skills).",
+    readonly: true,
+    args: [
+      { name: "path", type: "string", required: true, description: "Absolute path to the audio/video file (.mp3/.wav/.m4a/.ogg/.flac/.aac/.mp4/.webm, max 25MB)." },
+      { name: "engine", type: "string", required: false, description: "'auto' (default), 'local' (NEUROWORKS_STT_URL sidecar), or 'cloud' (OpenAI key)." },
+      { name: "language", type: "string", required: false, description: "Force a source language code, e.g. 'en'. Default: auto-detect." },
+      { name: "model", type: "string", required: false, description: "Override the duration-picked local model size (tiny/base/small/medium)." },
+    ],
+    handler: async (args) => {
+      const rawPath = String(args.path ?? "").trim();
+      if (!rawPath) return { error: "path is required" };
+      const { assertSafeExternalPath } = await import("./security-gates.js");
+      try { assertSafeExternalPath(rawPath); } catch (e: any) { return { error: e?.message ?? String(e) }; }
+      const engineRaw = String(args.engine ?? "auto").toLowerCase();
+      if (!["auto", "local", "cloud"].includes(engineRaw)) return { error: "engine must be 'auto', 'local', or 'cloud'" };
+      const { transcribeAudioFile } = await import("./audio-transcribe.js");
+      try {
+        const r = await transcribeAudioFile(rawPath, engineRaw as "auto" | "local" | "cloud", String(args.language ?? ""), String(args.model ?? ""));
+        return r;
+      } catch (e: any) { return { error: e?.message ?? String(e) }; }
+    },
+  },
+  {
     name: "vault.scan_docs",
     description: "Read MANY vault docs in parallel and return their extracted text. Use when the customer asks 'what's in my <folder>?' or 'summarize the docs in <folder>'. Supports MD, PDF, DOCX, XLSX, CSV. Caps at 12 docs per call to keep latency bounded — narrow with the `folder` arg if you need a specific area.",
     readonly: true,
@@ -3321,7 +3345,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "code.exec",
-    description: "Run a short Python or Node.js snippet in a subprocess with a 30 s timeout. Output is captured (stdout + stderr) and returned to the planner. For data shaping, parsing, quick computation — anything you'd otherwise have to make the LLM imagine. GATED: requires NEUROWORKS_CODE_EXEC=1 in clawbot/.env (off by default — the host has no sandbox; treat code as trusted-author).",
+    description: "Run a short Python or Node.js snippet in a subprocess with a 30 s timeout. Output is captured (stdout + stderr) and returned to the planner. For data shaping, parsing, quick computation — anything you'd otherwise have to make the LLM imagine. GATED: requires NEUROWORKS_CODE_EXEC=1 in clawbot/.env (off by default — child gets a trimmed env (PATH/system vars only, no API keys), but there is still no process isolation; treat code as trusted-author).",
     readonly: false,
     args: [
       { name: "language", type: "string", required: true, description: "'python' or 'node'" },
@@ -3331,6 +3355,21 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     handler: async (args) => {
       if (process.env.NEUROWORKS_CODE_EXEC !== "1") {
         return { error: "code.exec disabled — set NEUROWORKS_CODE_EXEC=1 in clawbot/.env and restart to enable. This primitive runs code in the host process; only enable in trusted environments." };
+      }
+      // Trimmed child env — ported by behavior from
+      // naxionai/backend/agent/tools/sandbox.py's _SANDBOX_ENV_ALLOWLIST.
+      // Generated code runs with only what it needs to start a runtime and
+      // hit the network — NOT the full parent environment, which holds every
+      // API key, JWT secret, and DB URL this process has. This cuts the
+      // secret-exfiltration surface without claiming real process isolation.
+      const SANDBOX_ENV_ALLOWLIST = new Set([
+        "PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP",
+        "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "COMSPEC", "PATHEXT",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+      ]);
+      const sandboxEnv: Record<string, string> = {};
+      for (const [k, v] of Object.entries(process.env)) {
+        if (v !== undefined && SANDBOX_ENV_ALLOWLIST.has(k.toUpperCase())) sandboxEnv[k] = v;
       }
       const lang = String(args.language ?? "").toLowerCase();
       if (lang !== "python" && lang !== "node") return { error: "language must be 'python' or 'node'" };
@@ -3342,7 +3381,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       const flags = lang === "python" ? ["-c", code] : ["-e", code];
       return await new Promise<any>((resolve) => {
         const t0 = Date.now();
-        const proc = spawn(bin, flags, { stdio: ["ignore", "pipe", "pipe"] });
+        const proc = spawn(bin, flags, { stdio: ["ignore", "pipe", "pipe"], env: sandboxEnv });
         let stdout = ""; let stderr = "";
         proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); if (stdout.length > 32_000) stdout = stdout.slice(0, 32_000); });
         proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); if (stderr.length > 8_000) stderr = stderr.slice(0, 8_000); });
@@ -3412,14 +3451,14 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     readonly: false,
     args: [
       { name: "target", type: "string", required: true, description: "Local path, URL, or domain to scan — must be something the operator is authorized to test" },
-      { name: "mode", type: "string", required: false, description: "'quick' (minutes, default) or 'deep' (can take hours)" },
+      { name: "mode", type: "string", required: false, description: "'quick' (minutes, default), 'deep' (can take hours), or 'simulated' (dry run — validates target/scope/prerequisites, never actually scans)" },
       { name: "max_budget", type: "number", required: false, description: "Optional LLM-call budget cap passed through to strix --max-budget" },
     ],
     handler: async (args) => {
       const target = String(args.target ?? "").trim();
       if (!target) return { error: "target is required" };
       const modeArg = String(args.mode ?? "quick").toLowerCase();
-      const mode = modeArg === "deep" ? "deep" : "quick";
+      const mode = modeArg === "deep" ? "deep" : modeArg === "simulated" ? "simulated" : "quick";
       const maxBudget = args.max_budget != null && Number.isFinite(Number(args.max_budget)) ? Number(args.max_budget) : undefined;
       const { startPentestJob } = await import("./pentest.js");
       const { jobId, title } = await startPentestJob(target, { mode, maxBudget });
@@ -3943,6 +3982,20 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         requested: matched.length, sent, failed: targets.length - sent, results,
         ...(leftover > 0 ? { leftover, note: `${leftover} more matched contact(s) were left out of this call (cap ${MAX_PER_CALL}/call) — run whatsapp.broadcast again later, not immediately, to reach them.` } : {}),
       };
+    },
+  },
+  {
+    name: "whatsapp.cloud_send",
+    description: "Send a WhatsApp message via Meta's official Cloud API (no linked phone/QR needed — unlike whatsapp.send's Baileys device bridge). APPROVAL-GATED, same as whatsapp.send. Requires WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN. Args: to (phone number with country code), text.",
+    readonly: false,
+    args: [
+      { name: "to", type: "string", required: true, description: "Recipient phone number, e.g. 263771234567 (country code + number, no +/spaces needed)." },
+      { name: "text", type: "string", required: true, description: "Message text (max 4096 chars)" },
+    ],
+    handler: async (args) => {
+      const { sendWhatsAppCloudMessage } = await import("./whatsapp-cloud.js");
+      const r = await sendWhatsAppCloudMessage(String(args.to ?? ""), String(args.text ?? ""));
+      return r.ok ? { ok: true, sent: true, ...(r.messageId ? { messageId: r.messageId } : {}) } : { error: r.error };
     },
   },
   {
@@ -4794,9 +4847,9 @@ export function findPrimitive(name: string): Primitive | undefined {
 
 export function primitivesPromptCatalog(opts: { compact?: boolean; allowlist?: string[] } = {}): string {
   const compact = opts.compact === true;
-  // Tool-allowlist scoping (workflow-tree.ts nodes, personas, templates —
-  // see docs/naxie-architecture "Phase 0/1/2"): when a caller resolves a
-  // scoped subset, hide everything else from the planner prompt entirely
+  // Tool-allowlist scoping (my-tasks.ts task automations, personas, templates):
+  // when a caller resolves a scoped subset, hide everything else from the
+  // planner prompt entirely
   // (belt) — plan()'s step-validation loop is the suspenders. Absent/empty
   // allowlist means "no scoping" — every existing caller keeps seeing the
   // full catalog exactly as before this option existed.
@@ -4835,6 +4888,7 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "vault.append":       return s("path") ? `Adding to ${s("path")}` : "Adding to a note";
     case "vault.create_zettel":return s("title") ? `Creating zettel "${s("title")}"` : "Creating a zettel";
     case "vault.find_by_tag":  return s("tag") ? `Finding notes tagged #${s("tag")}` : "Finding tagged notes";
+    case "audio.transcribe":   return s("path") ? `Transcribing ${s("path")}` : "Transcribing audio";
     case "github.list_repos":  return "Listing your GitHub repos";
     case "github.read_repo":   return s("name") ? `Reading the ${s("name")} repo` : "Reading a GitHub repo";
     case "github.list_branches":return s("name") ? `Listing branches in ${s("name")}` : "Listing branches";
@@ -4851,6 +4905,7 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "inbox.read_unread":  return a.unreadOnly === false ? "Reading your recent email" : "Reading your unread email";
     case "social.post":        return s("platforms") ? `Drafting a post for ${s("platforms")} (needs your approval)` : "Drafting a social post (needs your approval)";
     case "whatsapp.send":      return s("to") ? `Sending a WhatsApp message to ${s("to")} (needs your approval)` : "Sending a WhatsApp message (needs your approval)";
+    case "whatsapp.cloud_send": return s("to") ? `Sending a WhatsApp message to ${s("to")} via Cloud API (needs your approval)` : "Sending a WhatsApp message via Cloud API (needs your approval)";
     case "whatsapp.broadcast": return "Broadcasting a WhatsApp message to recent clients (needs your approval)";
     case "whatsapp.reconnect": return "Resetting the WhatsApp connection — a fresh QR code will print to the server logs";
     case "social.history":     return "Reading your recent social posts";

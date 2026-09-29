@@ -41,7 +41,7 @@ const preloaders: Record<string, Thunk> = {
   "/audit": () => import("../pages/AuditLog"),
   "/org-dashboard": () => import("../pages/CommandCenter"),
   "/cost": () => import("../pages/Extensions"),
-  "/ambient": () => import("../pages/AmbientWatch"),
+  "/ambient": () => import("../pages/MyWork"), // now a tab inside My Work, not its own page
   "/edit": () => import("../pages/DocEditor"),
   "/my-work": () => import("../pages/MyWork"),
 };

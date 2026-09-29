@@ -12,7 +12,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Terminal,
-  Radar,
   LayoutDashboard,
   GitBranch,
   Boxes,
@@ -23,7 +22,6 @@ import {
   MessageCircle,
   PiggyBank,
   Brain,
-  FolderTree,
   ShieldAlert,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
@@ -83,7 +81,6 @@ const workNav: NavItem[] = [
   { to: "/planner", label: "Planner", icon: CalendarDays },
   { to: "/my-finances", label: "My Finances", icon: PiggyBank },
   { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
-  { to: "/workflow-tree", label: "Workflow Tree", icon: FolderTree },
   { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
 ];
 
@@ -103,14 +100,14 @@ const connectNav: NavItem[] = [
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
   { to: "/hermes", label: "Hermes", icon: ArrowLeftRight },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
-  { to: "/pentest", label: "Security Scan", icon: ShieldAlert },
   { to: "/connectors?tab=policies", label: "Policies", icon: CertificateIcon },
 ];
 
-// Ambient Watch — a single stub slot, not a real group yet (no logic behind
-// it). Not folded into another group so it's obviously a placeholder, not a
-// half-built feature masquerading as done.
-const ambientNav: NavItem = { to: "/ambient", label: "Ambient Watch", icon: Radar };
+// Security Scan — a single standalone slot outside the groups, same spot
+// Ambient Watch used to occupy (Ambient moved into My Work as a tab). Kept
+// out of connectNav so it stays visible without expanding a group — a
+// pentest trigger is not something you want buried.
+const securityScanNav: NavItem = { to: "/pentest", label: "Security Scan", icon: ShieldAlert };
 
 export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -336,7 +333,7 @@ export function Layout({ children }: { children: ReactNode }) {
                 {workNav.map(renderNavItem)}
                 {memoryNav.map(renderNavItem)}
                 {connectNav.map(renderNavItem)}
-                {renderNavItem(ambientNav)}
+                {renderNavItem(securityScanNav)}
               </>
             ) : (
               <>
@@ -344,7 +341,7 @@ export function Layout({ children }: { children: ReactNode }) {
                 {renderGroup("work", "Work Queue", WorkspaceFolderIcon, workNav, counts.approvals + counts.activity)}
                 {renderGroup("memory", "Memory & Knowledge", DocsFolderIcon, memoryNav)}
                 {renderGroup("connect", "Connect", Puzzle, connectNav)}
-                {renderNavItem(ambientNav)}
+                {renderNavItem(securityScanNav)}
               </>
             )}
           </nav>
