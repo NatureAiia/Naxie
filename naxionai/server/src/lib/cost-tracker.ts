@@ -5,7 +5,7 @@ import { config } from "../config.js";
 export type CostRecord = {
   jobId: string;
   model: string;
-  backend: "ollama" | "openrouter" | "anthropic" | "ideogram" | "muapi" | "ollama_cloud" | "little-coder";
+  backend: "ollama" | "openrouter" | "anthropic" | "ideogram" | "muapi" | "ollama_cloud" | "little-coder" | "jev";
   profile: string;
   inputTokens: number;
   outputTokens: number;

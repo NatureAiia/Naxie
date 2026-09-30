@@ -15,6 +15,9 @@ import { scrape, interact, renderMarkdownToPdf, type InteractAction } from "./br
 import { enqueueVaultCommit } from "./commit-queue.js";
 import { searchWeb, smartFetch } from "./web-client.js";
 import { classifyDeliverable } from "./deliverable.js";
+import { askJev, JevUnavailable } from "./jev-client.js";
+import { computeQualityVerdict, deterministicIssues } from "./quality-verdict.js";
+import { recordCost } from "./cost-tracker.js";
 import { checkContentAgainstGovernance } from "./governance.js";
 import {
   listRecentEmails, readEmail, sendEmailFromAccount, listTriage, checkSnoozedEmails,
@@ -2619,6 +2622,50 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
           ? `\n\nDELIVERABLE TYPE: code / technical artifact. Citations are not applicable — report citation_coverage as 1.0. Raise factuality_risk only for incorrect or non-functional code. Judge mainly on persona_fit: correctness, completeness, and adherence to the requested form.`
           : `\n\nDELIVERABLE TYPE: research / analysis. Inline citations matter — score citation_coverage honestly against the evidence and raise factuality_risk for unsupported claims.`;
 
+      // Fast path: Jev (a typed-judgment model, not generative) answers three
+      // calibrated yes/no questions in ~100s of ms instead of a full JSON-
+      // authoring LLM call. citation_coverage is never sent to Jev — it's
+      // already computed deterministically above (effectiveFloor). Any Jev
+      // failure (disabled, network, timeout, malformed answer) falls through
+      // to the existing LLM grader below, completely unchanged.
+      if (config.jevEnabled) {
+        try {
+          const jevAnswers = await askJev(
+            {
+              task,
+              ...(context ? { context: context.slice(0, 1500) } : {}),
+              answer,
+              ...(sources ? { sources: sources.slice(0, 4000) } : {}),
+              deliverableClass,
+              groundingExpected: !forceUngrounded,
+            },
+            {
+              factuality: { type: "noul", instructions: `Does this draft answer contain hallucinated, unsupported, or clearly false/implausible claims?${classNote}` },
+              persona: { type: "noul", instructions: `Does the answer's tone, structure, and format match what the task asked for (persona/style fit)?${classNote}` },
+              alignment: { type: "noul", instructions: `Did the answer fully and directly address every explicit instruction in the task — nothing ignored, no drift off-topic?${classNote}` },
+            },
+          );
+          const axes = {
+            factuality_risk: clamp01(jevAnswers.factuality?.probability),
+            citation_coverage: effectiveFloor,
+            persona_fit: clamp01(jevAnswers.persona?.probability),
+            prompt_alignment: clamp01(jevAnswers.alignment?.probability),
+          };
+          const { pass, score } = computeQualityVerdict(axes, { citationApplies, forceUngrounded });
+          const issues = deterministicIssues(axes, { citationApplies, forceUngrounded });
+          // Flat per-call estimate — TypeSafe hasn't published exact per-token
+          // pricing we could verify; this is a placeholder order-of-magnitude
+          // so Cost.tsx isn't silently blind to this spend, not a billed figure.
+          recordCost({ jobId: "adhoc", model: config.jevModel, backend: "jev", profile: "quality.check", inputTokens: 0, outputTokens: 0, costUsd: 0.0003, ts: new Date().toISOString() });
+          return { pass, ...axes, score, issues, deliverableClass, graderUsed: "jev" as const };
+        } catch (e: any) {
+          if (!(e instanceof JevUnavailable)) {
+            console.warn(`[quality.check] Jev grading failed unexpectedly, falling back to LLM grader: ${e?.message ?? e}`);
+          }
+          // fall through to the LLM grader below
+        }
+      }
+
       const sys = `You are a quality scorer for an agent's draft answer. Score the draft on four axes from 0.0 (worst) to 1.0 (best):
 1. factuality_risk — likelihood the answer contains hallucinated or unsupported claims (1.0 means high risk; lower is better).
 2. citation_coverage — fraction of substantive claims backed by an inline citation. In this system, citations look like [1] [2] (numbered, matching the evidence catalog), [vault:path/to/note.md] (vault-path markers), or bare URLs. Count an answer as well-cited when it carries these markers. If NO sources are provided, citation_coverage MUST be 1.0 — there's nothing to cite against.
@@ -2688,14 +2735,14 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         // an ungraded runbook. Research stays fail-closed — uncited claims
         // slipping through is the exact failure the gate exists to catch.
         if (deliverableClass !== "research") {
-          return { pass: true, factuality_risk: 0.3, citation_coverage: 1, persona_fit: 0.7, prompt_alignment: 0.7, score: 0.7, issues: [`grader unavailable (${String(e?.message ?? e).slice(0, 100)}) — advisory pass for ${deliverableClass} deliverable`], deliverableClass, graderSkipped: true };
+          return { pass: true, factuality_risk: 0.3, citation_coverage: 1, persona_fit: 0.7, prompt_alignment: 0.7, score: 0.7, issues: [`grader unavailable (${String(e?.message ?? e).slice(0, 100)}) — advisory pass for ${deliverableClass} deliverable`], deliverableClass, graderSkipped: true, graderUsed: "llm" as const };
         }
-        return { pass: false, factuality_risk: 1, citation_coverage: 0, persona_fit: 0, prompt_alignment: 0, score: 0, issues: [`scorer failed: ${String(e?.message ?? e).slice(0, 160)}`], deliverableClass };
+        return { pass: false, factuality_risk: 1, citation_coverage: 0, persona_fit: 0, prompt_alignment: 0, score: 0, issues: [`scorer failed: ${String(e?.message ?? e).slice(0, 160)}`], deliverableClass, graderUsed: "llm" as const };
       } finally {
         if (timer) clearTimeout(timer);
       }
       const m = raw.match(/\{[\s\S]*\}/);
-      if (!m) return { pass: false, factuality_risk: 1, citation_coverage: 0, persona_fit: 0, prompt_alignment: 0, issues: ["scorer returned no JSON"], raw };
+      if (!m) return { pass: false, factuality_risk: 1, citation_coverage: 0, persona_fit: 0, prompt_alignment: 0, issues: ["scorer returned no JSON"], raw, graderUsed: "llm" as const };
       try {
         const parsed = JSON.parse(m[0]);
         // Use the higher of the LLM's verdict and the deterministic floor for
@@ -2717,29 +2764,13 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         // prompt_alignment carries weight in every class — doing what was asked
         // matters regardless of deliverable type. It takes a slice from the
         // factuality/persona weights rather than adding to the total.
-        const score = citationApplies
-          ? (1 - factualityRisk) * 0.35 + citationCoverage * 0.25 + personaFit * 0.2 + promptAlignment * 0.2
-          : forceUngrounded
-            ? (1 - factualityRisk) * 0.2 + personaFit * 0.4 + promptAlignment * 0.4
-            : (1 - factualityRisk) * 0.3 + citationCoverage * 0.15 + personaFit * 0.3 + promptAlignment * 0.25;
-        // Re-derive pass per class:
-        //  • research   — factuality + citations + persona_fit all gate.
-        //  • ungrounded (direct conversational, grounded:false) — persona_fit is
-        //    THE bar (did it answer correctly in the right shape). A small local
-        //    grader's factuality_risk on uncited prose is noisy: empirically it
-        //    parks CORRECT answers at ~0.7 (measured: a right burndown-chart
-        //    explanation and a stub both scored 0.7), while persona_fit cleanly
-        //    separates good (0.8+) from bad (<0.5) — including egregiously false
-        //    answers (persona_fit 0). So factuality is only a high safety catch
-        //    for egregious hallucination (>= 0.85), NOT the primary gate.
-        //  • creative/procedural/code — persona_fit-led, factuality relaxed.
-        // prompt_alignment gates EVERY class — an answer that didn't do what was
-        // asked fails regardless of how well-cited or on-tone it is.
-        const pass = (promptAlignment >= 0.5) && (citationApplies
-          ? (factualityRisk < 0.4 && citationCoverage > 0.4 && personaFit > 0.5)
-          : forceUngrounded
-            ? (personaFit > 0.5 && factualityRisk < 0.85)
-            : (factualityRisk < 0.5 && personaFit > 0.5));
+        // Per-class scoring + pass thresholds — shared with the Jev grader
+        // above via quality-verdict.ts so the two graders can never silently
+        // drift into different pass/fail semantics for the same axis scores.
+        const { pass, score } = computeQualityVerdict(
+          { factuality_risk: factualityRisk, citation_coverage: citationCoverage, persona_fit: personaFit, prompt_alignment: promptAlignment },
+          { citationApplies, forceUngrounded },
+        );
         const issues = Array.isArray(parsed.issues) ? parsed.issues.slice(0, 6).map((s: any) => String(s).slice(0, 200)) : [];
         // If the floor lifted the verdict over the LLM's call, note that
         // openly so the operator can see when the deterministic guard fired.
@@ -2755,14 +2786,15 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
           citation_coverage: citationCoverage,
           persona_fit: personaFit,
           prompt_alignment: promptAlignment,
-          score: Math.round(score * 100) / 100,
+          score,
           issues,
           deliverableClass,
+          graderUsed: "llm" as const,
           // Diagnostic counters so the UI / journal can show why a score moved.
           citationCounts: { numbered: numberedMarkers, vault: vaultMarkers, url: urlMatches, total: totalCitations, substantiveSentences, sourcesProvided },
         };
       } catch {
-        return { pass: false, factuality_risk: 1, citation_coverage: 0, persona_fit: 0, issues: ["scorer JSON unparseable"], raw };
+        return { pass: false, factuality_risk: 1, citation_coverage: 0, persona_fit: 0, issues: ["scorer JSON unparseable"], raw, graderUsed: "llm" as const };
       }
     },
   },

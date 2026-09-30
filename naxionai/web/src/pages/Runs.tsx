@@ -981,7 +981,14 @@ function OutcomeDetail({ kind, payload }: { kind: string; payload: any }) {
       <div className="space-y-3 text-[12px]">
         {q && (
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-cream-300/60 mb-1.5">Quality gate</div>
+            <div className="text-[10px] uppercase tracking-wider text-cream-300/60 mb-1.5 flex items-center gap-1.5">
+              Quality gate
+              {q.graderUsed && (
+                <span className={`normal-case tracking-normal px-1.5 py-0.5 rounded-full text-[10px] ${q.graderUsed === "jev" ? "bg-violet-500/15 text-violet-300" : "bg-ink-800 text-cream-300/50"}`} title={q.graderUsed === "jev" ? "Graded by Jev (fast typed judgment)" : "Graded by the LLM grader"}>
+                  {q.graderUsed}
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-3">
               <Metric label="Score" value={q.score != null ? Math.round(q.score * 100) + "%" : "n/a"} good={q.pass} />
               <Metric label="Factuality risk" value={Math.round((q.factuality_risk ?? 0) * 100) + "%"} good={(q.factuality_risk ?? 0) < 0.4} invert />
