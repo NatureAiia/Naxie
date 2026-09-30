@@ -21,6 +21,7 @@ const Office = lazy(() => import("./pages/Office").then(m => ({ default: m.Offic
 const RunDetail = lazy(() => import("./pages/Runs").then(m => ({ default: m.RunDetail })));
 const Planner = lazy(() => import("./pages/Planner").then(m => ({ default: m.Planner })));
 const MyFinances = lazy(() => import("./pages/MyFinances").then(m => ({ default: m.MyFinances })));
+const BusinessFinance = lazy(() => import("./pages/BusinessFinance").then(m => ({ default: m.BusinessFinance })));
 const Schedules = lazy(() => import("./pages/Schedules").then(m => ({ default: m.Schedules })));
 
 // Build
@@ -107,6 +108,7 @@ function AppShell() {
         <Route path="/crm" element={<Navigate to="/naxie" replace />} />
         <Route path="/planner" element={<Planner />} />
         <Route path="/my-finances" element={<MyFinances />} />
+        <Route path="/business-finance" element={<BusinessFinance />} />
         <Route path="/calendar" element={<Navigate to="/planner" replace />} />
         <Route path="/schedules" element={<Schedules />} />
 

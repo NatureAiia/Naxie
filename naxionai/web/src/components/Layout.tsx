@@ -80,6 +80,7 @@ const workNav: NavItem[] = [
   { to: "/brands", label: "Brands", icon: Megaphone },
   { to: "/planner", label: "Planner", icon: CalendarDays },
   { to: "/my-finances", label: "My Finances", icon: PiggyBank },
+  { to: "/business-finance", label: "Business Finance", icon: Building2 },
   { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
   { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
 ];

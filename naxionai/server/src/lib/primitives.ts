@@ -2353,6 +2353,152 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
     },
   },
   {
+    name: "finance.biz_sale",
+    description: "Record a Variety & Co sale (income) in this server's own Business Finance books — NOT the Aiia FinanceFlow connector (that's the company's separate finance system; this is the repair-shop till). Optionally links to a price-book product by name for margin tracking. APPROVAL-GATED like all finance.* tools.",
+    readonly: false,
+    args: [
+      { name: "label", type: "string", required: true, description: "What was sold, e.g. 'Screen replacement — Tecno Spark'" },
+      { name: "amount", type: "number", required: true, description: "Sale amount (positive number)" },
+      { name: "product", type: "string", required: false, description: "Price-book product name to link (case-insensitive match). Unmatched names record unlinked — never auto-creates products." },
+      { name: "date", type: "string", required: false, description: "YYYY-MM-DD, default today" },
+    ],
+    handler: async (args) => {
+      const { addTxn, listProducts } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const owner = await financeOwner();
+      const label = String(args.label ?? "").trim();
+      if (!label) return { error: "label is required" };
+      const amount = Number(args.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return { error: "amount must be a positive number" };
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date ?? "")) ? String(args.date) : new Date().toISOString().slice(0, 10);
+      let productId: string | undefined;
+      const pname = String(args.product ?? "").trim().toLowerCase();
+      if (pname) {
+        const hit = listProducts(owner).find(p => p.name.toLowerCase() === pname);
+        if (hit) productId = hit.id;
+      }
+      const txn = addTxn(owner, { type: "income", label, category: "Sales", amount, date, productId });
+      return { ok: true, txn, productLinked: !!productId };
+    },
+  },
+  {
+    name: "finance.biz_expense",
+    description: "Record a Variety & Co business expense in this server's own Business Finance books — NOT the Aiia FinanceFlow connector. Expenses at/above the configured approval threshold do NOT post: they park as pending + file an OrgTask, and this returns { parked:true, taskId } — tell the operator it's awaiting approval instead of treating it as recorded. APPROVAL-GATED like all finance.* tools.",
+    readonly: false,
+    args: [
+      { name: "label", type: "string", required: true, description: "What was spent on, e.g. 'Bulk phone screens'" },
+      { name: "amount", type: "number", required: true, description: "Expense amount (positive number)" },
+      { name: "category", type: "string", required: false, description: "One of Stock, Rent, Salaries, Transport, Utilities, Marketing, Maintenance, Fees, Other. Default Other." },
+      { name: "date", type: "string", required: false, description: "YYYY-MM-DD, default today" },
+    ],
+    handler: async (args) => {
+      const { addTxn, createPendingSpend, getSettings, buildFinanceTaskDetail } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const owner = await financeOwner();
+      const label = String(args.label ?? "").trim();
+      if (!label) return { error: "label is required" };
+      const amount = Number(args.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return { error: "amount must be a positive number" };
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date ?? "")) ? String(args.date) : new Date().toISOString().slice(0, 10);
+      const category = String(args.category ?? "Other").trim() || "Other";
+      const { approvalThreshold } = getSettings(owner);
+      if (approvalThreshold > 0 && amount >= approvalThreshold) {
+        const { createOrgTask, requestApproval, setTaskDetail } = await import("./org-tasks.js");
+        const task = createOrgTask({
+          role: "admin",
+          title: `Approve expense: ${label.slice(0, 80)} ($${amount})`,
+          detail: "finance: composing…",
+          priority: amount >= approvalThreshold * 3 ? "high" : "normal",
+          createdBy: "naxie",
+        });
+        const pending = createPendingSpend(owner, { label, category, amount, date, taskId: task.id });
+        setTaskDetail(task.id, buildFinanceTaskDetail(pending.id, `${label.slice(0, 80)} — $${amount} (${category}, ${date})`));
+        requestApproval(task.id, {
+          actionDescription: `Record a $${amount} business expense for "${label.slice(0, 80)}"?`,
+          kind: "spend",
+        });
+        return { ok: true, parked: true, taskId: task.id, pending, note: "At/above the approval threshold — parked, not posted. Awaiting operator approval." };
+      }
+      const txn = addTxn(owner, { type: "expense", label, category, amount, date });
+      return { ok: true, parked: false, txn };
+    },
+  },
+  {
+    name: "finance.biz_price",
+    description: "Look up Variety & Co price-book entries by name (cost, sell, margin) — answers 'what do we charge for X?' / 'what's our margin on Y?'. Read-only. This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    readonly: true,
+    args: [
+      { name: "query", type: "string", required: true, description: "Product name (or fragment) to look up" },
+    ],
+    handler: async (args) => {
+      const { listProducts, marginOf } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const owner = await financeOwner();
+      const q = String(args.query ?? "").trim().toLowerCase();
+      if (!q) return { error: "query is required" };
+      const hits = listProducts(owner, { includeInactive: true }).filter(p => p.name.toLowerCase().includes(q));
+      return {
+        ok: true,
+        products: hits.map(p => ({
+          name: p.name, category: p.category, cost: p.costPrice, sell: p.sellPrice, unit: p.unit,
+          active: p.active, margin: marginOf(p.costPrice, p.sellPrice),
+        })),
+      };
+    },
+  },
+  {
+    name: "finance.biz_product_add",
+    description: "Add a product to the Variety & Co price book (cost + sell price, margin computed). This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    readonly: false,
+    args: [
+      { name: "name", type: "string", required: true, description: "Product name, e.g. 'Screen replacement — Samsung A12'" },
+      { name: "cost", type: "number", required: true, description: "Cost price (non-negative)" },
+      { name: "sell", type: "number", required: true, description: "Sell price (non-negative)" },
+      { name: "category", type: "string", required: false, description: "Repair, Accessories, Devices, Services, Other. Default Other." },
+      { name: "unit", type: "string", required: false, description: "Pricing unit, default 'each'" },
+    ],
+    handler: async (args) => {
+      const { createProduct, listProducts, marginOf } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const owner = await financeOwner();
+      const name = String(args.name ?? "").trim();
+      if (!name) return { error: "name is required" };
+      const cost = Number(args.cost);
+      const sell = Number(args.sell);
+      if (!Number.isFinite(cost) || cost < 0 || !Number.isFinite(sell) || sell < 0) {
+        return { error: "cost and sell must be non-negative numbers" };
+      }
+      const dupe = listProducts(owner, { includeInactive: true }).find(p => p.name.toLowerCase() === name.toLowerCase());
+      if (dupe) return { error: `price book already has "${dupe.name}" — update it on the Business Finance page instead of duplicating` };
+      const product = createProduct(owner, { name, costPrice: cost, sellPrice: sell, category: String(args.category ?? "Other"), unit: String(args.unit ?? "each") });
+      return { ok: true, product: { ...product, margin: marginOf(product.costPrice, product.sellPrice) } };
+    },
+  },
+  {
+    name: "finance.biz_leaks",
+    description: "Scan Variety & Co books for money leaks: recurring drains (same charge across 3+ months) and category spikes (this month ≥2× recent average). Deterministic arithmetic, no LLM judgment. This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { findLeaks } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const leaks = findLeaks(await financeOwner());
+      return { ok: true, leaks };
+    },
+  },
+  {
+    name: "finance.biz_forecast",
+    description: "Cash runway + 3-month projection for Variety & Co from recorded books (avg income/burn, net, cash on hand, top products by revenue). Deterministic arithmetic. This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { forecastBiz, summarizeBiz } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const owner = await financeOwner();
+      return { ok: true, forecast: forecastBiz(owner), summary: summarizeBiz(owner) };
+    },
+  },
+  {
     name: "finance.snapshot",
     description: "RETIRED (2026-07-10) legacy push-model snapshot — the Finance System used to POST its dashboard to /api/public/dashboard and this read it back. That pushed data was stale and has been cleared; this now always returns available:false. For real financial figures, use connector.call on the live \"Aiia FinanceFlow\" connector instead (list-budgets, list-receipts, list-requisitions endpoints). Kept only in case the old push mechanism is ever revived.",
     readonly: true,
@@ -4969,6 +5115,12 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "pentest.scan":       return s("target") ? `Running a pentest scan against ${s("target")}` : "Running a pentest scan";
     case "governance.check":   return "Checking against governance policies";
     case "finance.snapshot":   return "Reading the latest Aiia Finance figures";
+    case "finance.biz_sale":     return s("label") ? `Recording sale "${s("label")}" (needs your approval)` : "Recording a sale (needs your approval)";
+    case "finance.biz_expense":  return s("label") ? `Recording expense "${s("label")}" (needs your approval)` : "Recording an expense (needs your approval)";
+    case "finance.biz_price":    return s("query") ? `Checking the price book for "${s("query")}" (needs your approval)` : "Checking the price book (needs your approval)";
+    case "finance.biz_product_add": return s("name") ? `Adding "${s("name")}" to the price book (needs your approval)` : "Adding a price-book product (needs your approval)";
+    case "finance.biz_leaks":    return "Scanning the books for leaks (needs your approval)";
+    case "finance.biz_forecast": return "Forecasting cash runway (needs your approval)";
     default:                   return tool;
   }
 }

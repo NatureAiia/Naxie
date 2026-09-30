@@ -5,7 +5,9 @@
 // the same class of internal-activity data, not a secrets tier.
 
 import { Router } from "express";
+import { callerOf } from "../lib/access.js";
 import { listOrgTasks, getOrgTask, resolveApproval, ORG_TASK_PRIORITIES, type OrgRole, type OrgTaskStatus, type OrgTaskPriority } from "../lib/org-tasks.js";
+import { parseFinancePendingRef } from "../lib/business-finance.js";
 
 export const orgTasksRouter = Router();
 
@@ -51,6 +53,20 @@ orgTasksRouter.patch("/:id/resolve", async (req, res) => {
     const out = await resolveImprovementApproval(req.params.id, approved);
     if (!out) return res.status(404).json({ error: "org task not found, or not currently waiting-on-approval" });
     return res.json(out);
+  }
+  // Business big-spend approvals carry a finance-pending link in the task
+  // detail — settling posts (approve) or drops (reject) the parked expense
+  // row, so the Approvals page and the Business Finance page resolve through
+  // this one path (same division of labor as the improver hook above).
+  {
+    const t = getOrgTask(req.params.id);
+    if (t?.role === "admin" && t.pendingApproval?.kind === "spend" && parseFinancePendingRef(t.detail ?? "")) {
+      const { settleSpendApproval } = await import("../lib/business-finance.js");
+      const owner = callerOf(req)?.email?.trim().toLowerCase() || "local";
+      const out = await settleSpendApproval(req.params.id, approved, owner);
+      if (!out) return res.status(404).json({ error: "org task not found, or not currently waiting-on-approval" });
+      return res.json(out);
+    }
   }
   const task = resolveApproval(req.params.id, approved);
   if (!task) return res.status(404).json({ error: "org task not found, or not currently waiting-on-approval" });

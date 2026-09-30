@@ -283,6 +283,18 @@ export function getOrgTask(id: string): OrgTask | undefined {
   return load().tasks.find(t => t.id === id);
 }
 
+// Rewrite a task's detail text (used for links the task carries, e.g. a
+// finance pending-spend id that only exists after the task itself —
+// business-finance composes create → link → requestApproval in that order).
+export function setTaskDetail(id: string, detail: string): OrgTask | null {
+  const s = load();
+  const idx = s.tasks.findIndex(t => t.id === id);
+  if (idx === -1) return null;
+  s.tasks[idx] = { ...s.tasks[idx], detail, updatedAt: new Date().toISOString() };
+  persist();
+  return s.tasks[idx];
+}
+
 export type CreateOrgTaskInput = {
   role: OrgRole;
   title: string;
