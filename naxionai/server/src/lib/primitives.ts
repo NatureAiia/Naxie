@@ -1,0 +1,5167 @@
+import { existsSync, readdirSync, readFileSync, statSync, appendFileSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolve, basename, extname, sep, join, dirname } from "node:path";
+import { config } from "../config.js";
+import { ollamaGenerate, ollamaGenerateWithMeta } from "./ollama.js";
+import { listVault, readVaultFile, searchVault, writeVaultFile, writeZettel, importBinaryIntoVault, ARCHIVE_DIR, WIKI_DIR } from "./vault.js";
+import { fetchYoutubeTranscript } from "./youtube-transcript.js";
+import { extractDocText, extractDocsParallel } from "./doc-extractor.js";
+import { listOwnedRepos, recentCommits, openPRs, openIssues, readme, octokit } from "./github.js";
+import { getSourceByLabel, getSource, runQuery, describeSource, listSources } from "./data-sources.js";
+import { getConnectionByProvider } from "./integrations.js";
+import { delegateToBestPeer, reviewWithPeer } from "./peers.js";
+import { scanForSecurityRisks, redactHighSeverity, type SecurityKind } from "./security.js";
+import { scrape, interact, renderMarkdownToPdf, type InteractAction } from "./browser.js";
+import { enqueueVaultCommit } from "./commit-queue.js";
+import { searchWeb, smartFetch } from "./web-client.js";
+import { classifyDeliverable } from "./deliverable.js";
+import { askJev, JevUnavailable } from "./jev-client.js";
+import { computeQualityVerdict, deterministicIssues } from "./quality-verdict.js";
+import { recordCost } from "./cost-tracker.js";
+import { checkContentAgainstGovernance } from "./governance.js";
+import {
+  listRecentEmails, readEmail, sendEmailFromAccount, listTriage, checkSnoozedEmails,
+} from "./email.js";
+import {
+  getWeather, setReminder, systemControl, manageClipboard, gitCommand, browserOpen,
+  getHostToolsSettings, updateHostToolsSettings,
+  type SystemControlAction,
+} from "./host-tools.js";
+import { publishDataset, listDatasets } from "./adrs.js";
+import { acquire as omniAcquire, acquireAndPublish as omniAcquirePublish, type OmniSpec } from "./omnisignal.js";
+import { isOffline } from "./offline-mode.js";
+
+export type ArgSpec = { name: string; type: "string" | "number" | "boolean"; required: boolean; description: string };
+
+export type Primitive = {
+  name: string;
+  description: string;
+  args: ArgSpec[];
+  // true = read-only, won't mutate state. used to decide whether a plan needs approval.
+  readonly: boolean;
+  handler: (args: Record<string, any>) => Promise<any>;
+};
+
+// Resolve a fs.find_in-style folder shortcut ("downloads" | "desktop" |
+// "documents" | "vault" | "inbox" | "home" | "all" an absolute path) to
+// real root path(s). Exported so agent.ts's plan-repair step (converting a
+// malformed fs.list_external call with no `name` into a proper fs.list_external
+// listing) can resolve the same folder word without duplicating this table.
+export function resolveFsFolderRoots(folderArg: string): string[] {
+  const home = homedir();
+  const shortcuts: Record<string, string> = {
+    downloads: join(home, "Downloads"),
+    download: join(home, "Downloads"),
+    desktop: join(home, "Desktop"),
+    documents: join(home, "Documents"),
+    docs: join(home, "Documents"),
+    music: join(home, "Music"),
+    pictures: join(home, "Pictures"),
+    photos: join(home, "Pictures"),
+    videos: join(home, "Videos"),
+    home: home,
+    vault: config.vaultPath,
+    inbox: join(config.vaultPath, "0-Inbox"),
+  };
+  const lowerArg = folderArg.toLowerCase();
+  // "all" previously meant Downloads+Desktop+Documents+Inbox only — Music/
+  // Pictures/Videos were completely unreachable under ANY "all" search
+  // regardless of query, which is exactly wrong for "find my song/photo/clip"
+  // (reproduced live 2026-07-10: a real "Dont Miss (Prod P.A).mp3" sitting in
+  // Music was reported as "zero matches" because the search never looked
+  // there, not because the file didn't exist).
+  return lowerArg === "all" || lowerArg === "any" || lowerArg === "everywhere"
+    ? [shortcuts.downloads, shortcuts.desktop, shortcuts.documents, shortcuts.music, shortcuts.pictures, shortcuts.videos, shortcuts.inbox]
+    : [shortcuts[lowerArg] ?? resolve(folderArg)];
+}
+
+
+// Per-root listing cache for fs.find_in. Many tasks in a row hit the
+// same root (Downloads, Desktop, etc.); re-walking 10k+ files on every
+// call is the dominant cost. Keyed on the (sorted-roots, depth) pair so
+// folder='all' (4 roots) shares cache entries with folder='downloads'.
+// Invalidates when either:
+//   (a) 30s pass since the cache entry was written, OR
+//   (b) the root directory's own mtime advances (catches new
+//       downloads / new files dropped on Desktop).
+// (b) is the more important trigger — TTL is just belt-and-suspenders.
+type FindCacheEntry = {
+  at: number;
+  rootMtimes: number[];
+  files: { path: string; name: string; ext: string; size: number; modified: string; folder: string }[];
+};
+const FIND_CACHE = new Map<string, FindCacheEntry>();
+const FIND_CACHE_TTL_MS = Number(process.env.NEUROWORKS_FIND_CACHE_TTL_MS ?? "30000");
+const FIND_CACHE_MAX = 32;
+
+function findCacheKey(roots: string[], depth: number): string {
+  return [...roots].sort().join("|") + `@d=${depth}`;
+}
+
+function currentRootMtimes(roots: string[]): number[] {
+  const out: number[] = [];
+  for (const r of roots) {
+    try { out.push(statSync(r).mtimeMs); } catch { out.push(0); }
+  }
+  return out;
+}
+
+export function pickCachedListing(roots: string[], depth: number): FindCacheEntry["files"] | null {
+  const key = findCacheKey(roots, depth);
+  const hit = FIND_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > FIND_CACHE_TTL_MS) { FIND_CACHE.delete(key); return null; }
+  const current = currentRootMtimes(roots);
+  // ANY root's mtime advanced → stale. We invalidate the WHOLE entry
+  // rather than partial-refresh because partial state across roots is a
+  // recipe for inconsistent results.
+  if (current.length !== hit.rootMtimes.length) { FIND_CACHE.delete(key); return null; }
+  for (let i = 0; i < current.length; i++) {
+    if (current[i] !== hit.rootMtimes[i]) { FIND_CACHE.delete(key); return null; }
+  }
+  return hit.files;
+}
+
+export function cacheListing(roots: string[], depth: number, files: FindCacheEntry["files"]): void {
+  if (FIND_CACHE.size >= FIND_CACHE_MAX) {
+    // Drop the oldest entry to bound memory if a wide range of roots
+    // got cached (unusual — most users stick to ~4 root combinations).
+    const oldest = [...FIND_CACHE.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) FIND_CACHE.delete(oldest[0]);
+  }
+  FIND_CACHE.set(findCacheKey(roots, depth), {
+    at: Date.now(),
+    rootMtimes: currentRootMtimes(roots),
+    files,
+  });
+}
+
+// Editor / OS junk that should never be returned as a "document" by file search.
+// The big one: Office owner-lock stubs named "~$<file>.docx" — tiny (~162-byte)
+// non-document files Office writes while a doc is open. They share the real
+// file's name, sort newest-first, and aren't valid zip/docx, so an extractor
+// hits "zip container cannot be read". Also: temp/partial downloads and
+// Windows Thumbs.db. Caller already skips dotfiles separately.
+export function isJunkFileName(name: string): boolean {
+  return (
+    /^~\$/.test(name) ||                         // Office owner-lock stub (~$Report.docx)
+    /^~wrl\d+\.tmp$/i.test(name) ||              // Word temp file
+    /\.(tmp|temp|crdownload|part|partial|download)$/i.test(name) || // in-progress / temp
+    name.toLowerCase() === "thumbs.db" ||
+    name.toLowerCase() === "desktop.ini"
+  );
+}
+
+// Flexible list-arg parser — a planner-emitted value that's semantically a
+// list arrives in one of several shapes depending on the model: an already-
+// parsed array, a JSON-array string, or a comma-separated string. Used for
+// any arg that can take multiple values (email.send's `to`, `attach_paths`).
+function parseFlexibleList(raw: any): string[] {
+  let items: any[] = [];
+  if (Array.isArray(raw)) items = raw;
+  else if (typeof raw === "string" && raw.trim()) {
+    const s = raw.trim();
+    if (s.startsWith("[")) {
+      try { const parsed = JSON.parse(s); items = Array.isArray(parsed) ? parsed : [s]; }
+      catch { items = s.split(","); }
+    } else {
+      items = s.split(",");
+    }
+  }
+  return items.map((x: any) => String(x ?? "").trim()).filter(Boolean);
+}
+
+// db.* error helper — distinguishes "nothing registered at all" from "wrong
+// label" so the synth (and the operator reading the run log) doesn't read a
+// bad-label typo and a genuinely-unconfigured system as the same failure.
+// 2026-07-09 reflection: db.query/db.describe_table failed 6/6 combined runs
+// instantly (0s) with a bare "not found" message that didn't say WHY.
+function noSourceError(label: string): string {
+  if (listSources().length === 0) {
+    return `db: no data sources are registered at all (asked for "${label}"). Connect one on the Data Sources page, or via connector.call for an external API — db.* has nothing to query yet.`;
+  }
+  return `Data source "${label}" not found — use db.list_sources to see available sources`;
+}
+
+// Resolves a Buffer access token, optionally scoped to a specific connection
+// label (brand channels). Distinguishes "no Buffer connection at all" from
+// "that label doesn't match any connection" — the latter must be a clear
+// error, never a silent fall-through to a DIFFERENT connection's token (that
+// would post as the wrong brand with no warning).
+async function resolveBufferToken(connectionLabel?: unknown): Promise<{ token: string; error?: string }> {
+  const { getConnectionByLabel } = await import("./integrations.js");
+  const label = connectionLabel ? String(connectionLabel) : undefined;
+  const conn = getConnectionByLabel("buffer", label);
+  if (!conn) {
+    return {
+      token: "",
+      error: label
+        ? `no Buffer connection labelled "${label}" — check the label on the Integrations page (or the brand's Channels binding) for a typo or a since-removed connection.`
+        : "no Buffer connection — add one on the Integrations page",
+    };
+  }
+  return { token: (conn.secrets?.accessToken ?? "").trim() };
+}
+
+export const primitives: Primitive[] = [
+  {
+    name: "email.list",
+    description: "List recent emails across all enabled accounts. Returns { emails: [{ accountId, uid, sender, subject, date }] }.",
+    readonly: true,
+    args: [{ name: "limit", type: "number", required: false, description: "Max emails to return (default 20) " }],
+    handler: async (args) => await listRecentEmails(Number(args.limit ?? 20)),
+  },
+  {
+    name: "email.list_triage",
+    description: "List all emails currently in the triage queue (pending or snoozed).",
+    readonly: true,
+    args: [],
+    handler: async () => ({ triage: listTriage() }),
+  },
+  {
+    name: "email.read",
+    description: "Read a specific email by UID and account ID.",
+    readonly: true,
+    args: [
+      { name: "accountId", type: "string", required: true, description: "The ID of the email account" },
+      { name: "uid", type: "number", required: true, description: "The UID of the email" },
+    ],
+    handler: async (args) => await readEmail(String(args.accountId), Number(args.uid)),
+  },
+  {
+    name: "email.send",
+    description: "Send an email. Supports markdown body and file attachments.",
+    readonly: false,
+    args: [
+      { name: "accountId", type: "string", required: true, description: "The ID of the account to send from" },
+      { name: "to", type: "string", required: true, description: "Recipient email(s), comma-separated" },
+      { name: "subject", type: "string", required: true, description: "Email subject" },
+      { name: "body", type: "string", required: true, description: "Email body in markdown" },
+      { name: "attachments", type: "string", required: false, description: "Absolute paths to files to attach, comma-separated" },
+    ],
+    handler: async (args) => {
+      const to = String(args.to).split(",").map(s => s.trim()).filter(Boolean);
+      const attachments = args.attachments ? String(args.attachments).split(",").map(s => s.trim()).filter(Boolean) : [];
+      return await sendEmailFromAccount(String(args.accountId), {
+        to,
+        subject: String(args.subject),
+        body: String(args.body),
+        attachments,
+      });
+    },
+  },
+  {
+    name: "email.check_snoozed",
+    description: "Check triage store for snoozed emails and send a Telegram reminder if any exist.",
+    readonly: false,
+    args: [],
+    handler: async () => await checkSnoozedEmails(),
+  },
+  {
+    name: "vault.search",
+    description: "Search the user's Obsidian vault for a query. Returns up to 50 matches as { path, line, preview }.",
+    readonly: true,
+    args: [{ name: "query", type: "string", required: true, description: "Words to search for" }],
+    handler: async (args) => ({ matches: searchVault(String(args.query)) }),
+  },
+  {
+    name: "vault.read",
+    description: "Read a file from the vault. Supports markdown/text, PDF, DOCX, XLSX, and CSV — binary docs get extracted to text/markdown so you can read what's inside. Path is relative to vault root.",
+    readonly: true,
+    args: [{ name: "path", type: "string", required: true, description: "Vault-relative path, e.g. 2-Permanent/202604271220-neuroworks.md or 0-Inbox/spec.pdf" }],
+    handler: async (args) => {
+      const rel = String(args.path);
+      const ext = extname(rel).toLowerCase();
+      // Plain text/markdown — fast path, no parser load.
+      if (ext === ".md" || ext === ".markdown" || ext === ".txt" || ext === "" || ext === ".rst" || ext === ".org") {
+        return { content: readVaultFile(rel), kind: "text", ext };
+      }
+      // Binary doc — route through the extractor so the agent sees the
+      // actual content, not the filename. Resolve absolute path inside the
+      // vault; the extractor does the same safety checks.
+      const full = resolve(config.vaultPath, rel);
+      const r = await extractDocText(full);
+      return {
+        content: r.text,
+        kind: r.kind,
+        ext: r.ext,
+        name: r.name,
+        bytes: r.bytes,
+        pages: r.pages,
+        sheets: r.sheets,
+        truncated: r.truncated,
+      };
+    },
+  },
+  {
+    name: "vault.list",
+    description: "List entries in a vault folder. Returns { name, path, type } per entry.",
+    readonly: true,
+    args: [{ name: "path", type: "string", required: false, description: "Vault-relative folder, blank for root" }],
+    handler: async (args) => ({ entries: listVault(String(args.path ?? "")) }),
+  },
+  {
+    name: "vault.write",
+    description: "Write a markdown file to the vault. Use 0-Inbox/<name>.md for fleeting notes. Will be committed.",
+    readonly: false,
+    args: [
+      { name: "path", type: "string", required: true, description: "Vault-relative path" },
+      { name: "content", type: "string", required: true, description: "File body, including frontmatter" },
+    ],
+    handler: async (args) => {
+      const path = String(args.path);
+      writeVaultFile(path, String(args.content));
+      // Commit via the shared queue so concurrent vault writes coalesce.
+      void enqueueVaultCommit(`neuroworks: vault.write — ${path}`);
+      return { written: path };
+    },
+  },
+  {
+    name: "vault.capture_note",
+    description: `Capture RAW material into the second-brain archive (${ARCHIVE_DIR}/) — call transcripts, voice-note text, meeting notes, or anything pasted in that hasn't been distilled yet. Do NOT use this for polished/final notes (use vault.write / vault.create_zettel for those) — this is deliberately the raw bucket the nightly wiki-compile job reads from to produce distilled ${WIKI_DIR}/ entries. Never write directly to ${WIKI_DIR}/ — that folder is compile-only and the write will be refused.`,
+    readonly: false,
+    args: [
+      { name: "title", type: "string", required: true, description: "Short title — becomes the filename." },
+      { name: "content", type: "string", required: true, description: "The raw text (transcript, notes, pasted content)." },
+      { name: "kind", type: "string", required: false, description: "Category subfolder, e.g. 'calls', 'voice', 'meetings'. Default 'notes'." },
+    ],
+    handler: async (args) => {
+      const title = String(args.title ?? "").trim();
+      if (!title) return { error: "title is required" };
+      const content = String(args.content ?? "");
+      if (!content.trim()) return { error: "content is required" };
+      const kind = String(args.kind ?? "notes").trim().replace(/[^a-z0-9_-]/gi, "-").toLowerCase() || "notes";
+      const stamp = new Date().toISOString().slice(0, 10);
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "capture";
+      const path = `${ARCHIVE_DIR}/${kind}/${stamp}-${slug}.md`;
+      const body = `---\ntitle: ${title}\ncaptured: ${stamp}\nkind: ${kind}\n---\n\n${content.trim()}\n`;
+      writeVaultFile(path, body);
+      void enqueueVaultCommit(`archive: capture ${path}`);
+      return { written: path, note: "Raw capture stored — the nightly wiki-compile job will distill it into the wiki." };
+    },
+  },
+  {
+    name: "vault.capture_youtube",
+    description: `Fetch a YouTube video's transcript (no API key needed) and store it as a raw capture in ${ARCHIVE_DIR}/youtube/. Use when the customer asks to save/capture/archive a YouTube video's content. Best-effort: YouTube's anti-scraping measures block this for many videos — it fails cleanly with a clear error rather than fabricating a transcript. If it fails, ask the customer to paste the transcript text (e.g. from YouTube's own "Show transcript" panel) and use vault.capture_note instead. This is a RAW capture either way — the nightly wiki-compile job distills it into the wiki.`,
+    readonly: false,
+    args: [
+      { name: "url", type: "string", required: true, description: "A YouTube URL (watch/shorts/youtu.be) or bare 11-char video id." },
+      { name: "title", type: "string", required: false, description: "Title for the captured note. Defaults to the video id." },
+      { name: "lang", type: "string", required: false, description: "Preferred caption language code, default 'en'." },
+    ],
+    handler: async (args) => {
+      const url = String(args.url ?? "").trim();
+      if (!url) return { error: "url is required" };
+      const lang = String(args.lang ?? "en").trim() || "en";
+      let transcript;
+      try { transcript = await fetchYoutubeTranscript(url, lang); }
+      catch (e: any) { return { error: e?.message ?? String(e) }; }
+      const title = String(args.title ?? "").trim() || transcript.videoId;
+      const stamp = new Date().toISOString().slice(0, 10);
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || transcript.videoId;
+      const path = `${ARCHIVE_DIR}/youtube/${stamp}-${slug}.md`;
+      const body = `---\ntitle: ${title}\nsource: https://www.youtube.com/watch?v=${transcript.videoId}\ncaptured: ${stamp}\nkind: youtube\nlanguage: ${transcript.languageCode}\n---\n\n${transcript.text}\n`;
+      writeVaultFile(path, body);
+      void enqueueVaultCommit(`archive: capture youtube ${transcript.videoId}`);
+      return { written: path, videoId: transcript.videoId, segments: transcript.segments, note: "Raw transcript stored — the nightly wiki-compile job will distill it into the wiki." };
+    },
+  },
+  {
+    name: "audio.transcribe",
+    description: "Transcribe an audio/video file to text (meeting recording, voice note, call audio). Local STT sidecar first when NEUROWORKS_STT_URL is set, OpenAI cloud fallback — whichever runs returns the transcript text plus engine/model/duration metadata. Use when the customer asks what's in an audio file or to turn a recording into notes/action items (then feed the text to the usual transform skills).",
+    readonly: true,
+    args: [
+      { name: "path", type: "string", required: true, description: "Absolute path to the audio/video file (.mp3/.wav/.m4a/.ogg/.flac/.aac/.mp4/.webm, max 25MB)." },
+      { name: "engine", type: "string", required: false, description: "'auto' (default), 'local' (NEUROWORKS_STT_URL sidecar), or 'cloud' (OpenAI key)." },
+      { name: "language", type: "string", required: false, description: "Force a source language code, e.g. 'en'. Default: auto-detect." },
+      { name: "model", type: "string", required: false, description: "Override the duration-picked local model size (tiny/base/small/medium)." },
+    ],
+    handler: async (args) => {
+      const rawPath = String(args.path ?? "").trim();
+      if (!rawPath) return { error: "path is required" };
+      const { assertSafeExternalPath } = await import("./security-gates.js");
+      try { assertSafeExternalPath(rawPath); } catch (e: any) { return { error: e?.message ?? String(e) }; }
+      const engineRaw = String(args.engine ?? "auto").toLowerCase();
+      if (!["auto", "local", "cloud"].includes(engineRaw)) return { error: "engine must be 'auto', 'local', or 'cloud'" };
+      const { transcribeAudioFile } = await import("./audio-transcribe.js");
+      try {
+        const r = await transcribeAudioFile(rawPath, engineRaw as "auto" | "local" | "cloud", String(args.language ?? ""), String(args.model ?? ""));
+        return r;
+      } catch (e: any) { return { error: e?.message ?? String(e) }; }
+    },
+  },
+  {
+    name: "vault.scan_docs",
+    description: "Read MANY vault docs in parallel and return their extracted text. Use when the customer asks 'what's in my <folder>?' or 'summarize the docs in <folder>'. Supports MD, PDF, DOCX, XLSX, CSV. Caps at 12 docs per call to keep latency bounded — narrow with the `folder` arg if you need a specific area.",
+    readonly: true,
+    args: [
+      { name: "folder", type: "string", required: false, description: "Vault-relative folder to scan, blank for vault root" },
+      { name: "max", type: "number", required: false, description: "Max docs to read (default 12, cap 24)" },
+      { name: "extensions", type: "string", required: false, description: "Comma-separated extensions to include, e.g. '.pdf,.docx'. Default: all known doc types." },
+    ],
+    handler: async (args) => {
+      const folder = String(args.folder ?? "");
+      const max = Math.max(1, Math.min(24, Number(args.max ?? 12)));
+      const allowed = String(args.extensions ?? ".md,.markdown,.txt,.pdf,.docx,.xlsx,.xls,.csv")
+        .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+      const entries = listVault(folder);
+      const files = entries
+        .filter(e => e.type === "file" && allowed.includes(extname(e.name).toLowerCase()))
+        .slice(0, max);
+      if (files.length === 0) return { folder, scanned: 0, docs: [], message: `No matching docs in "${folder || "<root>"}". Allowed extensions: ${allowed.join(", ")}` };
+      // Resolve each to absolute then parallel-extract through the shared
+      // extractor cache. Concurrency capped inside the extractor so we don't
+      // OOM on a folder full of PDFs.
+      const abs = files.map(f => resolve(config.vaultPath, f.path));
+      const results = await extractDocsParallel(abs, { concurrency: 6 });
+      // Strip absolute paths from the response — replace with vault-relative
+      // ones so the LLM sees `0-Inbox/spec.pdf` not `D:\Main brain\...`.
+      const docs = results.map((r: any) => {
+        const relMatch = files.find(f => resolve(config.vaultPath, f.path) === r.path);
+        const rel = relMatch ? relMatch.path : r.path;
+        if (r.ok) {
+          return {
+            path: rel,
+            kind: r.result.kind,
+            name: r.result.name,
+            bytes: r.result.bytes,
+            pages: r.result.pages,
+            sheets: r.result.sheets,
+            truncated: r.result.truncated,
+            content: r.result.text,
+            ok: true,
+          };
+        }
+        return { path: rel, ok: false, error: r.error };
+      });
+      return { folder, scanned: docs.length, docs };
+    },
+  },
+  {
+    name: "vault.edit",
+    description: "Edit an existing markdown file in the vault according to an instruction. Reads the file, applies the edit (via LLM), scans the result for secrets, writes it back, and commits. REQUIRES the user to have authorised vault edits via NEUROWORKS_VAULT_EDIT=1 in .env — otherwise this tool refuses. Markdown only; refuses to edit binary docs.",
+    readonly: false,
+    args: [
+      { name: "path", type: "string", required: true, description: "Vault-relative path to the .md file to edit" },
+      { name: "instruction", type: "string", required: true, description: "What to change. Be specific — e.g. 'Add a Risks section at the end' or 'Replace the second paragraph with a clearer version'." },
+    ],
+    handler: async (args) => {
+      // Top-level approval gate. The customer authorises vault editing by
+      // setting NEUROWORKS_VAULT_EDIT=1 in .env. Until they do, the tool refuses
+      // — this protects against unintended overwrites by an agent that picks
+      // vault.edit speculatively. The refusal message tells the customer
+      // exactly what to do.
+      if (process.env.NEUROWORKS_VAULT_EDIT !== "1") {
+        throw new Error("vault.edit refused: vault editing isn't authorised. To allow clawbot to edit docs in your vault, set NEUROWORKS_VAULT_EDIT=1 in clawbot/.env and restart the server.");
+      }
+      const path = String(args.path);
+      const instruction = String(args.instruction);
+      const ext = extname(path).toLowerCase();
+      // Refuse non-markdown — re-writing a PDF or DOCX is not safe (we can
+      // extract text but can't preserve formatting on write). For those,
+      // capture an .md sidecar via vault.write instead.
+      if (ext !== ".md" && ext !== ".markdown" && ext !== ".txt") {
+        throw new Error(`vault.edit only supports .md / .markdown / .txt files. For ${ext} docs, extract via vault.read and write a new note with vault.write.`);
+      }
+      const original = readVaultFile(path);
+      const sys = `You are editing a Markdown document. Apply the user's edit instruction and return the COMPLETE updated document — not a diff, not a partial, not commentary. Preserve everything the instruction doesn't change. Preserve frontmatter (--- blocks) unless the instruction explicitly modifies it. No "Here is the updated…" preamble. Output ONLY the new document body.`;
+      const prompt = `Edit instruction:\n${instruction}\n\nOriginal document:\n\n${original}\n\nReturn the complete updated document:`;
+      const edited = await ollamaGenerate(prompt, sys, { profile: "synthesis", complexity: original.length + instruction.length > 6000 ? "high" : "normal" } as any);
+      // Strip a stray ``` fence if the model wrapped its output.
+      const cleaned = edited.trim().replace(/^```(?:markdown)?\n([\s\S]+?)\n```$/i, "$1").trim();
+      if (cleaned.length < 10) throw new Error("LLM returned an empty / near-empty edit; refusing to overwrite the original.");
+      writeVaultFile(path, cleaned);
+      void enqueueVaultCommit(`neuroworks: vault.edit — ${path} (${instruction.slice(0, 60)})`);
+      return {
+        edited: path,
+        instruction,
+        originalChars: original.length,
+        editedChars: cleaned.length,
+        delta: cleaned.length - original.length,
+      };
+    },
+  },
+  {
+    name: "ollama.generate",
+    description: "Run the local LLM. Use to summarize, draft, rephrase, or reason over text fetched by other steps. Optional `profile` picks the right model: 'synthesis' (default — long-form prose), 'triage' (fast classify), 'extraction' (strict JSON), 'planning'.",
+    readonly: true,
+    args: [
+      { name: "prompt", type: "string", required: true, description: "User-side prompt" },
+      { name: "system", type: "string", required: false, description: "Optional system instruction" },
+      { name: "profile", type: "string", required: false, description: "synthesis|triage|extraction|planning|balanced — model router uses this to pick the best available model" },
+    ],
+    handler: async (args) => {
+      const meta = await ollamaGenerateWithMeta(
+        String(args.prompt),
+        args.system ? String(args.system) : undefined,
+        { profile: (args.profile as any) ?? "synthesis" },
+      );
+      // The `model` field surfaces the actual model picked by the router so
+      // executePlan can stash it on the StepRun for journal + UI provenance.
+      return { text: meta.text, model: meta.model };
+    },
+  },
+  {
+    name: "github.list_repos",
+    description: "List all GitHub repos the user can access (owner/collaborator/org_member). Returns name, full, description, pushedAt, language.",
+    readonly: true,
+    args: [],
+    handler: async () => ({ repos: await listOwnedRepos() }),
+  },
+  {
+    name: "github.read_repo",
+    description: "Get repo overview: README + recent commits + open PRs + open issues. Pass owner and name (split owner/name).",
+    readonly: true,
+    args: [
+      { name: "owner", type: "string", required: true, description: "GitHub owner (e.g. RUBIEM-DEVELOPERS-REPO)" },
+      { name: "name", type: "string", required: true, description: "Repo name" },
+    ],
+    handler: async (args) => {
+      const owner = String(args.owner); const name = String(args.name);
+      const since = new Date(Date.now() - 90 * 86400_000).toISOString();
+      const [rd, commits, prs, issues] = await Promise.all([
+        readme(owner, name), recentCommits(owner, name, since), openPRs(owner, name), openIssues(owner, name),
+      ]);
+      return { readme: rd, commits, prs, issues };
+    },
+  },
+  {
+    name: "github.list_branches",
+    description: "List branches of a repo. Returns array of { name, sha }.",
+    readonly: true,
+    args: [
+      { name: "owner", type: "string", required: true, description: "GitHub owner" },
+      { name: "name", type: "string", required: true, description: "Repo name" },
+    ],
+    handler: async (args) => {
+      const { data } = await octokit.repos.listBranches({ owner: String(args.owner), repo: String(args.name), per_page: 50 });
+      return { branches: data.map(b => ({ name: b.name, sha: b.commit.sha })) };
+    },
+  },
+  {
+    name: "github.get_file",
+    description: "Fetch the raw text of one file from a repo at HEAD of default branch.",
+    readonly: true,
+    args: [
+      { name: "owner", type: "string", required: true, description: "GitHub owner" },
+      { name: "name", type: "string", required: true, description: "Repo name" },
+      { name: "path", type: "string", required: true, description: "Repo-relative file path" },
+    ],
+    handler: async (args) => {
+      const { data } = await octokit.repos.getContent({ owner: String(args.owner), repo: String(args.name), path: String(args.path) });
+      if (Array.isArray(data) || data.type !== "file") throw new Error("not a file");
+      const buf = Buffer.from((data as any).content, "base64");
+      return { content: buf.toString("utf8"), size: (data as any).size };
+    },
+  },
+  {
+    name: "github.create_issue",
+    description: "Open a GitHub issue. Use sparingly. Title is required, body is markdown.",
+    readonly: false,
+    args: [
+      { name: "owner", type: "string", required: true, description: "Owner" },
+      { name: "name", type: "string", required: true, description: "Repo" },
+      { name: "title", type: "string", required: true, description: "Issue title" },
+      { name: "body", type: "string", required: false, description: "Markdown body" },
+    ],
+    handler: async (args) => {
+      const { data } = await octokit.issues.create({ owner: String(args.owner), repo: String(args.name), title: String(args.title), body: args.body ? String(args.body) : undefined });
+      return { number: data.number, url: data.html_url };
+    },
+  },
+  {
+    name: "github.comment_on_issue",
+    description: "Comment on a GitHub issue or pull request. Provide owner, repo, issue/PR number, and the comment body (markdown).",
+    readonly: false,
+    args: [
+      { name: "owner", type: "string", required: true, description: "GitHub owner" },
+      { name: "name", type: "string", required: true, description: "Repo name" },
+      { name: "issueNumber", type: "number", required: true, description: "Issue or PR number" },
+      { name: "body", type: "string", required: true, description: "Comment body (markdown)" },
+    ],
+    handler: async (args) => {
+      const { data } = await octokit.issues.createComment({ owner: String(args.owner), repo: String(args.name), issue_number: Number(args.issueNumber), body: String(args.body) });
+      return { id: data.id, url: data.html_url };
+    },
+  },
+  {
+    name: "github.update_issue",
+    description: "Update an issue's title, body, state, or labels. Standard GitHub API — pass only the fields you want to change.",
+    readonly: false,
+    args: [
+      { name: "owner", type: "string", required: true, description: "GitHub owner" },
+      { name: "name", type: "string", required: true, description: "Repo name" },
+      { name: "issueNumber", type: "number", required: true, description: "Issue number" },
+      { name: "title", type: "string", required: false, description: "New title" },
+      { name: "body", type: "string", required: false, description: "New body (markdown)" },
+      { name: "state", type: "string", required: false, description: "New state: open or closed" },
+      { name: "labels", type: "string", required: false, description: "Comma-separated labels to set" },
+    ],
+    handler: async (args) => {
+      const payload: any = { owner: String(args.owner), repo: String(args.name), issue_number: Number(args.issueNumber) };
+      if (args.title !== undefined) payload.title = String(args.title);
+      if (args.body !== undefined) payload.body = String(args.body);
+      if (args.state !== undefined) payload.state = String(args.state);
+      if (args.labels !== undefined) payload.labels = String(args.labels).split(",").map(s => s.trim()).filter(Boolean);
+      const { data } = await octokit.issues.update(payload);
+      return { number: data.number, url: data.html_url, state: data.state, labels: data.labels?.map((l: any) => l.name) };
+    },
+  },
+  {
+    name: "github.request_review",
+    description: "Request review on a pull request from specific reviewers. Pass owner, repo, PR number, and a comma-separated list of GitHub usernames as reviewers.",
+    readonly: false,
+    args: [
+      { name: "owner", type: "string", required: true, description: "GitHub owner" },
+      { name: "name", type: "string", required: true, description: "Repo name" },
+      { name: "pullNumber", type: "number", required: true, description: "Pull request number" },
+      { name: "reviewers", type: "string", required: true, description: "Comma-separated GitHub usernames to request review from" },
+    ],
+    handler: async (args) => {
+      const reviewers = String(args.reviewers).split(",").map(s => s.trim()).filter(Boolean);
+      const { data } = await octokit.pulls.requestReviewers({ owner: String(args.owner), repo: String(args.name), pull_number: Number(args.pullNumber), reviewers });
+      return { requestedReviewers: data.requested_reviewers?.map((r: any) => r.login) ?? reviewers };
+    },
+  },
+  {
+    name: "github.list_issues",
+    description: "List open issues for a repo. Optionally filter by label (comma-separated) or assignee. Returns number, title, author, labels, url.",
+    readonly: true,
+    args: [
+      { name: "owner", type: "string", required: true, description: "GitHub owner" },
+      { name: "name", type: "string", required: true, description: "Repo name" },
+      { name: "labels", type: "string", required: false, description: "Comma-separated labels to filter by" },
+      { name: "assignee", type: "string", required: false, description: "Filter by assignee username" },
+      { name: "state", type: "string", required: false, description: "Issue state: open (default), closed, all" },
+    ],
+    handler: async (args) => {
+      const state = (String(args.state ?? "open")) as "open" | "closed" | "all";
+      const { data } = await octokit.issues.listForRepo({
+        owner: String(args.owner), repo: String(args.name),
+        state,
+        ...(args.labels ? { labels: String(args.labels) } : {}),
+        ...(args.assignee ? { assignee: String(args.assignee) } : {}),
+        per_page: 50,
+      });
+      return { issues: data.map(i => ({ number: i.number, title: i.title, author: i.user?.login, labels: i.labels?.map((l: any) => l.name), state: i.state, url: i.html_url, createdAt: i.created_at })) };
+    },
+  },
+  // ── Database connector primitives (db.*) ──
+  {
+    name: "db.list_sources",
+    description: "List all connected database/file sources with their labels, kinds, and read-only status. Handy way to discover what source name to pass to other db.* primitives.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const sources = listSources().map(s => ({
+        id: s.id,
+        label: s.label,
+        kind: s.kind,
+        notes: s.notes,
+        department: s.department,
+        readonly: s.readonly,
+      }));
+      return { sources };
+    },
+  },
+  {
+    name: "db.list_tables",
+    description: "List available tables/collections in a connected data source. Source is identified by label (case-insensitive). For Excel sources, tables are the sheet names.",
+    readonly: true,
+    args: [
+      { name: "source", type: "string", required: true, description: "Source label (case-insensitive)" },
+    ],
+    handler: async (args) => {
+      const source = getSourceByLabel(String(args.source));
+      if (!source) throw new Error(noSourceError(String(args.source)));
+      const info = await describeSource(source);
+      const tables = info.tables.map(t => ({
+        name: t.name,
+        columnCount: t.columns.length,
+        columns: t.columns.map(c => `${c.name}:${c.type}`).join(", "),
+      }));
+      return { source: source.label, kind: source.kind, tables };
+    },
+  },
+  {
+    name: "db.describe_table",
+    description: "Describe a specific table/column in a connected data source. Source by label, table by name. Returns column names with their data types.",
+    readonly: true,
+    args: [
+      { name: "source", type: "string", required: true, description: "Source label (case-insensitive)" },
+      { name: "table", type: "string", required: true, description: "Table name (or sheet name for Excel sources)" },
+    ],
+    handler: async (args) => {
+      const source = getSourceByLabel(String(args.source));
+      if (!source) throw new Error(noSourceError(String(args.source)));
+      const info = await describeSource(source);
+      const table = info.tables.find(t => t.name.toLowerCase() === String(args.table).toLowerCase());
+      if (!table) throw new Error(`Table "${args.table}" not found in "${args.source}". Available: ${info.tables.map(t => t.name).join(", ")}`);
+      return { source: source.label, kind: source.kind, table: table.name, columns: table.columns };
+    },
+  },
+  {
+    name: "db.query",
+    description: "Run SQL (or query document) on a connected data source. Source is identified by label (case-insensitive). For SQL databases: pass standard SQL — SELECT / WITH / EXPLAIN / DESCRIBE. For MongoDB: pass a JSON document like {\"collection\":\"users\",\"filter\":{\"active\":true},\"limit\":50}. For Excel/CSV: pass a JSON like {\"sheet\":\"Sheet1\",\"filter\":{\"col\":\"Status\",\"op\":\"eq\",\"val\":\"Active\"},\"limit\":100}. ALTERNATIVELY pass `question` (natural language) instead of `query` for SQL sources — the schema is fetched automatically, SQL is generated from the question, executed, and each query's rows come back labeled. Use question-mode when the task describes WHAT to find out rather than the exact SQL. Respects the source's read-only setting — writes are blocked unless the source was configured with writes enabled.",
+    readonly: true,
+    args: [
+      { name: "source", type: "string", required: true, description: "Source label (case-insensitive)" },
+      { name: "query", type: "string", required: false, description: "SQL statement or JSON query document. Omit when using `question`." },
+      { name: "question", type: "string", required: false, description: "Natural-language question about the data (SQL sources only) — e.g. 'how many requisitions are there and what is the total requested amount'. SQL is generated from the live schema and executed; multiple sub-questions become multiple queries." },
+      { name: "limit", type: "number", required: false, description: "Max rows to return (default 200)" },
+    ],
+    handler: async (args) => {
+      const source = getSourceByLabel(String(args.source));
+      if (!source) throw new Error(noSourceError(String(args.source)));
+      const limit = Math.max(1, Math.min(5000, Number(args.limit ?? 200)));
+      const rawQuery = String(args.query ?? "").trim();
+      const question = String(args.question ?? "").trim();
+      if (rawQuery) {
+        const result = await runQuery(source, rawQuery, limit);
+        return {
+          source: source.label,
+          kind: source.kind,
+          columns: result.columns,
+          rows: result.rows,
+          rowCount: result.rowCount,
+          truncated: result.truncated,
+        };
+      }
+      if (!question) throw new Error("db.query: pass either 'query' (SQL / JSON document) or 'question' (natural language)");
+      if (!["postgres", "mysql", "sqlite", "mssql"].includes(source.kind)) {
+        throw new Error(`db.query question-mode only supports SQL sources (this source is ${source.kind}) — pass an explicit 'query' document instead`);
+      }
+      // Question-mode: schema → LLM-generated SQL → execute. Exists because
+      // the free-tier planner reliably FAILS to write correct SQL against a
+      // schema it has never seen (2026-07-12: "query the Neon DB and
+      // summarize" degenerated to a WEB search three runs straight). Doing
+      // schema-fetch + SQL generation inside the primitive means a plan just
+      // needs ONE deterministic step with the user's question in it.
+      const { describeSource } = await import("./data-sources.js");
+      const { llmGenerate } = await import("./llm.js");
+      // Timed to attribute the question-mode cost (journal showed 31–90s per
+      // call). Schema fetch is now cached (see data-sources.ts); the LLM SQL
+      // generation is the remaining dominant cost.
+      const tSchema = Date.now();
+      const schema = await describeSource(source);
+      const schemaMs = Date.now() - tSchema;
+      const schemaText = schema.tables
+        .map(t => `${t.name}(${t.columns.map(c => `${c.name} ${c.type}`).join(", ")})`)
+        .join("\n");
+      const sys = `You translate questions into ${source.kind} SQL. Output ONLY a JSON array of 1-4 objects, each {"label": "<short description>", "sql": "<one SELECT/WITH statement>"}. Read-only SELECT/WITH only — never INSERT/UPDATE/DELETE/DROP. Use only tables/columns from the schema. No markdown fences, no prose.`;
+      const prompt = `Schema:\n${schemaText}\n\nQuestion: ${question}\n\nJSON array:`;
+      // SQL generation stays on complexity:"high" (the large model). Measured
+      // 2026-07-21: dropping to the fast small model made it BOTH slower
+      // (free-tier failover retries → 187s) AND wrong ("no executable SQL"),
+      // confirming the 2026-07-12 finding that small models can't reliably
+      // write SQL from an unseen schema. The large-model round-trip IS the
+      // question-mode cost; the schema cache above removes the OTHER round-trip
+      // (the information_schema scan) on repeat calls, which is the safe win.
+      const tGen = Date.now();
+      const raw = await llmGenerate(prompt, sys, { profile: "extraction", complexity: "high", temperature: 0 });
+      const genMs = Date.now() - tGen;
+      console.log(`[db.query] question-mode timing: schema=${schemaMs}ms sqlgen=${genMs}ms (source=${source.label})`);
+      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error(`db.query: SQL generation returned no JSON array (got: ${raw.slice(0, 160)})`);
+      let specs: { label?: string; sql?: string }[];
+      try { specs = JSON.parse(jsonMatch[0]); } catch (e: any) { throw new Error(`db.query: generated SQL spec is invalid JSON — ${e?.message}`); }
+      const results: { label: string; sql: string; columns?: string[]; rows?: any[]; rowCount?: number; error?: string }[] = [];
+      const { isReadOnlySql } = await import("./data-sources.js");
+      for (const spec of specs.slice(0, 4)) {
+        const sql = String(spec.sql ?? "").trim();
+        if (!sql) continue;
+        const label = String(spec.label ?? sql.slice(0, 60));
+        // HARD read-only guard for question-mode, independent of the source's
+        // readonly flag. Question-mode turns a natural-language QUESTION into
+        // SQL — it must never write, even on a writable source, or a
+        // prompt-injected question ("...and delete all rows") could execute a
+        // generated DML statement. Writes only ever go through db.write's
+        // explicit HITL path. The system prompt already asks for SELECT-only;
+        // this enforces it structurally.
+        if (!isReadOnlySql(sql)) {
+          results.push({ label, sql, error: "refused: question-mode is read-only (SELECT/WITH only) — use db.write for writes" });
+          continue;
+        }
+        try {
+          const r = await runQuery(source, sql, limit);
+          results.push({ label, sql, columns: r.columns, rows: r.rows, rowCount: r.rowCount });
+        } catch (e: any) {
+          // One repair attempt per failed query — feed the DB error back.
+          try {
+            const fixRaw = await llmGenerate(
+              `Schema:\n${schemaText}\n\nThis ${source.kind} query failed:\n${sql}\nError: ${String(e?.message).slice(0, 300)}\n\nOutput ONLY the corrected SQL statement, nothing else.`,
+              `You fix ${source.kind} SQL. Output only the corrected SELECT/WITH statement.`,
+              { profile: "extraction", complexity: "high", temperature: 0 },
+            );
+            const fixed = fixRaw.replace(/^```[a-z]*\n?|```$/gm, "").trim();
+            const r2 = await runQuery(source, fixed, limit);
+            results.push({ label, sql: fixed, columns: r2.columns, rows: r2.rows, rowCount: r2.rowCount });
+          } catch (e2: any) {
+            results.push({ label, sql, error: String(e2?.message ?? e2).slice(0, 300) });
+          }
+        }
+      }
+      if (results.length === 0) throw new Error("db.query: no executable SQL was generated from the question");
+      const failed = results.filter(r => r.error).length;
+      // Single-row aggregates (counts, sums) flattened to explicit prose the
+      // synth can quote verbatim. A free-tier synth reading raw JSON rows
+      // misattributed a SUM once (reported $5,447.95 when the row said
+      // $126,795.62 — live 2026-07-12); an unambiguous "label: col = value"
+      // line removes the misread surface.
+      const keyFigures = results
+        .filter(r => !r.error && r.rowCount === 1 && r.columns && r.columns.length <= 3 && r.rows?.[0])
+        .map(r => `${r.label}: ${Object.entries(r.rows![0]).map(([k, v]) => `${k} = ${v}`).join(", ")}`);
+      return {
+        source: source.label,
+        kind: source.kind,
+        question,
+        keyFigures: keyFigures.length > 0 ? keyFigures : undefined,
+        queries: results,
+        rowCount: results.reduce((sum, r) => sum + (r.rowCount ?? 0), 0),
+        note: failed > 0 ? `${failed} of ${results.length} generated queries failed — their errors are included` : undefined,
+      };
+    },
+  },
+  {
+    name: "db.write",
+    description: "INSERT/UPDATE/DELETE on a database source. Only works on sources with writes enabled (readonly=false). Pass EITHER `query` (an explicit SQL statement) OR `intent` (natural language, SQL sources only — e.g. 'create a $10 requisition for a bucket'): with `intent` the live schema is fetched and one INSERT/UPDATE statement is generated from it. dryRun defaults false so the write actually lands; pass dryRun true to preview the SQL without executing.",
+    readonly: false,
+    args: [
+      { name: "source", type: "string", required: true, description: "Source label (case-insensitive)" },
+      { name: "query", type: "string", required: false, description: "SQL statement (INSERT/UPDATE/DELETE). Omit when using `intent`." },
+      { name: "intent", type: "string", required: false, description: "Natural-language description of the write (SQL sources only) — the INSERT/UPDATE SQL is generated from the live schema." },
+      { name: "dryRun", type: "boolean", required: false, description: "If true, show the SQL without executing. Default FALSE — the write executes." },
+    ],
+    handler: async (args) => {
+      const source = getSourceByLabel(String(args.source));
+      if (!source) throw new Error(`Data source "${args.source}" not found`);
+      if (source.readonly) throw new Error(`Source "${args.source}" is read-only — request the operator to enable writes in Company Data settings`);
+      let sql = String(args.query ?? "").trim();
+      const intent = String(args.intent ?? "").trim();
+      // Intent-mode: schema → LLM-generated single mutating statement. Exists
+      // so an action task ("$10 requisition in the financeflow") produces a
+      // REAL write instead of the free planner running a web search and the
+      // synth fabricating "Added (Draft)" over a write that never happened
+      // (live 2026-07-13). SQL sources only — needs a schema.
+      if (!sql && intent) {
+        if (!["postgres", "mysql", "sqlite", "mssql"].includes(source.kind)) {
+          throw new Error(`db.write intent-mode only supports SQL sources (this source is ${source.kind}) — pass explicit 'query' SQL instead`);
+        }
+        const { describeSource, runQuery: runQ } = await import("./data-sources.js");
+        const { llmGenerate } = await import("./llm.js");
+        const schema = await describeSource(source);
+        // Annotate NOT-NULL, no-default columns as REQUIRED so the model fills
+        // ALL of them in one shot — a requisitions row needs description AND
+        // category AND ..., and fixing them one-per-repair burned the retry
+        // budget (live 2026-07-13). Postgres only; other kinds fall back to the
+        // plain schema + the repair loop below.
+        const requiredByTable = new Map<string, Set<string>>();
+        if (source.kind === "postgres") {
+          try {
+            const rq = await runQ(source, `SELECT table_schema, table_name, column_name FROM information_schema.columns WHERE is_nullable='NO' AND column_default IS NULL AND table_schema NOT IN ('pg_catalog','information_schema')`, 10000);
+            for (const row of rq.rows) {
+              const key = `${row.table_schema}.${row.table_name}`;
+              if (!requiredByTable.has(key)) requiredByTable.set(key, new Set());
+              requiredByTable.get(key)!.add(String(row.column_name));
+            }
+          } catch { /* annotation is best-effort — repair loop covers gaps */ }
+        }
+        const schemaText = schema.tables.map(t => {
+          const req = requiredByTable.get(t.name);
+          return `${t.name}(${t.columns.map(c => `${c.name} ${c.type}${req?.has(c.name) ? " REQUIRED" : ""}`).join(", ")})`;
+        }).join("\n");
+        const sys = `You translate an action into ONE ${source.kind} write statement (INSERT or UPDATE only — never DELETE/DROP/TRUNCATE). Output ONLY the SQL, no markdown, no prose. Use only tables/columns from the schema. You MUST provide a value for EVERY column marked REQUIRED — infer sensible values from the intent (e.g. reuse the item name for a description, pick a reasonable category). For an id column use gen_random_uuid() (postgres); for created/updated timestamps use NOW(); for status use a pending/draft-style default if the intent doesn't specify. Add a RETURNING clause listing the key columns so the caller can confirm what landed.`;
+        const raw = await llmGenerate(`Schema:\n${schemaText}\n\nAction: ${intent}\n\nSQL:`, sys, { profile: "extraction", complexity: "high", temperature: 0 });
+        sql = raw.replace(/^```[a-z]*\n?|```$/gm, "").trim();
+        // Guard: intent-mode must never emit a destructive statement even if
+        // the model ignores the instruction.
+        if (/\b(delete\s+from|drop\s+|truncate\s+|alter\s+)/i.test(sql)) {
+          throw new Error("db.write intent-mode refused: generated a destructive statement (DELETE/DROP/TRUNCATE/ALTER). Use explicit `query` if this is truly intended.");
+        }
+        if (!/^\s*(insert|update|with)\b/i.test(sql)) {
+          throw new Error(`db.write intent-mode: generated SQL was not an INSERT/UPDATE (got: ${sql.slice(0, 120)})`);
+        }
+      }
+      if (!sql) throw new Error("db.write: pass either 'query' (SQL) or 'intent' (natural language)");
+      const dryRun = args.dryRun === true;
+      if (dryRun) {
+        // Return a preview without executing.
+        return {
+          source: source.label,
+          kind: source.kind,
+          sql,
+          preview: true,
+          message: `Preview of write to "${source.label}". A human operator will review this before execution. Submit with dryRun=false to execute.`,
+        };
+      }
+      const wasIntent = !String(args.query ?? "").trim() && !!intent;
+      let result;
+      try {
+        result = await runQuery(source, sql);
+      } catch (e0: any) {
+        // Intent-mode repair loop: a generated INSERT that violates a
+        // constraint (missing NOT-NULL column, bad value) fails atomically —
+        // nothing was written — so it's safe to feed the DB error back and
+        // regenerate. Up to 3 passes because a wide table can surface one
+        // missing REQUIRED column per attempt (live 2026-07-13). Only for
+        // intent-mode + constraint/column errors, never an operator's explicit
+        // `query`.
+        let lastErr: any = e0;
+        const repairable = (m: string) => /(not-null|null value|violates|constraint|column|does not exist|invalid input|syntax)/i.test(m);
+        if (!wasIntent || !repairable(String(e0?.message ?? e0))) throw e0;
+        const { describeSource, runQuery: rq2 } = await import("./data-sources.js");
+        const { llmGenerate } = await import("./llm.js");
+        const schema = await describeSource(source);
+        const requiredByTable = new Map<string, Set<string>>();
+        if (source.kind === "postgres") {
+          try {
+            const rr = await rq2(source, `SELECT table_schema, table_name, column_name FROM information_schema.columns WHERE is_nullable='NO' AND column_default IS NULL AND table_schema NOT IN ('pg_catalog','information_schema')`, 10000);
+            for (const row of rr.rows) { const k = `${row.table_schema}.${row.table_name}`; if (!requiredByTable.has(k)) requiredByTable.set(k, new Set()); requiredByTable.get(k)!.add(String(row.column_name)); }
+          } catch { /* best-effort */ }
+        }
+        const schemaText = schema.tables.map((t: any) => `${t.name}(${t.columns.map((c: any) => `${c.name} ${c.type}${requiredByTable.get(t.name)?.has(c.name) ? " REQUIRED" : ""}`).join(", ")})`).join("\n");
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const fixRaw = await llmGenerate(
+            `Schema (columns marked REQUIRED are NOT NULL and must be given a value):\n${schemaText}\n\nThis ${source.kind} write failed:\n${sql}\nError: ${String(lastErr?.message ?? lastErr).slice(0, 300)}\n\nRegenerate ONE corrected INSERT/UPDATE that fills EVERY REQUIRED column with a sensible value from the intent: "${intent}". Output ONLY the SQL. Keep the RETURNING clause.`,
+            `You fix ${source.kind} write SQL. Output only the corrected INSERT/UPDATE statement, no prose.`,
+            { profile: "extraction", complexity: "high", temperature: 0 },
+          );
+          const fixed = fixRaw.replace(/^```[a-z]*\n?|```$/gm, "").trim();
+          if (/\b(delete\s+from|drop\s+|truncate\s+|alter\s+)/i.test(fixed) || !/^\s*(insert|update|with)\b/i.test(fixed)) {
+            throw new Error(`db.write repair produced an unusable statement: ${fixed.slice(0, 120)}`);
+          }
+          sql = fixed;
+          try { result = await runQuery(source, sql); break; }
+          catch (er: any) { lastErr = er; if (attempt === 2 || !repairable(String(er?.message ?? er))) throw er; }
+        }
+      }
+      if (!result) throw new Error("db.write: no result after repair attempts");
+      return {
+        source: source.label,
+        kind: source.kind,
+        sql,
+        affected: result.rowCount,
+        columns: result.columns,
+        rows: result.rows,
+      };
+    },
+  },
+  {
+    name: "vault.append",
+    description: "Append content to an existing vault file (creates with content if missing).",
+    readonly: false,
+    args: [
+      { name: "path", type: "string", required: true, description: "Vault-relative path" },
+      { name: "content", type: "string", required: true, description: "Text to append (a leading newline is added)" },
+    ],
+    handler: async (args) => {
+      const full = resolve(config.vaultPath, String(args.path));
+      if (!full.startsWith(resolve(config.vaultPath))) throw new Error("path escapes vault");
+      const text = (existsSync(full) ? "\n" : "") + String(args.content);
+      appendFileSync(full, text, "utf8");
+      void enqueueVaultCommit(`neuroworks: vault.append — ${String(args.path)}`);
+      return { appended: String(args.path) };
+    },
+  },
+  {
+    name: "vault.create_zettel",
+    description: "Persist a Zettelkasten permanent note to disk (2-Permanent/). Use ONLY when the user explicitly asks to SAVE / CAPTURE / FILE / STORE / ADD-TO-MY-VAULT a note. Do NOT use for tasks that just transform inline content into a deliverable (\"turn this transcript into action items\", \"rewrite this as a KB article\", \"format this as a memo\") — those want ollama.generate to produce the output in the response, not a vault write.",
+    readonly: false,
+    args: [
+      { name: "title", type: "string", required: true, description: "One-sentence claim/title" },
+      { name: "body", type: "string", required: true, description: "Note body (markdown)" },
+      { name: "tags", type: "string", required: false, description: "Comma-separated tags" },
+    ],
+    handler: async (args) => {
+      const tags = String(args.tags ?? "").split(",").map(t => t.trim()).filter(Boolean);
+      const { path, id } = writeZettel(String(args.title), String(args.body), tags);
+      void enqueueVaultCommit(`neuroworks: zettel — ${path.split("/").pop()!.replace(/\.md$/, "")}`);
+      return { path, id };
+    },
+  },
+  {
+    name: "vault.find_by_tag",
+    description: "Find notes whose frontmatter tags include the given tag.",
+    readonly: true,
+    args: [{ name: "tag", type: "string", required: true, description: "Tag without leading #" }],
+    handler: async (args) => {
+      const tag = String(args.tag).toLowerCase();
+      const matches = searchVault(`tags:`).filter(m => {
+        try {
+          const c = readVaultFile(m.path);
+          const fm = c.match(/---\n([\s\S]*?)\n---/);
+          if (!fm) return false;
+          const tagsLine = fm[1].split("\n").find(l => l.startsWith("tags:"));
+          return !!tagsLine && tagsLine.toLowerCase().includes(tag);
+        } catch { return false; }
+      });
+      return { matches };
+    },
+  },
+  {
+    name: "web.fetch",
+    description: "HTTP GET a URL and return up to 100 KB of readable text. HTML is run through a noise-stripping extractor (drops nav/footer/cookie banners, prefers <article>/<main> body). Rotates User-Agent. Per-URL response cached for 10 minutes. Auto-falls back to a Playwright (headless Chromium) render when the HTTP path returns blocked / empty / JS-only content, so JS-rendered SPAs work without the user having to pick a tool. Bounded to ~20s total when the browser path kicks in.",
+    readonly: true,
+    args: [
+      { name: "url", type: "string", required: true, description: "Full URL including protocol" },
+      { name: "force_browser", type: "boolean", required: false, description: "Skip the cheap HTTP attempt and go straight to Playwright" },
+    ],
+    handler: async (args) => {
+      const url = String(args.url);
+      if (args.force_browser === true) {
+        const r = await smartFetch(url, { allowBrowser: true, cache: false });
+        return r;
+      }
+      const r = await smartFetch(url);
+      return r;
+    },
+  },
+  {
+    name: "web.scrape",
+    description: "Render a URL in a real headless browser (Playwright + Chromium) and return the page text. Use this instead of web.fetch when the page needs JS to render, sits behind anti-bot, or requires waiting for content. Optional: a CSS `selector` to extract just one section, `waitFor` selector to delay extraction, `scrollToBottom` for lazy-load lists, `screenshot` to also save a PNG into _neuroworks/screenshots/ in the vault.",
+    readonly: true,
+    args: [
+      { name: "url", type: "string", required: true, description: "Full URL including protocol" },
+      { name: "selector", type: "string", required: false, description: "CSS selector to extract (defaults to whole-page text)" },
+      { name: "waitFor", type: "string", required: false, description: "CSS selector to wait for before extracting" },
+      { name: "screenshot", type: "boolean", required: false, description: "If true, saves a PNG to the vault and returns its path" },
+      { name: "scrollToBottom", type: "boolean", required: false, description: "Trigger lazy-loaded content with three short scrolls" },
+      { name: "timeoutMs", type: "number", required: false, description: "Navigation+wait budget (default 20000, max 60000)" },
+    ],
+    handler: async (args) => {
+      return await scrape({
+        url: String(args.url),
+        selector: args.selector ? String(args.selector) : undefined,
+        waitFor: args.waitFor ? String(args.waitFor) : undefined,
+        screenshot: args.screenshot === true,
+        scrollToBottom: args.scrollToBottom === true,
+        timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
+      });
+    },
+  },
+  {
+    name: "web.interact",
+    description: "Multi-step headless-browser session. Navigate, fill form fields, click, wait, take screenshots, extract text — up to 8 steps per call, 90s total wall budget. Use for tasks that need real browser actions (a search box + submit, a multi-step wizard, a JS-only page that only renders after a button click). Each step is structured so the planner never has to generate Playwright code.",
+    readonly: false,
+    args: [
+      { name: "url", type: "string", required: true, description: "Initial URL to navigate to" },
+      { name: "steps", type: "string", required: true, description: "JSON array (or already-parsed array) of step actions. Each is { type: 'navigate'|'fill'|'click'|'wait_for'|'wait_ms'|'extract'|'screenshot', ...params }. navigate {url}, fill {selector, value}, click {selector}, wait_for {selector, timeoutMs?}, wait_ms {ms}, extract {selector?}, screenshot {name?}." },
+      { name: "totalTimeoutMs", type: "number", required: false, description: "Overall wall budget for the whole session (default 90000, max 120000)" },
+    ],
+    handler: async (args) => {
+      let rawSteps: unknown = args.steps;
+      if (typeof rawSteps === "string") { try { rawSteps = JSON.parse(rawSteps); } catch { rawSteps = []; } }
+      const steps: InteractAction[] = Array.isArray(rawSteps) ? (rawSteps as InteractAction[]) : [];
+      return await interact({
+        startUrl: String(args.url),
+        steps,
+        totalTimeoutMs: args.totalTimeoutMs ? Number(args.totalTimeoutMs) : undefined,
+      });
+    },
+  },
+  {
+    name: "web.firecrawl",
+    description: "Scrape a URL via the Firecrawl hosted service (returns clean markdown of the main content). Use this when a site is gated behind Cloudflare / anti-bot challenges that defeat local Playwright, or when you need consistent main-content extraction without HTML parsing. Requires FIRECRAWL_API_KEY in .env — refuses with a clear message when missing.",
+    readonly: true,
+    args: [
+      { name: "url", type: "string", required: true, description: "Full URL including protocol" },
+      { name: "onlyMainContent", type: "boolean", required: false, description: "Strip nav/footer/ads — defaults to true (almost always what you want)" },
+      { name: "maxChars", type: "number", required: false, description: "Cap markdown response length (default 80000)" },
+      { name: "timeoutMs", type: "number", required: false, description: "Request timeout (default 20000, max 60000)" },
+    ],
+    handler: async (args) => {
+      const { firecrawlEnabled, firecrawlScrape } = await import("./firecrawl.js");
+      if (!firecrawlEnabled()) {
+        throw new Error("web.firecrawl refused: FIRECRAWL_API_KEY isn't set in clawbot/.env — get a key from firecrawl.dev and add it, then this primitive will be available.");
+      }
+      const r = await firecrawlScrape({
+        url: String(args.url),
+        onlyMainContent: args.onlyMainContent !== false,
+        maxChars: args.maxChars ? Number(args.maxChars) : undefined,
+        timeoutMs: args.timeoutMs ? Number(args.timeoutMs) : undefined,
+      });
+      return {
+        url: r.url,
+        title: r.title,
+        markdown: r.markdown,
+        status: r.status,
+        engine: "firecrawl",
+      };
+    },
+  },
+  {
+    name: "fs.list_external",
+    description: "List entries in a directory anywhere on the user's machine. Returns name + size + modified. Skips hidden by default.",
+    readonly: true,
+    args: [
+      { name: "path", type: "string", required: true, description: "An ABSOLUTE directory path (read as-is), or a vault-relative path (resolved inside the vault, NOT the server CWD)." },
+      { name: "depth", type: "number", required: false, description: "Recursive depth (default 1, max 3)" },
+    ],
+    handler: async (args) => {
+      // Absolute as-is; anything else is vault-relative, never CWD-relative
+      // (matches fs.read_external's resolution contract).
+      const rawPath = String(args.path ?? "").trim();
+      const rootIsAbsolute = /^[a-zA-Z]:[\\/]/.test(rawPath) || rawPath.startsWith("/") || rawPath.startsWith("\\");
+      const root = rootIsAbsolute ? resolve(rawPath) : resolve(config.vaultPath, rawPath);
+      // SECURITY: refuse to enumerate known-sensitive directories (.ssh,
+      // .aws, browser profile dirs). Same gate as fs.read_external because
+      // a directory listing is the discovery step before exfiltration.
+      const { assertSafeExternalPath } = await import("./security-gates.js");
+      assertSafeExternalPath(root);
+      if (!existsSync(root)) throw new Error(`path not found: ${root}`);
+      const maxDepth = Math.min(3, Number(args.depth ?? 1));
+      const entries: { path: string; name: string; type: "dir" | "file"; size?: number; modified?: string }[] = [];
+      function walk(dir: string, depth: number) {
+        if (depth > maxDepth || entries.length > 500) return;
+        let xs: any[] = [];
+        try { xs = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+        for (const e of xs) {
+          if (e.name.startsWith(".")) continue;
+          if (isJunkFileName(e.name)) continue; // hide Office lock stubs / temp / Thumbs.db
+          const full = join(dir, e.name);
+          let st: any; try { st = statSync(full); } catch { continue; }
+          entries.push({ path: full, name: e.name, type: e.isDirectory() ? "dir" : "file", size: st.size, modified: st.mtime?.toISOString() });
+          if (e.isDirectory()) walk(full, depth + 1);
+          if (entries.length > 500) break;
+        }
+      }
+      walk(root, 1);
+      return { root, count: entries.length, entries };
+    },
+  },
+  {
+    name: "system.notepad",
+    description: "Read the contents of the user's Windows Notepad — including UNSAVED tabs (modern Notepad autosaves every tab). Use this for 'what's in my notepad', 'summarise my notepad notes', 'read my notepad', 'what did I jot down'. Do NOT use fs.find_in for this — Notepad tabs are not files with a searchable name; they live in Notepad's autosave store. Returns { available, tabs: [{ id, text, chars, updatedAt }] } newest-first. On non-Windows, or when no tabs exist, returns available:false with a reason.",
+    readonly: true,
+    args: [
+      { name: "limit", type: "number", required: false, description: "Max tabs to return, newest first (default 20)" },
+    ],
+    handler: async (args) => {
+      const { readNotepadTabs } = await import("./notepad.js");
+      const n = Number(args.limit ?? 20);
+      return readNotepadTabs(Number.isFinite(n) ? n : 20);
+    },
+  },
+  {
+    name: "fs.extract_zip",
+    description: "Extract a .zip archive on the user's machine into a folder, then return the list of files it contained. Use when the user says 'extract/unzip X', or when a task needs the contents of a .zip you found. Path MUST be an absolute path (e.g. $step_N.matches.0.path from fs.find_in). Extracts to a sibling '<name>-extracted/' folder unless 'dest' is given; read the resulting files with fs.read_external afterward. NOTE: .docx/.xlsx/.pptx are technically zips too but are handled by fs.read_external / doc.ocr — use this only for real .zip archives.",
+    readonly: false,
+    args: [
+      { name: "path", type: "string", required: true, description: "Absolute path to the .zip file" },
+      { name: "dest", type: "string", required: false, description: "Destination folder (default: a sibling '<name>-extracted' folder beside the archive)" },
+    ],
+    handler: async (args) => {
+      const raw = String(args.path ?? "").trim();
+      if (!raw) throw new Error("fs.extract_zip: 'path' is required");
+      const zipPath = resolve(raw);
+      const { assertSafeExternalPath } = await import("./security-gates.js");
+      assertSafeExternalPath(zipPath);
+      if (!existsSync(zipPath) || !statSync(zipPath).isFile()) throw new Error(`fs.extract_zip: no file at ${zipPath}`);
+      const dest = resolve(String(args.dest ?? "").trim() || join(dirname(zipPath), `${basename(zipPath, extname(zipPath))}-extracted`));
+      assertSafeExternalPath(dest);
+
+      let AdmZip: any;
+      try { AdmZip = (await import("adm-zip")).default ?? (await import("adm-zip")); }
+      catch { throw new Error("zip support not installed — run `pnpm -C server add adm-zip`"); }
+      let zip: any;
+      try { zip = new AdmZip(zipPath); }
+      catch (e: any) { return { error: `not a readable zip archive (it may be corrupt or not actually a zip): ${e?.message ?? e}` }; }
+
+      let entries: any[];
+      try { entries = zip.getEntries(); }
+      catch (e: any) { return { error: `could not read the zip directory: ${e?.message ?? e}` }; }
+
+      // Zip-bomb guard: cap entry count + total uncompressed size.
+      const MAX_ENTRIES = 2000, MAX_TOTAL = 500 * 1024 * 1024;
+      let total = 0;
+      for (const en of entries) total += Number(en?.header?.size ?? 0);
+      if (entries.length > MAX_ENTRIES) return { error: `refused: archive has ${entries.length} entries (cap ${MAX_ENTRIES})` };
+      if (total > MAX_TOTAL) return { error: `refused: archive expands to ~${Math.round(total / 1048576)}MB (cap ${Math.round(MAX_TOTAL / 1048576)}MB)` };
+
+      // Zip-slip guard: every entry must resolve INSIDE dest (no "../" escapes,
+      // no absolute paths). Validate ALL before extracting anything.
+      const destPrefix = dest.endsWith(sep) ? dest : dest + sep;
+      for (const en of entries) {
+        const target = resolve(dest, en.entryName);
+        if (target !== dest && !target.startsWith(destPrefix)) {
+          return { error: `refused: archive entry "${en.entryName}" would write outside the destination (zip-slip attempt)` };
+        }
+      }
+      try { zip.extractAllTo(dest, /* overwrite */ true); }
+      catch (e: any) { return { error: `extraction failed: ${e?.message ?? e}` }; }
+
+      const files = entries
+        .filter((en: any) => !en.isDirectory)
+        .map((en: any) => ({ name: String(en.entryName), size: Number(en?.header?.size ?? 0) }));
+      return {
+        ok: true,
+        extractedTo: dest,
+        fileCount: files.length,
+        files: files.slice(0, 200),
+        truncated: files.length > 200,
+      };
+    },
+  },
+  {
+    name: "fs.read_external",
+    // Resolution contract, kept aligned with the handler below: a path is EITHER
+    // absolute (drive-letter, POSIX /, or UNC \) — read as-is — OR it is treated
+    // as vault-relative. A bare relative path resolves against the VAULT, never
+    // the server's working directory (the old CWD-first candidate was
+    // undocumented and could silently open an unexpected file).
+    description: "Read a text file from disk. Path MUST be either: (a) an ABSOLUTE path — Windows 'C:\\foo\\bar.md' (or 'C:/foo/bar.md'), POSIX '/home/user/x.txt', or UNC '\\\\server\\share\\f.txt' — read exactly as given; OR (b) a RELATIVE path, which is resolved inside the user's Obsidian vault (e.g. '0-Inbox/foo.md'). A relative path is NEVER resolved against the server's working directory. Sensitive paths (.env, SSH keys, cloud creds, etc.) are refused. For vault reads prefer the dedicated `vault.read` tool — it matches partial paths. Capped at 200 KB.",
+    readonly: true,
+    args: [{ name: "path", type: "string", required: true, description: "An ABSOLUTE path (C:\\… / C:/… / /… / \\\\… ) read as-is, OR a vault-relative path (resolved inside the vault, NOT the server CWD). Backslashes ok on Windows." }],
+    handler: async (args) => {
+      const raw = String(args.path ?? "").trim();
+      if (!raw) throw new Error("path is empty");
+      // SECURITY GATE: refuse known-sensitive paths (.env, SSH keys, cloud
+      // creds, browser stores, etc.) before we even touch the filesystem.
+      // A prompt-injected LLM could otherwise be coaxed into exfiltrating
+      // these via the chat reply. Override via NEUROWORKS_FS_UNRESTRICTED=1.
+      const { assertSafeExternalPath } = await import("./security-gates.js");
+      assertSafeExternalPath(raw);
+      // Absolute (drive-letter / POSIX / UNC) → read as-is. Anything else is
+      // VAULT-RELATIVE — resolved against the vault, NOT process.cwd(). Dropping
+      // the old CWD-first candidate matches the documented contract and closes
+      // the "notes/foo.md silently opened a server-dir file" gap.
+      const isAbsolute = /^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith("/") || raw.startsWith("\\");
+      const candidates: string[] = [isAbsolute ? resolve(raw) : resolve(config.vaultPath, raw)];
+      // Re-check the resolved candidate — a vault-relative path could still
+      // resolve (via ..) to a sensitive location.
+      for (const c of candidates) assertSafeExternalPath(c);
+      // Pick whichever candidate exists.
+      const full = candidates.find(p => existsSync(p));
+      if (!full) {
+        // Produce a USEFUL error instead of a dead end. We list the parent
+        // directory (if it exists) so the LLM has actual filenames to try
+        // on the next attempt. The customer-facing chat will surface this
+        // verbatim via the fallback-synthesis path.
+        const probe = candidates[0];
+        const probeParent = probe.replace(/[\\/][^\\/]+$/, "");
+        let hint = "";
+        if (existsSync(probeParent)) {
+          try {
+            const siblings = readdirSync(probeParent).slice(0, 10);
+            hint = `\nParent directory ${probeParent} contains: ${siblings.map(s => `"${s}"`).join(", ")}${siblings.length === 10 ? ", …" : ""}`;
+          } catch { /* ignore */ }
+        }
+        throw new Error(
+          `file not found at any of: ${candidates.map(c => `"${c}"`).join(", ")}. ` +
+          `If you meant a file in the vault, try the \`vault.read\` tool with a partial filename.${hint}`,
+        );
+      }
+      const st = statSync(full);
+      if (!st.isFile()) {
+        // Directory passed in — give back a structured listing instead of
+        // erroring. The synth model can then report "the folder contains X,
+        // Y, Z" rather than the chain dead-ending. We surface the doc files
+        // first (PDF/DOCX/MD/...), then everything else.
+        const DOC_EXTS_R = new Set([".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".md", ".markdown", ".txt", ".rtf", ".odt", ".ods", ".odp", ".csv"]);
+        const entries = readdirSync(full, { withFileTypes: true });
+        const docs: { name: string; path: string; ext: string }[] = [];
+        const other: { name: string; path: string; ext: string }[] = [];
+        for (const e of entries) {
+          if (e.name.startsWith(".")) continue;
+          const inner = resolve(full, e.name);
+          const innerExt = extname(e.name).toLowerCase();
+          (DOC_EXTS_R.has(innerExt) ? docs : other).push({ name: e.name, path: inner, ext: innerExt });
+        }
+        return {
+          content: `Directory listing for ${full}:\n\nDocuments (${docs.length}):\n${docs.map(d => `- ${d.name}`).join("\n")}\n\nOther entries (${other.length}):\n${other.slice(0, 20).map(d => `- ${d.name}`).join("\n")}\n\nHint: call fs.read_external again with one of the document paths above (e.g. "${docs[0]?.path ?? other[0]?.path ?? full}") to read its content.`,
+          kind: "directory",
+          isDirectory: true,
+          entries: [...docs, ...other.slice(0, 20)],
+          documentCount: docs.length,
+          resolvedFrom: raw,
+          resolvedTo: full,
+        };
+      }
+      // Binary docs (PDF/DOCX/XLSX) get extracted via the doc-extractor so
+      // the agent can read what's actually inside, not just see "Untitled.docx"
+      // as a filename. Plain text follows the original 200 KB cap to avoid
+      // a 50-line config file masquerading as a 50 KB JSON dump.
+      const ext = extname(full).toLowerCase();
+      const isBinaryDoc = [".pdf", ".docx", ".xlsx", ".xls", ".xlsm"].includes(ext);
+      if (isBinaryDoc) {
+        const r = await extractDocText(full);
+        return {
+          content: r.text,
+          kind: r.kind,
+          size: st.size,
+          ext: r.ext,
+          name: r.name,
+          pages: r.pages,
+          sheets: r.sheets,
+          truncated: r.truncated,
+          resolvedFrom: raw,
+          resolvedTo: full,
+        };
+      }
+      if (st.size > 200_000) throw new Error(`file too large (${st.size} bytes, cap 200_000). Use a different tool or extract a section.`);
+      return { content: readFileSync(full, "utf8"), size: st.size, ext, name: basename(full), resolvedFrom: raw, resolvedTo: full };
+    },
+  },
+  {
+    name: "fs.find_in",
+    description: "Find files in a known user folder (downloads / desktop / documents / music / pictures / videos / vault) whose name matches a substring. Use this FIRST when the customer says 'check my downloads for X', 'find this song', 'find that photo', or just 'whats in this doc X' (use folder='all' for the latter — searches Downloads, Desktop, Documents, Music, Pictures, Videos, and the vault Inbox in parallel). For a song/track/audio request prefer folder='music' first (faster, and the file is almost always there) before falling back to folder='all'. Cross-platform: resolves to ~/Downloads etc. on macOS/Linux and %USERPROFILE%\\Downloads on Windows. Returns matches sorted by how closely the name matches (an exact-ish match beats a token buried in a much longer name, e.g. an auto-captured vault research note titled after a whole sentence); ties fall back to newest-first so 'the X I just saved' wins among equally-good matches.",
+    readonly: true,
+    args: [
+      { name: "folder", type: "string", required: true, description: "Folder shortcut: 'downloads' | 'desktop' | 'documents' | 'music' | 'pictures' | 'videos' | 'vault' | 'inbox' | 'home' | 'all' — or an absolute path. Use 'music' for a song/track/audio-file request, 'pictures' for a photo/image. 'all' searches Downloads + Desktop + Documents + Music + Pictures + Videos + Inbox in parallel." },
+      { name: "name", type: "string", required: true, description: "Filename substring to match (case-insensitive). E.g. 'Aiia Reference Letter' matches 'Aiia-Reference-Letter.pdf'." },
+      { name: "limit", type: "number", required: false, description: "Max matches to return (default 10, cap 50)" },
+      { name: "depth", type: "number", required: false, description: "Subfolder recursion depth (default 2, cap 4)" },
+    ],
+    handler: async (args) => {
+      const folderArg = String(args.folder ?? "").trim();
+      const nameArg = String(args.name ?? "").trim();
+      if (!folderArg) throw new Error("fs.find_in: 'folder' is required");
+      if (!nameArg) throw new Error("fs.find_in: 'name' is required");
+      const limit = Math.max(1, Math.min(50, Number(args.limit ?? 10)));
+      const depth = Math.max(1, Math.min(4, Number(args.depth ?? 2)));
+      const roots = resolveFsFolderRoots(folderArg);
+      // Security gate — refuses .ssh / .aws / cred-store dirs even if the
+      // customer somehow asks for them by absolute path. Applied per-root.
+      const { assertSafeExternalPath } = await import("./security-gates.js");
+      for (const r of roots) assertSafeExternalPath(r);
+      const missingRoots = roots.filter(r => !existsSync(r));
+      // For 'all' we tolerate missing folders (some users don't have a
+      // ~/Desktop) and only fail when EVERY root is missing.
+      if (missingRoots.length === roots.length) {
+        throw new Error(`fs.find_in: no folders exist at ${missingRoots.map(r => `"${r}"`).join(", ")} (resolved from "${folderArg}").`);
+      }
+      const livingRoots = roots.filter(r => existsSync(r));
+      // Unicode normalisation — when the planner copies the user's task
+      // verbatim, the needle can contain non-breaking hyphens (U+2011),
+      // en/em dashes (U+2013/2014), smart quotes (U+2018/U+2019/U+201C/
+      // U+201D), nbsp (U+00A0), and ellipsis (U+2026). The filename on
+      // disk uses plain ASCII, so any of those characters in the needle
+      // would block every token from matching. Convert to ASCII first.
+      function asciifyForSearch(s: string): string {
+        return s
+          .replace(/[‐-―−]/g, "-")    // various dashes → ASCII hyphen
+          .replace(/[‘’‚‛]/g, "'") // smart single quotes → '
+          .replace(/[“”„‟]/g, '"') // smart double quotes → "
+          .replace(/ /g, " ")                    // nbsp → space
+          .replace(/…/g, "...");                  // ellipsis → ...
+      }
+      const needle = asciifyForSearch(nameArg).toLowerCase();
+      // Allow simple wildcard support: spaces or hyphens are interchangeable
+      // ("Aiia Reference Letter" matches "Aiia-Reference-Letter.pdf"), and
+      // multiple needle tokens all need to be present somewhere in the name.
+      // Strip common noise words so a planner-generated needle like "the
+      // CUT student offer letter" still finds "CUT_student_offer_letter.docx"
+      // — without this the "the" token blocks every match.
+      const NOISE_WORDS = new Set([
+        // articles / prepositions / conjunctions
+        "the", "a", "an", "of", "for", "with", "and", "or", "to", "in",
+        "from", "on", "at", "by", "as", "into", "about",
+        // file-meta words
+        "called", "named", "titled", "labelled", "labeled",
+        // singular AND plural — "all the documentS that refer to X" left
+        // "documents" alive as a required token (2026-07-12 live failure)
+        "file", "files", "doc", "docs", "document", "documents",
+        "pdf", "pdfs", "docx", "xlsx", "pptx", "txt", "markdown", "md",
+        // pronouns / fillers
+        "my", "your", "this", "that", "those", "these", "any", "some",
+        "please", "kindly", "just", "also", "then", "now",
+        // action verbs the planner often drags into the needle
+        "find", "search", "look", "locate", "fetch", "grab", "get", "show",
+        "list", "check", "view", "browse", "open", "read", "give", "send",
+        "share", "summarize", "summarise", "summary", "summarized", "summarise",
+        "review", "scan", "tell", "describe", "analyze", "analyse",
+        // relational words from "documents that refer to X" phrasings —
+        // the 2026-07-12 live failure passed the whole clause "all the
+        // documents that refer to Nueroworks" as the needle, leaving
+        // tokens [all, refer, nueroworks] that no filename could ever
+        // contain together. NOTE: "reference" is deliberately NOT here —
+        // it's a real filename word ("Aiia Reference Letter.pdf").
+        "all", "every", "everything", "which",
+        "refer", "refers", "referring", "mention", "mentions", "mentioning",
+        "regarding", "related", "relating", "contain", "contains", "containing",
+      ]);
+      const rawTokens = needle.replace(/[-_\s]+/g, " ").split(" ").filter(Boolean);
+      const filtered = rawTokens.filter(t => !NOISE_WORDS.has(t));
+      // If filtering removed EVERY token (e.g. needle was "the doc"), keep
+      // the raw tokens — better to over-match than to silently match all.
+      const needleTokens = filtered.length > 0 ? filtered : rawTokens;
+      type Hit = { path: string; name: string; ext: string; size: number; modified: string; folder: string; type?: "file" | "dir"; matchedFolder?: string };
+      // Per-root listing cache. Many calls in a row hit the same root
+      // ("look in my downloads for X", then "ok now find Y", then "find
+      // Z") and re-walking Downloads (10k+ files for some users) on
+      // every call is the dominant cost. We cache the FULL file list
+      // per (root, depth) — needle filtering runs against the cached
+      // list, not the disk. The cached list expires when (a) 30s pass
+      // OR (b) the root directory's mtime advances past what we saw at
+      // cache time (catches a new download landing in the folder).
+      const cached = pickCachedListing(livingRoots, depth);
+      let allFiles: Hit[];
+      if (cached) {
+        allFiles = cached;
+      } else {
+        const collected: Hit[] = [];
+        function walk(dir: string, d: number) {
+          if (d > depth) return;
+          let entries: any[] = [];
+          try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+          for (const e of entries) {
+            if (e.name.startsWith(".")) continue; // skip hidden / dotfiles
+            if (isJunkFileName(e.name)) continue;  // skip Office lock stubs (~$x.docx), temp/partial downloads, Thumbs.db
+            const full = join(dir, e.name);
+            if (e.isDirectory()) {
+              // Directories are now candidate matches too — "summarize
+              // Master Tender on my desktop" wants the folder, not a file.
+              // We still recurse so files inside also become candidates.
+              let dst: any;
+              try { dst = statSync(full); } catch { /* tolerate */ }
+              if (dst) {
+                collected.push({
+                  path: full,
+                  name: e.name,
+                  ext: "",
+                  size: 0,
+                  modified: dst.mtime.toISOString(),
+                  folder: dir,
+                  type: "dir",
+                });
+              }
+              walk(full, d + 1);
+              continue;
+            }
+            let st: any;
+            try { st = statSync(full); } catch { continue; }
+            if (!st.isFile()) continue;
+            collected.push({
+              path: full,
+              name: e.name,
+              ext: extname(e.name).toLowerCase(),
+              size: st.size,
+              modified: st.mtime.toISOString(),
+              folder: dir,
+              type: "file",
+            });
+          }
+        }
+        for (const r of livingRoots) walk(r, 1);
+        allFiles = collected;
+        cacheListing(livingRoots, depth, collected);
+      }
+      // Filter by needle tokens against the cached listing. Matching
+      // logic preserved verbatim: every token must appear in the
+      // basename with separators normalised to spaces.
+      function filterHits(files: Hit[]): Hit[] {
+        const out: Hit[] = [];
+        for (const h of files) {
+          if (out.length >= limit) break;
+          const normalised = asciifyForSearch(h.name).toLowerCase().replace(/[-_]+/g, " ");
+          if (needleTokens.every(t => normalised.includes(t))) out.push(h);
+        }
+        return out;
+      }
+      // Fuzzy fallback — when strict ALL-tokens match yields nothing AND
+      // the needle has 4+ content tokens, accept filenames where ≥70% of
+      // the tokens match. Guards against the planner sneaking one stray
+      // action-verb into a otherwise-good needle (e.g. "summarize CUT
+      // student offer letter" → "summarize" missing from filename, but
+      // the other 4 tokens hit). Conservative threshold + token-count
+      // floor stops it firing on short needles where 1/2 match is noise.
+      function fuzzyHits(files: Hit[], minMatch: number): Hit[] {
+        const scored: { h: Hit; score: number }[] = [];
+        for (const h of files) {
+          const normalised = asciifyForSearch(h.name).toLowerCase().replace(/[-_]+/g, " ");
+          let matched = 0;
+          for (const t of needleTokens) if (normalised.includes(t)) matched += 1;
+          if (matched >= minMatch) scored.push({ h, score: matched });
+        }
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, limit).map(s => s.h);
+      }
+      let hits = filterHits(allFiles);
+      if (hits.length === 0 && needleTokens.length >= 4) {
+        const minMatch = Math.max(2, Math.ceil(needleTokens.length * 0.7));
+        hits = fuzzyHits(allFiles, minMatch);
+      }
+      // Typo-tolerant last resort. Voice-dictated tasks misspell brand and
+      // proper names ("Nueroworks" for files named "NeuroWorks" — live
+      // 2026-07-12, 4 identical failures), and substring matching can never
+      // recover from a transposition. When everything above found nothing
+      // and the needle is short (≤3 content tokens), accept filenames whose
+      // tokens are within a small edit distance of each needle token.
+      // Distance budget scales with token length (5-8 chars → 1 edit,
+      // 9+ → 2) and only tokens ≥5 chars participate, so short tokens
+      // can't false-positive their way in.
+      if (hits.length === 0 && needleTokens.length > 0 && needleTokens.length <= 3) {
+        const editDistance = (a: string, b: string, cap: number): number => {
+          if (Math.abs(a.length - b.length) > cap) return cap + 1;
+          let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+          for (let i = 1; i <= a.length; i++) {
+            const cur = [i];
+            let rowMin = i;
+            for (let j = 1; j <= b.length; j++) {
+              cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+              if (cur[j] < rowMin) rowMin = cur[j];
+            }
+            if (rowMin > cap) return cap + 1;
+            prev = cur;
+          }
+          return prev[b.length];
+        };
+        const fuzzables = needleTokens.filter(t => t.length >= 5);
+        if (fuzzables.length > 0) {
+          const scored: { h: Hit; mtime: string }[] = [];
+          for (const h of allFiles) {
+            const fileTokens = asciifyForSearch(h.name).toLowerCase().replace(/\.[a-z0-9]+$/, "").split(/[-_\s.]+/).filter(Boolean);
+            const allNear = fuzzables.every(nt => {
+              const cap = nt.length >= 9 ? 2 : 1;
+              return fileTokens.some(ft => editDistance(nt, ft, cap) <= cap);
+            });
+            if (allNear) scored.push({ h, mtime: h.modified });
+          }
+          scored.sort((a, b) => (a.mtime < b.mtime ? 1 : -1));
+          hits = scored.slice(0, limit).map(s => s.h);
+        }
+      }
+      // Directory-aware expansion. If the strongest matches are DIRECTORIES
+      // (e.g. "Master Tender" is a folder, not a file), expand each into the
+      // documents it contains so a downstream fs.read_external chain hits an
+      // actual document. The directory itself stays in the results as the
+      // FIRST entry so the agent can still report what folder it found. We
+      // expand at most 2 dirs and 10 inner docs to keep the response bounded.
+      const DOC_EXTS = new Set([".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".md", ".markdown", ".txt", ".rtf", ".odt", ".ods", ".odp", ".csv"]);
+      const dirHits = hits.filter(h => h.type === "dir").slice(0, 2);
+      if (dirHits.length > 0) {
+        const expanded: Hit[] = [];
+        for (const dh of dirHits) {
+          try {
+            const inner = readdirSync(dh.path, { withFileTypes: true });
+            const docs: Hit[] = [];
+            for (const e of inner) {
+              if (e.name.startsWith(".")) continue;
+              if (!e.isFile()) continue;
+              const innerExt = extname(e.name).toLowerCase();
+              if (!DOC_EXTS.has(innerExt)) continue;
+              const innerFull = join(dh.path, e.name);
+              let innerSt: any;
+              try { innerSt = statSync(innerFull); } catch { continue; }
+              docs.push({
+                path: innerFull,
+                name: e.name,
+                ext: innerExt,
+                size: innerSt.size,
+                modified: innerSt.mtime.toISOString(),
+                folder: dh.path,
+                type: "file",
+                matchedFolder: dh.name,
+              });
+            }
+            docs.sort((a, b) => (a.modified < b.modified ? 1 : -1));
+            expanded.push(...docs.slice(0, 10));
+          } catch { /* tolerate per-dir read failure */ }
+        }
+        // Files inside matched folders go BEFORE the folder itself so
+        // fs.read_external picks a real document via matches[0].path.
+        const fileHits = hits.filter(h => h.type !== "dir");
+        hits = [...expanded, ...fileHits, ...dirHits].slice(0, limit);
+      }
+      // Zero-hit safety net — Windows NTFS doesn't always bump the
+      // parent folder's mtime when a file lands inside it, so the cache
+      // freshness check can miss a newly-downloaded file. If the search
+      // returned NOTHING and we were reading from cache, re-walk once
+      // (uncached) to make sure the absence is real.
+      if (hits.length === 0 && cached) {
+        const fresh: Hit[] = [];
+        function walkFresh(dir: string, d: number) {
+          if (d > depth) return;
+          let entries: any[] = [];
+          try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+          for (const e of entries) {
+            if (e.name.startsWith(".")) continue;
+            const full = join(dir, e.name);
+            if (e.isDirectory()) {
+              let dst: any;
+              try { dst = statSync(full); } catch { /* tolerate */ }
+              if (dst) {
+                fresh.push({
+                  path: full,
+                  name: e.name,
+                  ext: "",
+                  size: 0,
+                  modified: dst.mtime.toISOString(),
+                  folder: dir,
+                  type: "dir",
+                });
+              }
+              walkFresh(full, d + 1);
+              continue;
+            }
+            let st: any;
+            try { st = statSync(full); } catch { continue; }
+            if (!st.isFile()) continue;
+            fresh.push({
+              path: full,
+              name: e.name,
+              ext: extname(e.name).toLowerCase(),
+              size: st.size,
+              modified: st.mtime.toISOString(),
+              folder: dir,
+              type: "file",
+            });
+          }
+        }
+        for (const r of livingRoots) walkFresh(r, 1);
+        cacheListing(livingRoots, depth, fresh);
+        hits = filterHits(fresh);
+        if (hits.length === 0 && needleTokens.length >= 4) {
+          const minMatch = Math.max(2, Math.ceil(needleTokens.length * 0.7));
+          hits = fuzzyHits(fresh, minMatch);
+        }
+      }
+      // Match-quality first, newest as a tie-breaker. Pure recency sort let
+      // a short, unrelated-but-token-overlapping name outrank the actual
+      // target whenever it happened to be newer — e.g. an auto-captured
+      // vault research note titled after the whole task sentence
+      // ("...summit-recon-conso-to-all-the-.md", 893 bytes) outranked the
+      // real "Summit Recon CONSO.xlsx" (610KB) because the note was
+      // created more recently by an earlier failed attempt at the same
+      // task, even though the needle only explains a small fraction of the
+      // note's much longer slugified name (2026-07-09 incident: the wrong
+      // file was actually emailed to 5 people before this fix). Score =
+      // fraction of the basename (extension stripped) the matched needle
+      // tokens actually cover — near 1.0 for an exact-ish match, low for a
+      // token buried in a long unrelated name. Near-ties (genuinely
+      // comparable matches) still fall back to newest-first, preserving
+      // "the X I just downloaded" for the common multi-candidate case.
+      function matchQuality(h: Hit): number {
+        const base = h.name.replace(/\.[^.]+$/, "");
+        const normalised = asciifyForSearch(base).toLowerCase().replace(/[-_]+/g, " ");
+        if (normalised.length === 0) return 0;
+        const covered = needleTokens.reduce((sum, t) => sum + (normalised.includes(t) ? t.length : 0), 0);
+        return covered / normalised.length;
+      }
+      hits.sort((a, b) => {
+        const dq = matchQuality(b) - matchQuality(a);
+        if (Math.abs(dq) > 0.05) return dq;
+        return a.modified < b.modified ? 1 : -1;
+      });
+      return {
+        folder: folderArg,
+        resolvedRoots: livingRoots,
+        // Keep `resolvedRoot` for backwards compat with single-folder callers.
+        resolvedRoot: livingRoots[0] ?? "",
+        query: nameArg,
+        count: hits.length,
+        matches: hits,
+      };
+    },
+  },
+  {
+    name: "fs.import_to_vault",
+    description: "Copy a file from the user's PC into their Obsidian vault and write a markdown sidecar so it shows up in NeuroWorks's knowledge view. Use for any 'move/copy/save/import/file this doc into my vault/knowledge/neuroworks' request. Preserves the original on disk by default — the user gets a SEARCHABLE copy in their second brain while the source stays where they had it. Chain with fs.find_in to resolve a partial filename first (e.g. find then import 'Aiia Reference Letter'). Returns the vault-relative paths of both the imported binary and the sidecar so the synth can render a link.",
+    readonly: false,
+    args: [
+      { name: "path", type: "string", required: true, description: "Absolute path to the source file on the user's PC (chain from $step_0.matches.0.path after fs.find_in)" },
+      { name: "vaultFolder", type: "string", required: false, description: "Vault destination folder (default '0-Inbox'). Standard Zettel folders: '0-Inbox' for fleeting captures, '1-Literature' for reference material, '1-projects' for project artifacts, '2-Permanent' for promoted notes. Custom folders (e.g. 'meetings', '2024-Q3/wins', 'team/sales') are auto-created. System folders ('_clawbot', '_archive', '_neuroworks', '.git', '.obsidian') and absolute or traversal paths are rejected — falls back to '0-Inbox' if unsafe." },
+      { name: "title", type: "string", required: false, description: "Override the sidecar note title (default: extract from filename)" },
+      { name: "removeOriginal", type: "boolean", required: false, description: "Delete the source file after import (default false — copy semantics). Set true when the user literally says 'move and delete' or 'remove from downloads'." },
+      { name: "summarise", type: "boolean", required: false, description: "Extract a short auto-summary of the doc's text into the sidecar (default true for binary docs)" },
+    ],
+    handler: async (args) => {
+      const src = String(args.path ?? "").trim();
+      if (!src) throw new Error("fs.import_to_vault: 'path' is required");
+      // SECURITY GATE: don't let an agent import .env or .ssh keys into the
+      // vault as a bypass route. assertSafeExternalPath blocks known-sensitive
+      // shapes (override with NEUROWORKS_FS_UNRESTRICTED=1 for trusted work).
+      const { assertSafeExternalPath } = await import("./security-gates.js");
+      assertSafeExternalPath(src);
+      const fullSrc = resolve(src);
+      if (!existsSync(fullSrc)) {
+        throw new Error(`fs.import_to_vault: source file not found at "${fullSrc}". If you used a relative path or just a filename, run fs.find_in first to resolve it.`);
+      }
+      const st = statSync(fullSrc);
+      if (!st.isFile()) throw new Error(`fs.import_to_vault: "${fullSrc}" is a directory, not a file. Loop over its contents and import individually.`);
+
+      // Choose vault folder. The four standard Zettelkasten folders pass
+      // through verbatim. ANY OTHER user-named folder ("meetings", "2024-Q3",
+      // "projects/atlas") is accepted as long as it's a safe relative path —
+      // mkdirSync inside importBinaryIntoVault will auto-create it on first
+      // use. Previously the allow-list silently rewrote unknown folders to
+      // 0-Inbox, which surprised users who asked to file uploads under their
+      // own categories.
+      // Guard rails — reject anything that could escape the vault, hit a
+      // system-managed folder (where NeuroWorks tooling assumes ownership),
+      // or look like an absolute path.
+      const requested = String(args.vaultFolder ?? "0-Inbox").trim().replace(/^\/+|\/+$/g, "").replace(/\\/g, "/");
+      const SYSTEM_PREFIXES = ["_clawbot", "_archive", "_neuroworks", ".git", ".obsidian"];
+      const isSafeUserFolder = (p: string): boolean => {
+        if (!p || p.length > 200) return false;
+        if (/^[A-Za-z]:|^[/\\]/.test(p)) return false;            // no absolute paths
+        if (p.split("/").some(seg => seg === "" || seg === "." || seg === "..")) return false; // no traversal
+        if (!/^[A-Za-z0-9_./-]+$/.test(p)) return false;          // safe chars only
+        const top = p.split("/")[0];
+        if (SYSTEM_PREFIXES.some(prefix => top === prefix)) return false;
+        return true;
+      };
+      const vaultFolder = isSafeUserFolder(requested) ? requested : "0-Inbox";
+
+      const srcName = basename(fullSrc);
+      const ext = extname(srcName).toLowerCase();
+      const stem = srcName.slice(0, srcName.length - ext.length);
+      // Slug for the sidecar — kebab-case, ASCII, capped at 60 chars so it
+      // plays well with Obsidian wikilinks and filesystem limits.
+      const slug = stem.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "imported";
+      const stamp = new Date().toISOString().slice(0, 10);
+      const today = stamp;
+      const importedAt = new Date().toISOString();
+
+      // Filename collision: append -2, -3, etc. so we never overwrite an
+      // existing vault file.
+      function uniqueRel(folder: string, name: string): string {
+        const base = name.slice(0, name.length - extname(name).length);
+        const baseExt = extname(name);
+        let candidate = `${folder}/${name}`;
+        let i = 2;
+        while (existsSync(resolve(config.vaultPath, candidate))) {
+          candidate = `${folder}/${base}-${i}${baseExt}`;
+          i++;
+        }
+        return candidate;
+      }
+      const binaryRel = uniqueRel(vaultFolder, srcName);
+      const sidecarRel = uniqueRel(vaultFolder, `${stamp}-${slug}.md`);
+
+      // 1. Copy the binary into the vault.
+      const copied = importBinaryIntoVault(binaryRel, fullSrc);
+
+      // 2. Try to extract a summary if it's a binary doc (PDF/DOCX/XLSX).
+      //    For plain markdown/text we read directly. Best-effort — a failed
+      //    extraction shouldn't block the import; we still copied the binary.
+      const wantSummary = args.summarise !== false;
+      const binaryDocExt = new Set([".pdf", ".docx", ".xlsx", ".xls", ".xlsm"]);
+      let extractedExcerpt = "";
+      let kind = ext.replace(/^\./, "") || "file";
+      let pages: number | undefined;
+      if (wantSummary) {
+        try {
+          if (binaryDocExt.has(ext)) {
+            const r = await extractDocText(copied.abs);
+            extractedExcerpt = (r.text ?? "").slice(0, 2000).trim();
+            kind = r.kind || kind;
+            pages = r.pages;
+          } else if (ext === ".md" || ext === ".markdown" || ext === ".txt") {
+            const raw = readFileSync(copied.abs, "utf8");
+            // Strip any leading frontmatter so the excerpt is real content.
+            const stripped = raw.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+            extractedExcerpt = stripped.slice(0, 2000);
+          }
+        } catch (e: any) {
+          // Don't fail the import — just note that we couldn't extract.
+          extractedExcerpt = `_Couldn't auto-extract text (${String(e?.message ?? e).slice(0, 80)}). The binary is still in the vault — open it directly to read._`;
+        }
+      }
+
+      const noteTitle = String(args.title ?? "").trim() || stem.replace(/[-_]+/g, " ").trim() || srcName;
+      const sizeKB = (st.size / 1024).toFixed(1);
+      const sidecarBody = [
+        `---`,
+        `title: "${noteTitle.replace(/"/g, "'")}"`,
+        `imported_from: "${fullSrc.replace(/\\/g, "/")}"`,
+        `imported_at: ${importedAt}`,
+        `created: ${today}`,
+        `kind: ${kind}`,
+        `size_kb: ${sizeKB}`,
+        pages != null ? `pages: ${pages}` : null,
+        `tags: [imported, neuroworks]`,
+        `---`,
+        ``,
+        `# ${noteTitle}`,
+        ``,
+        `Imported from \`${fullSrc}\` on ${today}. Original size ${sizeKB} KB${pages != null ? `, ${pages} page${pages === 1 ? "" : "s"}` : ""}.`,
+        ``,
+        `The full file is filed in your vault at [[${binaryRel}]] — click through to open it in Obsidian, or browse it under NeuroWorks Knowledge.`,
+        ``,
+        wantSummary && extractedExcerpt ? `## Excerpt (first ${Math.min(2000, extractedExcerpt.length)} chars)\n\n${extractedExcerpt}\n` : "",
+        `## Source provenance`,
+        `- Original path: \`${fullSrc}\``,
+        `- Imported by: clawbot \`fs.import_to_vault\``,
+        `- ${args.removeOriginal === true ? "Original was REMOVED from the PC after import." : "Original preserved on the PC."}`,
+        ``,
+      ].filter(Boolean).join("\n");
+
+      writeVaultFile(sidecarRel, sidecarBody);
+      void enqueueVaultCommit(`neuroworks: import — ${srcName} → ${vaultFolder}`);
+
+      // 3. Optionally remove the original. Only when the user explicitly
+      //    asked (removeOriginal=true) — default is COPY semantics so a
+      //    misfired "save this to my vault" never destroys the PC copy.
+      let removedOriginal = false;
+      if (args.removeOriginal === true) {
+        try {
+          rmSync(fullSrc, { force: false });
+          removedOriginal = true;
+        } catch (e: any) {
+          // Don't fail the import — the vault copy is the important part.
+          // Just surface that the removal didn't happen.
+          extractedExcerpt += `\n\n_Note: couldn't remove the original at ${fullSrc} (${String(e?.message ?? e).slice(0, 80)}). It's still on your PC._`;
+        }
+      }
+
+      return {
+        importedTo: binaryRel,
+        sidecar: sidecarRel,
+        originalPath: fullSrc,
+        sizeBytes: st.size,
+        kind,
+        pages,
+        excerptChars: extractedExcerpt.length,
+        removedOriginal,
+        vaultFolder,
+        // Hint for the synth: the user wants to know what's in the doc AND
+        // that it's been filed. Both bits matter.
+        message: `Filed "${srcName}" to your vault at ${binaryRel} (sidecar: ${sidecarRel}).${removedOriginal ? " Original removed from PC." : ""}`,
+      };
+    },
+  },
+  {
+    name: "web.search",
+    description: "Search the public web. Tries DuckDuckGo first; falls back to Bing if DDG returns nothing or fails. Returns up to 10 results as { title, url, snippet } plus the engine that produced them. Use to find sources before web.fetch.",
+    readonly: true,
+    args: [
+      { name: "query", type: "string", required: true, description: "Search query" },
+      { name: "limit", type: "number", required: false, description: "Max results (default 8, cap 10)" },
+    ],
+    handler: async (args) => {
+      const query = String(args.query);
+      const limit = Math.min(10, Math.max(1, Number(args.limit ?? 8)));
+      const r = await searchWeb(query, limit);
+      return { query, engine: r.engine, tried: r.tried, results: r.results };
+    },
+  },
+  {
+    name: "research.deep",
+    description: "Open-ended research on a topic: searches the vault, searches the web, fetches the top sources in parallel, synthesises a cited answer with the local LLM, and (by default) captures a research note in 0-Inbox/. Use this when the user asks about something the vault may not yet cover.",
+    readonly: false,
+    args: [
+      { name: "query", type: "string", required: true, description: "The research question or topic" },
+      { name: "depth", type: "number", required: false, description: "Number of web sources to fetch (default 3, cap 5)" },
+      { name: "capture", type: "boolean", required: false, description: "If true (default), saves a note to 0-Inbox/ with sources" },
+    ],
+    handler: async (args) => {
+      const query = String(args.query);
+      // Depth cap is env-tunable (NEUROWORKS_RESEARCH_MAX_DEPTH, default 3).
+      // Jobs 36172d9e/b6d90f2a burned ~346s each in research.deep — most of it
+      // fetch+synth over sources 4-5 that rarely change the answer. Planners
+      // habitually ask for depth 3; anything above the cap now clamps.
+      const DEPTH_CAP = Math.min(5, Math.max(1, Number(process.env.NEUROWORKS_RESEARCH_MAX_DEPTH ?? "3")));
+      const depth = Math.min(DEPTH_CAP, Math.max(1, Number(args.depth ?? 2)));
+      const capture = args.capture !== false;
+
+      // 1+2. Vault search + web search in PARALLEL — was sequential, costing
+      // us the DDG/Bing round-trip (~500-1500ms) before vault even started.
+      // Vault search is sync regex over files so it's effectively free; web
+      // search is the slow part. Running them via Promise.all overlaps the
+      // network round-trip with the regex pass.
+      const [vaultHits, webResults] = await Promise.all([
+        Promise.resolve().then(() => {
+          try {
+            // Exclude agent-internal job-tracker files (_neuroworks/jobs/*) —
+            // those are scratch records of past runs, not real user knowledge.
+            // Without this filter, research.deep cites its own past outputs as
+            // "vault sources", which inflates citation_coverage with
+            // self-referential noise and degrades grounding. Chat already
+            // applies the same exclusion in agent.ts. Matches the path style
+            // searchVault returns (forward-slash).
+            return searchVault(query, 20).filter(h => !/^_neuroworks\/jobs\//i.test(h.path));
+          }
+          catch { return [] as ReturnType<typeof searchVault>; }
+        }),
+        searchWeb(query, depth).then(s => s.results).catch(() => [] as { title: string; url: string; snippet: string }[]),
+      ]);
+
+      // 3. Fetch the top N web pages in parallel via the smart client —
+      //    cheap HTTP first, Playwright fallback when blocked/JS-only. Per-URL
+      //    cache means a re-search across perspectives hits memory.
+      const fetched: { url: string; title: string; text: string; ok: boolean; error?: string; usedBrowser?: boolean; status?: number; engine?: "http" | "browser" | "firecrawl" | "unknown" }[] = await Promise.all(
+        webResults.map(async (w) => {
+          try {
+            const r = await smartFetch(w.url, { maxBytes: 80_000, timeoutMs: 8_000 });
+            return {
+              url: w.url,
+              title: r.title ?? w.title,
+              text: r.text.slice(0, 6_000),
+              ok: true,
+              usedBrowser: r.usedBrowser,
+              status: (r as any).status,
+              engine: ((r as any).engine ?? (r.usedBrowser ? "browser" : "http")) as any,
+            };
+          } catch (e: any) {
+            return { url: w.url, title: w.title, text: "", ok: false, error: String(e?.message ?? e) };
+          }
+        })
+      );
+
+      // 3b. SOURCE VALIDATION — strict mode. Drops auth walls, captcha
+      //     pages, 4xx/5xx, thin extractions, AND zero-relevance sources;
+      //     ranks the survivors by query-term density. This is the layer
+      //     that closes the "Denmark hotel page" + "Page not found" failure
+      //     modes that historically polluted the synth's evidence catalog.
+      const { validateSources } = await import("./source-validator.js");
+      const validation = validateSources(
+        fetched.map(f => ({
+          url: f.url,
+          title: f.title,
+          text: f.text,
+          ok: f.ok,
+          error: f.error,
+          status: f.status,
+          engine: f.engine ?? "unknown",
+          usedBrowser: f.usedBrowser,
+        })),
+        { mode: "strict", query, minRetainedSources: 2 },
+      );
+      const validSources = validation.kept;
+
+      // 4. Synthesise. Combined evidence in, cited answer out. Only the
+      //    validator-approved sources reach the synth; the audit catalog
+      //    still records what was dropped so the captured note can
+      //    explain a thin result.
+      const evidence = [
+        vaultHits.length > 0 ? `## Vault notes (${vaultHits.length})\n${vaultHits.slice(0, 8).map(h => `- ${h.path}:${h.line} — ${h.preview}`).join("\n")}` : "## Vault notes\n_(none — this topic is new to the vault)_",
+        validSources.length > 0
+          ? `## Web sources (validated)\n${validSources.map((f, i) => `### [${i + 1}] ${f.title} _(relevance: ${f.score})_\n${f.url}\n\n${f.text}`).join("\n\n")}`
+          : "## Web sources\n_(no sources survived validation — fetched " + fetched.length + ", all dropped as " + Object.entries(validation.summary.reasons).map(([k,v]) => `${v} × ${k}`).join(", ") + ")_",
+      ].join("\n\n");
+
+      // Governance-aware synthesis. A single research.deep step's answer is
+      // passed straight through by the outer synth (passthrough), so THIS is
+      // the prompt that actually produces the answer — it must carry the
+      // governance guardrails or wrong-entity web content (e.g. the Natus EEG
+      // "NeuroWorks") slips through. Load the prefix and make obeying it a hard
+      // rule, with an explicit instruction to drop wrong-entity sources.
+      let govPrefix = "";
+      try { const { loadGovernancePrefix } = await import("./governance.js"); govPrefix = loadGovernancePrefix(); } catch { /* governance optional */ }
+      const sysSynth = (govPrefix ? govPrefix + "\n\n" : "") +
+        "You are clawbot's research synthesiser. Write a concise, evidence-grounded answer to the user's question using ONLY the supplied evidence. Cite sources inline as [vault:path] or [N] (where N matches the web source). " +
+        "HARD RULE: obey any GOVERNANCE POLICIES above as the highest priority. If a source describes a different product or entity than the governance defines (same name, wrong product), DROP it entirely — do not quote, summarize, or let it shape the answer. Prefer vault notes over web sources when they conflict. " +
+        "If the evidence is thin or contradictory, say so plainly. Keep it under 350 words. Markdown allowed.";
+      // Synth in a try/catch so a transient LLM failure doesn't throw away
+      // all the web evidence we just fetched. On failure we build a usable
+      // fallback from the gathered sources rather than returning an error.
+      let synth: string;
+      let synthError: string | undefined;
+      try {
+        // 350-word target ≈ 500 tokens; 512 cap stops the model from rambling
+        // past the brief and shaves 10-20s on local Ollama vs the 1024 default.
+        // TIME-BOX the synth: the fetch path is already bounded (8s/URL), but
+        // the local-LLM synth over a big evidence catalog was UNBOUNDED — two
+        // runs hit 399s (6.7min) each in the 07-14→16 journal. Cap it
+        // (NEUROWORKS_RESEARCH_SYNTH_TIMEOUT_MS, default 120s); on timeout we
+        // fall into the same source-list fallback as a synth failure, so the
+        // gathered evidence is never thrown away.
+        const SYNTH_TIMEOUT_MS = Number(process.env.NEUROWORKS_RESEARCH_SYNTH_TIMEOUT_MS ?? "120000");
+        synth = await Promise.race([
+          ollamaGenerate(`Question: ${query}\n\n${evidence}\n\nWrite the answer.`, sysSynth, { profile: "synthesis", complexity: "high", maxTokens: 512 } as any),
+          new Promise<string>((_, rej) => setTimeout(() => rej(new Error(`research synth exceeded ${Math.round(SYNTH_TIMEOUT_MS / 1000)}s`)), SYNTH_TIMEOUT_MS)),
+        ]);
+      } catch (e: any) {
+        synthError = String(e?.message ?? e).slice(0, 200);
+        const okSources = fetched.filter((f: any) => f.ok && f.text);
+        const bullets = okSources.map((f: any, i: number) => {
+          const firstSentence = (f.text ?? "").replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)[0] ?? "";
+          return `[${i + 1}] **${f.title}** (${f.url}) — ${firstSentence.slice(0, 240)}`;
+        }).join("\n\n");
+        synth = `## Partial result\n\nThe synthesiser couldn't run (\`${synthError}\`), so here are the sources I gathered for: **${query}**\n\n### Vault hits\n${vaultHits.length > 0 ? vaultHits.slice(0, 5).map((h: any) => `- ${h.path}:${h.line} — ${h.preview}`).join("\n") : "_(none)_"}\n\n### Web sources\n${bullets || "_(no reachable web sources)_"}\n\n_Review the sources directly and try again later._`;
+      }
+
+      // 5. Capture as a 0-Inbox note. The vault MOC says: fleeting / unprocessed
+      //    thoughts go here. Promote later when matured into atomic insight.
+      let captured: { path: string } | undefined;
+      if (capture) {
+        const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
+        const slug = query.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "research";
+        const path = `0-Inbox/${stamp}-research-${slug}.md`;
+        const today = new Date().toISOString().slice(0, 10);
+        // Only validated sources are listed as "Web sources" in the
+        // captured note — junk URLs (login pages, 404s, off-topic SERPs)
+        // are recorded in a "Filtered sources" block so the audit trail
+        // is preserved without poisoning future re-reads.
+        const sourcesBlock = validSources.length > 0
+          ? validSources.map((f, i) => `${i + 1}. [${f.title}](${f.url}) _(relevance ${f.score}${f.engine ? `, ${f.engine}` : ""})_`).join("\n")
+          : "_(no sources survived validation)_";
+        const dropped = validation.dropped;
+        const filteredBlock = dropped.length > 0
+          ? `\n\n## Filtered sources _(${dropped.length} dropped by validator)_\n` + dropped.map(d => `- ~~[${d.title || d.url}](${d.url})~~ — ${d.verdict.reason}${d.verdict.detail ? ` (${d.verdict.detail})` : ""}`).join("\n")
+          : "";
+        const md = `---\ntitle: "Research: ${query.replace(/"/g, "'").slice(0, 120)}"\ncreated: ${today}\nsource: clawbot-research\nvalidator: strict\nsources_kept: ${validSources.length}\nsources_dropped: ${dropped.length}\n---\n\n# Research: ${query}\n\n${synth.trim()}\n\n## Web sources\n${sourcesBlock}${filteredBlock}\n\n## Vault hits at time of research\n${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") || "_(none)_"}\n`;
+        try {
+          writeVaultFile(path, md);
+          captured = { path };
+          void enqueueVaultCommit(`neuroworks: research — ${slug}`);
+        } catch { /* don't fail the whole research because the note didn't write */ }
+      }
+
+      return {
+        query,
+        answer: synth.trim(),
+        vaultHits: vaultHits.slice(0, 8),
+        webSources: validSources.map(f => ({ url: f.url, title: f.title, ok: true, score: f.score, engine: f.engine })),
+        webSourcesDropped: validation.dropped.map(d => ({ url: d.url, title: d.title, reason: d.verdict.reason, detail: d.verdict.detail })),
+        validation: validation.summary,
+        captured,
+      };
+    },
+  },
+  {
+    name: "research.multiperspective",
+    description: "Investigate a topic from MULTIPLE perspectives in parallel. Fans out sub-agents (each one a different framing: mainstream consensus, critical / skeptic, practitioner / applied, recent developments) — searches the web from each angle, fetches top sources, and synthesises a structured cross-perspective report with citations. Use for any task asking to 'analyse', 'research', 'explain X', 'investigate', or 'compare perspectives on X'. Captures the report to 0-Inbox/.",
+    readonly: false,
+    args: [
+      { name: "topic", type: "string", required: true, description: "The topic or question to investigate" },
+      { name: "perspectives", type: "string", required: false, description: "Comma-separated custom perspectives. Default: 'mainstream, critical, practitioner, recent'" },
+      { name: "sourcesPerPerspective", type: "number", required: false, description: "Top web sources to fetch per perspective (default 2, cap 4)" },
+      { name: "capture", type: "boolean", required: false, description: "If true (default), saves the report to 0-Inbox/" },
+    ],
+    handler: async (args) => {
+      const topic = String(args.topic);
+      const perspectivesRaw = String(args.perspectives ?? "").trim();
+      const perspectives = (perspectivesRaw
+        ? perspectivesRaw.split(",").map(s => s.trim()).filter(Boolean)
+        : ["mainstream", "critical", "practitioner", "recent"]
+      ).slice(0, 6);
+      const sourcesPer = Math.min(4, Math.max(1, Number(args.sourcesPerPerspective ?? 2)));
+      const capture = args.capture !== false;
+
+      // Vault-first — read whatever the user already has. Surface as one
+      // additional "perspective" so synth can compare external findings to the
+      // user's own notes.
+      const vaultHits = searchVault(topic, 20);
+
+      // Each perspective gets its own framed query. The framings are
+      // heuristic templates tuned to bias DDG's results toward that angle —
+      // not perfect, but cheap and reproducible.
+      const framingTemplates: Record<string, (t: string) => string> = {
+        mainstream: t => `${t} overview definition`,
+        critical: t => `${t} criticism limitations problems`,
+        practitioner: t => `${t} case study practical example how to`,
+        recent: t => `${t} 2026 latest news update`,
+        historical: t => `${t} history origin background`,
+        contrarian: t => `${t} contrarian view alternative perspective`,
+        academic: t => `${t} research paper study findings`,
+        beginner: t => `${t} beginner introduction simple explanation`,
+      };
+
+      const perspectiveQueries = perspectives.map(name => {
+        const key = name.toLowerCase().replace(/[^a-z]+/g, "");
+        const tmpl = framingTemplates[key];
+        const query = tmpl ? tmpl(topic) : `${topic} ${name}`;
+        return { name, query };
+      });
+
+      // Run all perspective searches in parallel — each is a sub-agent doing
+      // independent work. Uses the hardened searchWeb (DDG → Bing fallback)
+      // and fetchWeb (readability + per-URL cache), so a source shared
+      // across perspectives is fetched exactly once.
+      const perspectiveResults = await Promise.all(perspectiveQueries.map(async ({ name, query }) => {
+        let webResults: { title: string; url: string; snippet: string }[] = [];
+        try {
+          const s = await searchWeb(query, sourcesPer);
+          webResults = s.results;
+        } catch { /* tolerate per-perspective failure */ }
+        const fetched = await Promise.all(webResults.map(async (w) => {
+          try {
+            const r = await smartFetch(w.url, { maxBytes: 60_000, timeoutMs: 8_000 });
+            return { url: w.url, title: r.title ?? w.title, text: r.text.slice(0, 4_000), ok: true, usedBrowser: r.usedBrowser };
+          } catch (e: any) {
+            return { url: w.url, title: w.title, text: "", ok: false, error: String(e?.message ?? e) };
+          }
+        }));
+        return { name, query, sources: fetched };
+      }));
+
+      // Build a global numbered source list. Synth cites as [N].
+      const numbered: { ref: number; perspective: string; url: string; title: string; text: string }[] = [];
+      let n = 1;
+      for (const p of perspectiveResults) {
+        for (const s of p.sources) {
+          if (s.ok && s.text) {
+            numbered.push({ ref: n++, perspective: p.name, url: s.url, title: s.title, text: s.text });
+          }
+        }
+      }
+
+      // Synthesis prompt: enforce the structured shape the Researcher persona
+      // expects. The synth model returns the body of a research note.
+      const evidence = perspectiveResults.map(p => {
+        const refs = p.sources.filter(s => s.ok).map(s => {
+          const idx = numbered.find(x => x.url === s.url)?.ref;
+          return `[${idx}] ${s.title}\n${s.text}`;
+        }).join("\n\n");
+        return `### Perspective: ${p.name}\nSearch query: "${p.query}"\n${refs || "_(no reachable sources)_"}`;
+      }).join("\n\n");
+      const vaultBlock = vaultHits.length > 0
+        ? `\n### Vault notes (${vaultHits.length})\n${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line}) — ${h.preview}`).join("\n")}`
+        : "";
+
+      const sysSynth = `You are a structured research synthesiser. Write a single multi-perspective research note from the supplied evidence.
+
+Output shape (use these exact section headings):
+## Topic statement
+One paragraph framing the question precisely.
+
+## Perspectives
+A subsection per perspective with the perspective name as ### heading. Inside, write 2-4 sentences summarising what THAT perspective's sources say, citing each substantive claim as [N].
+
+## Cross-cutting themes
+Bullet list of points where perspectives converged, with [N] citations.
+
+## Open questions
+Bullet list of unresolved or contested claims, naming which perspectives disagree.
+
+## Bottom line
+One paragraph — your best honest synthesis, with the strongest caveats called out.
+
+Rules:
+- Never invent claims. If a perspective had no sources, say so explicitly in its section.
+- When perspectives contradict, NAME the contradiction. Don't paper over.
+- Cite every substantive claim as [N]. If you can't cite it, drop the claim.
+- Markdown only. No code fences around the whole thing.`;
+
+      // Synth via the LLM. THIS is the call that historically threw "fetch
+      // failed" when Ollama was briefly down — and because synth ran outside
+      // any try/catch, the per-perspective web evidence (which DID succeed)
+      // got thrown away with it. Now: if synth throws, we build a usable
+      // fallback report directly from the gathered evidence so the customer
+      // still gets value out of the run.
+      let synth: string;
+      let synthError: string | undefined;
+      try {
+        // Multi-perspective notes have 5 fixed sections — typically 400-600
+        // words / ~800 tokens. 768 is plenty without giving the model room
+        // to spiral into a wall-of-text. ~15-30s saved on local Ollama.
+        synth = await ollamaGenerate(
+          `Topic: ${topic}\n\nEvidence:\n${evidence}\n${vaultBlock}\n\nWrite the structured research note.`,
+          sysSynth,
+          { profile: "synthesis", complexity: "high", maxTokens: 768 } as any,
+        );
+      } catch (e: any) {
+        synthError = String(e?.message ?? e).slice(0, 200);
+        // Fallback report: stitch the gathered evidence into the same shape
+        // the synth would have produced, but without the LLM's polish. Better
+        // than throwing 5 minutes of fetched web content into the bin.
+        const fallbackPerspectives = perspectiveResults.map(p => {
+          const usable = p.sources.filter(s => s.ok && s.text);
+          if (usable.length === 0) {
+            return `### Perspective: ${p.name}\n_(no reachable sources for query "${p.query}")_`;
+          }
+          const bullets = usable.map(s => {
+            const idx = numbered.find(x => x.url === s.url)?.ref;
+            const firstSentence = s.text.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)[0] ?? "";
+            return `- [${idx}] **${s.title}** — ${firstSentence.slice(0, 200)}`;
+          }).join("\n");
+          return `### Perspective: ${p.name}\n${bullets}`;
+        }).join("\n\n");
+        synth = `## Topic statement\n${topic}\n\n## Perspectives\n\n${fallbackPerspectives}\n\n## Cross-cutting themes\n_(synthesis step failed: \`${synthError}\` — manual review of the sources below recommended)_\n\n## Open questions\n_(synthesis unavailable)_\n\n## Bottom line\n_The LLM synthesiser couldn't run. Sources are listed; the customer should review them directly._`;
+      }
+
+      // Capture to vault — uses the same 0-Inbox/ pattern as research.deep so
+      // the user's existing flow (promote to 2-Permanent via Knowledge page)
+      // works on these notes too.
+      let captured: { path: string } | undefined;
+      if (capture) {
+        const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
+        const slug = topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "research";
+        const path = `0-Inbox/${stamp}-multiperspective-${slug}.md`;
+        const today = new Date().toISOString().slice(0, 10);
+        const sourcesBlock = numbered.length > 0
+          ? numbered.map(s => `${s.ref}. [${s.title}](${s.url}) *(${s.perspective})*`).join("\n")
+          : "_(no reachable web sources)_";
+        const md = `---
+title: "Multi-perspective: ${topic.replace(/"/g, "'").slice(0, 120)}"
+created: ${today}
+source: clawbot-multiperspective
+perspectives: [${perspectives.map(p => `"${p}"`).join(", ")}]
+tags: [research, multiperspective]
+---
+
+# Multi-perspective research: ${topic}
+
+${synth.trim()}
+
+## Sources
+${sourcesBlock}
+
+## Vault hits at time of research
+${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") || "_(none)_"}
+`;
+        try {
+          writeVaultFile(path, md);
+          captured = { path };
+          void enqueueVaultCommit(`neuroworks: multiperspective — ${slug}`);
+        } catch { /* tolerate */ }
+      }
+
+      return {
+        topic,
+        perspectives: perspectives,
+        answer: synth.trim(),
+        vaultHits: vaultHits.slice(0, 8),
+        perspectiveResults: perspectiveResults.map(p => ({
+          name: p.name,
+          query: p.query,
+          sources: p.sources.map(s => ({ url: s.url, title: s.title, ok: s.ok, error: s.error })),
+        })),
+        sourceCount: numbered.length,
+        captured,
+      };
+    },
+  },
+  {
+    name: "email.send",
+    description: "Send an actual email via the configured outbound transport (Mailjet HTTPS API, with SMTP fallback). Use this for ANY 'send an email to X', 'email X about Y', 'reply to Z' task — do NOT use web.interact to drive Gmail's web UI, that's not a real send path. RECIPIENTS: if the user names someone by NAME or ROLE rather than giving a literal address (e.g. 'email Godswill', 'send it to the project lead'), you MUST resolve their real address from the org directory FIRST via users.lookup (or users.list) — never invent or guess an address, and never use placeholder/example domains. MULTIPLE RECIPIENTS (e.g. 'send to all users'): `to` accepts a comma-separated list or a JSON array of addresses — do NOT use a wildcard reference like \"$step_N.users.*.email\", it will NOT resolve; instead reference the resolved array directly, e.g. {\"to\":\"$step_N.users.*.email\"} only works if step_N's args used users.list — if unsure, prefer building the array explicitly from users.list's result. ATTACHMENTS: when the user asks to 'send/attach the document/file/report', pass its absolute path(s) in attach_paths (from fs.find_in's matches[].path) — do NOT paste a document's raw content into the body as a substitute for attaching it. Returns { ok, transport, from, to, recipients, subject, sentAt, attachments? } so the synth can confirm actual delivery instead of fabricating one — ALWAYS check `ok` before claiming the email sent. Body accepts markdown — converted to plaintext + HTML automatically.",
+    readonly: false,
+    args: [
+      { name: "to", type: "string", required: true, description: "Recipient's REAL email address, or MULTIPLE addresses as a comma-separated list / JSON array for a broadcast. If you only have a name/role, call users.lookup first to get it. Every address must be real — NOT a placeholder like name@example.com or '[project lead email]'." },
+      { name: "subject", type: "string", required: true, description: "Email subject line (no Re: prefix unless replying)" },
+      { name: "body", type: "string", required: true, description: "Email body in markdown — headings, bullets, links all rendered to HTML AND plaintext" },
+      { name: "in_reply_to", type: "string", required: false, description: "Optional Message-ID of the message being replied to" },
+      { name: "attach_paths", type: "string", required: false, description: "Absolute file path(s) to attach — typically $step_N.matches.0.path from fs.find_in. Accepts a single path, a comma-separated list, or a JSON array. Files are read from disk and attached as-is (PDF/XLSX/DOCX/images/etc, 10MB total cap). Use this instead of inlining a document's content in the body." },
+    ],
+    handler: async (args) => {
+      const { sendEmail, coerceEmailBody } = await import("./email.js");
+      const { assertSafeExternalPath } = await import("./security-gates.js");
+      // `to` is a real string, an array (a resolved $step_N.path.*.field
+      // wildcard resolves to one), a JSON-array string, or comma-separated.
+      const to = parseFlexibleList(args.to);
+      const subject = String(args.subject ?? "").trim();
+      // Body may arrive as a prior step's result OBJECT, not a string — coerce
+      // to readable markdown (pulls .answer/.text/etc.) instead of "[object Object]".
+      const body = coerceEmailBody(args.body).trim();
+      const inReplyTo = args.in_reply_to ? String(args.in_reply_to).trim() : undefined;
+      const attachPaths = parseFlexibleList(args.attach_paths);
+      // Fail fast on an UNRESOLVED step reference. A literal "$step_N…" left in
+      // to/subject/body/attach_paths means the planner wired a reference the
+      // executor couldn't substitute (a wrong field or a wildcard that didn't
+      // resolve) — the dominant email.send failure class in the job records
+      // (invalid 'to' "$step_…", attachment not found "$step_0.matches.0.path",
+      // body carrying "$step_…"). Reject here with a diagnosis instead of
+      // emitting a broken recipient / missing attachment.
+      const unresolved = (v: string) => /\$step_\d/.test(v);
+      const badFields = [
+        to.some(unresolved) && "to",
+        unresolved(subject) && "subject",
+        unresolved(body) && "body",
+        attachPaths.some(unresolved) && "attach_paths",
+      ].filter(Boolean) as string[];
+      if (badFields.length) {
+        throw new Error(`email.send: unresolved step reference in ${badFields.join(", ")} — a literal "$step_N…" placeholder reached the send instead of the previous step's output. Reference a field that actually exists (e.g. $step_0.matches.0.path), or resolve it first (users.lookup to turn a name into an address; build the recipient array explicitly from users.list).`);
+      }
+      // Same sensitive-path gate as fs.read_external/doc.ocr — an agent
+      // attaching a file must clear the same bar as one reading it.
+      for (const p of attachPaths) assertSafeExternalPath(p);
+      return await sendEmail({ to, subject, body, inReplyTo, attachPaths: attachPaths.length ? attachPaths : undefined });
+    },
+  },
+  {
+    name: "doc.ocr",
+    description: "Extract text from an IMAGE-ONLY document (scanned PDF, photo of a doc, .png/.jpg/.jpeg etc.) when fs.read_external returned empty or near-empty content. Two engines: 'auto' (default — local tesseract for images, cloud for PDFs), 'local' (offline tesseract.js, images only), 'cloud' (OpenRouter multimodal — accepts PDFs natively). Path MUST be an absolute path returned by fs.find_in. Returns { text, engine, model?, pages?, truncated }. Chain this AFTER fs.read_external when its content is short and the file is a PDF / image.",
+    readonly: true,
+    args: [
+      { name: "path", type: "string", required: true, description: "Absolute path to the document (typically $step_N.resolvedTo from a prior fs.read_external, or $step_N.matches.0.path from fs.find_in)" },
+      { name: "engine", type: "string", required: false, description: "'auto' (default) | 'local' | 'cloud'" },
+    ],
+    handler: async (args) => {
+      const { ocrFile } = await import("./ocr.js");
+      const raw = String(args.path ?? "").trim();
+      if (!raw) throw new Error("doc.ocr: path required");
+      const engine = (String(args.engine ?? "auto").toLowerCase() as "auto" | "local" | "cloud");
+      if (!["auto", "local", "cloud"].includes(engine)) throw new Error(`doc.ocr: unknown engine "${engine}"`);
+      const { assertSafeExternalPath } = await import("./security-gates.js");
+      assertSafeExternalPath(raw);
+      const result = await ocrFile(raw, engine);
+      return { content: result.text, ...result, resolvedTo: raw };
+    },
+  },
+  {
+    // NOTE: NOT "db.schema" by source_id via db.list_sources' id field —
+    // this is intentionally kept distinct from the primary db.list_sources
+    // (line ~478) / db.query (line ~531) / db.describe_table family, which
+    // are all label-based (source: string). This one accepts either a
+    // source_id OR a label so existing callers using either shape work.
+    name: "db.schema",
+    description: "Get the schema (tables + columns) for a registered company database. Pass sourceId (id) OR source (label) from db.list_sources. Returns { tables: [{ name, columns: [{ name, type }] }] }.",
+    readonly: true,
+    args: [{ name: "sourceId", type: "string", required: true, description: "id or label from db.list_sources" }],
+    handler: async (args) => {
+      const key = String(args.sourceId ?? "");
+      const src = getSource(key) ?? getSourceByLabel(key);
+      if (!src) throw new Error(`db.schema: no data source matches id/label "${key}". Call db.list_sources first — if that returns an empty array, no company database is registered yet (ask the operator to connect one on the Data Sources page).`);
+      return await describeSource(src);
+    },
+  },
+  {
+    name: "company.department_data",
+    description: "Fetch operator-curated, department-specific company data (facts, policies, assumptions, territories, etc.) from the Company-data page. Pass a department name (e.g. 'Finance', 'HR', 'Sales') to get just that team's entries, or omit it to list every department that has data. Use this before a department task so you have the team's facts instead of guessing. Returns { departments:[{department,count}], data:[{department,title,content}] }.",
+    readonly: true,
+    args: [{ name: "department", type: "string", required: false, description: "Department name to filter by (case-insensitive). Omit to list all departments + their data." }],
+    handler: async (args) => {
+      const { listDepartmentData, listDepartments } = await import("./department-data.js");
+      const department = args.department ? String(args.department) : undefined;
+      const data = listDepartmentData(department).map(d => ({ department: d.department, title: d.title, content: d.content }));
+      return { departments: listDepartments(), data };
+    },
+  },
+  {
+    name: "company.documents",
+    description: "The company's uploaded reference documents (vault _company/ — strategic plan, governance policy, compliance certificates, proposals, price schedules, org charts). Call with no args to LIST what exists; pass name (full or partial filename) to READ one document's extracted text. Use for questions the org's official documents answer: strategy, policy, governance, compliance, pricing, company background. Binary uploads (PDF/DOCX/XLSX) are readable via their auto-extracted text.",
+    readonly: true,
+    args: [{ name: "name", type: "string", required: false, description: "Full or partial (case-insensitive) filename to read. Omit to list all documents." }],
+    handler: async (args) => {
+      const { readdirSync, readFileSync, statSync, existsSync } = await import("node:fs");
+      const { resolve, extname, basename } = await import("node:path");
+      const { config } = await import("../config.js");
+      const dir = resolve(config.vaultPath, "_company");
+      if (!existsSync(dir)) return { documents: [], note: "no _company folder in the vault" };
+      const all = readdirSync(dir).filter(f => !f.startsWith("."));
+      const sources = all.filter(f => !f.endsWith(".extracted.md"));
+      const query = args.name ? String(args.name).toLowerCase().trim() : "";
+      if (!query) {
+        return {
+          documents: sources.map(f => ({
+            name: f,
+            bytes: statSync(resolve(dir, f)).size,
+            readable: all.includes(`${basename(f, extname(f))}.extracted.md`) || [".md", ".txt", ".csv"].includes(extname(f).toLowerCase()),
+          })),
+        };
+      }
+      const hit = sources.find(f => f.toLowerCase() === query)
+        ?? sources.find(f => f.toLowerCase().includes(query));
+      if (!hit) return { error: `no company document matching "${args.name}"`, available: sources };
+      const ext = extname(hit).toLowerCase();
+      const sidecar = resolve(dir, `${basename(hit, ext)}.extracted.md`);
+      if ([".md", ".txt", ".csv"].includes(ext)) {
+        return { name: hit, text: readFileSync(resolve(dir, hit), "utf8").slice(0, 60_000) };
+      }
+      if (existsSync(sidecar)) {
+        return { name: hit, text: readFileSync(sidecar, "utf8").slice(0, 60_000), via: "extracted sidecar" };
+      }
+      // No sidecar yet (new upload since the last extraction pass) — extract live.
+      try {
+        const { extractDocText } = await import("./doc-extractor.js");
+        const r = await extractDocText(resolve(dir, hit));
+        const text = (r.text ?? "").trim();
+        if (text) return { name: hit, text: text.slice(0, 60_000), via: "live extraction" };
+        return { name: hit, error: "document has no extractable text (image or unsupported format)" };
+      } catch (e: any) {
+        return { name: hit, error: `extraction failed: ${e?.message ?? e}` };
+      }
+    },
+  },
+  {
+    name: "finance.biz_sale",
+    description: "Record a Variety & Co sale (income) in this server's own Business Finance books — NOT the Aiia FinanceFlow connector (that's the company's separate finance system; this is the repair-shop till). Optionally links to a price-book product by name for margin tracking. APPROVAL-GATED like all finance.* tools.",
+    readonly: false,
+    args: [
+      { name: "label", type: "string", required: true, description: "What was sold, e.g. 'Screen replacement — Tecno Spark'" },
+      { name: "amount", type: "number", required: true, description: "Sale amount (positive number)" },
+      { name: "product", type: "string", required: false, description: "Price-book product name to link (case-insensitive match). Unmatched names record unlinked — never auto-creates products." },
+      { name: "date", type: "string", required: false, description: "YYYY-MM-DD, default today" },
+    ],
+    handler: async (args) => {
+      const { addTxn, listProducts } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const owner = await financeOwner();
+      const label = String(args.label ?? "").trim();
+      if (!label) return { error: "label is required" };
+      const amount = Number(args.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return { error: "amount must be a positive number" };
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date ?? "")) ? String(args.date) : new Date().toISOString().slice(0, 10);
+      let productId: string | undefined;
+      const pname = String(args.product ?? "").trim().toLowerCase();
+      if (pname) {
+        const hit = listProducts(owner).find(p => p.name.toLowerCase() === pname);
+        if (hit) productId = hit.id;
+      }
+      const txn = addTxn(owner, { type: "income", label, category: "Sales", amount, date, productId });
+      return { ok: true, txn, productLinked: !!productId };
+    },
+  },
+  {
+    name: "finance.biz_expense",
+    description: "Record a Variety & Co business expense in this server's own Business Finance books — NOT the Aiia FinanceFlow connector. Expenses at/above the configured approval threshold do NOT post: they park as pending + file an OrgTask, and this returns { parked:true, taskId } — tell the operator it's awaiting approval instead of treating it as recorded. APPROVAL-GATED like all finance.* tools.",
+    readonly: false,
+    args: [
+      { name: "label", type: "string", required: true, description: "What was spent on, e.g. 'Bulk phone screens'" },
+      { name: "amount", type: "number", required: true, description: "Expense amount (positive number)" },
+      { name: "category", type: "string", required: false, description: "One of Stock, Rent, Salaries, Transport, Utilities, Marketing, Maintenance, Fees, Other. Default Other." },
+      { name: "date", type: "string", required: false, description: "YYYY-MM-DD, default today" },
+    ],
+    handler: async (args) => {
+      const { addTxn, createPendingSpend, getSettings, buildFinanceTaskDetail } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const owner = await financeOwner();
+      const label = String(args.label ?? "").trim();
+      if (!label) return { error: "label is required" };
+      const amount = Number(args.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return { error: "amount must be a positive number" };
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date ?? "")) ? String(args.date) : new Date().toISOString().slice(0, 10);
+      const category = String(args.category ?? "Other").trim() || "Other";
+      const { approvalThreshold } = getSettings(owner);
+      if (approvalThreshold > 0 && amount >= approvalThreshold) {
+        const { createOrgTask, requestApproval, setTaskDetail } = await import("./org-tasks.js");
+        const task = createOrgTask({
+          role: "admin",
+          title: `Approve expense: ${label.slice(0, 80)} ($${amount})`,
+          detail: "finance: composing…",
+          priority: amount >= approvalThreshold * 3 ? "high" : "normal",
+          createdBy: "naxie",
+        });
+        const pending = createPendingSpend(owner, { label, category, amount, date, taskId: task.id });
+        setTaskDetail(task.id, buildFinanceTaskDetail(pending.id, `${label.slice(0, 80)} — $${amount} (${category}, ${date})`));
+        requestApproval(task.id, {
+          actionDescription: `Record a $${amount} business expense for "${label.slice(0, 80)}"?`,
+          kind: "spend",
+        });
+        return { ok: true, parked: true, taskId: task.id, pending, note: "At/above the approval threshold — parked, not posted. Awaiting operator approval." };
+      }
+      const txn = addTxn(owner, { type: "expense", label, category, amount, date });
+      return { ok: true, parked: false, txn };
+    },
+  },
+  {
+    name: "finance.biz_price",
+    description: "Look up Variety & Co price-book entries by name (cost, sell, margin) — answers 'what do we charge for X?' / 'what's our margin on Y?'. Read-only. This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    readonly: true,
+    args: [
+      { name: "query", type: "string", required: true, description: "Product name (or fragment) to look up" },
+    ],
+    handler: async (args) => {
+      const { listProducts, marginOf } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const owner = await financeOwner();
+      const q = String(args.query ?? "").trim().toLowerCase();
+      if (!q) return { error: "query is required" };
+      const hits = listProducts(owner, { includeInactive: true }).filter(p => p.name.toLowerCase().includes(q));
+      return {
+        ok: true,
+        products: hits.map(p => ({
+          name: p.name, category: p.category, cost: p.costPrice, sell: p.sellPrice, unit: p.unit,
+          active: p.active, margin: marginOf(p.costPrice, p.sellPrice),
+        })),
+      };
+    },
+  },
+  {
+    name: "finance.biz_product_add",
+    description: "Add a product to the Variety & Co price book (cost + sell price, margin computed). This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    readonly: false,
+    args: [
+      { name: "name", type: "string", required: true, description: "Product name, e.g. 'Screen replacement — Samsung A12'" },
+      { name: "cost", type: "number", required: true, description: "Cost price (non-negative)" },
+      { name: "sell", type: "number", required: true, description: "Sell price (non-negative)" },
+      { name: "category", type: "string", required: false, description: "Repair, Accessories, Devices, Services, Other. Default Other." },
+      { name: "unit", type: "string", required: false, description: "Pricing unit, default 'each'" },
+    ],
+    handler: async (args) => {
+      const { createProduct, listProducts, marginOf } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const owner = await financeOwner();
+      const name = String(args.name ?? "").trim();
+      if (!name) return { error: "name is required" };
+      const cost = Number(args.cost);
+      const sell = Number(args.sell);
+      if (!Number.isFinite(cost) || cost < 0 || !Number.isFinite(sell) || sell < 0) {
+        return { error: "cost and sell must be non-negative numbers" };
+      }
+      const dupe = listProducts(owner, { includeInactive: true }).find(p => p.name.toLowerCase() === name.toLowerCase());
+      if (dupe) return { error: `price book already has "${dupe.name}" — update it on the Business Finance page instead of duplicating` };
+      const product = createProduct(owner, { name, costPrice: cost, sellPrice: sell, category: String(args.category ?? "Other"), unit: String(args.unit ?? "each") });
+      return { ok: true, product: { ...product, margin: marginOf(product.costPrice, product.sellPrice) } };
+    },
+  },
+  {
+    name: "finance.biz_leaks",
+    description: "Scan Variety & Co books for money leaks: recurring drains (same charge across 3+ months) and category spikes (this month ≥2× recent average). Deterministic arithmetic, no LLM judgment. This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { findLeaks } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const leaks = findLeaks(await financeOwner());
+      return { ok: true, leaks };
+    },
+  },
+  {
+    name: "finance.biz_forecast",
+    description: "Cash runway + 3-month projection for Variety & Co from recorded books (avg income/burn, net, cash on hand, top products by revenue). Deterministic arithmetic. This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { forecastBiz, summarizeBiz } = await import("./business-finance.js");
+      const { financeOwner } = await import("./business-finance-agent.js");
+      const owner = await financeOwner();
+      return { ok: true, forecast: forecastBiz(owner), summary: summarizeBiz(owner) };
+    },
+  },
+  {
+    name: "finance.snapshot",
+    description: "RETIRED (2026-07-10) legacy push-model snapshot — the Finance System used to POST its dashboard to /api/public/dashboard and this read it back. That pushed data was stale and has been cleared; this now always returns available:false. For real financial figures, use connector.call on the live \"Aiia FinanceFlow\" connector instead (list-budgets, list-receipts, list-requisitions endpoints). Kept only in case the old push mechanism is ever revived.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { getFinanceSnapshot } = await import("./finance-snapshot.js");
+      const snap = getFinanceSnapshot();
+      if (!snap) {
+        return { available: false, message: "No finance data has been pushed yet (this push-model mechanism is retired). Use connector.call on the live \"Aiia FinanceFlow\" connector instead — list-budgets, list-receipts, list-requisitions." };
+      }
+      const staleDays = Math.floor((Date.now() - new Date(snap.receivedAt).getTime()) / 86_400_000);
+      return { available: true, mapped: snap.mapped, currency: snap.currency, period: snap.period, receivedAt: snap.receivedAt, staleDays };
+    },
+  },
+  {
+    name: "peer.delegate",
+    description: "Hand a task off to a peer clawbot (the lightest-loaded one). Returns the peer's final answer once the peer's job completes. Use when the local clawbot is overloaded or when you want a second model's perspective.",
+    readonly: true,
+    args: [
+      { name: "task", type: "string", required: true, description: "Plain-English task to delegate" },
+      { name: "persona", type: "string", required: false, description: "Optional persona id to apply on the peer" },
+    ],
+    handler: async (args) => {
+      const task = String(args.task);
+      const persona = args.persona ? String(args.persona) : undefined;
+      return await delegateToBestPeer({ task, persona });
+    },
+  },
+  {
+    name: "peer.review",
+    description: "Send a draft answer to a peer clawbot for quality review. Returns { verdict, issues, revised_answer, confidence }. Use after synthesising a non-trivial answer to catch errors and tighten prose.",
+    readonly: true,
+    args: [
+      { name: "task", type: "string", required: true, description: "The original task / question" },
+      { name: "answer", type: "string", required: true, description: "The draft answer to review" },
+    ],
+    handler: async (args) => {
+      const task = String(args.task);
+      const answer = String(args.answer);
+      return await reviewWithPeer({ task, answer });
+    },
+  },
+  {
+    name: "quality.check",
+    description: "Score a draft answer on three axes — factuality_risk, citation_coverage, persona_fit — and return { pass, score, issues }. Cheaper and more structured than peer.review; use after synthesis to catch hallucinations and missing citations.",
+    readonly: true,
+    args: [
+      { name: "task", type: "string", required: true, description: "The original task / question" },
+      { name: "answer", type: "string", required: true, description: "The draft answer to check" },
+      { name: "sources", type: "string", required: false, description: "Optional sources/evidence text (comma-separated paths or free text)" },
+      { name: "context", type: "string", required: false, description: "Optional framing for what the asker actually wanted (role, title/summary, deliverable intent). Lets the grader judge persona_fit and completeness against real intent instead of a terse task line." },
+      { name: "grounded", type: "boolean", required: false, description: "Whether grounding/citations are EXPECTED for this answer. Pass false for a direct conversational answer produced from the model's own knowledge (no retrieval) — the grader then won't treat missing citations as factuality risk and judges mainly on persona_fit. Defaults to the deliverable-class heuristic (research = grounded)." },
+    ],
+    handler: async (args) => {
+      const task = String(args.task);
+      const answer = String(args.answer);
+      const sources = args.sources ? String(args.sources) : "";
+      const context = args.context ? String(args.context) : "";
+      // Explicit ungrounded override: the caller knows this answer was produced
+      // WITHOUT retrieval (e.g. a Hermes/direct conversational answer). Missing
+      // citations are then expected, not a fault — so we don't let the research
+      // rubric inflate factuality_risk for uncited-but-correct prose.
+      const forceUngrounded = args.grounded === false;
+
+      // Deterministic counts the grader uses to bound the LLM verdict.
+      // Citations in this system come in three forms the synth is taught to
+      // emit: inline numbered markers [1] [2], vault-path markers
+      // [vault:notes/path.md], and bare URLs in references-only blocks.
+      // Counting them upfront prevents the LLM scorer from giving a 0 when
+      // the answer is well-cited but the scorer didn't recognise the format.
+      const numberedMarkers = (answer.match(/\[\d+\]/g) ?? []).length;
+      const vaultMarkers = (answer.match(/\[vault:[^\]]+\]/g) ?? []).length;
+      const urlMatches = (answer.match(/https?:\/\/[^\s)<>"']+/g) ?? []).length;
+      const totalCitations = numberedMarkers + vaultMarkers + urlMatches;
+      // Substantive sentences: rough heuristic — split on sentence punctuation,
+      // count those >= 40 chars. Avoids counting bullet leads ("- bullet")
+      // and one-word fragments.
+      const substantiveSentences = answer
+        .split(/(?<=[.!?])\s+/)
+        .map(s => s.trim())
+        .filter(s => s.length >= 40).length;
+      const sourcesProvided = sources.trim().length > 0;
+      // Citation floor: when sources WERE provided, we expect at least one
+      // citation per ~3 substantive sentences. When NO sources were given,
+      // citation_coverage doesn't apply (set floor to 1.0).
+      const citationFloor = !sourcesProvided
+        ? 1.0
+        : substantiveSentences === 0
+          ? 1.0
+          : Math.min(1.0, totalCitations / Math.max(1, substantiveSentences / 3));
+
+      // Deliverable-aware grading. The citation + strict-factuality rubric
+      // fits research/analysis answers, but mis-scores other deliverables:
+      // marketing copy is aspirational (no sources to cite), a runbook draws
+      // on operational know-how (not citations), and code is judged on
+      // correctness. Classify the deliverable from the task so the rubric and
+      // weights match what was actually asked for. Shared with the planner
+      // (deliverable.ts) so both agree on the deliverable type.
+      // Classify against task + context: the context (title/summary/intent)
+      // often carries the deliverable signal a terse task line omits.
+      const deliverableClass = classifyDeliverable(context ? `${task}\n${context}` : task);
+      // Citations apply only for a research deliverable that's ALSO expected to
+      // be grounded. An explicit grounded:false override (conversational/direct
+      // answer) drops the citation gate even for a research-classified task.
+      const citationApplies = deliverableClass === "research" && !forceUngrounded;
+      // For non-research / ungrounded deliverables, citation_coverage doesn't
+      // apply — floor it to 1.0 so it can't drag the score, and let persona_fit
+      // carry weight.
+      const effectiveFloor = citationApplies ? citationFloor : 1.0;
+      const classNote =
+        forceUngrounded
+          ? `\n\nDELIVERABLE TYPE: direct conversational answer. The model answered from its OWN knowledge with NO retrieved sources — it is EXPECTED to carry NO citations. Report citation_coverage as 1.0 (not applicable). Do NOT raise factuality_risk for uncited claims; raise it ONLY for internal contradictions or clearly false / implausible statements. Judge mainly on persona_fit: did it directly and correctly answer the question in the requested tone and format?`
+        : deliverableClass === "creative"
+          ? `\n\nDELIVERABLE TYPE: creative / marketing copy. This is aspirational product or marketing writing — it is EXPECTED to make forward-looking claims and carry NO citations. Do NOT raise factuality_risk for uncited or aspirational claims; raise it only for internal contradictions or clearly implausible statements. Report citation_coverage as 1.0 (not applicable). Judge mainly on persona_fit: tone, format adherence (e.g. requested bullet count), and persuasiveness.`
+          : deliverableClass === "procedural"
+          ? `\n\nDELIVERABLE TYPE: procedural / how-to / runbook. This draws on operational know-how, not external sources — it is EXPECTED to carry NO citations. Report citation_coverage as 1.0 (not applicable). Raise factuality_risk only for incorrect or unsafe steps. Judge mainly on persona_fit: completeness, correct ordering, and whether it honors the requested structure (e.g. number of steps).`
+          : deliverableClass === "code"
+          ? `\n\nDELIVERABLE TYPE: code / technical artifact. Citations are not applicable — report citation_coverage as 1.0. Raise factuality_risk only for incorrect or non-functional code. Judge mainly on persona_fit: correctness, completeness, and adherence to the requested form.`
+          : `\n\nDELIVERABLE TYPE: research / analysis. Inline citations matter — score citation_coverage honestly against the evidence and raise factuality_risk for unsupported claims.`;
+
+      // Fast path: Jev (a typed-judgment model, not generative) answers three
+      // calibrated yes/no questions in ~100s of ms instead of a full JSON-
+      // authoring LLM call. citation_coverage is never sent to Jev — it's
+      // already computed deterministically above (effectiveFloor). Any Jev
+      // failure (disabled, network, timeout, malformed answer) falls through
+      // to the existing LLM grader below, completely unchanged.
+      if (config.jevEnabled) {
+        try {
+          const jevAnswers = await askJev(
+            {
+              task,
+              ...(context ? { context: context.slice(0, 1500) } : {}),
+              answer,
+              ...(sources ? { sources: sources.slice(0, 4000) } : {}),
+              deliverableClass,
+              groundingExpected: !forceUngrounded,
+            },
+            {
+              factuality: { type: "noul", instructions: `Does this draft answer contain hallucinated, unsupported, or clearly false/implausible claims?${classNote}` },
+              persona: { type: "noul", instructions: `Does the answer's tone, structure, and format match what the task asked for (persona/style fit)?${classNote}` },
+              alignment: { type: "noul", instructions: `Did the answer fully and directly address every explicit instruction in the task — nothing ignored, no drift off-topic?${classNote}` },
+            },
+          );
+          const axes = {
+            factuality_risk: clamp01(jevAnswers.factuality?.probability),
+            citation_coverage: effectiveFloor,
+            persona_fit: clamp01(jevAnswers.persona?.probability),
+            prompt_alignment: clamp01(jevAnswers.alignment?.probability),
+          };
+          const { pass, score } = computeQualityVerdict(axes, { citationApplies, forceUngrounded });
+          const issues = deterministicIssues(axes, { citationApplies, forceUngrounded });
+          // Flat per-call estimate — TypeSafe hasn't published exact per-token
+          // pricing we could verify; this is a placeholder order-of-magnitude
+          // so Cost.tsx isn't silently blind to this spend, not a billed figure.
+          recordCost({ jobId: "adhoc", model: config.jevModel, backend: "jev", profile: "quality.check", inputTokens: 0, outputTokens: 0, costUsd: 0.0003, ts: new Date().toISOString() });
+          return { pass, ...axes, score, issues, deliverableClass, graderUsed: "jev" as const };
+        } catch (e: any) {
+          if (!(e instanceof JevUnavailable)) {
+            console.warn(`[quality.check] Jev grading failed unexpectedly, falling back to LLM grader: ${e?.message ?? e}`);
+          }
+          // fall through to the LLM grader below
+        }
+      }
+
+      const sys = `You are a quality scorer for an agent's draft answer. Score the draft on four axes from 0.0 (worst) to 1.0 (best):
+1. factuality_risk — likelihood the answer contains hallucinated or unsupported claims (1.0 means high risk; lower is better).
+2. citation_coverage — fraction of substantive claims backed by an inline citation. In this system, citations look like [1] [2] (numbered, matching the evidence catalog), [vault:path/to/note.md] (vault-path markers), or bare URLs. Count an answer as well-cited when it carries these markers. If NO sources are provided, citation_coverage MUST be 1.0 — there's nothing to cite against.
+3. persona_fit — match between the answer's tone/structure and what the task asked for.
+4. prompt_alignment — did the answer actually DO WHAT THE USER ASKED? Judge whether it directly and completely addresses the specific request and honours every explicit instruction: the deliverable type, format/structure, any requested count or length, named topic/scope, and constraints. An answer that is well-written but drifts off-topic, ignores an explicit instruction, answers a different question, or omits what was asked scores LOW here even if the other axes are fine. 1.0 = fully on-target and instruction-following; below 0.5 = missed or ignored the actual ask.
+
+Output ONLY a JSON object, no prose, no fences:
+{"factuality_risk":<0..1>,"citation_coverage":<0..1>,"persona_fit":<0..1>,"prompt_alignment":<0..1>,"issues":["<short>",...],"pass":<true|false>}
+
+Pass is true when factuality_risk < 0.4 AND citation_coverage > 0.4 AND persona_fit > 0.5 AND prompt_alignment >= 0.5.
+
+When you're uncertain about citation_coverage, lean higher when you see [N] or [vault:...] markers in the answer. prompt_alignment is independent of citations — an uncited but perfectly on-target answer still scores high on alignment.`;
+      // When the caller supplies context (the asker's role, the request
+      // title/summary, deliverable intent), tell the scorer to judge against
+      // that stated intent rather than a literal reading of a terse task line —
+      // this is what lifts persona_fit/completeness scores on requests whose
+      // one-line task underspecifies what a good answer looks like.
+      const contextNote = context
+        ? `\n\nTASK CONTEXT: the asker's intent is described in the "Task context" block of the prompt. Judge persona_fit and completeness against that intent (the role, the request's title/summary, and what a good deliverable for it looks like) — not against a narrow literal reading of the one-line task. Do not penalise an answer for omitting things the context did not actually ask for.`
+        : "";
+      // The output is a small JSON blob (~80-200 tokens). 256 tokens is a
+      // generous cap that stops the model from rambling and shaves 3-8s off
+      // this call on local Ollama versus the default 1024-token budget.
+      const scorePrompt = `Task: ${task}${context ? `\n\nTask context (what the asker actually wanted):\n${context.slice(0, 1500)}` : ""}\n\nDraft answer:\n${answer}${sources ? `\n\nSources:\n${sources.slice(0, 4000)}` : ""}`;
+      // Resilient scoring: try the extraction profile (may route to OpenRouter)
+      // first, but on a transient cloud failure (429 / rate limit / transport)
+      // fall back to LOCAL Ollama so the QA gate never hard-fails. Without this
+      // a bulk grading pass 500s on every OR rate-limit hit. profile=undefined
+      // forces local generation (shouldRouteToOpenRouter is false with no profile).
+      // temperature:0 pins the scorer's output so run-to-run grader noise
+      // (run1 0.822 / run2 0.817 / run3 0.824 swings — all within sampling
+      // noise) stops masquerading as quality regressions. 300s wall-time cap
+      // kills the recurring pathological tail (5464s quality.check outlier in
+      // the 2026-05-29 reflection, ~91 min on one job) — on timeout we
+      // return a non-passing verdict rather than letting the QA gate hang.
+      let raw: string = "";
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      // Wall cap tightened 300s → 120s (NEUROWORKS_QUALITY_TIMEOUT_MS): with the
+      // extraction profile on the cheap cloud tier the grader answers in
+      // seconds, so anything past 2 min is a stall, not a slow grade. The
+      // 2026-07-03 reflection flagged 76s→171s doublings under the old cap.
+      const QUALITY_CAP_MS = Math.max(15_000, Number(process.env.NEUROWORKS_QUALITY_TIMEOUT_MS ?? "120000"));
+      try {
+        raw = await Promise.race<string>([
+          (async () => {
+            try {
+              return await ollamaGenerate(scorePrompt, sys + classNote + contextNote, { profile: "extraction", maxTokens: 256, temperature: 0 });
+            } catch (e: any) {
+              const msg = String(e?.message ?? e);
+              // Auth/config errors still throw — a broken key must surface,
+              // not silently grade locally forever. EVERYTHING else falls
+              // back to local: the grader is advisory, and a cloud miss that
+              // records all-zeros poisons the persona_fit learning signal
+              // (the 2026-09-28 scan's "Naxie weakest on persona_fit" was
+              // grader-outage zeros from the failing cloud tier, not tone
+              // drift). A local grade beats a zero every time.
+              if (/401|403|unauthorized|invalid(?:\s+api)?\s*key|api\s*key\s+(missing|invalid|required)|forbidden/i.test(msg)) throw e;
+              return await ollamaGenerate(scorePrompt, sys + classNote + contextNote, { profile: undefined, maxTokens: 256, temperature: 0 });
+            }
+          })(),
+          new Promise<string>((_, rej) => { timer = setTimeout(() => rej(new Error(`quality.check wall-time cap (${Math.round(QUALITY_CAP_MS / 1000)}s) exceeded`)), QUALITY_CAP_MS); }),
+        ]);
+      } catch (e: any) {
+        // Routine (non-research) deliverables fail OPEN on a grader stall: the
+        // check is advisory there, and a fail-closed verdict cascades into
+        // skill-draft + rescue re-synths that cost far more than the risk of
+        // an ungraded runbook. Research stays fail-closed — uncited claims
+        // slipping through is the exact failure the gate exists to catch.
+        if (deliverableClass !== "research") {
+          return { pass: true, factuality_risk: 0.3, citation_coverage: 1, persona_fit: 0.7, prompt_alignment: 0.7, score: 0.7, issues: [`grader unavailable (${String(e?.message ?? e).slice(0, 100)}) — advisory pass for ${deliverableClass} deliverable`], deliverableClass, graderSkipped: true, graderUsed: "llm" as const };
+        }
+        return { pass: false, factuality_risk: 1, citation_coverage: 0, persona_fit: 0, prompt_alignment: 0, score: 0, issues: [`scorer failed: ${String(e?.message ?? e).slice(0, 160)}`], deliverableClass, graderUsed: "llm" as const };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) return { pass: false, factuality_risk: 1, citation_coverage: 0, persona_fit: 0, prompt_alignment: 0, issues: ["scorer returned no JSON"], raw, graderUsed: "llm" as const };
+      try {
+        const parsed = JSON.parse(m[0]);
+        // Use the higher of the LLM's verdict and the deterministic floor for
+        // citation_coverage. Stops the scorer from punishing answers that
+        // are clearly well-cited but whose format it didn't recognise.
+        const llmCitation = clamp01(parsed.citation_coverage);
+        const citationCoverage = Math.max(llmCitation, effectiveFloor);
+        const factualityRisk = clamp01(parsed.factuality_risk);
+        const personaFit = clamp01(parsed.persona_fit);
+        // prompt_alignment — did the answer do what was asked. Falls back to
+        // persona_fit when a grader (or a cached older prompt) omits it, so a
+        // missing field never nukes an otherwise-good answer.
+        const promptAlignment = parsed.prompt_alignment == null ? personaFit : clamp01(parsed.prompt_alignment);
+        // Per-class scoring. Research weights factuality + citations heavily.
+        // Non-research deliverables (creative / procedural / code) are carried
+        // by persona_fit — citations don't apply and factuality is relaxed
+        // (aspirational marketing copy and how-to steps shouldn't be punished
+        // as "hallucinations"), so the rubric matches what was asked for.
+        // prompt_alignment carries weight in every class — doing what was asked
+        // matters regardless of deliverable type. It takes a slice from the
+        // factuality/persona weights rather than adding to the total.
+        // Per-class scoring + pass thresholds — shared with the Jev grader
+        // above via quality-verdict.ts so the two graders can never silently
+        // drift into different pass/fail semantics for the same axis scores.
+        const { pass, score } = computeQualityVerdict(
+          { factuality_risk: factualityRisk, citation_coverage: citationCoverage, persona_fit: personaFit, prompt_alignment: promptAlignment },
+          { citationApplies, forceUngrounded },
+        );
+        const issues = Array.isArray(parsed.issues) ? parsed.issues.slice(0, 6).map((s: any) => String(s).slice(0, 200)) : [];
+        // If the floor lifted the verdict over the LLM's call, note that
+        // openly so the operator can see when the deterministic guard fired.
+        if (citationCoverage > llmCitation + 0.05) {
+          issues.push(citationApplies
+            ? `citation_coverage adjusted from ${llmCitation.toFixed(2)} to ${citationCoverage.toFixed(2)} (found ${totalCitations} citation markers in ${substantiveSentences} substantive sentences)`
+            : `citation_coverage not applicable for ${deliverableClass} deliverable — set to 1.0`);
+        }
+        if (promptAlignment < 0.5) issues.unshift(`prompt_alignment ${promptAlignment.toFixed(2)} — the answer did not fully address what was asked`);
+        return {
+          pass,
+          factuality_risk: factualityRisk,
+          citation_coverage: citationCoverage,
+          persona_fit: personaFit,
+          prompt_alignment: promptAlignment,
+          score,
+          issues,
+          deliverableClass,
+          graderUsed: "llm" as const,
+          // Diagnostic counters so the UI / journal can show why a score moved.
+          citationCounts: { numbered: numberedMarkers, vault: vaultMarkers, url: urlMatches, total: totalCitations, substantiveSentences, sourcesProvided },
+        };
+      } catch {
+        return { pass: false, factuality_risk: 1, citation_coverage: 0, persona_fit: 0, issues: ["scorer JSON unparseable"], raw, graderUsed: "llm" as const };
+      }
+    },
+  },
+  {
+    name: "security.scan",
+    description: "Scan a blob of text for secrets, suspicious URLs, and command-injection markers before it gets written to the vault or pushed to GitHub. Returns { pass, findings, redacted }. Use as a pre-flight before any vault.write of agent-generated content.",
+    readonly: true,
+    args: [
+      { name: "content", type: "string", required: true, description: "Text to scan" },
+      { name: "kind", type: "string", required: false, description: "Optional context: 'note' | 'code' | 'commit-message' (default 'note')" },
+    ],
+    handler: async (args) => {
+      const content = String(args.content);
+      const kind = String(args.kind ?? "note") as SecurityKind;
+      const findings = scanForSecurityRisks(content, kind);
+      const high = findings.filter(f => f.severity === "high").length;
+      const redacted = high > 0 ? redactHighSeverity(content, findings) : content;
+      return { pass: high === 0, findings, redacted, kind };
+    },
+  },
+  {
+    name: "governance.check",
+    description: "Check a draft answer against the organization's accepted HARD governance constraints (extracted from uploaded policy docs under Governance). Returns { pass, violations }. Auto-injected after synthesis alongside quality.check/security.scan when any hard constraint has been reviewed and accepted — a no-op elsewhere.",
+    readonly: true,
+    args: [
+      { name: "content", type: "string", required: true, description: "The draft answer text to check" },
+    ],
+    handler: async (args) => {
+      const content = String(args.content);
+      const gate = checkContentAgainstGovernance(content);
+      return { pass: !gate.blocked, violations: gate.violations };
+    },
+  },
+  {
+    name: "brave.list_tabs",
+    description: "List the URLs and titles of every open tab in the user's Brave browser (read-only). Requires the user to launch Brave with --remote-debugging-port=9222 AND set NEUROWORKS_BRAVE_READ=1 in .env. Returns { url, title, contextIndex, pageIndex } per tab — use the indices with brave.read_tab to fetch a specific tab's content. Refuses with a clear setup message when Brave isn't reachable.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listBraveTabs } = await import("./brave.js");
+      const tabs = await listBraveTabs();
+      return { count: tabs.length, tabs };
+    },
+  },
+  {
+    name: "brave.read_tab",
+    description: "Read the visible text of a specific tab in the user's Brave browser (read-only — no clicks, no navigation). Use the (contextIndex, pageIndex) returned by brave.list_tabs. Optionally pass a CSS `selector` to extract just one section, or `maxChars` to cap content size (default 20000).",
+    readonly: true,
+    args: [
+      { name: "contextIndex", type: "number", required: true, description: "Window index from brave.list_tabs" },
+      { name: "pageIndex", type: "number", required: true, description: "Tab index within the window from brave.list_tabs" },
+      { name: "selector", type: "string", required: false, description: "CSS selector to extract instead of full page text" },
+      { name: "maxChars", type: "number", required: false, description: "Cap response text length (default 20000, max 80000)" },
+    ],
+    handler: async (args) => {
+      const { readBraveTab } = await import("./brave.js");
+      return await readBraveTab({
+        contextIndex: Number(args.contextIndex),
+        pageIndex: Number(args.pageIndex),
+        selector: args.selector ? String(args.selector) : undefined,
+        maxChars: args.maxChars ? Number(args.maxChars) : undefined,
+      });
+    },
+  },
+  {
+    name: "brave.search_tabs",
+    description: "Find open Brave tabs whose URL or title matches a query (case-insensitive substring). Cheaper than reading every tab when the user references one in particular ('the GitHub issue I had open'). Returns up to `limit` matching tabs in the same shape as brave.list_tabs.",
+    readonly: true,
+    args: [
+      { name: "query", type: "string", required: true, description: "Substring to match against URL or title" },
+      { name: "limit", type: "number", required: false, description: "Max matches (default 10, cap 50)" },
+    ],
+    handler: async (args) => {
+      const { searchBraveTabs } = await import("./brave.js");
+      const limit = Math.min(50, Math.max(1, Number(args.limit ?? 10)));
+      const tabs = await searchBraveTabs(String(args.query), limit);
+      return { query: String(args.query), count: tabs.length, tabs };
+    },
+  },
+  {
+    name: "skill.list",
+    description: "List all available skill playbooks the agent can load for guidance (research-deep, email-writing, code-review, summarization, brief-writing, meeting-notes, vault-organization, planning-doc). Each entry returns name, description, and which intents it applies_to. Use this to discover what guidance is on offer for a given task shape.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listSkills } = await import("./skills.js");
+      const skills = listSkills();
+      return {
+        count: skills.length,
+        skills: skills.map(s => ({ name: s.name, description: s.description, applies_to: s.applies_to, source: s.source })),
+      };
+    },
+  },
+  {
+    name: "skill.load",
+    description: "Load a skill playbook by name (e.g. 'email-writing', 'code-review'). Returns the full markdown body — use it as additional system guidance before producing the deliverable. List available skills with skill.list first if unsure which to pull.",
+    readonly: true,
+    args: [
+      { name: "name", type: "string", required: true, description: "Skill name (from skill.list)" },
+    ],
+    handler: async (args) => {
+      const { loadSkill } = await import("./skills.js");
+      const skill = loadSkill(String(args.name));
+      if (!skill) throw new Error(`Skill not found: "${args.name}". Run skill.list to see what's available.`);
+      return { name: skill.name, description: skill.description, applies_to: skill.applies_to, source: skill.source, body: skill.body };
+    },
+  },
+  {
+    name: "skill.suggest",
+    description: "Suggest the most relevant skill playbook(s) for a given intent. Pass the intent label (draft-email, summarize, review, plan, research, etc.) and get back up to 2 matching skills, sorted by specificity. Useful right after intent detection to know which playbook to load before drafting.",
+    readonly: true,
+    args: [
+      { name: "intent", type: "string", required: true, description: "Intent label (e.g. 'draft-email', 'summarize', 'review')" },
+      { name: "limit", type: "number", required: false, description: "Max suggestions to return (default 2, cap 4)" },
+    ],
+    handler: async (args) => {
+      const { suggestSkillsForIntent } = await import("./skills.js");
+      const limit = Math.min(4, Math.max(1, Number(args.limit ?? 2)));
+      const suggestions = suggestSkillsForIntent(String(args.intent), limit);
+      return {
+        intent: String(args.intent),
+        suggestions: suggestions.map(s => ({ name: s.name, description: s.description, applies_to: s.applies_to })),
+      };
+    },
+  },
+  {
+    name: "skill.draft",
+    description: "Ask the LLM to write a brand-new skill playbook for an intent that has no curated skill yet. The draft gets saved to skills/_user/ and immediately becomes available to skill.list / skill.suggest. Use this when the agent has tried a task and lacked the guidance needed — close the loop by writing the missing playbook.",
+    readonly: false,
+    args: [
+      { name: "intent", type: "string", required: true, description: "Intent label to target (e.g. 'draft-email', 'design-review')" },
+      { name: "taskSample", type: "string", required: true, description: "The actual user request that exposed the skill gap — gives the drafter context" },
+      { name: "failureReason", type: "string", required: false, description: "Optional: what went wrong last time, so the drafted skill addresses it" },
+    ],
+    handler: async (args) => {
+      const { draftSkillForIntent } = await import("./skills.js");
+      const skill = await draftSkillForIntent({
+        intent: String(args.intent),
+        taskSample: String(args.taskSample),
+        failureReason: args.failureReason ? String(args.failureReason) : undefined,
+      });
+      if (!skill) {
+        throw new Error(`skill.draft: the LLM produced an unusable draft (missing frontmatter / too short). Try again with a more specific failureReason.`);
+      }
+      return {
+        drafted: skill.name,
+        path: skill.path,
+        applies_to: skill.applies_to,
+        description: skill.description,
+        bodyChars: skill.body.length,
+      };
+    },
+  },
+  {
+    name: "skill.fetch_remote",
+    description: "Fetch a skill .md file from a public URL (e.g. a GitHub raw URL or gist) and save it under skills/_user/ so it joins the local catalog. REQUIRES the user to have opted in via NEUROWORKS_REMOTE_SKILLS=1 in .env — refuses otherwise. Use to pull in community-curated playbooks.",
+    readonly: false,
+    args: [
+      { name: "url", type: "string", required: true, description: "HTTPS URL to a raw .md file with optional YAML frontmatter (name/description/applies_to)" },
+    ],
+    handler: async (args) => {
+      const { fetchRemoteSkill } = await import("./skills.js");
+      const r = await fetchRemoteSkill(String(args.url));
+      return {
+        saved: r.saved,
+        skill: { name: r.skill.name, description: r.skill.description, applies_to: r.skill.applies_to, source: r.skill.source },
+      };
+    },
+  },
+  {
+    name: "clock.now",
+    description: "Return the current local + UTC time. Useful when scheduling or stamping notes.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const d = new Date();
+      return { iso: d.toISOString(), local: d.toString(), date: d.toISOString().slice(0, 10), unix: Math.floor(d.getTime() / 1000) };
+    },
+  },
+  // ── Integration primitives (integration.*) ──
+  {
+    name: "integration.slack.post",
+    description: "Post a message to a connected Slack channel. Uses the first configured Slack webhook connection. Message is markdown text. Returns { ok, ts } on success.",
+    readonly: false,
+    args: [
+      { name: "text", type: "string", required: true, description: "Message text (markdown supported by Slack webhooks)" },
+    ],
+    handler: async (args) => {
+      const conn = getConnectionByProvider("slack");
+      if (!conn) throw new Error("No Slack connection configured — add one on the Integrations page");
+      const webhookUrl = conn.secrets.webhookUrl ?? conn.config.webhookUrl;
+      if (!webhookUrl) throw new Error("Slack webhook URL not found in connection");
+      const r = await fetch(webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: String(args.text) }) });
+      if (!r.ok) throw new Error(`Slack webhook returned HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      return { ok: true, ts: (await r.json().catch(() => ({}))).ts ?? "sent" };
+    },
+  },
+  {
+    name: "integration.gmail.send",
+    description: "Send an email via the connected Google (Gmail) integration. Requires a configured Google connection with a Gmail API scope. Returns { id, threadId } on success.",
+    readonly: false,
+    args: [
+      { name: "to", type: "string", required: true, description: "Recipient email address" },
+      { name: "subject", type: "string", required: true, description: "Email subject line" },
+      { name: "body", type: "string", required: true, description: "Email body (plain text or HTML)" },
+      { name: "cc", type: "string", required: false, description: "CC recipient(s), comma-separated" },
+      { name: "contentType", type: "string", required: false, description: "'text/plain' (default) or 'text/html'" },
+    ],
+    handler: async (args) => {
+      const conn = getConnectionByProvider("google");
+      if (!conn) throw new Error("No Google connection configured — add one on the Integrations page");
+      const token = conn.secrets.accessToken;
+      if (!token) throw new Error("Google access token not found");
+      const to = String(args.to);
+      const subject = String(args.subject);
+      const body = String(args.body);
+      const cc = args.cc ? String(args.cc) : "";
+      const contentType = String(args.contentType ?? "text/plain");
+
+      // Build RFC 2822 email raw string, then base64url encode it.
+      const headers = [`To: ${to}`, `Subject: ${subject}`, `MIME-Version: 1.0`, `Content-Type: ${contentType}; charset=UTF-8`];
+      if (cc) headers.push(`Cc: ${cc}`);
+      const raw = btoa(unescape(encodeURIComponent(headers.join("\r\n") + "\r\n\r\n" + body)))
+        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ raw }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(`Gmail API error: ${err?.error?.message ?? `HTTP ${r.status}`}`);
+      }
+      const j: any = await r.json();
+      return { id: j.id, threadId: j.threadId };
+    },
+  },
+  {
+    name: "integration.gmail.read",
+    description: "Read emails from Gmail inbox. Returns messages matching a search query. Requires a configured Google connection with Gmail API scope.",
+    readonly: true,
+    args: [
+      { name: "query", type: "string", required: false, description: "Gmail search query (same syntax as Gmail search bar). Default: recent 10 messages from the last 7 days." },
+      { name: "maxResults", type: "number", required: false, description: "Max messages to return (default 10, max 50)" },
+    ],
+    handler: async (args) => {
+      const conn = getConnectionByProvider("google");
+      if (!conn) throw new Error("No Google connection configured — add one on the Integrations page");
+      const token = conn.secrets.accessToken;
+      if (!token) throw new Error("Google access token not found");
+      const query = String(args.query ?? "newer_than:7d");
+      const maxResults = Math.min(50, Math.max(1, Number(args.maxResults ?? 10)));
+
+      // List matching message IDs.
+      const listR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      if (!listR.ok) {
+        const err = await listR.json().catch(() => ({}));
+        throw new Error(`Gmail API error: ${err?.error?.message ?? `HTTP ${listR.status}`}`);
+      }
+      const listJ: any = await listR.json();
+      const ids: string[] = (listJ.messages ?? []).map((m: any) => m.id);
+
+      // Fetch full message details for each ID (max 10 by default to avoid rate limits).
+      const messages: any[] = [];
+      for (const id of ids.slice(0, maxResults)) {
+        const msgR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`, {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        if (!msgR.ok) continue;
+        const msg: any = await msgR.json();
+        const headers = (msg.payload?.headers ?? []).reduce((acc: any, h: any) => { acc[h.name] = h.value; return acc; }, {});
+        messages.push({
+          id: msg.id,
+          threadId: msg.threadId,
+          from: headers.From ?? "",
+          to: headers.To ?? "",
+          subject: headers.Subject ?? "",
+          date: headers.Date ?? "",
+          snippet: msg.snippet ?? "",
+        });
+      }
+      return { query, total: listJ.resultSizeEstimate ?? messages.length, messages };
+    },
+  },
+  {
+    name: "vault.write_pdf",
+    description: "Render a markdown answer into a polished PDF (system typography, generous margins, GFM tables) and save it to the vault. Use when the deliverable is a board pack, customer-facing memo, or anything an operator will email out. Returns { path, bytes }.",
+    readonly: false,
+    args: [
+      { name: "markdown", type: "string", required: true, description: "Markdown content to render" },
+      { name: "title", type: "string", required: false, description: "Document title (used in <title>, no visible heading — your markdown's first H1 owns the on-page heading)" },
+      { name: "filename", type: "string", required: true, description: "Filename WITHOUT directory, e.g. 'board-pack-q3.pdf'. Saved under `_neuroworks/exports/` in the vault. `.pdf` appended if missing." },
+      { name: "landscape", type: "boolean", required: false, description: "Landscape orientation (default false — portrait Letter)" },
+    ],
+    handler: async (args) => {
+      let filename = String(args.filename ?? "document.pdf").replace(/[/\\]/g, "-").replace(/^\.+/, "");
+      if (!/\.pdf$/i.test(filename)) filename += ".pdf";
+      const stamp = new Date().toISOString().slice(0, 10);
+      const rel = `_neuroworks/exports/${stamp}-${filename}`;
+      return await renderMarkdownToPdf({
+        markdown: String(args.markdown ?? ""),
+        title: args.title ? String(args.title) : undefined,
+        vaultRelPath: rel,
+        landscape: args.landscape === true,
+      });
+    },
+  },
+  {
+    name: "calendar.activity",
+    description: "Return the agents' own activity (jobs that ran) grouped by day across [from, to]. Use when the user asks 'what did I do last Tuesday' / 'what shipped this week' / 'summarise the team's output for the month'. Merges the in-memory job table with the persisted `_neuroworks/jobs/` JSONL files. Default window: the last 14 days.",
+    readonly: true,
+    args: [
+      { name: "from", type: "string", required: false, description: "Window start YYYY-MM-DD (default: 13 days ago)" },
+      { name: "to", type: "string", required: false, description: "Window end YYYY-MM-DD inclusive (default: today)" },
+    ],
+    handler: async (args) => {
+      const { loadJobsInWindow } = await import("./job-store.js");
+      const { listJobs } = await import("./jobs.js");
+      // Bucket by LOCAL calendar day (server timezone == operator's) so "today"
+      // / "yesterday" line up with the wall clock, not UTC.
+      const localYmd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const today = new Date();
+      const defTo = localYmd(today);
+      const def = localYmd(new Date(today.getTime() - 13 * 24 * 60 * 60 * 1000));
+      const from = String(args.from ?? def);
+      const to = String(args.to ?? defTo);
+      const fromMs = Date.parse(from + "T00:00:00.000");
+      const toMs = Date.parse(to + "T23:59:59.999");
+      const merged = new Map<string, any>();
+      for (const j of loadJobsInWindow(fromMs, toMs)) merged.set(j.id, j);
+      for (const j of listJobs()) {
+        const at = Date.parse(j.finishedAt ?? j.startedAt);
+        if (at >= fromMs && at <= toMs) merged.set(j.id, j);
+      }
+      const days = new Map<string, any[]>();
+      for (const j of merged.values()) {
+        const k = localYmd(new Date(j.finishedAt ?? j.startedAt));
+        if (!days.has(k)) days.set(k, []);
+        days.get(k)!.push({
+          id: j.id, kind: j.kind, template: j.template, title: j.title,
+          personaName: j.personaName, status: j.status,
+          startedAt: j.startedAt, finishedAt: j.finishedAt,
+          score: (j.result as any)?.quality?.score ?? null,
+        });
+      }
+      return { from, to, days: [...days.entries()].map(([date, jobs]) => ({ date, jobs })).sort((a, b) => a.date.localeCompare(b.date)) };
+    },
+  },
+  {
+    name: "calendar.plan_day",
+    description: "Synthesise a day plan for a date: today's meetings (from NEUROWORKS_CALENDAR_ICAL_URL if configured), scheduled clawbot tasks for that day-of-week, dated commitments recalled from long-term memory (memory.note facts anchored to this date), and any open follow-ups carried over from yesterday's activity. Returns the structured pieces; the planner is expected to feed them through the `daily-briefing` skill to produce the prose briefing.",
+    readonly: true,
+    args: [
+      { name: "date", type: "string", required: false, description: "Target date YYYY-MM-DD (default: today)" },
+    ],
+    handler: async (args) => {
+      const localYmd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const date = String(args.date ?? localYmd(new Date()));
+      const fromMs = Date.parse(date + "T00:00:00.000");
+      const toMs = Date.parse(date + "T23:59:59.999");
+      const { loadJobsInWindow } = await import("./job-store.js");
+      const { listJobs } = await import("./jobs.js");
+      const merged = new Map<string, any>();
+      for (const j of loadJobsInWindow(fromMs, toMs)) merged.set(j.id, j);
+      for (const j of listJobs()) {
+        const at = Date.parse(j.finishedAt ?? j.startedAt);
+        if (at >= fromMs && at <= toMs) merged.set(j.id, j);
+      }
+      const activity = [...merged.values()].map(j => ({ id: j.id, title: j.title ?? j.kind, status: j.status, finishedAt: j.finishedAt, personaName: j.personaName }));
+
+      // Yesterday's carryover — jobs that failed / awaited approval and may
+      // still need attention. Same JOB_STORE window, one day back.
+      const yFromMs = fromMs - 24 * 60 * 60 * 1000;
+      const carryover: any[] = [];
+      for (const j of loadJobsInWindow(yFromMs, fromMs)) {
+        if (j.status === "failed" || j.status === "awaiting-approval" || j.status === "rejected") {
+          carryover.push({ id: j.id, title: j.title ?? j.kind, status: j.status, finishedAt: j.finishedAt });
+        }
+      }
+
+      let meetings: any[] = [];
+      let meetingsError: string | undefined;
+      const src = process.env.NEUROWORKS_CALENDAR_ICAL_URL;
+      if (src) {
+        try {
+          const { readICalSource } = await import("./calendar-ical.js");
+          const all = await readICalSource(src);
+          meetings = all.filter(e => e.start.slice(0, 10) === date).sort((a, b) => a.start.localeCompare(b.start));
+        } catch (e: any) { meetingsError = String(e?.message ?? e).slice(0, 200); }
+      }
+
+      let schedules: any[] = [];
+      try {
+        const { listSchedules } = await import("./schedules.js");
+        const targetDow = new Date(date + "T12:00:00").getDay();
+        schedules = (listSchedules() as any[]).filter(s => {
+          const d = s.cadence?.daysOfWeek ?? [];
+          return s.enabled && (d.length === 0 || d.includes(targetDow));
+        }).map(s => ({ id: s.id, templateId: s.templateId, label: s.label, cadence: s.cadence }));
+      } catch { /* schedules optional */ }
+
+      // Memory → calendar link: dated facts the agent was told to remember
+      // ("the Q3 board meeting is on 2026-07-15") surface as commitments on
+      // their day, instead of dying in a JSONL file the planner never reads.
+      let commitments: any[] = [];
+      try {
+        const { datedFactsInWindow } = await import("./memory.js");
+        commitments = datedFactsInWindow(date, date).map(f => ({ subject: f.subject, fact: f.fact, source: f.source }));
+      } catch { /* memory optional */ }
+
+      // Latest innovation scan (48h) — the research employee's daily R&D
+      // report rides along so a chat-side "daily briefing" carries an
+      // Innovation-scout section, same as the scheduled template run.
+      let innovation: any = null;
+      try {
+        const { latestJobByTemplate } = await import("./job-store.js");
+        const scan = latestJobByTemplate("innovation-scan", Date.now() - 48 * 3600_000);
+        if (scan?.answer) {
+          innovation = {
+            jobId: scan.id,
+            by: scan.persona ?? "research",
+            finishedAt: scan.finishedAt ?? scan.startedAt,
+            report: scan.answer.slice(0, 4000),
+          };
+        }
+      } catch { /* scan optional */ }
+
+      return { date, meetings, meetingsError, schedules, activity, carryover, commitments, innovation };
+    },
+  },
+  {
+    name: "calendar.read_today",
+    description: "Read today's events from an iCal feed (URL) or local .ics file. Returns [{ summary, start, end?, location?, description? }]. Source defaults to NEUROWORKS_CALENDAR_ICAL_URL in env — pass `source` to override per call. Use as the first step of a daily-briefing skill or whenever the persona needs to know what's on the calendar.",
+    readonly: true,
+    args: [
+      { name: "source", type: "string", required: false, description: "iCal URL or .ics file path. Defaults to NEUROWORKS_CALENDAR_ICAL_URL." },
+    ],
+    handler: async (args) => {
+      const src = String(args.source ?? process.env.NEUROWORKS_CALENDAR_ICAL_URL ?? "").trim();
+      if (!src) return { error: "no source — pass `source` or set NEUROWORKS_CALENDAR_ICAL_URL in clawbot/.env (public Google Calendar 'secret iCal' URL or an Outlook publish link)" };
+      try {
+        const { readICalSource, todaysEvents } = await import("./calendar-ical.js");
+        const all = await readICalSource(src);
+        return { events: todaysEvents(all), totalParsed: all.length };
+      } catch (e: any) {
+        return { error: String(e?.message ?? e).slice(0, 300) };
+      }
+    },
+  },
+  {
+    name: "inbox.read_unread",
+    description: "Read messages from the NeuroWorks mailbox over IMAP. Returns [{ from, subject, date, preview, body?, links? }]. Uses the existing NEUROWORKS_EMAIL_USER / NEUROWORKS_EMAIL_APP_PASSWORD credentials. By default returns only UNSEEN messages (what needs attention); pass unreadOnly=false to return the most recent messages regardless of read state. Pass bodyChars>240 to also get the fuller body text + extracted links (for summarising a story out of a newsletter/briefing). Does NOT mark messages as seen — read-only.",
+    readonly: true,
+    args: [
+      { name: "limit", type: "number", required: false, description: "Max messages to return (default 10, max 50)" },
+      { name: "unreadOnly", type: "boolean", required: false, description: "true (default) = only unseen messages; false = most recent messages regardless of read state (use for 'read my latest/recent emails')." },
+      { name: "bodyChars", type: "number", required: false, description: "How many chars of body text to return per message (default 240 = a short preview; pass e.g. 8000 to get the full body + `links` for summarising a story out of a briefing)." },
+    ],
+    handler: async (args) => {
+      const user = process.env.NEUROWORKS_EMAIL_USER;
+      const pass = (process.env.NEUROWORKS_EMAIL_APP_PASSWORD ?? "").replace(/\s/g, "");
+      if (!user || !pass) return { error: "email not configured — set NEUROWORKS_EMAIL_USER + NEUROWORKS_EMAIL_APP_PASSWORD in clawbot/.env" };
+      const limit = Math.min(50, Math.max(1, Number(args.limit ?? 10)));
+      const bodyChars = Math.min(20000, Math.max(240, Number(args.bodyChars ?? 240)));
+      const wantBody = bodyChars > 240;
+      const { ImapFlow } = await import("imapflow");
+      const client = new ImapFlow({
+        host: process.env.NEUROWORKS_EMAIL_IMAP_HOST ?? "imap.gmail.com",
+        port: Number(process.env.NEUROWORKS_EMAIL_IMAP_PORT ?? 993),
+        secure: true,
+        auth: { user, pass },
+        logger: false as any,
+      });
+      try {
+        await client.connect();
+        await client.mailboxOpen("INBOX");
+        const unreadOnly = args.unreadOnly !== false; // default true
+        const uids = await client.search(unreadOnly ? { seen: false } : { all: true }) as number[];
+        const recent = uids.slice(-limit).reverse();
+        const out: { from?: string; subject?: string; date?: string; preview?: string; body?: string; links?: string[] }[] = [];
+        for await (const msg of client.fetch(recent, { envelope: true, source: true, uid: true }, { uid: true })) {
+          const env = msg.envelope;
+          let preview = ""; let body = ""; let links: string[] = [];
+          try {
+            if (msg.source) {
+              const { simpleParser } = await import("mailparser");
+              const p = await simpleParser(msg.source);
+              const text = (p.text ?? "").trim().replace(/[ \t]+/g, " ");
+              preview = text.replace(/\s+/g, " ").slice(0, 240);
+              if (wantBody) {
+                body = text.slice(0, bodyChars);
+                // Links from BOTH the plaintext body and the HTML anchors — a
+                // briefing's story URLs usually live in the HTML hrefs, not the
+                // visible text. Dedupe, drop tracking/unsubscribe/mailto noise.
+                const set = new Set<string>();
+                for (const u of (text.match(/https?:\/\/[^\s)>\]]+/g) ?? [])) set.add(u.replace(/[.,]$/, ""));
+                const html = typeof p.html === "string" ? p.html : "";
+                for (const m of html.matchAll(/href=["']([^"']+)["']/gi)) { const u = m[1]; if (/^https?:\/\//i.test(u)) set.add(u.replace(/[.,]$/, "")); }
+                links = [...set].filter(u => !/unsubscribe|mailto:|list-manage|utm_|\/track|\.gif|pixel|beacon/i.test(u)).slice(0, 30);
+              }
+            }
+          } catch { /* tolerate */ }
+          out.push({
+            from: env?.from?.[0]?.address ?? undefined,
+            subject: env?.subject ?? undefined,
+            date: env?.date?.toISOString?.() ?? undefined,
+            preview,
+            ...(wantBody ? { body, links } : {}),
+          });
+        }
+        return { messages: out, fetched: out.length, unreadOnly, mailbox: user };
+      } catch (e: any) {
+        return { error: String(e?.message ?? e).slice(0, 300) };
+      } finally {
+        try { await client.logout(); } catch { /* tolerate */ }
+      }
+    },
+  },
+  {
+    name: "social.post",
+    description: "Publish a post to social platforms (X/Twitter, LinkedIn, Facebook, Instagram, TikTok, …) via the Ayrshare bridge. APPROVAL-GATED — publishing is outward-facing, so this parks for the operator's sign-off before it goes live. Args: post (text), platforms (e.g. [\"twitter\",\"linkedin\"]), optional mediaUrls (public image/video URLs). Returns per-platform post ids + live URLs.",
+    readonly: false,
+    args: [
+      { name: "post", type: "string", required: true, description: "The post text/caption to publish." },
+      { name: "platforms", type: "string", required: true, description: "Platforms to post to — array or comma list. Known: twitter, linkedin, facebook, instagram, tiktok, youtube, pinterest, reddit, telegram, bluesky, threads. 'x' maps to twitter." },
+      { name: "mediaUrls", type: "string", required: false, description: "Optional public image/video URL(s) to attach (array or single). Instagram requires at least one image." },
+    ],
+    handler: async (args) => (await import("./social.js")).socialPost(args as any),
+  },
+  {
+    name: "social.history",
+    description: "List recent social posts and their delivery status across all connected platforms (Ayrshare). Read-only — use to see what's been published and get the post ids that social.analytics / social.comments need.",
+    readonly: true,
+    args: [
+      { name: "limit", type: "number", required: false, description: "Max posts to return (default 10, max 50)." },
+    ],
+    handler: async (args) => (await import("./social.js")).socialHistory(args as any),
+  },
+  {
+    name: "social.analytics",
+    description: "Fetch engagement analytics (impressions, likes, shares, clicks) for a published post by its Ayrshare post id (from social.history / social.post). Read-only. Use for social performance readouts.",
+    readonly: true,
+    args: [
+      { name: "id", type: "string", required: true, description: "Ayrshare post id (from social.history or social.post)." },
+      { name: "platforms", type: "string", required: false, description: "Optional platform filter (array or comma list)." },
+    ],
+    handler: async (args) => (await import("./social.js")).socialAnalytics(args as any),
+  },
+  {
+    name: "social.comments",
+    description: "Read comments / mentions on a published post by its Ayrshare post id. Read-only — use to monitor engagement and surface what needs a reply (replying is a separate approval-gated action).",
+    readonly: true,
+    args: [
+      { name: "id", type: "string", required: true, description: "Ayrshare post id (from social.history or social.post)." },
+    ],
+    handler: async (args) => (await import("./social.js")).socialComments(args as any),
+  },
+  {
+    name: "buffer.profiles",
+    description: "List the social channels connected to your Buffer account (id, service, name) via Buffer's Public API (GraphQL). Read-only — use before buffer.post to pick targets. Requires a Buffer connection on the Integrations page.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { getConnectionByProvider } = await import("./integrations.js");
+      const token = (getConnectionByProvider("buffer")?.secrets?.accessToken ?? "").trim();
+      if (!token) return { error: "no Buffer connection — add one on the Integrations page" };
+      const { bufferChannels } = await import("./buffer.js");
+      const channels = await bufferChannels(token);
+      if (!channels.length) return { error: "no Buffer channels — connect at least one social account inside Buffer, or the token lacks channel access." };
+      return { count: channels.length, channels };
+    },
+  },
+  {
+    name: "buffer.history",
+    description: "List recent posts on your Buffer account (sent, scheduled, and drafts) with status, text, target channel, and scheduled/sent time. Read-only (Buffer posts:read). Use to see what's gone out / is queued before drafting more, and as the activity signal for a social self-improving loop.",
+    readonly: true,
+    args: [
+      { name: "limit", type: "number", required: false, description: "Max posts to return (default 30, max 100)." },
+      { name: "connectionLabel", type: "string", required: false, description: "Brand-scoped: use the Buffer connection with this label instead of the first one connected." },
+    ],
+    handler: async (args) => {
+      const { token, error } = await resolveBufferToken(args.connectionLabel);
+      if (!token) return { error };
+      const { bufferSentPosts } = await import("./buffer.js");
+      const posts = await bufferSentPosts(token, { first: Number(args.limit ?? 30) });
+      const byStatus = posts.reduce((acc: Record<string, number>, p) => { acc[p.status] = (acc[p.status] ?? 0) + 1; return acc; }, {});
+      return { count: posts.length, byStatus, posts };
+    },
+  },
+  {
+    name: "buffer.analytics",
+    description: "Fetch engagement analytics (impressions, likes, shares, clicks, …) aggregated across your Buffer channels for a date window. NOTE: Buffer gates this behind the `insights:read` OAuth scope. If the connected token lacks it, this returns { needsScope: 'insights:read' } — reconnect Buffer granting Analytics access to unlock it. Read-only.",
+    readonly: true,
+    args: [
+      { name: "days", type: "number", required: false, description: "Look-back window in days (default 30)." },
+      { name: "channels", type: "string", required: false, description: "Optional channel ids/services to filter (array or comma list). Defaults to all connected." },
+      { name: "connectionLabel", type: "string", required: false, description: "Brand-scoped: use the Buffer connection with this label instead of the first one connected." },
+    ],
+    handler: async (args) => {
+      const { token, error } = await resolveBufferToken(args.connectionLabel);
+      if (!token) return { error };
+      const { bufferChannels, bufferAggregatedMetrics } = await import("./buffer.js");
+      const all = await bufferChannels(token);
+      if (!all.length) return { error: "no Buffer channels connected." };
+      const want = args.channels
+        ? (Array.isArray(args.channels) ? args.channels.map(String) : String(args.channels).split(/[,\s]+/)).map(s => s.trim().toLowerCase()).filter(Boolean)
+        : [];
+      const targets = want.length ? all.filter(c => want.includes(c.id.toLowerCase()) || want.includes(c.service.toLowerCase())) : all;
+      const days = Math.min(365, Math.max(1, Number(args.days ?? 30)));
+      // Date math without Date.now() reliance is fine here (runtime primitive, not a workflow script).
+      const end = new Date();
+      const start = new Date(end.getTime() - days * 86400_000);
+      const r = await bufferAggregatedMetrics(token, {
+        channelIds: targets.map(c => c.id),
+        startDateTime: start.toISOString(),
+        endDateTime: end.toISOString(),
+      });
+      return { window: { days, start: start.toISOString(), end: end.toISOString() }, channels: targets.map(c => ({ service: c.service, name: c.name })), ...r };
+    },
+  },
+  {
+    name: "buffer.post",
+    description: "Publish/queue a post to your connected Buffer channels (X/LinkedIn/Facebook/TikTok/… via Buffer's Public API). APPROVAL-GATED — parks for the operator's sign-off first. Args: text; optional channels (service names like 'twitter,linkedin' or channel ids — defaults to ALL connected); at (ISO datetime → schedule for then); now=true to publish immediately (default = add to the Buffer queue). Requires a Buffer connection on the Integrations page.",
+    readonly: false,
+    args: [
+      { name: "text", type: "string", required: true, description: "The post text." },
+      { name: "channels", type: "string", required: false, description: "Target channels — service names (twitter, linkedin, facebook, instagram, tiktok, …) or Buffer channel ids, array or comma list. Defaults to all connected channels." },
+      { name: "at", type: "string", required: false, description: "ISO 8601 datetime to schedule the post (e.g. 2026-08-01T14:00:00Z). Omit to add to Buffer's auto-queue." },
+      { name: "now", type: "boolean", required: false, description: "true = publish immediately instead of queueing." },
+      { name: "draft", type: "boolean", required: false, description: "true = save as a Buffer DRAFT for human review inside Buffer instead of queueing/publishing (safest for automated drafting). Overrides now/queue." },
+      { name: "videoUrl", type: "string", required: false, description: "Public URL of a video to attach. Required for video-only channels like TikTok." },
+      { name: "thumbnailUrl", type: "string", required: false, description: "Optional thumbnail URL for the attached video." },
+      { name: "imageUrl", type: "string", required: false, description: "Public URL of an image to attach (used when no videoUrl)." },
+      { name: "connectionLabel", type: "string", required: false, description: "Brand-scoped: use the Buffer connection with this label instead of the first one connected." },
+    ],
+    handler: async (args) => {
+      const { token, error } = await resolveBufferToken(args.connectionLabel);
+      if (!token) return { error };
+      const text = String(args.text ?? "").trim();
+      if (!text) return { error: "text is required" };
+      const { bufferChannels, bufferCreatePost } = await import("./buffer.js");
+      const all = await bufferChannels(token);
+      if (!all.length) return { error: "no Buffer channels connected — connect a social account inside Buffer first." };
+      // Resolve targets: match the requested service names / ids, else all.
+      const want = args.channels
+        ? (Array.isArray(args.channels) ? args.channels.map(String) : String(args.channels).split(/[,\s]+/)).map(s => s.trim().toLowerCase()).filter(Boolean)
+        : [];
+      const targets = want.length
+        ? all.filter(c => want.includes(c.id.toLowerCase()) || want.includes(c.service.toLowerCase()) || want.includes((c.service === "twitter" ? "x" : "")))
+        : all;
+      if (!targets.length) return { error: `none of the requested channels [${want.join(", ")}] are connected. Connected: ${all.map(c => c.service).join(", ")}.` };
+      const saveToDraft = args.draft === true;
+      const at = args.at ? String(args.at) : undefined;
+      const mode = args.now === true ? "shareNow" : "addToQueue";
+      const videoUrl = args.videoUrl ? String(args.videoUrl) : undefined;
+      const thumbnailUrl = args.thumbnailUrl ? String(args.thumbnailUrl) : undefined;
+      const imageUrl = args.imageUrl ? String(args.imageUrl) : undefined;
+      const posted: any[] = []; const errors: any[] = [];
+      for (const c of targets) {
+        const r = await bufferCreatePost(token, { channelId: c.id, text, mode, dueAt: at, saveToDraft, videoUrl, thumbnailUrl, imageUrl });
+        if (r.ok) posted.push({ channel: c.name, service: c.service, postId: r.postId });
+        else errors.push({ channel: c.name, service: c.service, error: r.error });
+      }
+      const disposition = saveToDraft ? "buffer-draft" : (at ?? (args.now ? "now" : "buffer-queue"));
+      return { ok: posted.length > 0, scheduled: disposition, posted, errors: errors.length ? errors : undefined };
+    },
+  },
+  {
+    name: "hermes.delegate",
+    description: "Delegate a task to the Hermes Agent CLI (Nous Research) and return its answer. Use when the task needs one of Hermes's bundled skills (Linear / Notion / Slack / Google Workspace / Polymarket / arxiv / OCR / many others) that clawbot doesn't have a native primitive for. Spawns `hermes -z 'task' --yolo` as a subprocess, capped at 240 s. Requires Hermes installed locally and OPENROUTER_API_KEY in the clawbot environment (passed through to Hermes).",
+    readonly: false,
+    args: [
+      { name: "task", type: "string", required: true, description: "The full task to send to Hermes — phrase it as you would to any agent." },
+      { name: "timeoutMs", type: "number", required: false, description: "Wall budget for the Hermes call (default 240000, max 600000)" },
+    ],
+    handler: async (args) => {
+      if (isOffline()) throw new Error("offline mode — hermes.delegate needs the internet; answer from the local vault and local model instead");
+      const { existsSync } = await import("node:fs");
+      const path = await import("node:path");
+      const { spawn } = await import("node:child_process");
+      const home = process.env.HERMES_HOME ?? (process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "hermes") : null) ?? (process.env.HOME ? path.join(process.env.HOME, ".hermes") : null);
+      let bin: string | null = null;
+      if (home) {
+        for (const rel of ["hermes-agent/venv/Scripts/hermes.exe", "hermes-agent/venv/bin/hermes"]) {
+          const p = path.join(home, rel);
+          if (existsSync(p)) { bin = p; break; }
+        }
+      }
+      if (!bin) return { error: "Hermes Agent not installed (looked under $HERMES_HOME / $LOCALAPPDATA/hermes). Install via the Nous Research installer." };
+      // Scrub the parent Node/Python env so Hermes' venv bootstraps cleanly —
+      // same fix the stress harness needed (without this, hermes died on
+      // "init_import_site" in <1s).
+      const env: Record<string, string> = { ...process.env } as any;
+      for (const k of ["PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "PYTHONSTARTUP", "PYTHONNOUSERSITE", "PYTHONEXECUTABLE", "__PYVENV_LAUNCHER__"]) {
+        delete env[k];
+      }
+      const timeoutMs = Math.min(600_000, Math.max(5_000, Number(args.timeoutMs ?? 240_000)));
+      const task = String(args.task ?? "").trim();
+      if (!task) return { error: "task is required" };
+      return await new Promise<any>((resolve) => {
+        const t0 = Date.now();
+        const proc = spawn(bin!, ["-z", task, "--yolo"], { env, stdio: ["ignore", "pipe", "pipe"] });
+        let stdout = ""; let stderr = "";
+        proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); if (stdout.length > 200_000) stdout = stdout.slice(0, 200_000); });
+        proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); if (stderr.length > 20_000) stderr = stderr.slice(0, 20_000); });
+        const timer = setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, timeoutMs);
+        proc.on("close", (code) => {
+          clearTimeout(timer);
+          const elapsedMs = Date.now() - t0;
+          resolve({
+            answer: stdout.trim(),
+            stderr: stderr.trim().slice(0, 2000) || undefined,
+            exitCode: code,
+            agent: "hermes",
+            elapsedMs,
+          });
+        });
+        proc.on("error", (e) => {
+          clearTimeout(timer);
+          resolve({ error: `hermes spawn failed: ${e.message}` });
+        });
+      });
+    },
+  },
+  {
+    name: "code.exec",
+    description: "Run a short Python or Node.js snippet in a subprocess with a 30 s timeout. Output is captured (stdout + stderr) and returned to the planner. For data shaping, parsing, quick computation — anything you'd otherwise have to make the LLM imagine. GATED: requires NEUROWORKS_CODE_EXEC=1 in clawbot/.env (off by default — child gets a trimmed env (PATH/system vars only, no API keys), but there is still no process isolation; treat code as trusted-author).",
+    readonly: false,
+    args: [
+      { name: "language", type: "string", required: true, description: "'python' or 'node'" },
+      { name: "code", type: "string", required: true, description: "Source. For Python, prefer stdlib (no pip on the fly). For Node, prefer pure JS (no npm)." },
+      { name: "timeoutMs", type: "number", required: false, description: "Wall budget (default 30000, max 120000)" },
+    ],
+    handler: async (args) => {
+      if (process.env.NEUROWORKS_CODE_EXEC !== "1") {
+        return { error: "code.exec disabled — set NEUROWORKS_CODE_EXEC=1 in clawbot/.env and restart to enable. This primitive runs code in the host process; only enable in trusted environments." };
+      }
+      // Trimmed child env — ported by behavior from
+      // naxionai/backend/agent/tools/sandbox.py's _SANDBOX_ENV_ALLOWLIST.
+      // Generated code runs with only what it needs to start a runtime and
+      // hit the network — NOT the full parent environment, which holds every
+      // API key, JWT secret, and DB URL this process has. This cuts the
+      // secret-exfiltration surface without claiming real process isolation.
+      const SANDBOX_ENV_ALLOWLIST = new Set([
+        "PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP",
+        "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "COMSPEC", "PATHEXT",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+      ]);
+      const sandboxEnv: Record<string, string> = {};
+      for (const [k, v] of Object.entries(process.env)) {
+        if (v !== undefined && SANDBOX_ENV_ALLOWLIST.has(k.toUpperCase())) sandboxEnv[k] = v;
+      }
+      const lang = String(args.language ?? "").toLowerCase();
+      if (lang !== "python" && lang !== "node") return { error: "language must be 'python' or 'node'" };
+      const code = String(args.code ?? "");
+      if (!code.trim()) return { error: "code is required" };
+      const timeoutMs = Math.min(120_000, Math.max(1_000, Number(args.timeoutMs ?? 30_000)));
+      const { spawn } = await import("node:child_process");
+      const bin = lang === "python" ? (process.env.NEUROWORKS_PYTHON ?? "python") : "node";
+      const flags = lang === "python" ? ["-c", code] : ["-e", code];
+      return await new Promise<any>((resolve) => {
+        const t0 = Date.now();
+        const proc = spawn(bin, flags, { stdio: ["ignore", "pipe", "pipe"], env: sandboxEnv });
+        let stdout = ""; let stderr = "";
+        proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); if (stdout.length > 32_000) stdout = stdout.slice(0, 32_000); });
+        proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); if (stderr.length > 8_000) stderr = stderr.slice(0, 8_000); });
+        const timer = setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, timeoutMs);
+        proc.on("close", (code) => {
+          clearTimeout(timer);
+          resolve({ language: lang, exitCode: code, stdout: stdout.slice(0, 32_000), stderr: stderr.slice(0, 8_000), elapsedMs: Date.now() - t0 });
+        });
+        proc.on("error", (e) => { clearTimeout(timer); resolve({ error: `spawn failed: ${e.message}` }); });
+      });
+    },
+  },
+  {
+    name: "knowledge.graph_query",
+    description: "Build/update or query a local code+doc knowledge graph via the `graphify` CLI (github.com/Graphify-Labs/graphify) — turns a folder of code/docs into concepts + relationships you can query instead of grepping files. 'update' extracts/re-extracts the target folder into a graph (no LLM call, safe to re-run after edits — incremental). 'explain' returns a plain-language description of one concept and its neighbors. 'path' finds the shortest relationship path between two concepts. Requires the `graphify` CLI on PATH (uv tool install graphifyy).",
+    readonly: false,
+    args: [
+      { name: "action", type: "string", required: true, description: "'update' (build/refresh the graph for target_path), 'explain' (describe one node), or 'path' (shortest path between two nodes)" },
+      { name: "target_path", type: "string", required: true, description: "Absolute folder path to graph (for 'update') or the folder whose graphify-out/graph.json to query (for 'explain'/'path')" },
+      { name: "node", type: "string", required: false, description: "Concept/node name — required for 'explain'" },
+      { name: "node_a", type: "string", required: false, description: "Start node — required for 'path'" },
+      { name: "node_b", type: "string", required: false, description: "End node — required for 'path'" },
+    ],
+    handler: async (args) => {
+      const action = String(args.action ?? "").toLowerCase();
+      if (!["update", "explain", "path"].includes(action)) return { error: "action must be 'update', 'explain', or 'path'" };
+      const targetPath = String(args.target_path ?? "").trim();
+      if (!targetPath) return { error: "target_path is required" };
+      const { assertSafeExternalPath } = await import("./security-gates.js");
+      assertSafeExternalPath(targetPath);
+      const { spawn } = await import("node:child_process");
+      const bin = process.env.NEUROWORKS_GRAPHIFY_BIN ?? "graphify";
+      let cliArgs: string[];
+      if (action === "update") {
+        cliArgs = ["update", targetPath];
+      } else if (action === "explain") {
+        const node = String(args.node ?? "").trim();
+        if (!node) return { error: "node is required for action 'explain'" };
+        cliArgs = ["explain", node, "--graph", `${targetPath}/graphify-out/graph.json`];
+      } else {
+        const nodeA = String(args.node_a ?? "").trim();
+        const nodeB = String(args.node_b ?? "").trim();
+        if (!nodeA || !nodeB) return { error: "node_a and node_b are required for action 'path'" };
+        cliArgs = ["path", nodeA, nodeB, "--graph", `${targetPath}/graphify-out/graph.json`];
+      }
+      const TIMEOUT_MS = action === "update" ? 120_000 : 20_000;
+      return await new Promise<any>((resolve) => {
+        const t0 = Date.now();
+        let proc: any;
+        try { proc = spawn(bin, cliArgs, { stdio: ["ignore", "pipe", "pipe"] }); }
+        catch (e: any) { resolve({ error: `graphify not runnable (${e.message}) — install with: uv tool install graphifyy` }); return; }
+        let stdout = ""; let stderr = "";
+        proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); if (stdout.length > 32_000) stdout = stdout.slice(0, 32_000); });
+        proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); if (stderr.length > 8_000) stderr = stderr.slice(0, 8_000); });
+        const timer = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* already dead */ } }, TIMEOUT_MS);
+        proc.on("close", (code: number | null) => {
+          clearTimeout(timer);
+          resolve({ action, targetPath, exitCode: code, ok: code === 0, output: stdout.trim(), error: code === 0 ? undefined : (stderr.trim() || undefined), elapsedMs: Date.now() - t0 });
+        });
+        proc.on("error", (e: Error) => { clearTimeout(timer); resolve({ error: `graphify not runnable (${e.message}) — install with: uv tool install graphifyy` }); });
+      });
+    },
+  },
+  {
+    name: "pentest.scan",
+    description: "Run a real, autonomous penetration test via Strix (github.com/usestrix/strix) against a target — a local code path, URL, or domain. Strix performs ACTUAL exploit attempts, not just static analysis. This tool is gated behind the operator's sensitive-action approval checkpoint (see SENSITIVE_APPROVAL_TOOLS in agent.ts) — every call pauses for the operator to review the exact target before it runs, same as email.send or db.query. Only propose this when the operator has clearly asked for a security scan of a specific, named target. A scan can take minutes (quick) to hours (deep) — this starts it in the background and returns a job id; use pentest.check_run to poll it or point the operator at the Security Scan page.",
+    readonly: false,
+    args: [
+      { name: "target", type: "string", required: true, description: "Local path, URL, or domain to scan — must be something the operator is authorized to test" },
+      { name: "mode", type: "string", required: false, description: "'quick' (minutes, default), 'deep' (can take hours), or 'simulated' (dry run — validates target/scope/prerequisites, never actually scans)" },
+      { name: "max_budget", type: "number", required: false, description: "Optional LLM-call budget cap passed through to strix --max-budget" },
+    ],
+    handler: async (args) => {
+      const target = String(args.target ?? "").trim();
+      if (!target) return { error: "target is required" };
+      const modeArg = String(args.mode ?? "quick").toLowerCase();
+      const mode = modeArg === "deep" ? "deep" : modeArg === "simulated" ? "simulated" : "quick";
+      const maxBudget = args.max_budget != null && Number.isFinite(Number(args.max_budget)) ? Number(args.max_budget) : undefined;
+      const { startPentestJob } = await import("./pentest.js");
+      const { jobId, title } = await startPentestJob(target, { mode, maxBudget });
+      return {
+        started: true,
+        jobId,
+        title,
+        message: `Scan started in the background (job ${jobId}). Use pentest.check_run with this jobId to see progress, or check the Security Scan page.`,
+      };
+    },
+  },
+  {
+    name: "pentest.check_run",
+    description: "Check the status/log/findings of a Strix scan previously started with pentest.scan.",
+    readonly: true,
+    args: [
+      { name: "job_id", type: "string", required: true, description: "The jobId returned by pentest.scan" },
+    ],
+    handler: async (args) => {
+      const jobId = String(args.job_id ?? "").trim();
+      if (!jobId) return { error: "job_id is required" };
+      const { getJob } = await import("./jobs.js");
+      const j = getJob(jobId);
+      if (!j) return { error: `no in-memory job ${jobId} — it may have been evicted or the server restarted; try pentest.list_runs` };
+      return {
+        jobId: j.id,
+        status: j.status,
+        title: j.title,
+        log: j.log.slice(-40),
+        result: j.result,
+        error: j.error,
+      };
+    },
+  },
+  {
+    name: "pentest.list_runs",
+    description: "List past and in-progress Strix pentest scans (target, mode, status, finding count).",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listPentestRunSummaries } = await import("./pentest.js");
+      return { runs: await listPentestRunSummaries() };
+    },
+  },
+  {
+    name: "browser.harness_exec",
+    description: "Run a short Python snippet against a REAL Chrome browser tab via browser-harness (github.com/browser-use/browser-harness) — CDP-level control: navigate, click by pixel coordinate, extract via JS, screenshot. Pre-imported helpers available in the snippet: new_tab(url) (use for FIRST navigation), ensure_real_tab(), page_info(), capture_screenshot(), click_at_xy(x,y), wait_for_load(), js(expr) for DOM extraction, cdp(\"Domain.method\", ...) for raw CDP. Use print(...) to return data — stdout is what comes back. Prefer this over web.interact when a site needs real browser rendering/login state the headless path can't reach. GATED: requires NEUROWORKS_BROWSER_HARNESS=1 (off by default — executes arbitrary Python with live browser + network access; only enable in trusted environments). Requires local Chrome with chrome://inspect/#remote-debugging enabled (the harness will prompt on first use) OR `browser-harness auth login` for a cloud browser.",
+    readonly: false,
+    args: [
+      { name: "code", type: "string", required: true, description: "Python snippet to run. Helpers are pre-imported — do not import browser_harness yourself. End with print(...) to surface results." },
+      { name: "timeout_ms", type: "number", required: false, description: "Wall budget (default 45000, max 120000) — browser actions are slower than plain code.exec" },
+    ],
+    handler: async (args) => {
+      if (process.env.NEUROWORKS_BROWSER_HARNESS !== "1") {
+        return { error: "browser.harness_exec disabled — set NEUROWORKS_BROWSER_HARNESS=1 in clawbot/.env and restart to enable. This primitive runs arbitrary Python with live browser + network access; only enable in trusted environments." };
+      }
+      const code = String(args.code ?? "");
+      if (!code.trim()) return { error: "code is required" };
+      const timeoutMs = Math.min(120_000, Math.max(5_000, Number(args.timeout_ms ?? 45_000)));
+      const { spawn } = await import("node:child_process");
+      const bin = process.env.NEUROWORKS_BROWSER_HARNESS_BIN ?? "browser-harness";
+      return await new Promise<any>((resolve) => {
+        const t0 = Date.now();
+        let proc: any;
+        try { proc = spawn(bin, [], { stdio: ["pipe", "pipe", "pipe"] }); }
+        catch (e: any) { resolve({ error: `browser-harness not runnable (${e.message}) — install with: uv tool install browser-harness` }); return; }
+        let stdout = ""; let stderr = "";
+        proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); if (stdout.length > 32_000) stdout = stdout.slice(0, 32_000); });
+        proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); if (stderr.length > 8_000) stderr = stderr.slice(0, 8_000); });
+        const timer = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* already dead */ } }, timeoutMs);
+        proc.on("close", (code: number | null) => {
+          clearTimeout(timer);
+          resolve({ exitCode: code, ok: code === 0, output: stdout.trim(), error: code === 0 ? undefined : (stderr.trim() || undefined), elapsedMs: Date.now() - t0 });
+        });
+        proc.on("error", (e: Error) => { clearTimeout(timer); resolve({ error: `browser-harness not runnable (${e.message}) — install with: uv tool install browser-harness` }); });
+        proc.stdin.write(code);
+        proc.stdin.end();
+      });
+    },
+  },
+  {
+    name: "memory.note",
+    description: "Persist a single fact about a subject (a person, project, or topic) into the agent's long-term memory. Use to remember things like 'Priya prefers async over meetings', 'the auth migration is owned by Sam', 'the customer mentioned X budget'. Pass `date` (YYYY-MM-DD) for time-bound facts (a meeting, deadline, renewal) so they surface on that day's calendar plan. Stored at `_neuroworks/memory/<slug>.jsonl` and available to future sessions via `memory.recall`.",
+    readonly: false,
+    args: [
+      { name: "subject", type: "string", required: true, description: "Who or what the fact is about — a name, project, or topic. Reused as the file key, so prefer canonical forms." },
+      { name: "fact", type: "string", required: true, description: "The fact to remember. Short, declarative, attribution-free if possible." },
+      { name: "source", type: "string", required: false, description: "Optional pointer (URL / vault path / jobId) so the fact can be re-verified later." },
+      { name: "date", type: "string", required: false, description: "Optional calendar anchor YYYY-MM-DD for time-bound facts — links the fact to that day on calendar.plan_day / the daily briefing." },
+    ],
+    handler: async (args) => {
+      const { noteFact } = await import("./memory.js");
+      return noteFact({ subject: String(args.subject), fact: String(args.fact), source: args.source ? String(args.source) : undefined, date: args.date ? String(args.date) : undefined });
+    },
+  },
+  {
+    name: "memory.recall",
+    description: "Return the last N facts persisted about a subject (latest first). Use at the start of any chat or team task to load context the agent should already know about the person / project being asked about.",
+    readonly: true,
+    args: [
+      { name: "subject", type: "string", required: true, description: "Subject key — typically the same string you passed to `memory.note` earlier." },
+      { name: "limit", type: "number", required: false, description: "Max facts to return (default 20)" },
+    ],
+    handler: async (args) => {
+      const { recallSubject } = await import("./memory.js");
+      const limit = Math.min(100, Math.max(1, Number(args.limit ?? 20)));
+      return { facts: recallSubject(String(args.subject), limit) };
+    },
+  },
+  {
+    name: "memory.search",
+    description: "Free-text search across every memory file. Use when you're not sure which subject a fact was filed under — searches subject, fact, and source fields.",
+    readonly: true,
+    args: [
+      { name: "query", type: "string", required: true, description: "Search string (case-insensitive substring match)" },
+      { name: "limit", type: "number", required: false, description: "Max hits (default 20)" },
+    ],
+    handler: async (args) => {
+      const { searchMemory } = await import("./memory.js");
+      const limit = Math.min(100, Math.max(1, Number(args.limit ?? 20)));
+      return { facts: searchMemory(String(args.query), limit) };
+    },
+  },
+  {
+    name: "personas.list",
+    description: "List the organization's AI agents (personas / neuros) — id, name, role title, one-line description, job description, responsibilities, department lane, and work mode (agent / hybrid). THE source for 'what agents do we have?', 'how are agents integrated into the org?', org-design or job-description tasks that must reflect the real agent workforce. Use together with users.list (humans) and org.* (reporting lines) to see the whole organization.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { loadPersonas } = await import("./personas.js");
+      const { personas } = loadPersonas();
+      // Roster view only — systemPromptOverride is internal prompt text, not
+      // org data, and has no business appearing in a deliverable.
+      return {
+        agents: personas.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          role: p.role,
+          description: p.description,
+          jobDescription: typeof p.jobDescription === "string" ? p.jobDescription.slice(0, 2000) : "",
+          responsibilities: p.responsibilities ?? [],
+          department: p.department ?? p.lane ?? undefined,
+          workMode: p.workMode ?? "agent",
+        })),
+      };
+    },
+  },
+  {
+    name: "personas.manage",
+    description: "Create, update, or retire an org persona (agent/hire). NAXIE-ONLY — any other caller is refused. Every call pauses for the operator's approval before it runs (see Approvals), so use this to PROPOSE a roster change, not to sneak one through. action=\"create\" needs name+jobDescription; action=\"update\" needs personaId + one or more of tone/description/role/systemPromptOverride/workMode(agent|hybrid); action=\"retire\" needs personaId and permanently deletes that persona + its generated templates (built-in personas can't be retired). Use personas.list first to find the right personaId and to justify the change with real usage evidence (e.g. a system-audit dormancy finding).",
+    readonly: false,
+    args: [
+      { name: "action", type: "string", required: true, description: "\"create\" | \"update\" | \"retire\"" },
+      { name: "personaId", type: "string", required: false, description: "Required for update/retire" },
+      { name: "name", type: "string", required: false, description: "create: display name" },
+      { name: "jobDescription", type: "string", required: false, description: "create: the raw job description this persona is hired for" },
+      { name: "role", type: "string", required: false, description: "Short title, e.g. \"Marketing Specialist\"" },
+      { name: "description", type: "string", required: false, description: "One-line summary" },
+      { name: "tone", type: "string", required: false, description: "e.g. \"concise · warm · formal\"" },
+      { name: "systemPromptOverride", type: "string", required: false, description: "Override the generated system prompt" },
+      { name: "workMode", type: "string", required: false, description: "\"agent\" | \"hybrid\"" },
+      { name: "reason", type: "string", required: true, description: "Why this change — cite the evidence (e.g. a system-audit finding, usage stats)" },
+    ],
+    handler: async (args) => {
+      const { PA_IDENTITY, isMasterEmployee } = await import("./personas.js");
+      if (!isMasterEmployee(String(args.__callerPersonaId ?? ""))) {
+        return { error: `personas.manage is restricted to ${PA_IDENTITY.name} — this caller is not authorized to use it.` };
+      }
+      const { addPersona, updatePersona, deletePersona, extractPersonaMetadata, slugifyId } = await import("./personas.js");
+      const action = String(args.action ?? "").trim();
+      if (action === "create") {
+        const name = String(args.name ?? "").trim();
+        const jobDescription = String(args.jobDescription ?? "").trim();
+        if (!name) return { error: "name is required to create a persona" };
+        if (!jobDescription) return { error: "jobDescription is required to create a persona" };
+        let meta = { role: String(args.role ?? "Specialist"), description: String(args.description ?? ""), tone: String(args.tone ?? "professional"), responsibilities: [] as string[] };
+        if (!args.role || !args.description) {
+          try { meta = { ...meta, ...(await extractPersonaMetadata(jobDescription)) }; } catch { /* keep heuristic defaults */ }
+        }
+        const persona = {
+          id: slugifyId(name),
+          name,
+          role: meta.role,
+          description: meta.description,
+          jobDescription,
+          tone: meta.tone,
+          responsibilities: meta.responsibilities,
+          systemPromptOverride: args.systemPromptOverride ? String(args.systemPromptOverride) : undefined,
+          workMode: (["agent", "hybrid"] as const).includes(args.workMode as any) ? (args.workMode as "agent" | "hybrid") : (args.workMode as string) === "human" ? "hybrid" as const : undefined,
+          createdAt: new Date().toISOString(),
+        };
+        addPersona(persona);
+        return { ok: true, persona };
+      }
+      const personaId = String(args.personaId ?? "").trim();
+      if (!personaId) return { error: "personaId is required for update/retire" };
+      if (action === "update") {
+        const patch: Record<string, unknown> = {};
+        for (const k of ["tone", "description", "role", "systemPromptOverride", "workMode"]) {
+          if (args[k] !== undefined) patch[k] = args[k];
+        }
+        if (Object.keys(patch).length === 0) return { error: "update needs at least one of tone/description/role/systemPromptOverride/workMode" };
+        const p = updatePersona(personaId, patch as any);
+        if (!p) return { error: `persona "${personaId}" not found` };
+        return { ok: true, persona: p };
+      }
+      if (action === "retire") {
+        const ok = deletePersona(personaId);
+        if (!ok) return { error: `persona "${personaId}" not found, or it's a built-in that can't be retired` };
+        return { ok: true, retired: personaId };
+      }
+      return { error: `unknown action "${action}" — use create, update, or retire` };
+    },
+  },
+  {
+    name: "system.admin",
+    description: "Read or change Naxie's own host-level system-access settings (Settings > System Access): allowSystemControl (OS-level control — sleep/lock/volume/open-app), allowClipboardAccess, allowNotifications, gitRepoPath — or switch which model serves the small/large dispatch tier (action=\"switch_model\", e.g. moving off a failing or paid model onto a better free one). NAXIE-ONLY — any other caller is refused. Every call pauses for the operator's approval before it runs. action=\"read\" is still gated (same tool, same approval checkpoint) so read and write both show up for review. Use this to propose a change with a reason — never to flip system access on, or switch models, for yourself mid-task.",
+    readonly: false,
+    args: [
+      { name: "action", type: "string", required: true, description: "\"read\" | \"update\" | \"switch_model\"" },
+      { name: "allowSystemControl", type: "boolean", required: false, description: "update: enable/disable OS-level control tools" },
+      { name: "allowClipboardAccess", type: "boolean", required: false, description: "update: enable/disable clipboard read/write" },
+      { name: "allowNotifications", type: "boolean", required: false, description: "update: enable/disable desktop toast notifications" },
+      { name: "gitRepoPath", type: "string", required: false, description: "update: the one repo path git_command may touch" },
+      { name: "tier", type: "string", required: false, description: "switch_model: \"small\" | \"large\"" },
+      { name: "model", type: "string", required: false, description: "switch_model: the model id to switch that tier to — prefer a free one (isFreeModelId) unless the operator has separately approved paid models" },
+      { name: "reason", type: "string", required: true, description: "Why this change is needed — cite the evidence (failure rate, cost, a better free option)" },
+    ],
+    handler: async (args) => {
+      const { PA_IDENTITY, isMasterEmployee } = await import("./personas.js");
+      if (!isMasterEmployee(String(args.__callerPersonaId ?? ""))) {
+        return { error: `system.admin is restricted to ${PA_IDENTITY.name} — this caller is not authorized to use it.` };
+      }
+      const action = String(args.action ?? "").trim();
+      if (action === "read") return { settings: getHostToolsSettings() };
+      if (action === "update") {
+        const patch: Record<string, unknown> = {};
+        for (const k of ["allowSystemControl", "allowClipboardAccess", "allowNotifications", "gitRepoPath"]) {
+          if (args[k] !== undefined) patch[k] = args[k];
+        }
+        if (Object.keys(patch).length === 0) return { error: "update needs at least one of allowSystemControl/allowClipboardAccess/allowNotifications/gitRepoPath" };
+        return { ok: true, settings: updateHostToolsSettings(patch as any) };
+      }
+      if (action === "switch_model") {
+        const tier = String(args.tier ?? "").trim();
+        const model = String(args.model ?? "").trim();
+        if (tier !== "small" && tier !== "large") return { error: "tier must be \"small\" or \"large\"" };
+        if (!model) return { error: "model is required" };
+        try {
+          const { setActiveTierModel } = await import("./model-providers.js");
+          return { ok: true, provider: setActiveTierModel(tier, model) };
+        } catch (e: any) {
+          return { error: e?.message ?? String(e) };
+        }
+      }
+      return { error: `unknown action "${action}" — use read, update, or switch_model` };
+    },
+  },
+  {
+    name: "org.lookup",
+    description: "Look up a person on the org chart (`_governance/people.md`) by id, display name, or persona_id. Returns title, manager, peers, reports. Use when a task names someone and you need to know who they are.",
+    readonly: true,
+    args: [{ name: "query", type: "string", required: true, description: "Person id, name, or persona_id" }],
+    handler: async (args) => {
+      const { lookupPerson } = await import("./org-chart.js");
+      const p = lookupPerson(String(args.query ?? ""));
+      return p ?? { error: `no person matching ${String(args.query)}` };
+    },
+  },
+  {
+    name: "org.master_employee",
+    description: "Return who currently holds the org's Master Employee rank (COO-level, top authority over personas.manage/system.admin/org.approvals_pending) — persona id + name, plus their org-chart entry if `_governance/people.md` has one. Use instead of assuming \"naxie\" by name.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { resolveMasterEmployee } = await import("./org-chart.js");
+      const { loadPersonas } = await import("./personas.js");
+      const master = loadPersonas().personas.find(p => p.rank === "master-employee");
+      if (!master) return { error: "no persona currently holds the master-employee rank" };
+      return { personaId: master.id, personaName: master.name, orgChartPerson: await resolveMasterEmployee() };
+    },
+  },
+  {
+    name: "org.escalation_path",
+    description: "Return the manager chain for a person (id / name / persona_id), root last. Walks `manager` until it hits a person with no manager set (a human, by convention).",
+    readonly: true,
+    args: [{ name: "query", type: "string", required: true, description: "Person id, name, or persona_id" }],
+    handler: async (args) => {
+      const { escalationPath } = await import("./org-chart.js");
+      return { chain: escalationPath(String(args.query ?? "")) };
+    },
+  },
+  {
+    name: "org.peers",
+    description: "Return a person's peers (lateral teammates) from the org chart. Use for lateral handoffs — when a request lands on the wrong persona but a peer can cover it.",
+    readonly: true,
+    args: [{ name: "query", type: "string", required: true, description: "Person id, name, or persona_id" }],
+    handler: async (args) => {
+      const { peersOf } = await import("./org-chart.js");
+      return { peers: peersOf(String(args.query ?? "")) };
+    },
+  },
+  {
+    name: "org.reports",
+    description: "Return a person's direct reports from the org chart. Useful for status-report or team-digest tasks aimed at a team lead.",
+    readonly: true,
+    args: [{ name: "query", type: "string", required: true, description: "Person id, name, or persona_id" }],
+    handler: async (args) => {
+      const { reportsOf } = await import("./org-chart.js");
+      return { reports: reportsOf(String(args.query ?? "")) };
+    },
+  },
+  {
+    name: "org.approvals_pending",
+    description: "List every job parked awaiting-approval across the WHOLE org (all personas), not just your own drafts — for the org's Master Employee to surface a sign-off digest to the operator. MASTER-EMPLOYEE-ONLY. Read-only: this does not approve or reject anything — decisions stay with the operator via the Approvals page.",
+    readonly: true,
+    args: [],
+    handler: async (args) => {
+      const { PA_IDENTITY, isMasterEmployee } = await import("./personas.js");
+      if (!isMasterEmployee(String(args.__callerPersonaId ?? ""))) {
+        return { error: `org.approvals_pending is restricted to ${PA_IDENTITY.name} — this caller is not authorized to use it.` };
+      }
+      const { listJobs } = await import("./jobs.js");
+      const now = Date.now();
+      const pending = listJobs()
+        .filter(j => j.status === "awaiting-approval")
+        .map(j => ({
+          id: j.id,
+          title: j.title ?? j.task ?? "",
+          personaName: j.personaName ?? "",
+          startedAt: j.startedAt,
+          ageMs: now - new Date(j.startedAt).getTime(),
+        }));
+      return { count: pending.length, pending };
+    },
+  },
+  {
+    name: "users.list",
+    description: "List the people in the organization (the Users directory) — their name, email, role (admin/member/viewer), title, and department. Use to answer 'who is part of the org?', 'who's on the team?', 'who works in finance?', or to find someone's email before drafting/sending a message. Returns the directory; never returns passwords.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { directory } = await import("./users.js");
+      return { users: directory() };
+    },
+  },
+  {
+    name: "users.lookup",
+    description: "Look up ONE person in the organization's Users directory by name or email, and return their details (name, email, role, title, department). Use to resolve 'what's Jane's email?', 'who is Mr. Khumalo?', or to confirm someone is part of the org before acting. Self-referential queries ('me', 'the operator', 'owner') resolve to the operator who runs this install. Returns null when there's no match.",
+    readonly: true,
+    args: [{ name: "query", type: "string", required: true, description: "A name or email (partial name allowed)" }],
+    handler: async (args) => {
+      const { lookupUser } = await import("./users.js");
+      const user = lookupUser(String(args.query ?? ""));
+      return user ? { user } : { user: null, note: "no matching person in the org directory" };
+    },
+  },
+  {
+    name: "human.request",
+    description: "PAUSE the task and ask the human operator for something the system genuinely cannot supply itself: missing internal information (figures, credentials, context not in the vault/connectors/databases), a decision or sign-off, a document only they hold, or an offline/physical action. The task parks in a waiting state; when the human responds, it automatically continues with their input. items is a JSON array of {\"type\":\"answer\"|\"upload\"|\"approval\"|\"action\",\"prompt\":\"exactly what you need and why\"}. Use ONLY after the catalog truly can't provide it — never to dodge doable work.",
+    readonly: true,
+    args: [
+      { name: "items", type: "string", required: true, description: "JSON array of typed asks, e.g. [{\"type\":\"answer\",\"prompt\":\"What is the approved Q3 budget ceiling (ZAR)?\"}]" },
+      { name: "reason", type: "string", required: false, description: "One sentence on why the system can't finish without this" },
+    ],
+    handler: async (args) => {
+      // Tolerant parsing — small planners emit the array as a string, an
+      // already-parsed array, or a single bare object. Anything unusable
+      // degrades to one generic "answer" item rather than failing the step
+      // (failing here would turn a legitimate pause into a task error).
+      const VALID = new Set(["answer", "upload", "approval", "action"]);
+      let raw: any = args.items;
+      if (typeof raw === "string") {
+        try { raw = JSON.parse(raw); } catch { raw = [{ type: "answer", prompt: String(args.items) }]; }
+      }
+      if (raw && !Array.isArray(raw) && typeof raw === "object") raw = [raw];
+      const items = (Array.isArray(raw) ? raw : [])
+        .map((it: any) => ({
+          type: VALID.has(String(it?.type)) ? String(it.type) : "answer",
+          prompt: String(it?.prompt ?? it?.question ?? it?.ask ?? "").trim(),
+        }))
+        .filter((it: any) => it.prompt.length > 0)
+        .slice(0, 10);
+      if (items.length === 0) items.push({ type: "answer", prompt: "Provide the missing information needed to finish this task." });
+      return {
+        humanRequest: {
+          items,
+          reason: typeof args.reason === "string" && args.reason.trim() ? args.reason.trim().slice(0, 300) : undefined,
+          requestedAt: new Date().toISOString(),
+        },
+        note: "task paused — waiting on the human operator",
+      };
+    },
+  },
+  {
+    name: "integration.list",
+    description: "List the external services the user has connected on the Integrations page (Slack, Telegram, Discord, GitHub, Notion, Linear, Google, etc.). Use to discover what channels/tools you can act on before reaching for slack.post / telegram.send / discord.post. Returns provider, label, and category — never secrets.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listConnections } = await import("./integrations.js");
+      return { connections: listConnections().map(c => ({ providerId: c.providerId, provider: c.providerName, label: c.label, category: c.category })) };
+    },
+  },
+  {
+    name: "slack.post",
+    description: "Post a message to the user's connected Slack. Uses the Web API bot token (chat.postMessage) to a channel when configured — pass `channel` (id or #name) or rely on the connection's default channel — otherwise falls back to the saved Incoming Webhook. Requires a Slack connection on the Integrations page.",
+    readonly: false,
+    args: [
+      { name: "text", type: "string", required: true, description: "Message text (Slack mrkdwn supported)" },
+      { name: "channel", type: "string", required: false, description: "Channel id (C0123…) or #name. Bot-token mode only; defaults to the connection's default channel." },
+    ],
+    handler: async (args) => {
+      const { getConnectionByProvider } = await import("./integrations.js");
+      const conn = getConnectionByProvider("slack");
+      if (!conn) return { error: "no Slack connection — add one on the Integrations page" };
+      const text = String(args.text ?? "").trim();
+      if (!text) return { error: "text is required" };
+      const botToken = conn.secrets?.botToken;
+      // Bot token → Web API chat.postMessage (needs a channel).
+      if (botToken) {
+        const channel = String(args.channel ?? conn.config?.defaultChannel ?? "").trim();
+        if (!channel) return { error: "bot-token Slack needs a channel — pass `channel` or set a default channel on the connection" };
+        const r = await fetch("https://slack.com/api/chat.postMessage", {
+          method: "POST",
+          headers: { authorization: `Bearer ${botToken}`, "content-type": "application/json; charset=utf-8" },
+          body: JSON.stringify({ channel, text }),
+        });
+        const j: any = await r.json().catch(() => ({}));
+        return j?.ok ? { ok: true, posted: true, channel: j.channel, ts: j.ts, chars: text.length } : { error: `slack ${j?.error ?? r.status}` };
+      }
+      // Fall back to Incoming Webhook.
+      if (conn.secrets?.webhookUrl) {
+        const r = await fetch(conn.secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+        return r.ok ? { ok: true, posted: true, chars: text.length } : { error: `slack ${r.status}: ${(await r.text()).slice(0, 200)}` };
+      }
+      return { error: "Slack connection has neither a bot token nor a webhook URL" };
+    },
+  },
+  {
+    name: "telegram.send",
+    description: "Send a message via the user's connected Telegram bot. Defaults to the saved chat id; pass chatId to override. Supports inline keyboards for interactive buttons. Requires a Telegram connection on the Integrations page.",
+    readonly: false,
+    args: [
+      { name: "text", type: "string", required: true, description: "Message text" },
+      { name: "chatId", type: "string", required: false, description: "Override the default chat id" },
+      { name: "keyboard", type: "string", required: false, description: "JSON array of button rows, e.g. '[[{\"text\":\"Yes\",\"callback_data\":\"yes\"}]]'" },
+    ],
+    handler: async (args) => {
+      const { sendTelegramMessage } = await import("./telegram-bridge.js");
+      let keyboard = undefined;
+      if (args.keyboard) {
+        try { keyboard = JSON.parse(String(args.keyboard)); } catch { /* ignore malformed keyboard */ }
+      }
+      const r = await sendTelegramMessage(String(args.text ?? ""), args.chatId ? String(args.chatId) : undefined, keyboard);
+      return r.ok ? { ok: true, sent: true, messageId: r.messageId } : { error: r.error };
+    },
+  },
+  {
+    name: "whatsapp.reconnect",
+    description: "Force a fresh WhatsApp pairing: disconnects the current session, deletes the saved credentials, and restarts the bridge — which prints a brand-new QR code to the server console/logs to scan. Use this whenever the operator asks to reconnect/rescan/relink WhatsApp (e.g. the linked device was removed from the phone, the connection looks stuck, or they just want to re-pair). Not approval-gated — it's a connection reset, not customer-facing.",
+    readonly: false,
+    args: [],
+    handler: async () => {
+      const { resetAndReconnectWhatsApp } = await import("./whatsapp-bridge.js");
+      const r = await resetAndReconnectWhatsApp();
+      return r.ok
+        ? { ok: true, message: "WhatsApp session cleared and the bridge is restarting — scan the new QR code printed in the server console/logs." }
+        : { error: r.error };
+    },
+  },
+  {
+    name: "whatsapp.send",
+    description: "Send a WhatsApp message to one phone number via the connected Baileys bridge (Variety & Co business number). APPROVAL-GATED — outward customer messaging pauses for the operator's sign-off first, same as email.send. Args: to (phone number, digits only or with country code — no jid needed), text.",
+    readonly: false,
+    args: [
+      { name: "to", type: "string", required: true, description: "Recipient phone number, e.g. 263771234567 (country code + number, no +/spaces needed)." },
+      { name: "text", type: "string", required: true, description: "Message text" },
+    ],
+    handler: async (args) => {
+      const { sendWhatsAppMessage } = await import("./whatsapp-bridge.js");
+      const r = await sendWhatsAppMessage(String(args.to ?? ""), String(args.text ?? ""));
+      return r.ok ? { ok: true, sent: true } : { error: r.error };
+    },
+  },
+  {
+    name: "whatsapp.broadcast",
+    description: "Send the same WhatsApp message to CRM contacts with a phone number who've had activity in the last N days (e.g. \"message all clients from the last 30 days\"). APPROVAL-GATED. Paced with randomized human-like delays between sends (not a fixed interval) and capped at 40 recipients per call — a burst to hundreds of numbers at once is the single biggest spam-detection trigger, so a bigger list needs multiple calls (spread across a day or more, not back to back). Use daysBack to control the recency window (default 30). Returns per-recipient send results plus how many were left over the cap.",
+    readonly: false,
+    args: [
+      { name: "text", type: "string", required: true, description: "Message text to send to every matching contact. Supports {{name}}, replaced with the contact's name (falls back to their phone number)." },
+      { name: "daysBack", type: "number", required: false, description: "Only message contacts with CRM activity within this many days (default 30)." },
+    ],
+    handler: async (args) => {
+      const text = String(args.text ?? "").trim();
+      if (!text) return { error: "text is required" };
+      const daysBack = Math.max(1, Number(args.daysBack ?? 30) || 30);
+      const { listContactsWithRecentActivity, logActivity } = await import("./crm.js");
+      const { sendWhatsAppMessage } = await import("./whatsapp-bridge.js");
+      const matched = listContactsWithRecentActivity(daysBack).filter(c => c.phone);
+      if (!matched.length) return { error: `no CRM contacts with a phone number and activity in the last ${daysBack} day(s)` };
+      // Cap + shuffle — sending in CRM order (usually creation/alpha order) is
+      // itself a machine-like pattern; a human working a list jumps around.
+      const MAX_PER_CALL = 40;
+      const shuffled = [...matched].sort(() => Math.random() - 0.5);
+      const targets = shuffled.slice(0, MAX_PER_CALL);
+      const leftover = shuffled.length - targets.length;
+      const results: { contactId: string; name?: string; phone?: string; ok: boolean; error?: string }[] = [];
+      for (const c of targets) {
+        const body = text.replace(/\{\{\s*name\s*\}\}/gi, c.name || c.phone || "there");
+        const r = await sendWhatsAppMessage(c.phone!, body);
+        results.push({ contactId: c.id, name: c.name, phone: c.phone, ok: r.ok, error: r.error });
+        if (r.ok) { try { logActivity({ contactId: c.id, kind: "whatsapp", body: `Broadcast: ${body}`.slice(0, 500) }); } catch { /* best-effort */ } }
+        // Randomized gap between recipients (on top of sendWhatsAppMessage's own
+        // per-message typing delay) — a fixed interval is as detectable as no
+        // interval at all; real outreach has irregular pauses between contacts.
+        await new Promise(res => setTimeout(res, 4000 + Math.random() * 6000));
+      }
+      const sent = results.filter(r => r.ok).length;
+      return {
+        requested: matched.length, sent, failed: targets.length - sent, results,
+        ...(leftover > 0 ? { leftover, note: `${leftover} more matched contact(s) were left out of this call (cap ${MAX_PER_CALL}/call) — run whatsapp.broadcast again later, not immediately, to reach them.` } : {}),
+      };
+    },
+  },
+  {
+    name: "whatsapp.cloud_send",
+    description: "Send a WhatsApp message via Meta's official Cloud API (no linked phone/QR needed — unlike whatsapp.send's Baileys device bridge). APPROVAL-GATED, same as whatsapp.send. Requires WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN. Args: to (phone number with country code), text.",
+    readonly: false,
+    args: [
+      { name: "to", type: "string", required: true, description: "Recipient phone number, e.g. 263771234567 (country code + number, no +/spaces needed)." },
+      { name: "text", type: "string", required: true, description: "Message text (max 4096 chars)" },
+    ],
+    handler: async (args) => {
+      const { sendWhatsAppCloudMessage } = await import("./whatsapp-cloud.js");
+      const r = await sendWhatsAppCloudMessage(String(args.to ?? ""), String(args.text ?? ""));
+      return r.ok ? { ok: true, sent: true, ...(r.messageId ? { messageId: r.messageId } : {}) } : { error: r.error };
+    },
+  },
+  {
+    name: "discord.post",
+    description: "Post a message to the user's connected Discord channel (via the saved webhook). Requires a Discord connection on the Integrations page.",
+    readonly: false,
+    args: [{ name: "text", type: "string", required: true, description: "Message content" }],
+    handler: async (args) => {
+      const { getConnectionByProvider } = await import("./integrations.js");
+      const conn = getConnectionByProvider("discord");
+      if (!conn?.secrets?.webhookUrl) return { error: "no Discord connection — add one on the Integrations page" };
+      const text = String(args.text ?? "").trim();
+      if (!text) return { error: "text is required" };
+      const r = await fetch(conn.secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: text.slice(0, 2000) }) });
+      return (r.ok || r.status === 204) ? { ok: true, posted: true } : { error: `discord ${r.status}: ${(await r.text()).slice(0, 200)}` };
+    },
+  },
+  {
+    name: "msteams.post",
+    description: "Post a message to the user's connected Microsoft Teams channel (via the saved Incoming Webhook). Use to notify a team of a result/alert. Requires a Microsoft Teams connection on the Integrations page.",
+    readonly: false,
+    args: [{ name: "text", type: "string", required: true, description: "Message text (Markdown supported in Teams)" }],
+    handler: async (args) => {
+      const { getConnectionByProvider } = await import("./integrations.js");
+      const conn = getConnectionByProvider("msteams");
+      if (!conn?.secrets?.webhookUrl) return { error: "no Microsoft Teams connection — add one on the Integrations page" };
+      const text = String(args.text ?? "").trim();
+      if (!text) return { error: "text is required" };
+      const r = await fetch(conn.secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+      return r.ok ? { ok: true, posted: true } : { error: `msteams ${r.status}: ${(await r.text()).slice(0, 200)}` };
+    },
+  },
+  {
+    name: "googlechat.post",
+    description: "Post a message to the user's connected Google Chat space (via the saved webhook). Requires a Google Chat connection on the Integrations page.",
+    readonly: false,
+    args: [{ name: "text", type: "string", required: true, description: "Message text" }],
+    handler: async (args) => {
+      const { getConnectionByProvider } = await import("./integrations.js");
+      const conn = getConnectionByProvider("googlechat");
+      if (!conn?.secrets?.webhookUrl) return { error: "no Google Chat connection — add one on the Integrations page" };
+      const text = String(args.text ?? "").trim();
+      if (!text) return { error: "text is required" };
+      const r = await fetch(conn.secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+      return r.ok ? { ok: true, posted: true } : { error: `googlechat ${r.status}: ${(await r.text()).slice(0, 200)}` };
+    },
+  },
+  {
+    name: "webhook.post",
+    description: "POST a JSON payload ({ text, source }) to the user's connected custom Webhook endpoint (Zapier/Make/n8n/own service). Use to push a result into an external automation. Requires a 'Webhook (custom)' connection on the Integrations page.",
+    readonly: false,
+    args: [{ name: "text", type: "string", required: true, description: "Payload text — sent as { text, source: 'neuroworks' }" }],
+    handler: async (args) => {
+      const { getConnectionByProvider } = await import("./integrations.js");
+      const conn = getConnectionByProvider("webhook");
+      if (!conn?.secrets?.webhookUrl) return { error: "no custom Webhook connection — add one on the Integrations page" };
+      const text = String(args.text ?? "").trim();
+      if (!text) return { error: "text is required" };
+      const r = await fetch(conn.secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, source: "neuroworks" }) });
+      return r.status < 500 ? { ok: true, posted: true, status: r.status } : { error: `webhook ${r.status}: ${(await r.text()).slice(0, 200)}` };
+    },
+  },
+  {
+    name: "connector.list",
+    description: "List the company systems (external HTTP APIs) the operator has registered as Connectors. Use to discover which in-house/third-party systems you can read from or act on before reaching for connector.call. Returns id, label, baseUrl, description and a count of documented endpoints — never credentials.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listConnectors } = await import("./connectors.js");
+      return {
+        connectors: listConnectors().map(c => ({
+          id: c.id, label: c.label, baseUrl: c.baseUrl, description: c.description,
+          writeEnabled: c.writeEnabled, endpoints: c.endpoints?.length ?? 0,
+          auth: c.auth.type, lastTest: c.lastTest,
+        })),
+      };
+    },
+  },
+  {
+    name: "connector.describe",
+    description: "Read the full manifest of one registered company-system Connector so you understand how to call it: its baseUrl, auth scheme, and the named endpoints (method + path + description + documented params). Always describe a connector before calling it. Pass the connector id or label. Never returns secrets.",
+    readonly: true,
+    args: [{ name: "connector", type: "string", required: true, description: "Connector id or label" }],
+    handler: async (args) => {
+      const { getConnectorPublic } = await import("./connectors.js");
+      const c = getConnectorPublic(String(args.connector ?? ""));
+      if (!c) return { error: `connector "${args.connector}" not found — list connectors first` };
+      return {
+        id: c.id, label: c.label, baseUrl: c.baseUrl, description: c.description,
+        auth: c.auth, writeEnabled: c.writeEnabled, headers: c.headers ? Object.keys(c.headers) : [],
+        endpoints: c.endpoints ?? [],
+      };
+    },
+  },
+  {
+    name: "connector.call",
+    description: "Make an authenticated HTTP request to a registered company-system Connector. Credentials are applied automatically from the stored connector — never include keys/tokens yourself. Calls are READ-ONLY (GET/HEAD) unless the operator enabled writes on that connector. Path is relative to the connector's baseUrl (e.g. '/v1/invoices' or '/customers/123'); cross-origin paths are rejected. Returns { ok, status, body } with the response (JSON parsed when possible).",
+    readonly: false,
+    args: [
+      { name: "connector", type: "string", required: true, description: "Connector id or label" },
+      { name: "path", type: "string", required: true, description: "Path relative to the connector baseUrl, e.g. /v1/orders" },
+      { name: "method", type: "string", required: false, description: "HTTP method (default GET). Non-GET requires the connector to have writes enabled." },
+      { name: "query", type: "string", required: false, description: "Query params as a flat JSON object, e.g. {\"status\":\"open\",\"limit\":50}" },
+      { name: "body", type: "string", required: false, description: "Request body as JSON (or a raw string). Only used for non-GET methods." },
+    ],
+    handler: async (args) => {
+      const { callConnector, listConnectors } = await import("./connectors.js");
+      // query/body may arrive as a real object (planner emitted JSON) or a
+      // JSON string (LLM stringified it) — accept both.
+      const coerce = (v: any): any => {
+        if (v === undefined || v === null || v === "") return undefined;
+        if (typeof v === "string") { try { return JSON.parse(v); } catch { return v; } }
+        return v;
+      };
+      const query = coerce(args.query);
+      const connectorRef = String(args.connector ?? "");
+      let path = String(args.path ?? "");
+      let pathNote: string | undefined;
+      // Path resolution against the connector's DECLARED endpoints. Live
+      // orchestration testing showed agents guess paths from memory
+      // ("/dashboard") instead of reading the manifest ("/api/public/
+      // dashboard") and eat 404s. Resolve, in order: exact endpoint NAME,
+      // exact declared path, then a declared path whose tail matches the
+      // guess. Unknown paths still go through unchanged (some APIs have
+      // undeclared routes) — but a 404 now returns the declared endpoint
+      // list so the agent can self-correct in the next step.
+      let declared: { name: string; method: string; path: string }[] = [];
+      try {
+        const ref = connectorRef.toLowerCase();
+        const conn = listConnectors().find((c: any) => c.id === connectorRef || String(c.label ?? "").toLowerCase() === ref);
+        declared = (conn?.endpoints ?? []).map((e: any) => ({ name: String(e.name ?? ""), method: String(e.method ?? "GET"), path: String(e.path ?? "") }));
+        const guess = path.replace(/^\//, "").toLowerCase();
+        const byName = declared.find(e => e.name.toLowerCase() === guess || e.name.toLowerCase() === guess.replace(/[/ ]+/g, "-") || e.name.toLowerCase() === guess.replace(/[/ ]+/g, "_"));
+        const byPath = declared.find(e => e.path.replace(/^\//, "").toLowerCase() === guess);
+        const byTail = !byName && !byPath && guess.length >= 4
+          ? declared.find(e => e.path.toLowerCase().endsWith("/" + guess) || e.path.toLowerCase().endsWith(guess))
+          : undefined;
+        const hit = byName ?? byPath ?? byTail;
+        if (hit && hit.path && hit.path !== path) {
+          pathNote = `resolved "${path}" to the connector's declared endpoint ${hit.name} (${hit.path})`;
+          path = hit.path;
+        }
+      } catch { /* resolution is best-effort — fall through to the raw path */ }
+      const result: any = await callConnector(connectorRef, {
+        method: args.method ? String(args.method) : "GET",
+        path,
+        query: (query && typeof query === "object") ? query as Record<string, any> : undefined,
+        body: coerce(args.body),
+      });
+      if (pathNote && result && typeof result === "object") result.pathNote = pathNote;
+      if (result && typeof result === "object" && result.status === 404 && declared.length > 0) {
+        result.hint = `404 — "${path}" is not a declared endpoint on this connector. Declared endpoints: ${declared.slice(0, 12).map(e => `${e.name} (${e.method} ${e.path})`).join(", ")}. Retry with one of these paths.`;
+      }
+      return result;
+    },
+  },
+  {
+    name: "mcp.list",
+    description: "List the external MCP (Model Context Protocol) servers the operator has registered — e.g. filesystem, browser, database, or third-party MCP servers from the community catalog. Use to discover which local tool servers you can call before reaching for mcp.call. Returns id, label, description, and connection status — never env secrets.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listMcpServers } = await import("./mcp-clients.js");
+      return {
+        servers: listMcpServers().map(s => ({
+          id: s.id, label: s.label, description: s.description, disabled: s.disabled,
+          lastConnectedAt: s.lastConnectedAt, lastToolCount: s.lastToolCount, lastError: s.lastError,
+        })),
+      };
+    },
+  },
+  {
+    name: "mcp.describe",
+    description: "List the tools exposed by one registered MCP server (name, description, input schema), starting it if it isn't already running. Always describe a server before calling one of its tools. Pass the server id or label.",
+    readonly: true,
+    args: [{ name: "server", type: "string", required: true, description: "MCP server id or label" }],
+    handler: async (args) => {
+      const { listMcpTools } = await import("./mcp-clients.js");
+      try {
+        const tools = await listMcpTools(String(args.server ?? ""));
+        return { tools };
+      } catch (e: any) {
+        return { error: e?.message ?? String(e) };
+      }
+    },
+  },
+  {
+    name: "mcp.call",
+    description: "Call one tool on a registered MCP server (starts the server on first use). Unlike connector.call this is ALWAYS approval-gated — an MCP server is a local process the operator configured, not a scoped HTTP endpoint, so there's no read/write distinction to safely auto-approve. Returns { ok, content } with the tool's result (JSON parsed when possible, truncated if large).",
+    readonly: false,
+    args: [
+      { name: "server", type: "string", required: true, description: "MCP server id or label" },
+      { name: "tool", type: "string", required: true, description: "Tool name, from mcp.describe" },
+      { name: "arguments", type: "string", required: false, description: "Tool arguments as a JSON object, e.g. {\"path\":\"/tmp/x.txt\"}" },
+    ],
+    handler: async (args) => {
+      const { callMcpTool } = await import("./mcp-clients.js");
+      const coerce = (v: any): Record<string, unknown> => {
+        if (v === undefined || v === null || v === "") return {};
+        if (typeof v === "string") { try { return JSON.parse(v); } catch { return {}; } }
+        return v;
+      };
+      return callMcpTool(String(args.server ?? ""), String(args.tool ?? ""), coerce(args.arguments));
+    },
+  },
+  {
+    name: "media.tts",
+    description: "Generate spoken-audio narration of text. NOTE: text-to-speech has no configured provider right now — it returns a friendly 'not available' message, so deliver the finished SCRIPT and note the audio render is pending a provider. (OpenRouter has no TTS; a Kokoro sidecar can be wired to enable it.)",
+    readonly: false,
+    args: [
+      { name: "text", type: "string", required: true, description: "The text to speak (markdown is stripped automatically before speaking)" },
+      { name: "voice_id", type: "string", required: false, description: "Optional voice id" },
+      { name: "emotion", type: "string", required: false, description: "Optional emotion: happy, sad, angry, fearful, disgusted, surprised, neutral" },
+    ],
+    handler: async (args) => {
+      const text = String(args.text ?? "").trim().replace(/[#*`_>]/g, "");
+      if (!text) return { error: "text is required" };
+      // MiniMax removed; OpenRouter offers no text-to-speech. Honest stub until a
+      // TTS provider (Kokoro sidecar) is wired.
+      return { error: "Text-to-speech isn't available — no audio provider is configured. Deliver the script; the voiceover render is pending a TTS provider." };
+    },
+  },
+  {
+    name: "media.image",
+    description: "Generate an IMAGE from a text prompt (text-to-image / 'studio' generation). Use for 'make an image of…', 'design a logo/poster/banner/hero', 'generate artwork/an illustration/a mockup', 'create a visual for…'. Returns { path, bytes, provider, model } — a local .png saved in the vault media folder (attach it with email.send attach_paths, or reference the path). Default provider is OpenRouter's Gemini flash image (rides the existing OpenRouter key); Ideogram (best for TEXT/typography/posters/logos) and Muapi (nano-banana, flux, seedream, imagen — see media.studio_models) are used if their keys are set. Write a rich, specific prompt — subject, style, composition, lighting, colour; see the image-prompting skill.",
+    readonly: false,
+    args: [
+      { name: "prompt", type: "string", required: true, description: "Detailed description of the image: subject, style, composition, lighting, colour, mood. For posters/logos, put the exact text to render in quotes." },
+      { name: "model", type: "string", required: false, description: "Optional model id from media.studio_models (e.g. 'nano-banana', 'flux-dev', 'bytedance-seedream-v4'). Applies to the Muapi provider; ignored by Ideogram. Omit for the default." },
+      { name: "aspect_ratio", type: "string", required: false, description: "Optional aspect ratio, e.g. '1:1', '16:9', '4:5', '9:16'. Default '1:1'." },
+      { name: "provider", type: "string", required: false, description: "Optional force a provider: 'ideogram' or 'muapi'. Omit to auto-pick (Ideogram preferred for design/typography)." },
+    ],
+    handler: async (args) => {
+      const { availableImageProviders, generateStudioImage } = await import("./studio-image.js");
+      // Live provider check (NOT config.studioImageEnabled, which is init-time
+      // and misses the OpenRouter key applied at runtime by an active provider).
+      if (availableImageProviders().length === 0) {
+        return { error: "Image generation not configured — needs IDEOGRAM_API_KEY or MUAPI_API_KEY, or an active OpenRouter provider (Integrations)." };
+      }
+      const prompt = String(args.prompt ?? "").trim();
+      if (!prompt) return { error: "prompt is required" };
+      const provider = ["ideogram", "muapi", "openrouter"].includes(args.provider) ? args.provider : undefined;
+      try {
+        return await generateStudioImage(prompt, {
+          provider,
+          model: args.model ? String(args.model) : undefined,
+          aspectRatio: args.aspect_ratio ? String(args.aspect_ratio) : undefined,
+        });
+      } catch (e: any) {
+        console.error("[media.image] generation failed:", e?.message ?? e);
+        return { error: String(e?.message ?? e).slice(0, 300) };
+      }
+    },
+  },
+  {
+    name: "media.studio_models",
+    description: "List the available generative-media models for the studio (text-to-image, plus video/edit variants where offered) — id, friendly name, provider, kind, supported aspect ratios. Call this BEFORE media.image when the user wants a specific look and you want to pick the right model (e.g. Ideogram for typography, Flux/Seedream for photoreal, an anime model for anime). Read-only; no key required to LIST (generation still needs a provider key).",
+    readonly: true,
+    args: [
+      { name: "kind", type: "string", required: false, description: "Optional filter: 'text-to-image' | 'text-to-video' | 'image-to-image' | 'image-to-video'. Omit for all." },
+    ],
+    handler: async (args) => {
+      const { listStudioModels } = await import("./studio-models.js");
+      const { studioImageHealth } = await import("./studio-image.js");
+      const kind = args.kind ? String(args.kind) : undefined;
+      const models = listStudioModels(kind).map(m => ({ id: m.id, name: m.name, provider: m.provider, kind: m.kind, aspectRatios: m.aspectRatios }));
+      return { models, count: models.length, providers: studioImageHealth() };
+    },
+  },
+  {
+    name: "media.list",
+    description: "List the studio's RECENTLY GENERATED images (newest first) with their absolute file paths and download URLs. Use this whenever the user refers to images that were already generated ('the images we made', 'the last 3 generated images', 'that logo from earlier') — generated media lives in the studio's media folder, NOT the vault and NOT the user's documents, so vault.search and fs.find_in will NOT find it. To email them, chain: media.list → email.send with {attach_paths: \"$step_N.pathsJoined\"}. Returns { images: [{filename, path, bytes, createdAt, downloadUrl}], paths, pathsJoined, count }.",
+    readonly: true,
+    args: [
+      { name: "count", type: "number", required: false, description: "How many of the newest images to return (default 5, max 50)" },
+    ],
+    handler: async (args) => {
+      const { listGeneratedImages } = await import("./studio-image.js");
+      const n = Number(args.count ?? 5);
+      const images = listGeneratedImages(Number.isFinite(n) ? n : 5);
+      const paths = images.map(i => i.path);
+      return { images, paths, pathsJoined: paths.join(","), count: images.length };
+    },
+  },
+  {
+    name: "calendar.add_event",
+    description: "Add an event/commitment to the calendar for a specific date (e.g. 'schedule a review meeting on 2026-07-25', 'remind the team about the demo Friday'). Stores it as a dated memory fact; it surfaces on the Calendar page's agenda for that day and in calendar.plan_day / the daily briefing. For RECURRING automated work use schedule.create instead. Returns the stored event.",
+    readonly: false,
+    args: [
+      { name: "date", type: "string", required: true, description: "Event date, YYYY-MM-DD (local)" },
+      { name: "title", type: "string", required: true, description: "What the event is — e.g. 'Demo day with Aiia leadership, 14:00'. Include the time in the text if one was given." },
+      { name: "subject", type: "string", required: false, description: "Optional grouping subject (defaults to 'calendar')" },
+    ],
+    handler: async (args) => {
+      const { noteFact } = await import("./memory.js");
+      const date = String(args.date ?? "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "date must be YYYY-MM-DD" };
+      const title = String(args.title ?? "").trim();
+      if (!title) return { error: "title is required" };
+      const fact = noteFact({ subject: String(args.subject ?? "calendar").trim() || "calendar", fact: title, date, source: "calendar.add_event" });
+      return { ok: true, event: { date, title, subject: fact.subject }, note: "Added to the calendar — it will show on that day's agenda and in the daily plan." };
+    },
+  },
+  {
+    name: "schedule.create",
+    description: "Create a RECURRING schedule that runs a task automatically (e.g. 'every weekday at 8am run the daily briefing', 'every Monday summarize last week's tasks'). The task runs through the normal agent pipeline at the given local time; optionally emails the result when done. For a ONE-OFF dated commitment use calendar.add_event instead. Days: 0=Sunday..6=Saturday; empty/omitted = every day. Returns the created schedule { id, name, cadence, enabled }.",
+    readonly: false,
+    args: [
+      { name: "name", type: "string", required: true, description: "Human label for the schedule, e.g. 'Morning ops digest'" },
+      { name: "task", type: "string", required: true, description: "The task text to run on each fire — written as a normal agent task" },
+      { name: "hour", type: "number", required: true, description: "Local hour 0-23 to fire at" },
+      { name: "minute", type: "number", required: false, description: "Local minute 0-59 (default 0)" },
+      { name: "days_of_week", type: "string", required: false, description: "Days to fire, comma-separated 0-6 (0=Sun) or JSON array — e.g. '1,2,3,4,5' for weekdays. Omit for every day." },
+      { name: "deliver_email", type: "string", required: false, description: "Optional REAL address to email each run's result to (resolve names via users.lookup first — never invent an address)" },
+      { name: "template_id", type: "string", required: false, description: "Optional built-in template to run instead of a free-form task (e.g. 'daily-briefing', 'innovation-scan', 'buffer-story-post', 'social-optimize'). When set, `task` is optional and `template_inputs` supplies that template's inputs." },
+      { name: "template_inputs", type: "string", required: false, description: "Inputs for the chosen template_id — a JSON object or an object (e.g. {\"sender\":\"x@y.com\",\"days\":3}). Ignored when template_id is omitted." },
+    ],
+    handler: async (args) => {
+      const { createSchedule } = await import("./schedules.js");
+      const name = String(args.name ?? "").trim();
+      const templateId = String(args.template_id ?? "").trim();
+      const task = String(args.task ?? "").trim();
+      if (!name) return { error: "name is required" };
+      if (!templateId && !task) return { error: "either task or template_id is required" };
+      const hour = Number(args.hour);
+      const minute = Number(args.minute ?? 0);
+      if (!Number.isInteger(hour) || hour < 0 || hour > 23) return { error: "hour must be an integer 0-23" };
+      if (!Number.isInteger(minute) || minute < 0 || minute > 59) return { error: "minute must be an integer 0-59" };
+      const daysRaw = parseFlexibleList(args.days_of_week);
+      const daysOfWeek = daysRaw.map(d => Number(d)).filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
+      const deliverEmail = args.deliver_email ? String(args.deliver_email).trim() : "";
+      if (deliverEmail) {
+        const { placeholderAddressReason } = await import("./email.js");
+        const bad = placeholderAddressReason(deliverEmail);
+        if (bad) return { error: `deliver_email rejected: ${bad}` };
+      }
+      // A named template runs that template with its own inputs; otherwise the
+      // classic free-form general-task path.
+      const runsTemplate = templateId && templateId !== "general-task";
+      let tplInputs: Record<string, unknown> = {};
+      if (runsTemplate && args.template_inputs != null) {
+        if (typeof args.template_inputs === "object") tplInputs = args.template_inputs as Record<string, unknown>;
+        else { try { const p = JSON.parse(String(args.template_inputs)); if (p && typeof p === "object") tplInputs = p; } catch { /* ignore malformed — run with template defaults */ } }
+      }
+      const inputs = runsTemplate ? tplInputs : { task, save_as_template: false };
+      const s = createSchedule({
+        name,
+        templateId: runsTemplate ? templateId : "general-task",
+        inputs,
+        cadence: { daysOfWeek, hour, minute },
+        ...(deliverEmail ? { deliver: { email: deliverEmail } } : {}),
+      });
+      return { ok: true, schedule: { id: s.id, name: s.name, cadence: s.cadence, enabled: s.enabled, deliver: s.deliver }, note: "Schedule created — visible on the Schedules page; it fires at the given local time." };
+    },
+  },
+  {
+    name: "schedule.list",
+    description: "List the org's recurring schedules — id, name, cadence (daysOfWeek 0=Sun..6=Sat, hour, minute), enabled, last fire info. Use before schedule.create to avoid duplicates, or when asked 'what's scheduled?'.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listSchedules } = await import("./schedules.js");
+      const schedules = listSchedules().map(s => ({ id: s.id, name: s.name, templateId: s.templateId, cadence: s.cadence, enabled: s.enabled, lastFiredAt: s.lastFiredAt, fireCount: s.fireCount, deliver: s.deliver }));
+      return { schedules, count: schedules.length };
+    },
+  },
+  {
+    name: "schedule.delete",
+    description: "Delete a recurring schedule by id (from schedule.list). Use when asked to cancel/remove a scheduled task.",
+    readonly: false,
+    args: [
+      { name: "id", type: "string", required: true, description: "Schedule id from schedule.list" },
+    ],
+    handler: async (args) => {
+      const { deleteSchedule } = await import("./schedules.js");
+      const id = String(args.id ?? "").trim();
+      if (!id) return { error: "id is required" };
+      const ok = deleteSchedule(id);
+      return ok ? { ok: true, deleted: id } : { error: `no schedule with id "${id}"` };
+    },
+  },
+  {
+    name: "media.video",
+    description: "Generate a short video from a text prompt. NOTE: video generation has no configured provider right now — it returns a friendly 'not available' message, so deliver the storyboard / shot list / shootable prompts and note the render is pending a provider. (OpenRouter has no text-to-video; a provider like Replicate, fal, or Runway can be wired to enable it.)",
+    readonly: false,
+    args: [
+      { name: "prompt", type: "string", required: true, description: "Description of the video to generate" },
+      { name: "first_frame_image", type: "string", required: false, description: "Optional public image URL or data URI to use as the opening frame (image-to-video)" },
+    ],
+    handler: async (args) => {
+      const prompt = String(args.prompt ?? "").trim();
+      if (!prompt) return { error: "prompt is required" };
+      // MiniMax removed. OpenRouter offers no text-to-video model, so there is
+      // no video provider today — honest stub (the synth relays this and the
+      // video producer persona delivers the storyboard instead of a fake link).
+      return { error: "Video generation isn't available — no video provider is configured. OpenRouter has no text-to-video model; wire a provider such as Replicate, fal, or Runway to enable it." };
+    },
+  },
+  {
+    name: "media.music",
+    description: "Generate a music track from a style/mood prompt. NOTE: music generation has no configured provider right now — it returns a friendly 'not available' message, so deliver the music brief / prompt (and lyrics) and note the render is pending a provider. (OpenRouter has no music model.)",
+    readonly: false,
+    args: [
+      { name: "prompt", type: "string", required: true, description: "Style / mood / genre description (e.g. 'upbeat corporate intro, 120bpm, piano + strings')" },
+      { name: "lyrics", type: "string", required: false, description: "Optional lyrics to sing" },
+    ],
+    handler: async (args) => {
+      const prompt = String(args.prompt ?? "").trim();
+      if (!prompt) return { error: "prompt is required" };
+      // MiniMax removed; OpenRouter has no music model — honest stub.
+      return { error: "Music generation isn't available — no music provider is configured (OpenRouter has no music model)." };
+    },
+  },
+  {
+    name: "orchestration.plan",
+    description: "Decompose a complex objective into parallel sub-tasks, execute them simultaneously via independent agents, and synthesize the results. Use for multi-faceted research, cross-domain analysis, or any task that benefits from splitting work across specialists. Returns { id, label, status, subTasks: [{label, personaName, status, output}], finalReport }. Sub-tasks run in parallel — each agent sees only their own instructions. Final synthesis merges all outputs.",
+    readonly: false,
+    args: [
+      { name: "objective", type: "string", required: true, description: "The complex objective to decompose and execute" },
+    ],
+    handler: async (args) => {
+      const objective = String(args.objective ?? "").trim();
+      if (!objective) return { error: "objective is required" };
+      const { createOrchestration } = await import("./orchestrator.js");
+      const run = await createOrchestration(objective);
+      return {
+        id: run.id,
+        label: run.label,
+        status: run.status,
+        subTasks: run.subTasks.map(s => ({ id: s.id, label: s.label, personaName: s.personaName, status: s.status, error: s.error, elapsedMs: s.elapsedMs, output: s.output.slice(0, 2000) })),
+        finalReport: run.finalReport.slice(0, 4000),
+        elapsedMs: run.elapsedMs,
+      };
+    },
+  },
+
+  // ─── CRM (contacts, deals, activities) ──────────────────────────
+  {
+    name: "crm.list_contacts",
+    description: "List CRM contacts, most recently updated first.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { listContacts } = await import("./crm.js");
+      return { contacts: listContacts() };
+    },
+  },
+  {
+    name: "crm.upsert_contact",
+    description: "Create a contact, or update it if a contact with this email already exists.",
+    readonly: false,
+    args: [
+      { name: "email", type: "string", required: false, description: "Contact email — the match key for an existing contact" },
+      { name: "name", type: "string", required: false, description: "Contact name" },
+      { name: "phone", type: "string", required: false, description: "Contact phone" },
+      { name: "company", type: "string", required: false, description: "Contact company" },
+      { name: "notes", type: "string", required: false, description: "Freeform notes" },
+    ],
+    handler: async (args) => {
+      const { upsertContact } = await import("./crm.js");
+      return { contact: upsertContact({
+        email: args.email ? String(args.email) : undefined,
+        name: args.name ? String(args.name) : undefined,
+        phone: args.phone ? String(args.phone) : undefined,
+        company: args.company ? String(args.company) : undefined,
+        notes: args.notes ? String(args.notes) : undefined,
+      }) };
+    },
+  },
+  {
+    name: "crm.list_deals",
+    description: "List deals, optionally filtered by contactId, pipelineId, or stage.",
+    readonly: true,
+    args: [
+      { name: "contactId", type: "string", required: false, description: "Filter to one contact" },
+      { name: "stage", type: "string", required: false, description: "Filter by pipeline stage" },
+    ],
+    handler: async (args) => {
+      const { listDeals } = await import("./crm.js");
+      return { deals: listDeals({ contactId: args.contactId ? String(args.contactId) : undefined, stage: args.stage ? String(args.stage) : undefined }) };
+    },
+  },
+  {
+    name: "crm.create_deal",
+    description: "Create a deal for a contact in the (default) pipeline.",
+    readonly: false,
+    args: [
+      { name: "contactId", type: "string", required: true, description: "Contact id (from crm.list_contacts or crm.upsert_contact)" },
+      { name: "title", type: "string", required: true, description: "Deal title" },
+      { name: "value", type: "number", required: false, description: "Deal value" },
+    ],
+    handler: async (args) => {
+      const { createDeal } = await import("./crm.js");
+      return { deal: createDeal({ contactId: String(args.contactId), title: String(args.title), value: args.value !== undefined ? Number(args.value) : undefined }) };
+    },
+  },
+  {
+    name: "crm.move_deal_stage",
+    description: "Move a deal to a new pipeline stage (e.g. New, Qualified, Proposal, Won, Lost).",
+    readonly: false,
+    args: [
+      { name: "dealId", type: "string", required: true, description: "Deal id" },
+      { name: "stage", type: "string", required: true, description: "Target stage — must be one of the deal's pipeline stages" },
+    ],
+    handler: async (args) => {
+      const { moveDealStage } = await import("./crm.js");
+      return { deal: moveDealStage(String(args.dealId), String(args.stage)) };
+    },
+  },
+  {
+    name: "crm.log_activity",
+    description: "Log a note/call/email activity against a contact's timeline.",
+    readonly: false,
+    args: [
+      { name: "contactId", type: "string", required: true, description: "Contact id" },
+      { name: "kind", type: "string", required: true, description: "note | call | email" },
+      { name: "body", type: "string", required: true, description: "Activity text" },
+    ],
+    handler: async (args) => {
+      const { logActivity } = await import("./crm.js");
+      const kind = String(args.kind);
+      if (!["note", "call", "email", "stage-change"].includes(kind)) throw new Error(`invalid activity kind "${kind}"`);
+      return { activity: logActivity({ contactId: String(args.contactId), kind: kind as any, body: String(args.body) }) };
+    },
+  },
+
+  // ─── Google / Microsoft personal connectors ──────────────────────────
+  // Read-only wrappers over lib/oauth-connectors.ts's authorization-code
+  // flow — ported by behavior from naxionai/backend/agent/tools/
+  // {google,microsoft}_tools.py, which every call swallows exceptions and
+  // returns [] rather than raising, since these feed daemon digests where a
+  // missing/expired connection shouldn't blow up an unrelated task.
+  {
+    name: "google.list_upcoming_events",
+    description: "List the connected Google account's upcoming Calendar events. Returns [] if Google isn't connected (see Settings > Connectors).",
+    readonly: true,
+    args: [{ name: "maxResults", type: "number", required: false, description: "Max events to return (default 10)" }],
+    handler: async (args) => {
+      try {
+        const { getValidAccessTokens } = await import("./oauth-connectors.js");
+        const tokens = await getValidAccessTokens("google");
+        if (!tokens.length) return [];
+        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
+        const allEvents = [];
+        for (const { token, accountName } of tokens) {
+          const params = new URLSearchParams({ maxResults: String(maxPerAccount), singleEvents: "true", orderBy: "startTime", timeMin: new Date().toISOString() });
+          const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, { headers: { authorization: `Bearer ${token}` } });
+          if (!r.ok) continue;
+          const data: any = await r.json();
+          const events = (data.items ?? []).map((e: any) => ({ 
+            summary: e.summary, 
+            start: e.start?.dateTime ?? e.start?.date, 
+            end: e.end?.dateTime ?? e.end?.date,
+            account: accountName ?? "unknown"
+          }));
+          allEvents.push(...events);
+        }
+        return allEvents;
+      } catch { return []; }
+    },
+  },
+  {
+    name: "google.list_recent_emails",
+    description: "List recent Gmail messages' subject/sender/snippet for the connected Google account. Returns [] if Google isn't connected.",
+    readonly: true,
+    args: [{ name: "maxResults", type: "number", required: false, description: "Max messages to return (default 10)" }],
+    handler: async (args) => {
+      try {
+        const { getValidAccessTokens } = await import("./oauth-connectors.js");
+        const tokens = await getValidAccessTokens("google");
+        if (!tokens.length) return [];
+        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
+        const allEmails = [];
+        for (const { token, accountName } of tokens) {
+          const listResp = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxPerAccount}`, { headers: { authorization: `Bearer ${token}` } });
+          if (!listResp.ok) continue;
+          const listData: any = await listResp.json();
+          const ids: string[] = (listData.messages ?? []).map((m: any) => m.id);
+          for (const id of ids) {
+            const mResp = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`, { headers: { authorization: `Bearer ${token}` } });
+            if (!mResp.ok) continue;
+            const m: any = await mResp.json();
+            const headers = m.payload?.headers ?? [];
+            allEmails.push({
+              subject: headers.find((h: any) => h.name === "Subject")?.value,
+              from: headers.find((h: any) => h.name === "From")?.value,
+              snippet: m.snippet,
+              account: accountName ?? "unknown"
+            });
+          }
+        }
+        return allEmails;
+      } catch { return []; }
+    },
+  },
+  {
+    name: "microsoft.list_recent_emails",
+    description: "List recent Outlook messages' subject/sender/preview for the connected Microsoft account. Returns [] if Microsoft isn't connected.",
+    readonly: true,
+    args: [{ name: "maxResults", type: "number", required: false, description: "Max messages to return (default 10)" }],
+    handler: async (args) => {
+      try {
+        const { getValidAccessTokens } = await import("./oauth-connectors.js");
+        const tokens = await getValidAccessTokens("microsoft");
+        if (!tokens.length) return [];
+        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
+        const allEmails = [];
+        for (const { token, accountName } of tokens) {
+          const r = await fetch(`https://graph.microsoft.com/v1.0/me/messages?$top=${maxPerAccount}&$select=subject,from,bodyPreview`, { headers: { authorization: `Bearer ${token}` } });
+          if (!r.ok) continue;
+          const data: any = await r.json();
+          const emails = (data.value ?? []).map((m: any) => ({ 
+            subject: m.subject, 
+            from: m.from?.emailAddress?.address, 
+            preview: m.bodyPreview,
+            account: accountName ?? "unknown"
+          }));
+          allEmails.push(...emails);
+        }
+        return allEmails;
+      } catch { return []; }
+    },
+  },
+  {
+    name: "microsoft.list_recent_events",
+    description: "List the connected Microsoft account's upcoming Calendar events. Returns [] if Microsoft isn't connected.",
+    readonly: true,
+    args: [{ name: "maxResults", type: "number", required: false, description: "Max events to return (default 10)" }],
+    handler: async (args) => {
+      try {
+        const { getValidAccessTokens } = await import("./oauth-connectors.js");
+        const tokens = await getValidAccessTokens("microsoft");
+        if (!tokens.length) return [];
+        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
+        const allEvents = [];
+        for (const { token, accountName } of tokens) {
+          const r = await fetch(`https://graph.microsoft.com/v1.0/me/events?$top=${maxPerAccount}&$select=subject,start,end&$orderby=start/dateTime`, { headers: { authorization: `Bearer ${token}` } });
+          if (!r.ok) continue;
+          const data: any = await r.json();
+          const events = (data.value ?? []).map((e: any) => ({ 
+            subject: e.subject, 
+            start: e.start?.dateTime, 
+            end: e.end?.dateTime,
+            account: accountName ?? "unknown"
+          }));
+          allEvents.push(...events);
+        }
+        return allEvents;
+      } catch { return []; }
+    },
+  },
+  {
+    name: "microsoft.list_recent_files",
+    description: "List recently accessed OneDrive files for the connected Microsoft account. Returns [] if Microsoft isn't connected.",
+    readonly: true,
+    args: [{ name: "maxResults", type: "number", required: false, description: "Max files to return (default 10)" }],
+    handler: async (args) => {
+      try {
+        const { getValidAccessTokens } = await import("./oauth-connectors.js");
+        const tokens = await getValidAccessTokens("microsoft");
+        if (!tokens.length) return [];
+        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
+        const allFiles = [];
+        for (const { token, accountName } of tokens) {
+          const r = await fetch(`https://graph.microsoft.com/v1.0/me/drive/root/children?$top=${maxPerAccount}&$select=name,webUrl,lastModifiedDateTime`, { headers: { authorization: `Bearer ${token}` } });
+          if (!r.ok) continue;
+          const data: any = await r.json();
+          const files = (data.value ?? []).map((f: any) => ({ 
+            name: f.name, 
+            url: f.webUrl, 
+            lastModified: f.lastModifiedDateTime,
+            account: accountName ?? "unknown"
+          }));
+          allFiles.push(...files);
+        }
+        return allFiles;
+      } catch { return []; }
+    },
+  },
+
+  // ─── Naxie host tools (docs/naxie-architecture.md §2.2) ─────────────────
+  // Ported by behavior from naxionai/backend/agent/tools/pa_tools.py.
+  // system_control / manage_clipboard / git_pull are also registered in
+  // SENSITIVE_APPROVAL_TOOLS (agent.ts) and CONSEQUENTIAL_TOOLS
+  // (governance.ts) — the Settings > System Access toggle in host-tools.ts
+  // only makes them ELIGIBLE to run; a plan using them still pauses for
+  // sign-off. get_weather / set_reminder / git_status / browser_open are
+  // deliberately left out of both, matching the Python original's posture.
+  {
+    name: "get_weather",
+    description: "Fetch live weather conditions and forecast for a city or the operator's default location (Open-Meteo, free, no API key).",
+    readonly: true,
+    args: [
+      { name: "location", type: "string", required: false, description: "City name, or 'auto' for the default (London fallback if no location resolves)" },
+    ],
+    handler: async (args) => ({ text: await getWeather(String(args.location ?? "auto")) }),
+  },
+  {
+    name: "set_reminder",
+    description: "Fire a desktop notification reminder for the user, immediately or after a delay. Scheduling is process-lifetime only — not durable across a server restart.",
+    readonly: false,
+    args: [
+      { name: "title", type: "string", required: true, description: "Notification header, e.g. 'Meeting in 10 mins'" },
+      { name: "message", type: "string", required: true, description: "Body text, e.g. 'Call John on Zoom'" },
+      { name: "delay_seconds", type: "number", required: false, description: "Seconds to wait before the notification fires (0 = immediate)" },
+    ],
+    handler: async (args) => ({ text: await setReminder(String(args.title ?? ""), String(args.message ?? ""), Number(args.delay_seconds ?? 0)) }),
+  },
+  {
+    name: "system_control",
+    description: "Control this PC directly: open an allowlisted app, take a screenshot, mute/unmute volume, focus a window by title, read/set screen brightness, or check battery status. Refused unless the operator has turned on Settings > System Access, and every use still pauses for the operator's sign-off before running.",
+    readonly: false,
+    args: [
+      { name: "action", type: "string", required: true, description: "One of: open_app, take_screenshot, volume_mute, volume_unmute, focus_window, brightness_get, brightness_set, battery_status" },
+      { name: "target", type: "string", required: false, description: "open_app: app name from the fixed allowlist (calc, notepad, chrome, edge, firefox, word, excel, outlook, explorer, paint, terminal). focus_window: window title substring. brightness_set: 0-100." },
+    ],
+    handler: async (args) => ({ text: await systemControl(String(args.action ?? "") as SystemControlAction, String(args.target ?? "")) }),
+  },
+  {
+    name: "manage_clipboard",
+    description: "Read or write the Windows clipboard. Refused unless the operator has turned on Settings > System Access, and every use still pauses for the operator's sign-off before running.",
+    readonly: false,
+    args: [
+      { name: "action", type: "string", required: false, description: "'read' (default) or 'write'" },
+      { name: "text", type: "string", required: false, description: "Text to copy to the clipboard, for action='write'" },
+    ],
+    handler: async (args) => ({ text: await manageClipboard((args.action === "write" ? "write" : "read"), String(args.text ?? "")) }),
+  },
+  {
+    name: "git_status",
+    description: "Check the current branch and uncommitted changes of the ONE operator-configured git repository (Settings > System Access). Read-only — does not need approval.",
+    readonly: true,
+    args: [],
+    handler: async () => ({ text: await gitCommand("status") }),
+  },
+  {
+    name: "git_pull",
+    description: "Fast-forward-only git pull on the ONE operator-configured repository (Settings > System Access) — never auto-merges. Refused unless System Access is on, and every use still pauses for the operator's sign-off before running.",
+    readonly: false,
+    args: [],
+    handler: async () => ({ text: await gitCommand("pull") }),
+  },
+  {
+    name: "browser_open",
+    description: "Open a URL, or run a Google search, in the user's default web browser. Only a string already starting with http:// or https:// is opened as-is; anything else becomes a search query, so this can never be used to launch a non-http(s) URI scheme.",
+    readonly: true,
+    args: [
+      { name: "url_or_search", type: "string", required: true, description: "A URL (e.g. 'https://example.com') or a plain search phrase" },
+    ],
+    handler: async (args) => ({ text: await browserOpen(String(args.url_or_search ?? "")) }),
+  },
+  {
+    name: "omnisignal.acquire",
+    description: "BASE RESEARCH TOOL. Acquire raw signal from many sources at once via Omnisignal (the Intellinexus pipeline's acquisition front-end) and get a merged, provenance-tagged record stream. Each source is a spec object: {kind:'web_search',query} | {kind:'web_page',urls:[...]} | {kind:'db',sourceLabel,query} | {kind:'local_file',path} | {kind:'vault',query}. Read-only — use to gather multi-source research before answering, or before publishing a dataset with omnisignal.publish.",
+    readonly: true,
+    args: [
+      { name: "sources", type: "string", required: true, description: "JSON array of source specs, e.g. '[{\"kind\":\"web_search\",\"query\":\"Zimbabwe mobile tariffs\"},{\"kind\":\"vault\",\"query\":\"pricing\"}]'." },
+    ],
+    handler: async (args) => {
+      let specs: OmniSpec[];
+      try {
+        const parsed = JSON.parse(String(args.sources ?? "[]"));
+        if (!Array.isArray(parsed)) return { error: "sources must be a JSON array of specs" };
+        specs = parsed;
+      } catch { return { error: "sources is not valid JSON" }; }
+      if (specs.length === 0) return { error: "provide at least one source spec" };
+      const result = await omniAcquire(specs);
+      return { total: result.total, report: result.report, records: result.records.slice(0, 200) };
+    },
+  },
+  {
+    name: "omnisignal.publish",
+    description: "BASE RESEARCH SYSTEM. Acquire from multiple sources via Omnisignal, then run the full Intellinexus pipeline and PUBLISH a dataset agents learn from (normalize → hash → score → HITL → golden record → CSV/JSONL/RAG). One call turns live multi-source research into a readied, hashed, deduplicated knowledge pack. Sources use the same spec shape as omnisignal.acquire.",
+    readonly: false,
+    args: [
+      { name: "name", type: "string", required: true, description: "Dataset name (becomes the knowledge-pack title)." },
+      { name: "sources", type: "string", required: true, description: "JSON array of source specs (see omnisignal.acquire)." },
+      { name: "sector", type: "string", required: false, description: "Optional sector tag." },
+      { name: "keyField", type: "string", required: false, description: "Field to merge duplicates on (entity resolution). Omit for hash-only dedup." },
+    ],
+    handler: async (args) => {
+      const name = String(args.name ?? "").trim();
+      if (!name) return { error: "name is required" };
+      let specs: OmniSpec[];
+      try {
+        const parsed = JSON.parse(String(args.sources ?? "[]"));
+        if (!Array.isArray(parsed)) return { error: "sources must be a JSON array of specs" };
+        specs = parsed;
+      } catch { return { error: "sources is not valid JSON" }; }
+      if (specs.length === 0) return { error: "provide at least one source spec" };
+      const out = await omniAcquirePublish(name, specs, {
+        sector: args.sector ? String(args.sector) : undefined,
+        keyField: args.keyField ? String(args.keyField) : undefined,
+      });
+      if (!out.published) return { published: false, note: out.note, report: out.acquisition.report };
+      const m = out.published.manifest;
+      return { published: true, id: m.id, name: m.name, recordCount: m.recordCount, rawCount: m.rawCount, avgConfidence: m.avgConfidence, reviewQueue: m.reviewQueue, rootHash: (m as any).rootHash, report: out.acquisition.report, outputs: m.outputs };
+    },
+  },
+  {
+    name: "data.publish",
+    description: "Run the Intellinexus data pipeline (normalize → cryptographic hash → confidence score → HITL gate → entity-resolution golden record → publish) and PUBLISH a dataset into the vault as ML CSV + knowledge-graph JSONL + RAG chunks + a knowledge-pack card. Provide rows either inline (rows = JSON array string) OR from a connected company data source (source = its label, query = SQL/JSON for that source).",
+    readonly: false,
+    args: [
+      { name: "name", type: "string", required: true, description: "Human name for the dataset (becomes the pack title)." },
+      { name: "rows", type: "string", required: false, description: "Inline records as a JSON array string, e.g. '[{\"name\":\"A\",\"value\":1}]'. Omit if using source+query." },
+      { name: "source", type: "string", required: false, description: "Label of a connected company data source to pull rows from (see db.list)." },
+      { name: "query", type: "string", required: false, description: "SQL (or the source's query syntax) to run against `source`. Read-only." },
+      { name: "sector", type: "string", required: false, description: "Optional sector tag." },
+      { name: "keyField", type: "string", required: false, description: "Field name used to merge duplicate rows into one golden record. Omit for hash-only dedup." },
+    ],
+    handler: async (args) => {
+      const name = String(args.name ?? "").trim();
+      if (!name) return { error: "name is required" };
+      let rows: Record<string, unknown>[] = [];
+      if (args.source && args.query) {
+        const src = getSourceByLabel(String(args.source));
+        if (!src) return { error: `no connected data source labelled "${args.source}" (see db.list)` };
+        const r = await runQuery(src, String(args.query), 5000);
+        rows = r.rows;
+      } else if (args.rows) {
+        try {
+          const parsed = JSON.parse(String(args.rows));
+          if (!Array.isArray(parsed)) return { error: "rows must be a JSON array" };
+          rows = parsed;
+        } catch { return { error: "rows is not valid JSON" }; }
+      } else {
+        return { error: "provide either rows (inline JSON array) or source+query" };
+      }
+      if (rows.length === 0) return { error: "no rows to publish" };
+      const { manifest } = publishDataset({ name, records: rows, sector: args.sector ? String(args.sector) : undefined, source: args.source ? `data-source:${args.source}` : "agent-inline", keyField: args.keyField ? String(args.keyField) : undefined });
+      return { published: true, id: manifest.id, name: manifest.name, recordCount: manifest.recordCount, rawCount: manifest.rawCount, avgConfidence: manifest.avgConfidence, reviewQueue: manifest.reviewQueue, rootHash: (manifest as any).rootHash, outputs: manifest.outputs };
+    },
+  },
+  {
+    name: "data.list_datasets",
+    description: "List published Intellinexus datasets (name, id, counts, confidence, outputs). Agents learn from these via retrieval.",
+    readonly: true,
+    args: [],
+    handler: async () => ({ datasets: listDatasets() }),
+  },
+];
+
+void sep;
+
+export function findPrimitive(name: string): Primitive | undefined {
+  return primitives.find(p => p.name === name);
+}
+
+export function primitivesPromptCatalog(opts: { compact?: boolean; allowlist?: string[] } = {}): string {
+  const compact = opts.compact === true;
+  // Tool-allowlist scoping (my-tasks.ts task automations, personas, templates):
+  // when a caller resolves a scoped subset, hide everything else from the
+  // planner prompt entirely
+  // (belt) — plan()'s step-validation loop is the suspenders. Absent/empty
+  // allowlist means "no scoping" — every existing caller keeps seeing the
+  // full catalog exactly as before this option existed.
+  const pool = opts.allowlist && opts.allowlist.length > 0
+    ? primitives.filter(p => opts.allowlist!.includes(p.name))
+    : primitives;
+  return pool.map(p => {
+    if (compact) {
+      // Compact mode: just args by name (drop types) and the first sentence of
+      // the description. Cuts the planner prompt by ~40% without losing the
+      // signal the model uses to pick tools.
+      const argsList = p.args.length === 0 ? "()" : `(${p.args.map(a => `${a.name}${a.required ? "" : "?"}`).join(",")})`;
+      const firstSentence = p.description.split(/(?<=[.!?])\s+/)[0].slice(0, 140);
+      return `- ${p.name}${argsList}${p.readonly ? "" : " [WRITE]"} — ${firstSentence}`;
+    }
+    const argsList = p.args.length === 0 ? "(none)" : p.args.map(a => `${a.name}:${a.type}${a.required ? "" : "?"}`).join(", ");
+    return `- ${p.name}(${argsList})${p.readonly ? "" : " [WRITE]"} — ${p.description}`;
+  }).join("\n");
+}
+
+// Suppress unused warning while config import is preserved for future authentication-aware primitives.
+void config;
+
+// Plain-English label for a step, used in the chat UI so users see
+// "Searching your second brain for 'X'" instead of `vault.search(query="X")`.
+export function humanStepLabel(tool: string, args: Record<string, any> = {}): string {
+  const a = args ?? {};
+  const s = (k: string) => (typeof a[k] === "string" ? a[k] : "");
+  switch (tool) {
+    case "vault.search":       return s("query") ? `Searching your second brain for "${s("query")}"` : "Searching your second brain";
+    case "vault.read":         return s("path") ? `Reading ${s("path")}` : "Reading a doc";
+    case "vault.scan_docs":    return s("folder") ? `Scanning docs in ${s("folder")}` : "Scanning docs across the vault";
+    case "vault.edit":         return s("path") ? `Editing ${s("path")}` : "Editing a vault doc";
+    case "vault.list":         return s("path") ? `Listing ${s("path")}` : "Listing your vault";
+    case "vault.write":        return s("path") ? `Writing ${s("path")}` : "Writing a note";
+    case "vault.append":       return s("path") ? `Adding to ${s("path")}` : "Adding to a note";
+    case "vault.create_zettel":return s("title") ? `Creating zettel "${s("title")}"` : "Creating a zettel";
+    case "vault.find_by_tag":  return s("tag") ? `Finding notes tagged #${s("tag")}` : "Finding tagged notes";
+    case "audio.transcribe":   return s("path") ? `Transcribing ${s("path")}` : "Transcribing audio";
+    case "github.list_repos":  return "Listing your GitHub repos";
+    case "github.read_repo":   return s("name") ? `Reading the ${s("name")} repo` : "Reading a GitHub repo";
+    case "github.list_branches":return s("name") ? `Listing branches in ${s("name")}` : "Listing branches";
+    case "github.get_file":    return s("path") && s("name") ? `Fetching ${s("path")} from ${s("name")}` : "Fetching a file from GitHub";
+    case "github.create_issue":return s("title") ? `Opening issue "${s("title")}"` : "Opening a GitHub issue";
+    case "github.comment_on_issue":return s("issueNumber") ? `Commenting on issue #${s("issueNumber")}` : "Commenting on a GitHub issue";
+    case "github.update_issue":return s("issueNumber") ? `Updating issue #${s("issueNumber")}` : "Updating a GitHub issue";
+    case "github.request_review":return s("pullNumber") ? `Requesting review on PR #${s("pullNumber")}` : "Requesting review on a PR";
+    case "github.list_issues":  return s("name") ? `Listing issues in ${s("name")}` : "Listing GitHub issues";
+    case "ollama.generate":    return "Thinking about it";
+    case "web.fetch":          return s("url") ? `Reading ${s("url")}` : "Reading a webpage";
+    case "web.scrape":         return s("url") ? `Browsing ${s("url")} (Playwright)` : "Browsing a webpage";
+    case "web.firecrawl":      return s("url") ? `Scraping ${s("url")} (Firecrawl)` : "Scraping via Firecrawl";
+    case "inbox.read_unread":  return a.unreadOnly === false ? "Reading your recent email" : "Reading your unread email";
+    case "social.post":        return s("platforms") ? `Drafting a post for ${s("platforms")} (needs your approval)` : "Drafting a social post (needs your approval)";
+    case "whatsapp.send":      return s("to") ? `Sending a WhatsApp message to ${s("to")} (needs your approval)` : "Sending a WhatsApp message (needs your approval)";
+    case "whatsapp.cloud_send": return s("to") ? `Sending a WhatsApp message to ${s("to")} via Cloud API (needs your approval)` : "Sending a WhatsApp message via Cloud API (needs your approval)";
+    case "whatsapp.broadcast": return "Broadcasting a WhatsApp message to recent clients (needs your approval)";
+    case "whatsapp.reconnect": return "Resetting the WhatsApp connection — a fresh QR code will print to the server logs";
+    case "social.history":     return "Reading your recent social posts";
+    case "social.analytics":   return "Reading social post analytics";
+    case "social.comments":    return "Reading social comments & mentions";
+    case "brave.list_tabs":    return "Listing your open Brave tabs";
+    case "brave.read_tab":     return "Reading a Brave tab";
+    case "brave.search_tabs":  return s("query") ? `Finding Brave tabs matching "${s("query")}"` : "Searching your Brave tabs";
+    case "skill.list":         return "Listing available skills";
+    case "skill.load":         return s("name") ? `Loading the "${s("name")}" skill` : "Loading a skill";
+    case "skill.suggest":      return "Picking the right skill for this task";
+    case "skill.fetch_remote": return s("url") ? `Pulling skill from ${s("url")}` : "Pulling a remote skill";
+    case "skill.draft":        return s("intent") ? `Drafting a "${s("intent")}" skill` : "Drafting a new skill";
+    case "fs.list_external":   return s("path") ? `Looking inside ${s("path")}` : "Browsing your files";
+    case "fs.read_external":   return s("path") ? `Reading ${s("path")}` : "Reading a file";
+    case "fs.find_in": {
+      const folder = s("folder");
+      const name = s("name");
+      if (!folder || !name) return "Searching your local folders";
+      const f = folder.toLowerCase();
+      const where = (f === "all" || f === "any" || f === "everywhere")
+        ? "your Downloads, Desktop, Documents, and vault Inbox"
+        : `your ${folder}`;
+      return `Looking in ${where} for "${name}"`;
+    }
+    case "fs.import_to_vault": {
+      const path = s("path");
+      const folder = s("vaultFolder") || "0-Inbox";
+      if (!path) return "Filing a file into your second brain";
+      const file = path.split(/[\\/]/).pop() ?? path;
+      return `Filing "${file}" into your second brain (${folder})`;
+    }
+    case "db.list_sources":    return "Listing connected databases";
+    case "db.list_tables":     return s("source") ? `Listing tables in ${s("source")}` : "Listing database tables";
+    case "db.describe_table":  return s("source") && s("table") ? `Describing ${s("source")}.${s("table")}` : "Describing a table";
+    case "db.query":           return s("source") ? `Querying ${s("source")}` : "Querying a database";
+    case "db.write":           return s("source") ? `Writing to ${s("source")}` : "Writing to a database";
+    case "integration.slack.post":return "Posting to Slack";
+    case "integration.gmail.send":return s("to") ? `Sending email to ${s("to")}` : "Sending an email";
+    case "integration.gmail.read":return s("query") ? `Reading Gmail for "${s("query")}"` : "Reading Gmail";
+    case "crm.list_contacts": return "Listing CRM contacts";
+    case "crm.upsert_contact":return s("email") ? `Saving contact "${s("email")}"` : "Saving a contact";
+    case "crm.list_deals":    return "Listing CRM deals";
+    case "crm.create_deal":  return s("title") ? `Creating deal "${s("title")}"` : "Creating a deal";
+    case "crm.move_deal_stage":return s("stage") ? `Moving deal to "${s("stage")}"` : "Moving a deal's stage";
+    case "crm.log_activity": return "Logging a CRM activity";
+    case "google.list_upcoming_events":  return "Reading Google Calendar";
+    case "google.list_recent_emails":    return "Reading Gmail";
+    case "microsoft.list_recent_emails": return "Reading Outlook mail";
+    case "microsoft.list_recent_events": return "Reading Outlook Calendar";
+    case "microsoft.list_recent_files":  return "Reading OneDrive files";
+    case "clock.now":          return "Checking the clock";
+    case "web.search":         return s("query") ? `Searching the web for "${s("query")}"` : "Searching the web";
+    case "research.deep":      return s("query") ? `Researching "${s("query").slice(0, 80)}${s("query").length > 80 ? "…" : ""}" — vault + web` : "Researching";
+    case "research.multiperspective": return s("topic") ? `Multi-perspective research: "${s("topic")}"` : "Multi-perspective research";
+    case "peer.delegate":      return s("task") ? `Delegating to a peer clawbot` : "Delegating to a peer";
+    case "peer.review":        return "Asking a peer to review the draft";
+    case "orchestration.plan": return "Orchestrating parallel sub-agents for this task";
+    case "quality.check":      return "Quality-checking the draft";
+    case "security.scan":      return s("kind") ? `Security-scanning the ${s("kind")}` : "Security-scanning the content";
+    case "pentest.scan":       return s("target") ? `Running a pentest scan against ${s("target")}` : "Running a pentest scan";
+    case "governance.check":   return "Checking against governance policies";
+    case "finance.snapshot":   return "Reading the latest Aiia Finance figures";
+    case "finance.biz_sale":     return s("label") ? `Recording sale "${s("label")}" (needs your approval)` : "Recording a sale (needs your approval)";
+    case "finance.biz_expense":  return s("label") ? `Recording expense "${s("label")}" (needs your approval)` : "Recording an expense (needs your approval)";
+    case "finance.biz_price":    return s("query") ? `Checking the price book for "${s("query")}" (needs your approval)` : "Checking the price book (needs your approval)";
+    case "finance.biz_product_add": return s("name") ? `Adding "${s("name")}" to the price book (needs your approval)` : "Adding a price-book product (needs your approval)";
+    case "finance.biz_leaks":    return "Scanning the books for leaks (needs your approval)";
+    case "finance.biz_forecast": return "Forecasting cash runway (needs your approval)";
+    default:                   return tool;
+  }
+}
+
+function clamp01(n: any): number {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.max(0, Math.min(1, x));
+}
+
+// parseDdgLite/parseBing live in lib/web-client.ts now — the primitives use
+// the hardened client for all web search and fetch operations.

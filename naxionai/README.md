@@ -1,36 +1,199 @@
-# NAXIONAI 🤖
+# NaxionAI
 
-**Autonomous Social Media Intelligence Agency**
+**NaxionAI** is the engine — a local-first AI-workforce platform paired with an
+Obsidian second-brain. The running system's nickname is **Naxie**.
+(Repo renamed from `clawbot` on 2026-07-11 — GitHub redirects the old URL.)
 
-> Give it a goal. Watch it work.
+> **Naming & inspiration:** NaxionAI is the engine and the product name here.
+> **NeuroWorks** and **Jarvis** were *inspiration only* — the "local-first AI
+> workforce + second-brain" and "build your own AI assistant" ideas that shaped
+> early design — not dependencies or a base this is forked from. The name
+> `NeuroWorks` survives in some internal identifiers (env-var prefixes
+> `NEUROWORKS_*`, a few file paths) for backward compatibility only.
 
-NAXIONAI is a fully agentic, multi-agent AI platform that autonomously manages your entire social media presence. Brief it in plain English — it plans, creates, publishes, monitors, and improves itself.
+**This particular instance is Mark's own personal, non-commercial deployment**
+(see the [root README](../README.md)) — not a hosted product or a
+multi-tenant service. The dispatch API, "Enterprise mode," and machine-key
+tenancy described below are real functionality this instance can use, not
+signs it's being run or sold as a product for others.
 
-## Core Capabilities
+Two surfaces in one repo:
 
-- 🎯 **Natural Language Goals** — "Grow LinkedIn from 1K to 10K followers in 30 days"
-- 🧠 **Multi-Agent Brain** — Team of specialized AI agents (Strategist, Writer, Designer, Publisher, Monitor)
-- 🔍 **Multimodal RAG** — Learns from your PDFs, images, videos, URLs, CSVs, documents
-- 🖼️ **Media Library** — Smart asset management with AI tagging and platform adaptation
-- 📡 **All Platforms** — LinkedIn, X, TikTok, Instagram, YouTube via Buffer + Facebook Graph API
-- ⚡ **SkillForge** — Agent codes its own new capabilities when it needs them
-- 👁️ **Human-in-the-Loop** — You approve the plan before anything executes
-- 📊 **Live Mission Control** — Real-time view of every agent action and thought
+- **NaxionAI console** — local web console: chat with the agent, browse the vault, run templated tasks, review daily reflections. Multi-worker capable (primary + secondary).
+- **clawbot** — the cloud cron worker (GitHub Actions) inside it that feeds repo activity into the `main-brain` Obsidian vault. Also a historical/internal name still used for env var prefixes (`NEUROWORKS_*`) and some file paths.
 
-## Tech Stack
+## What the cron worker does
 
-- **Backend:** FastAPI + Python 3.12 + LangGraph (multi-agent)
-- **AI:** Groq (llama-3.3-70b) + GPT-4o + CLIP + Whisper
-- **Memory:** Qdrant (vector DB) + Redis
-- **Database:** PostgreSQL
-- **Publishing:** Buffer API + Facebook Graph API
-- **Frontend:** Next.js 14 + shadcn/ui + Framer Motion
-- **Sandboxing:** E2B (for SkillForge safe code execution)
+Three entrypoints:
 
-## Status
+1. **`pnpm digest`** — runs in GitHub Actions on a daily cron (also `workflow_dispatch`). Scans every repo the user owns/collaborates on, summarizes recent commits, open PRs, and open issues, and writes:
+   - `_clawbot/YYYY-MM-DD.md` — daily digest
+   - `_clawbot/latest.md` — copy of today's digest
+   - `_clawbot/repos/<owner>-<name>.md` — per-repo snapshot
+   - `_clawbot/_meta/last-run.json` — run metadata
 
-🚧 **In active development** — Building the future of autonomous social media.
+2. **`pnpm publish-folder <path>`** — local utility that takes a local folder, ensures it's a git repo, creates a matching private repo on GitHub, and pushes.
 
----
+3. **`pnpm dev`** (alias **`pnpm neuroworks`**) — launches the NeuroWorks local console (server + web) at http://127.0.0.1:7470. See below.
 
-*Built by AiiA — Autonomous Intelligence & Innovation Agency*
+## NeuroWorks — local console
+
+Local-only browser app. Bind: `127.0.0.1:7470` (web) and `127.0.0.1:7471` (server). Loopback-only and additionally protected by a Host + Origin allow-list against DNS-rebinding / cross-origin POST attacks (see [Security](#security)).
+
+### Pages
+
+- **Dashboard** — vault path, Ollama health, last workflow run, latest digest preview, one-click "Run digest" trigger.
+- **Chat** — free-form chat that runs through the agent loop. Plans, executes, synthesizes, streams the answer back live.
+- **Templates** — curated and persona-tuned task templates.
+- **Tasks** — kick off `daily-digest.yml` via `workflow_dispatch`, see latest run state.
+- **Activity** — recent jobs with live status.
+- **Results** — outcome card for any completed job (duration + top-source previews).
+- **Approvals** — gate for templates marked `requiresApproval`.
+- **Knowledge** — Obsidian vault browser (path set by `VAULT_PATH`) with markdown rendering and full-text search.
+- **Models** — pull/remove local Ollama models from a curated catalog (streamed progress), set the default, and plug in cloud model APIs you already use (OpenAI/OpenRouter/Groq/Together/custom). Keys encrypted at rest, applied with no restart.
+- **Personas** — manage AI employees (role, tone, responsibilities, system prompt overrides).
+- **Settings** — model selection, OpenRouter pins, persona-template defaults.
+- **Admin** — vault stats, peer registry, worker status, security gates.
+
+### External agent dispatch (orchestration layer)
+
+Other systems dispatch agents into NeuroWorks over an authenticated API:
+
+```sh
+curl -X POST http://127.0.0.1:7471/api/v1/dispatch \
+  -H "Authorization: Bearer nw_..." -H "Content-Type: application/json" \
+  -d '{"task":"...", "callbackUrl":"https://your-app/webhook"}'
+# -> { "jobId": "...", "status": "accepted" }
+```
+
+- **Machine identity** — API keys (`nw_…`), stored as SHA-256 hashes, scoped
+  (`dispatch:write` / `dispatch:read`). Mint via `POST /api/dispatch-keys`.
+- **Async** — poll `GET /api/v1/dispatch/:jobId` or receive an HMAC-signed
+  webhook (`NW_WEBHOOK_SIGNING_SECRET`). Supports `Idempotency-Key`; each key
+  reads only its own jobs (tenancy). The `/api/v1/` surface is exempt from the
+  origin guard because it authenticates by key, not by Host/Origin.
+- **Four client modes** — REST + webhook, an **SDK** ([sdk/](sdk/) — `new NeuroWorks({baseUrl,apiKey}).run(task)`), a **CLI** ([tools/nw.mjs](tools/nw.mjs) — `nw dispatch "…" --wait`), and an **MCP server** ([server/mcp/neuroworks-dispatch-mcp.mjs](server/mcp/neuroworks-dispatch-mcp.mjs)) exposing `dispatch_task` to any MCP host. All are thin clients over the same REST keystone.
+
+### First run
+
+Fastest path — the installer (checks Node, sets up pnpm, installs deps,
+scaffolds `.env`). See [QUICKSTART.md](QUICKSTART.md) for the full guide.
+
+```sh
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -File tools\install.ps1
+
+# macOS / Linux
+sh tools/install.sh
+```
+
+Or manually:
+
+```sh
+cp .env.example .env       # boots on the free local core; fill in keys to unlock cloud/vault
+pnpm install               # installs root + server + web workspaces
+ollama serve &             # start Ollama if not already running (free local model)
+pnpm dev                   # starts server + web concurrently
+```
+
+Open http://127.0.0.1:7470. NeuroWorks runs on a **free local core** — no
+personal keys are required to start; cloud models, a synced vault, email, and
+payments are optional add-ons configured in `.env`.
+
+### Configuration
+
+`.env` keys (see `.env.example`):
+- `GITHUB_TOKEN` — fine-grained PAT (same one used for `NEUROWORKS_PAT`).
+- `GITHUB_OWNER` — `RUBIEM-DEVELOPERS-REPO`.
+- `VAULT_REPO` — `RUBIEM-DEVELOPERS-REPO/main-brain`.
+- `VAULT_PATH` — local path to vault (`D:\Main brain`).
+- `OLLAMA_HOST` — defaults to `http://127.0.0.1:11434`.
+- `OLLAMA_MODEL` — defaults to `qwen2.5:3b`. Pull a stronger model for better summaries: `ollama pull llama3.1:8b`.
+- `OPENROUTER_API_KEY` — optional cloud LLM acceleration for planning/synthesis when local Ollama can't keep up.
+- `NEUROWORKS_PORT` — server bind port (default `7471`).
+
+## Skills
+
+The agent ships with 40+ skill `.md` playbooks at [server/src/skills/](server/src/skills/) covering doc shapes from memo-writing to incident-post-mortem. When the synth picker matches a task to a skill, the playbook gets attached to the LLM prompt as guidance.
+
+Browse the catalog at `GET /api/skills` (JSON) — `name`, `description`, `source`, `applies_to`, `bodyChars`. Full body at `GET /api/skills/:name`.
+
+User playbooks dropped under [server/src/skills/_user/](server/src/skills/_user/) (gitignored) override built-ins with the same name. Remote skill fetching is gated behind `NEUROWORKS_REMOTE_SKILLS=1` — see `.env.example`.
+
+The reflection loop reports per-skill success rate + avg picker score in the daily reflection, so weak playbooks surface for revision.
+
+## Security
+
+NeuroWorks binds loopback-only, but loopback alone doesn't defeat two real browser-side attacks:
+
+- **DNS rebinding** — a malicious page resolves `evil.com:7471` to `127.0.0.1`. The Host header (`evil.com:7471`) is the giveaway.
+- **Cross-origin POST** — `text/plain` JSON skips the CORS preflight. The Origin header reveals the source page.
+
+The server enforces:
+
+- **Host header allow-list**: `127.0.0.1:<port>` and `localhost:<port>` only.
+- **Origin header allow-list**: when set, must match `http://127.0.0.1:7470` (override with `NEUROWORKS_WEB_ORIGIN`).
+- `/api/health` and `/api/peers/self` exempt for handshake.
+- `OPTIONS` preflight passes through.
+- Lift entirely with `NEUROWORKS_ORIGIN_GUARD=0` (e.g., when fronted by a reverse proxy that rewrites Host — logged).
+
+**Enterprise mode** (`NEUROWORKS_ENTERPRISE_MODE=1`, off by default): the
+checks above stop DNS rebinding and cross-origin browser POSTs, but neither
+authenticates a plain server-to-server request — fine for a single loopback-
+bound machine, not once this instance is reachable from a wider network.
+Flipping this on requires every non-loopback request to carry a session or a
+`machine:full`-scoped API key. See [docs/DEPLOYMENT-SECRETS.md](docs/DEPLOYMENT-SECRETS.md#network-exposure--enterprise-mode)
+before exposing this beyond one trusted machine.
+
+Path + URL gates on agent primitives:
+- `NEUROWORKS_FS_UNRESTRICTED=1` — lifts the sensitive-path guard for `fs.read_external` / `fs.list_external`.
+- `NEUROWORKS_WEB_ALLOW_PRIVATE=1` — lifts the SSRF guard against private/loopback IPs.
+- `NEUROWORKS_VAULT_EDIT=1` — enables `vault.edit` (off by default).
+- Vault writes scanned for high-severity secrets — refused outright (set `NEUROWORKS_VAULT_SCAN=0` to disable, not recommended).
+
+## How summaries work
+
+`POST /api/repos/:owner/:name/summarize`:
+1. Fetches README + last 90 days of commits + open PRs + open issues from GitHub.
+2. Sends a tight system-prompted Ollama generation (Purpose / Stack / State / Recent direction / Notable open work).
+3. Writes `_clawbot/summaries/<owner>-<name>.md` into the vault.
+4. `git commit && git push` to keep the vault repo in sync.
+
+The Knowledge page lists committed summaries; click "Refresh summary" to regenerate.
+
+## Persistence + reflection
+
+- Job history persists as append-only JSONL at `.neuroworks/jobs/<YYYY-MM-DD>.jsonl` (gitignored). Survives restarts and the in-memory `RECENT=200` cap.
+- Daily reflection at 2 AM local (configurable via `NEUROWORKS_REFLECTION_HOUR`) aggregates the last 24h across the local store, in-memory state, and every peer's `/api/peers/jobs` endpoint — so delegations to the secondary are visible.
+- Output lands at `<vault>/_neuroworks/reflections/<YYYY-MM-DD>.md` with sections "What went well / What went wrong / What I notice / What to try next" plus a raw stats snapshot.
+
+## Multi-clawbot (primary + secondary)
+
+```sh
+pnpm dev          # primary on :7471, web on :7470
+pnpm secondary    # secondary on :7473 — auto-registers with primary
+```
+
+The secondary acts as a parallel worker for sub-agent fan-out + the curation/review gate. Auto-discovery scans localhost every 60s.
+
+## Tests
+
+```sh
+pnpm -F neuroworks-server test         # vitest suite (one-shot)
+pnpm -F neuroworks-server test:watch   # vitest watch mode
+```
+
+Tests cover the cascade contract: heuristic planning, skill picker scoring, direct-answer triage, and the origin guard. Don't refactor `agent.ts` without running the suite — the regexes are easy to drift.
+
+## Required configuration (GitHub Actions side)
+
+- **Secret `NEUROWORKS_PAT`** — fine-grained personal access token with: Contents read+write on the vault repo, Contents read across all owned repos, Metadata read, Pull requests read, Issues read, Administration read+write (for `publish-folder` to create new repos).
+- **Variable `VAULT_REPO`** — `<owner>/main-brain`.
+
+## Local use
+
+```sh
+pnpm install
+GITHUB_TOKEN=ghp_... GITHUB_OWNER=arthurmagaya pnpm publish-folder "D:\some\folder"
+```
+
