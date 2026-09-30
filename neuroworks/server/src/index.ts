@@ -59,6 +59,7 @@ import { daemonSettingsRouter } from "./routes/daemon-settings.js";
 import { toolDnaRouter } from "./routes/tool-dna.js";
 import { workflowTreeRouter } from "./routes/workflow-tree.js";
 import { webhooksRouter } from "./routes/webhooks.js";
+import { companyLinksRouter } from "./routes/company-links.js";
 import { registerEngine } from "./lib/scheduler-registry.js";
 import { retryFailedDeliveries } from "./lib/webhook-delivery.js";
 import { offlineModeRouter } from "./routes/offline-mode.js";
@@ -304,6 +305,7 @@ app.use("/api/daemon-settings", daemonSettingsRouter);
 app.use("/api/tool-dna", toolDnaRouter);
 app.use("/api/workflow-tree", workflowTreeRouter);
 app.use("/api/webhooks", webhooksRouter);
+app.use("/api/company-links", companyLinksRouter);
 app.use("/api/offline-mode", offlineModeRouter);
 app.use("/api/org-tasks", orgTasksRouter);
 app.use("/api/local-folder", localFolderRouter); // "My documents" indexing — native replacement for naxionai/backend's local-folder endpoints

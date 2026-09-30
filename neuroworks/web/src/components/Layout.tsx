@@ -25,6 +25,11 @@ import {
   Brain,
   FolderTree,
   Webhook as WebhookIcon,
+  Waypoints,
+  Users,
+  UserPlus,
+  Cpu,
+  Wallet,
   ShieldAlert,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
@@ -76,7 +81,11 @@ const primaryNav: NavItem[] = [
   { to: "/ide", label: "Naxion IDE", icon: Terminal },
 ];
 
-const agentsNav: NavItem[] = [];
+const agentsNav: NavItem[] = [
+  { to: "/orchestrate", label: "Orchestrate", icon: Waypoints },
+  { to: "/team", label: "Focus Team", icon: Users },
+  { to: "/presets", label: "Hire a Worker", icon: UserPlus },
+];
 
 const workNav: NavItem[] = [
   { to: "/my-work", label: "My Inbox", icon: Inbox, badgeKey: "approvals" },
@@ -86,6 +95,8 @@ const workNav: NavItem[] = [
   { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
   { to: "/workflow-tree", label: "Workflow Tree", icon: FolderTree },
   { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
+  { to: "/models", label: "Models", icon: Cpu },
+  { to: "/cost", label: "Cost", icon: Wallet },
 ];
 
 const memoryNav: NavItem[] = [

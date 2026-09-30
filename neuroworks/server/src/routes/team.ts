@@ -33,6 +33,7 @@ import { getActivePersona, personaSystemSuffix, loadPersonas } from "../lib/pers
 import { autoRoutePersona } from "../lib/persona-router.js";
 import { resolveContextAttachment } from "./uploads.js";
 import { planAndExecute, crownBypassesApproval } from "../lib/agent.js";
+import { truncateWithMarker } from "../lib/truncate.js";
 
 export const teamRouter = Router();
 
@@ -122,7 +123,7 @@ teamRouter.post("/", async (req, res) => {
           if (!a?.contextId) return null;
           const r = await resolveContextAttachment(String(a.contextId));
           if (!r) return null;
-          return { filename: r.filename, text: r.text.slice(0, 8000) };
+          return { filename: r.filename, text: truncateWithMarker(r.text, 8000) };
         }))).filter(Boolean) as { filename: string; text: string }[];
         if (resolved.length > 0) {
           attachmentBlock = "\n\nAttached documents (user uploaded as context for THIS task — read them carefully and use them as primary evidence):\n" +

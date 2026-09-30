@@ -1,4 +1,5 @@
 import { findPrimitive, humanStepLabel, primitivesPromptCatalog, primitives } from "./primitives.js";
+import { unsupportedActionClaims, honestNonDelivery } from "./action-claims.js";
 import { ollamaGenerate, ollamaGenerateWithMeta } from "./ollama.js";
 import { pollPeers } from "./peers.js";
 import { searchVault, searchVaultFilenames } from "./vault.js";
@@ -2119,6 +2120,17 @@ export async function planAndExecute(
   const synth = await synthesize(task, p, runs, opts.personaSystemSuffix, (partial) => {
     onProgress?.({ partialAnswer: partial });
   }, { push });
+
+  // Anti-hallucination guard: did the answer claim an outward action (sent an
+  // email, delivered a file, posted to social) that no successful step
+  // actually ran? An unverifiable claim gets withheld, not footnoted — see
+  // action-claims.ts for the incident this fixes.
+  {
+    const unsupported = unsupportedActionClaims(synth.answer, runs);
+    if (unsupported.length > 0) {
+      synth.answer = honestNonDelivery({ task, claims: unsupported, runs });
+    }
+  }
 
   // Post-flight QA. Split into two phases so the happy path doesn't pay for
   // peer.review (the slowest QA call, 30-90s):

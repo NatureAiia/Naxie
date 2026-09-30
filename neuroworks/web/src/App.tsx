@@ -23,6 +23,11 @@ const Planner = lazy(() => import("./pages/Planner").then(m => ({ default: m.Pla
 const MyFinances = lazy(() => import("./pages/MyFinances").then(m => ({ default: m.MyFinances })));
 const WorkflowTree = lazy(() => import("./pages/WorkflowTree").then(m => ({ default: m.WorkflowTree })));
 const Webhooks = lazy(() => import("./pages/Webhooks").then(m => ({ default: m.Webhooks })));
+const Orchestrate = lazy(() => import("./pages/Orchestrate").then(m => ({ default: m.Orchestrate })));
+const Team = lazy(() => import("./pages/Team").then(m => ({ default: m.Team })));
+const Presets = lazy(() => import("./pages/Presets").then(m => ({ default: m.Presets })));
+const Models = lazy(() => import("./pages/Models").then(m => ({ default: m.Models })));
+const Cost = lazy(() => import("./pages/Cost").then(m => ({ default: m.Cost })));
 const Schedules = lazy(() => import("./pages/Schedules").then(m => ({ default: m.Schedules })));
 
 // Build
@@ -111,6 +116,11 @@ function AppShell() {
         <Route path="/my-finances" element={<MyFinances />} />
         <Route path="/workflow-tree" element={<WorkflowTree />} />
         <Route path="/webhooks" element={<Webhooks />} />
+        <Route path="/orchestrate" element={<Orchestrate />} />
+        <Route path="/team" element={<Team />} />
+        <Route path="/presets" element={<Presets />} />
+        <Route path="/models" element={<Models />} />
+        <Route path="/cost" element={<Cost />} />
         <Route path="/calendar" element={<Navigate to="/planner" replace />} />
         <Route path="/schedules" element={<Schedules />} />
 

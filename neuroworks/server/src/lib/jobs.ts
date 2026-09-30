@@ -7,6 +7,7 @@ import { logAudit } from "./audit-log.js";
 import { classifyOrgRole, createOrgTask, updateOrgTaskStatus, requestApproval, listOrgTasks, type OrgTaskPriority } from "./org-tasks.js";
 import type { Plan } from "./agent.js"; // type-only — erased at runtime, no import cycle
 import { recordUsage } from "./tool-dna.js";
+import { runOutcome, outcomeToJobStatus } from "./run-outcome.js";
 
 export type Job = {
   id: string;
@@ -502,7 +503,16 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
     // A run that paused on a structured human ask parks in waiting_on_human
     // instead of succeeded — the Tasks page renders the ask and the resume
     // endpoint continues the loop once the operator responds.
-    j.status = (j.result as any)?.humanRequest ? "waiting_on_human" : "succeeded";
+    if ((j.result as any)?.humanRequest) {
+      j.status = "waiting_on_human";
+    } else {
+      // "Reached the end without throwing" is not "produced something" — a
+      // synthesis failure returned as prose used to record as succeeded with
+      // nothing downstream able to tell. See run-outcome.ts.
+      const verdict = runOutcome(j.result as any);
+      j.status = outcomeToJobStatus(verdict.outcome);
+      if (verdict.reason) j.error = verdict.reason;
+    }
     // Handoff notification: the neuro is now blocked on a person — email the
     // operator so the wait doesn't sit invisible until someone opens the app.
     // Best-effort and async; a mail outage must never fail the job itself.
