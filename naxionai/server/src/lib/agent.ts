@@ -454,7 +454,7 @@ export function detectResearchSignals(text: string): string | null {
 // heuristic, anything that DIDN'T already match the heuristic by now is a
 // genuinely unusual shape and 18s is enough for a small local planner; if
 // it isn't, the fallback is faster than waiting any longer.
-const PLAN_TIMEOUT_MS = Number(process.env.NEUROWORKS_PLAN_TIMEOUT_MS ?? "18000");
+const PLAN_TIMEOUT_MS = Number(process.env.NAXION_PLAN_TIMEOUT_MS ?? "18000");
 
 // Second-brain identity rule — always on, injected into every downstream LLM
 // call alongside the governance prefix (see the plan() call site below).
@@ -852,12 +852,12 @@ function collectDeps(args: any, acc: Set<number> = new Set()): Set<number> {
 //   • I/O-bound tools (vault.*, github.*, web.fetch, web.scrape, fs.*,
 //     clock.*) — bound by network/disk and parallelise great. Default: 6.
 //
-// NEUROWORKS_SUBAGENT_BUDGET overrides the LLM-lane base. NEUROWORKS_IO_BUDGET
+// NAXION_SUBAGENT_BUDGET overrides the LLM-lane base. NAXION_IO_BUDGET
 // overrides the I/O lane. Persona-shifter peers can crank both up because
 // they're the dedicated worker — their job IS to run as many sub-agents as
 // the tools can handle.
-const LLM_BASE = Number(process.env.NEUROWORKS_SUBAGENT_BUDGET ?? "3");
-const IO_BASE = Number(process.env.NEUROWORKS_IO_BUDGET ?? "6");
+const LLM_BASE = Number(process.env.NAXION_SUBAGENT_BUDGET ?? "3");
+const IO_BASE = Number(process.env.NAXION_IO_BUDGET ?? "6");
 const PER_PEER_BONUS = 2;
 const HARD_CAP = 12;
 
@@ -935,7 +935,7 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
   // operator-only noise that clutters the chat-side trace.
   if (budgets.idlePeers > 0) {
     push(`Running with help from ${budgets.idlePeers} peer worker${budgets.idlePeers === 1 ? "" : "s"} (capacity ${budgets.llm} thinking + ${budgets.io} I/O sub-agents).`);
-  } else if (process.env.NEUROWORKS_VERBOSE === "1") {
+  } else if (process.env.NAXION_VERBOSE === "1") {
     push(`Capacity: ${budgets.llm} thinking + ${budgets.io} I/O sub-agents.`);
   }
   onProgress?.([...runs]);
@@ -1165,7 +1165,7 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
 // Auto-review is opt-out via env. Skipped automatically when the answer is
 // trivial (under MIN_REVIEW_CHARS) or no peer is reachable. This makes the
 // behavior degrade cleanly on single-clawbot setups.
-const AUTO_REVIEW = process.env.NEUROWORKS_AUTO_REVIEW !== "0";
+const AUTO_REVIEW = process.env.NAXION_AUTO_REVIEW !== "0";
 const MIN_REVIEW_CHARS = 120;
 
 // Build a compact, numbered evidence string from successful step runs.
@@ -1203,9 +1203,9 @@ function buildEvidenceCatalog(runs: StepRun[]): string {
   return lines.join("\n\n").slice(0, 8000);
 }
 // Triage skips the planner for short conversational/world-knowledge prompts.
-// Set NEUROWORKS_TRIAGE=0 to disable. The triage call uses the smallest available
+// Set NAXION_TRIAGE=0 to disable. The triage call uses the smallest available
 // model so the shortcut path is much faster than full plan→execute→synth.
-const TRIAGE_ENABLED = process.env.NEUROWORKS_TRIAGE !== "0";
+const TRIAGE_ENABLED = process.env.NAXION_TRIAGE !== "0";
 const TRIAGE_MAX_CHARS = 200;
 
 // Heuristic prefilter: certain shapes are obviously direct-answer (greetings,
@@ -1657,7 +1657,7 @@ export async function planAndExecute(
         // smallest/fastest model — qwen3.5:0.8b on this machine —
         // instead of the larger synthesis-tier model. Measured drop:
         // ~67s → ~15-25s on local Ollama. Customer can opt out with
-        // NEUROWORKS_FAST_DIRECT_ANSWER=0 when they'd rather have the
+        // NAXION_FAST_DIRECT_ANSWER=0 when they'd rather have the
         // larger model's prose quality. Token budgets:
         //   trivial → 96 (one sentence is plenty)
         //   non-trivial → 384 (40-180 words of professional prose)
@@ -1665,7 +1665,7 @@ export async function planAndExecute(
         // tiny triage model can't reliably apply a multi-step playbook (it got
         // a reconciliation's adjustment directions wrong). Plain direct answers
         // keep the fast path.
-        const useFastDirect = process.env.NEUROWORKS_FAST_DIRECT_ANSWER !== "0" && !hasDirectSkill;
+        const useFastDirect = process.env.NAXION_FAST_DIRECT_ANSWER !== "0" && !hasDirectSkill;
         // Inner helper so we can re-issue with a different backend when the
         // first attempt hits OR 429 / transport hiccup. Keeps the late-vault
         // race + return shape identical between primary and retry paths.
@@ -1761,7 +1761,7 @@ export async function planAndExecute(
   // vault path) and NOT db.query (buildDbPlan fuzzy-matched "emails" against a
   // data source's notes and ran SQL — live 2026-07-24: "read my unread inbox and
   // summarise" fired db.query on "Website DB"). Routes to the IMAP unread reader
-  // when NEUROWORKS_EMAIL_* creds are set, else integration.gmail.read (Gmail
+  // when NAXION_EMAIL_* creds are set, else integration.gmail.read (Gmail
   // connection). Placed FIRST in the intercept chain so no other heuristic can
   // steal an email-read request.
   // Deterministic SOCIAL plan — publishing and monitoring both have dedicated
@@ -1825,7 +1825,7 @@ export async function planAndExecute(
     // regardless of read state (so "read my latest emails" isn't empty when the
     // mailbox has 0 unseen).
     const wantsUnread = /\b(unread|unseen|new)\b/i.test(bareTask);
-    const imapConfigured = !!(process.env.NEUROWORKS_EMAIL_USER && process.env.NEUROWORKS_EMAIL_APP_PASSWORD);
+    const imapConfigured = !!(process.env.NAXION_EMAIL_USER && process.env.NAXION_EMAIL_APP_PASSWORD);
     if (imapConfigured) {
       const args = { limit, unreadOnly: wantsUnread };
       push(`Reading ${wantsUnread ? "unread" : "recent"} messages from the mailbox — up to ${limit}.`);
@@ -4232,12 +4232,12 @@ function humanizeAllFail(task: string, failed: StepRun[]): string {
       : /^(?:127\.|::1$|localhost)/i.test(host) ? "a loopback address (your own machine)"
       : /^(?:10\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.168\.)/.test(host) ? "a private internal network"
       : "a non-public address";
-    return `I can't reach **${host}** — it's ${why}, and my web tools are scoped to the public internet so secrets stored on internal services aren't exposed accidentally.\n\nIf this is a deliberate request (you're testing reachability or fetching from your own dev server), enable private-host access in \`.env\` (see \`.env.example\` — look for \`NEUROWORKS_WEB_ALLOW_PRIVATE\`) and try again. Otherwise, share a public URL or tell me what you're trying to find out and I'll dig differently.`;
+    return `I can't reach **${host}** — it's ${why}, and my web tools are scoped to the public internet so secrets stored on internal services aren't exposed accidentally.\n\nIf this is a deliberate request (you're testing reachability or fetching from your own dev server), enable private-host access in \`.env\` (see \`.env.example\` — look for \`NAXION_WEB_ALLOW_PRIVATE\`) and try again. Otherwise, share a public URL or tell me what you're trying to find out and I'll dig differently.`;
   }
 
   // 2. PATH SECURITY REFUSAL — fs gate on .env / .ssh / cred stores.
   if (/^Refused to read/i.test(err) && targetPath) {
-    return `That path looks like a sensitive file (credentials, keys, or browser cookie store), so I won't read it by default — it's the kind of thing that would leak if I quoted it back in a reply or wrote it to your vault.\n\nIf you genuinely need me to read it (you're debugging a config), there's an override in \`.env\` (\`NEUROWORKS_FS_UNRESTRICTED\` in \`.env.example\`). Otherwise tell me what you're after and I'll find a safer path.`;
+    return `That path looks like a sensitive file (credentials, keys, or browser cookie store), so I won't read it by default — it's the kind of thing that would leak if I quoted it back in a reply or wrote it to your vault.\n\nIf you genuinely need me to read it (you're debugging a config), there's an override in \`.env\` (\`NAXION_FS_UNRESTRICTED\` in \`.env.example\`). Otherwise tell me what you're after and I'll find a safer path.`;
   }
 
   // 3. NETWORK — couldn't reach the public web. Common: timeouts, DNS,

@@ -7,11 +7,11 @@
 // pending queue scored in batch by the org-daemon tick.
 //
 // Config (env):
-//   NEUROWORKS_TELEGRAM_MONITOR_GROUPS     comma-separated chat IDs to watch
-//   NEUROWORKS_TELEGRAM_NOTIFY_CHAT        your DM chat ID for notifications
-//   NEUROWORKS_TELEGRAM_MONITOR_ENABLED    1/0 (default 0)
-//   NEUROWORKS_TELEGRAM_MONITOR_INTERVAL   minutes between batch scoring (default 5)
-//   NEUROWORKS_TELEGRAM_MONITOR_THRESHOLD  relevance score 0-10 to notify (default 7)
+//   NAXION_TELEGRAM_MONITOR_GROUPS     comma-separated chat IDs to watch
+//   NAXION_TELEGRAM_NOTIFY_CHAT        your DM chat ID for notifications
+//   NAXION_TELEGRAM_MONITOR_ENABLED    1/0 (default 0)
+//   NAXION_TELEGRAM_MONITOR_INTERVAL   minutes between batch scoring (default 5)
+//   NAXION_TELEGRAM_MONITOR_THRESHOLD  relevance score 0-10 to notify (default 7)
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -23,25 +23,25 @@ const MAX_SEEN = 2000;
 // ── Config ──
 
 export function isMonitorEnabled(): boolean {
-  return process.env.NEUROWORKS_TELEGRAM_MONITOR_ENABLED === "1" && monitorGroups().length > 0;
+  return process.env.NAXION_TELEGRAM_MONITOR_ENABLED === "1" && monitorGroups().length > 0;
 }
 
 export function monitorGroups(): string[] {
-  return (process.env.NEUROWORKS_TELEGRAM_MONITOR_GROUPS ?? "")
+  return (process.env.NAXION_TELEGRAM_MONITOR_GROUPS ?? "")
     .split(",").map(s => s.trim()).filter(Boolean);
 }
 
 function notifyChatId(): string {
-  return (process.env.NEUROWORKS_TELEGRAM_NOTIFY_CHAT ?? "").trim();
+  return (process.env.NAXION_TELEGRAM_NOTIFY_CHAT ?? "").trim();
 }
 
 function scoreThreshold(): number {
-  const v = Number(process.env.NEUROWORKS_TELEGRAM_MONITOR_THRESHOLD ?? "7");
+  const v = Number(process.env.NAXION_TELEGRAM_MONITOR_THRESHOLD ?? "7");
   return Math.max(0, Math.min(10, v));
 }
 
 export function monitorIntervalMinutes(): number {
-  const v = Number(process.env.NEUROWORKS_TELEGRAM_MONITOR_INTERVAL ?? "5");
+  const v = Number(process.env.NAXION_TELEGRAM_MONITOR_INTERVAL ?? "5");
   return Math.max(1, Math.min(60, v));
 }
 

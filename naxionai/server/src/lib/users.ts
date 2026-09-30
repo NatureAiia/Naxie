@@ -340,7 +340,7 @@ export function login(email: string, password: string, meta: { ip?: string; user
 }
 
 // Sessions expire after SESSION_TTL (default 30 days since last activity).
-const SESSION_TTL_MS = Math.max(3600_000, Number(process.env.NEUROWORKS_SESSION_TTL_MS ?? String(30 * 24 * 3600_000)));
+const SESSION_TTL_MS = Math.max(3600_000, Number(process.env.NAXION_SESSION_TTL_MS ?? String(30 * 24 * 3600_000)));
 // Throttle lastSeenAt persistence: sessionUser runs on EVERY layer-gated
 // request, and rewriting sessions.json each time was pure disk churn (plus a
 // write race under parallel requests). Only persist when the recorded
@@ -386,7 +386,7 @@ function bookSessionHours(s: Session, endAt?: string): void {
 // card reflects today's presence within the hour, not a month later. While a
 // tab is open the dashboard's polling keeps lastSeenAt warm, so active sessions
 // are never swept out from under a present user.
-const SESSION_IDLE_MS = Math.max(5 * 60_000, Number(process.env.NEUROWORKS_SESSION_IDLE_MS ?? String(45 * 60_000)));
+const SESSION_IDLE_MS = Math.max(5 * 60_000, Number(process.env.NAXION_SESSION_IDLE_MS ?? String(45 * 60_000)));
 
 // Sweep ended (idle-beyond-threshold) sessions: book their hours, drop them.
 // Cheap + idempotent — called opportunistically from read paths that render

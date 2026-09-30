@@ -103,7 +103,7 @@ function saveShares(shares: FileShare[]): void {
   } catch { /* ignore */ }
 }
 
-const SHARE_HMAC_KEY = process.env.NEUROWORKS_SHARE_KEY ?? "neuroworks-local-share-key";
+const SHARE_HMAC_KEY = process.env.NAXION_SHARE_KEY ?? "neuroworks-local-share-key";
 
 export function createShareToken(path: string, opts: { ttlHours?: number; maxUses?: number; createdBy?: string } = {}): FileShare {
   const ttlH = Math.min(24 * 30, Math.max(1, opts.ttlHours ?? 72));

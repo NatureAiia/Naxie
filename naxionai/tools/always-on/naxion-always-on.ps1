@@ -51,7 +51,7 @@ if (-not (Test-Path "D:\")) { subst D: "C:\vault-root" 2>$null | Out-Null }
 Write-Log "watchdog started (pid $PID)"
 
 # ── Supervision loop ───────────────────────────────────────────────────
-$env:NEUROWORKS_PORT = "$port"
+$env:NAXION_PORT = "$port"
 $env:SERVE_WEB       = "1"
 
 while ($true) {

@@ -35,7 +35,7 @@
 
 /** Concurrent local generations allowed. Must track Ollama's own limit. */
 function laneSize(): number {
-  const explicit = Number(process.env.NEUROWORKS_LOCAL_LLM_LANE ?? "");
+  const explicit = Number(process.env.NAXION_LOCAL_LLM_LANE ?? "");
   if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
   // Default to what Ollama will actually serve in parallel. Anything above it
   // is queueing dressed up as concurrency; anything below it leaves the box

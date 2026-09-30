@@ -151,13 +151,13 @@ export type QueryResult = { rows: any[]; columns: string[]; rowCount: number; tr
 // that ignore the native option, and connection hangs before a query even
 // runs). Tunable via env; default 30s — long enough for a heavy analytical
 // query, short enough that a hang surfaces as a clear error instead of a wedge.
-const DB_QUERY_TIMEOUT_MS = Number(process.env.NEUROWORKS_DB_QUERY_TIMEOUT_MS ?? "30000") || 30000;
+const DB_QUERY_TIMEOUT_MS = Number(process.env.NAXION_DB_QUERY_TIMEOUT_MS ?? "30000") || 30000;
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string, onTimeout?: () => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       try { onTimeout?.(); } catch { /* best-effort abort */ }
-      reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s (NEUROWORKS_DB_QUERY_TIMEOUT_MS) — the query is too slow or the connection hung; add an index, narrow the query, or raise the timeout`));
+      reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s (NAXION_DB_QUERY_TIMEOUT_MS) — the query is too slow or the connection hung; add an index, narrow the query, or raise the timeout`));
     }, ms);
     p.then(v => { clearTimeout(timer); resolve(v); }, e => { clearTimeout(timer); reject(e); });
   });
@@ -457,7 +457,7 @@ async function runCsvQuery(source: DataSource, raw: string, limit: number): Prom
 // the two round-trips (the other is the LLM SQL generation).
 type DescribedSchema = { tables: { name: string; columns: { name: string; type: string }[] }[] };
 const SCHEMA_CACHE = new Map<string, { at: number; schema: DescribedSchema }>();
-const SCHEMA_CACHE_TTL_MS = Number(process.env.NEUROWORKS_DB_SCHEMA_CACHE_MS ?? String(5 * 60_000)) || 5 * 60_000;
+const SCHEMA_CACHE_TTL_MS = Number(process.env.NAXION_DB_SCHEMA_CACHE_MS ?? String(5 * 60_000)) || 5 * 60_000;
 
 export function invalidateSchemaCache(sourceId?: string): void {
   if (sourceId) SCHEMA_CACHE.delete(sourceId);

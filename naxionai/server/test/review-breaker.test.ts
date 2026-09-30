@@ -3,8 +3,8 @@ import { reviewSkipReason, noteReviewSuccess, noteReviewTimeout, reviewBreakerSt
 
 beforeEach(() => {
   resetReviewBreakers();
-  delete process.env.NEUROWORKS_REVIEW_BREAKER_TRIP;
-  delete process.env.NEUROWORKS_REVIEW_BREAKER_COOLDOWN_MS;
+  delete process.env.NAXION_REVIEW_BREAKER_TRIP;
+  delete process.env.NAXION_REVIEW_BREAKER_COOLDOWN_MS;
 });
 
 afterEach(() => { vi.useRealTimers(); });
@@ -21,7 +21,7 @@ describe("review-breaker", () => {
   });
 
   it("trips after the configured number of consecutive timeouts", () => {
-    process.env.NEUROWORKS_REVIEW_BREAKER_TRIP = "3";
+    process.env.NAXION_REVIEW_BREAKER_TRIP = "3";
     noteReviewTimeout("quality.check");
     noteReviewTimeout("quality.check");
     noteReviewTimeout("quality.check");
@@ -29,7 +29,7 @@ describe("review-breaker", () => {
   });
 
   it("a success closes the circuit immediately", () => {
-    process.env.NEUROWORKS_REVIEW_BREAKER_TRIP = "3";
+    process.env.NAXION_REVIEW_BREAKER_TRIP = "3";
     noteReviewTimeout("quality.check");
     noteReviewTimeout("quality.check");
     noteReviewTimeout("quality.check");
@@ -39,7 +39,7 @@ describe("review-breaker", () => {
   });
 
   it("breakers for different steps are independent", () => {
-    process.env.NEUROWORKS_REVIEW_BREAKER_TRIP = "3";
+    process.env.NAXION_REVIEW_BREAKER_TRIP = "3";
     noteReviewTimeout("quality.check");
     noteReviewTimeout("quality.check");
     noteReviewTimeout("quality.check");
@@ -49,8 +49,8 @@ describe("review-breaker", () => {
 
   it("reopens (half-open) after the cooldown elapses", () => {
     vi.useFakeTimers();
-    process.env.NEUROWORKS_REVIEW_BREAKER_TRIP = "3";
-    process.env.NEUROWORKS_REVIEW_BREAKER_COOLDOWN_MS = "1000";
+    process.env.NAXION_REVIEW_BREAKER_TRIP = "3";
+    process.env.NAXION_REVIEW_BREAKER_COOLDOWN_MS = "1000";
     noteReviewTimeout("quality.check");
     noteReviewTimeout("quality.check");
     noteReviewTimeout("quality.check");
@@ -60,7 +60,7 @@ describe("review-breaker", () => {
   });
 
   it("reviewBreakerState reports open/closed and remaining cooldown", () => {
-    process.env.NEUROWORKS_REVIEW_BREAKER_TRIP = "3";
+    process.env.NAXION_REVIEW_BREAKER_TRIP = "3";
     noteReviewTimeout("peer.review");
     noteReviewTimeout("peer.review");
     noteReviewTimeout("peer.review");

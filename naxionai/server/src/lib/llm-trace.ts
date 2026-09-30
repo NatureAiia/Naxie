@@ -50,18 +50,18 @@ export type TraceRow = {
 };
 
 function stateDir(): string {
-  const override = (process.env.NEUROWORKS_STATE_DIR ?? "").trim();
+  const override = (process.env.NAXION_STATE_DIR ?? "").trim();
   return override || resolve(dirname(fileURLToPath(import.meta.url)), "../../../.neuroworks");
 }
 function traceFile(): string {
   return join(stateDir(), "llm-trace.jsonl");
 }
 
-const MAX_ROWS = Number(process.env.NEUROWORKS_TRACE_MAX_ROWS ?? "20000");
+const MAX_ROWS = Number(process.env.NAXION_TRACE_MAX_ROWS ?? "20000");
 const KEEP_ON_ROTATE = Math.floor(MAX_ROWS * 0.6);
-/** Set NEUROWORKS_TRACE=0 to stop recording entirely. */
+/** Set NAXION_TRACE=0 to stop recording entirely. */
 function enabled(): boolean {
-  return (process.env.NEUROWORKS_TRACE ?? "1").trim() !== "0";
+  return (process.env.NAXION_TRACE ?? "1").trim() !== "0";
 }
 
 let rowsSinceCheck = 0;

@@ -100,7 +100,7 @@ function pickLargeOpenRouterModel(profile: LLMCallOptions["profile"]): string {
 //
 // Explicit scoping still wins: a per-profile OPENROUTER_<PROFILE>_MODEL pin,
 // a non-empty OPENROUTER_PROFILES list (unlisted profiles stay local), or
-// NEUROWORKS_LOCAL_TRIAGE=1 (restores local-only triage).
+// NAXION_LOCAL_TRIAGE=1 (restores local-only triage).
 //
 // The empty-profiles fallback only kicks in when OPENROUTER_PROFILES is
 // genuinely unset. If the user sets OPENROUTER_PROFILES=planning, they're
@@ -114,7 +114,7 @@ function shouldRouteToOpenRouter(profile?: LLMCallOptions["profile"]): boolean {
   if (cached === false) return false;
   if (!profile) return true;
   if (profile === "triage") {
-    if (process.env.NEUROWORKS_LOCAL_TRIAGE === "1") return false;
+    if (process.env.NAXION_LOCAL_TRIAGE === "1") return false;
     if (process.env[PROFILE_ENV_KEYS[profile]]?.trim()) return true;
     return config.openrouterProfiles.length > 0 ? config.openrouterProfiles.includes(profile) : true;
   }
@@ -137,10 +137,10 @@ function estimateTokens(s: string | undefined): number {
 // ~6k input tokens leaves no room for output — those calls SHOULD route to
 // OR which has 128k+ on gpt-4o-mini. Tunable via env so a user with a 32k
 // local model can raise the bar.
-const LOCAL_CONTEXT_BUDGET_TOKENS = Number(process.env.NEUROWORKS_LOCAL_CTX_BUDGET ?? "6000");
+const LOCAL_CONTEXT_BUDGET_TOKENS = Number(process.env.NAXION_LOCAL_CTX_BUDGET ?? "6000");
 // Hard-complexity fallback: even if OR profiles aren't configured, a call
 // over this size goes to OR when the key is set. Saves the customer from
-// silent context-overflow truncation on Ollama. Set NEUROWORKS_LOCAL_CTX_BUDGET=0
+// silent context-overflow truncation on Ollama. Set NAXION_LOCAL_CTX_BUDGET=0
 // to disable this complexity-based override entirely.
 function isTooBigForLocal(prompt: string, system: string | undefined): boolean {
   if (LOCAL_CONTEXT_BUDGET_TOKENS <= 0) return false;
@@ -228,7 +228,7 @@ async function chooseBackendAndModel(opts: LLMCallOptions, prompt: string, syste
 // (repeated planning/synth prompts share a large static prefix that Ollama can
 // otherwise reuse). Keep it warm for 30m by default. "-1" pins it in memory
 // indefinitely; "0" restores the eager-unload behaviour. Env-tunable.
-const OLLAMA_KEEP_ALIVE = (process.env.NEUROWORKS_OLLAMA_KEEP_ALIVE ?? "30m").trim();
+const OLLAMA_KEEP_ALIVE = (process.env.NAXION_OLLAMA_KEEP_ALIVE ?? "30m").trim();
 /** Local context window — used both for the actual /api/generate call and llm-trace.ts's overflow detection. */
 const OLLAMA_CTX = 8192;
 
@@ -315,7 +315,7 @@ async function callOllamaStreamInner(prompt: string, sys: string | undefined, mo
 // TRANSIENT errors (429 rate-limit, 5xx, network) instead fall back to the
 // local Ollama model when no token has streamed yet, so a temporary upstream
 // rate-limit doesn't fail the whole task with a partial result. Disable the
-// fallback with NEUROWORKS_OR_FALLBACK_OLLAMA=0.
+// fallback with NAXION_OR_FALLBACK_OLLAMA=0.
 // Public entry — wraps the dispatcher to record cost for EVERY call (this is
 // how the Cost monitor page gets its data; recording is best-effort and never
 // blocks or breaks the actual generation).
@@ -450,7 +450,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
     try {
       return await openrouterGenerateWithMeta(prompt, system, { model, onToken, maxTokens: opts.maxTokens, temperature: opts.temperature, timeoutMs: opts.timeoutMs });
     } catch (e: any) {
-      const fallbackOn = process.env.NEUROWORKS_OR_FALLBACK_OLLAMA !== "0";
+      const fallbackOn = process.env.NAXION_OR_FALLBACK_OLLAMA !== "0";
       if (isTransientError(e) && fallbackOn && !streamed) {
         // PROVIDER-POOL FAILOVER (2026-07-12): before dropping all the way
         // to the 3B local model, walk the other registered providers —
@@ -510,7 +510,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
       throw e;
     }
   }
-  // Little-coder harness for small local models. When NEUROWORKS_USE_LITTLE_CODER=1
+  // Little-coder harness for small local models. When NAXION_USE_LITTLE_CODER=1
   // and the model is a small local model and little-coder is installed, route
   // through the optimised small-model execution path. OpenRouter/cloud models are
   // unaffected — they keep the existing dispatch path above.

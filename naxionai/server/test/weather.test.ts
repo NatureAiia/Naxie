@@ -36,13 +36,13 @@ function mockFetch(opts: { googleOk?: boolean } = {}) {
 
 describe("getWeather provider fallback", () => {
   const originalFetch = global.fetch;
-  const originalKey = process.env.NEUROWORKS_GOOGLE_WEATHER_API_KEY;
+  const originalKey = process.env.NAXION_GOOGLE_WEATHER_API_KEY;
 
-  beforeEach(() => { delete process.env.NEUROWORKS_GOOGLE_WEATHER_API_KEY; });
+  beforeEach(() => { delete process.env.NAXION_GOOGLE_WEATHER_API_KEY; });
   afterEach(() => {
     global.fetch = originalFetch;
-    if (originalKey === undefined) delete process.env.NEUROWORKS_GOOGLE_WEATHER_API_KEY;
-    else process.env.NEUROWORKS_GOOGLE_WEATHER_API_KEY = originalKey;
+    if (originalKey === undefined) delete process.env.NAXION_GOOGLE_WEATHER_API_KEY;
+    else process.env.NAXION_GOOGLE_WEATHER_API_KEY = originalKey;
   });
 
   it("behaves exactly as before (Open-Meteo only) when no Google key is set", async () => {
@@ -53,7 +53,7 @@ describe("getWeather provider fallback", () => {
   });
 
   it("prefers Google Weather when configured and reachable", async () => {
-    process.env.NEUROWORKS_GOOGLE_WEATHER_API_KEY = "test-key";
+    process.env.NAXION_GOOGLE_WEATHER_API_KEY = "test-key";
     global.fetch = mockFetch({ googleOk: true }) as any;
     const out = await getWeather("auto");
     expect(out).toContain("Source: Google Weather");
@@ -61,7 +61,7 @@ describe("getWeather provider fallback", () => {
   });
 
   it("falls back to Open-Meteo silently when Google Weather fails", async () => {
-    process.env.NEUROWORKS_GOOGLE_WEATHER_API_KEY = "test-key";
+    process.env.NAXION_GOOGLE_WEATHER_API_KEY = "test-key";
     global.fetch = mockFetch({ googleOk: false }) as any;
     const out = await getWeather("auto");
     expect(out).toContain("Source: Open-Meteo");

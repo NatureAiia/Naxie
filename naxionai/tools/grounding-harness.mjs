@@ -56,7 +56,7 @@ const arg = (name, fallback) => {
 };
 const flag = name => argv.includes(`--${name}`);
 
-const BASE = (arg("base", process.env.NEUROWORKS_BASE ?? "http://127.0.0.1:7470")).replace(/\/$/, "");
+const BASE = (arg("base", process.env.NAXION_BASE ?? "http://127.0.0.1:7470")).replace(/\/$/, "");
 const ONLY = arg("only", null);
 const REPEAT = Math.max(1, Number(arg("repeat", "1")));
 const JSON_OUT = arg("json", null);
@@ -106,7 +106,7 @@ async function loadCases() {
 const HEADERS = {
   "content-type": "application/json",
   origin: BASE,
-  ...(process.env.NEUROWORKS_TOKEN ? { authorization: `Bearer ${process.env.NEUROWORKS_TOKEN}` } : {}),
+  ...(process.env.NAXION_TOKEN ? { authorization: `Bearer ${process.env.NAXION_TOKEN}` } : {}),
 };
 
 async function api(path, init = {}, ms = 60_000) {

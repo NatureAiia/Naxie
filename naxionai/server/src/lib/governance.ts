@@ -457,12 +457,12 @@ export function filterEnforceable(constraints: ExtractedConstraint[]): Extracted
 // enforceable set, decide block/pass. Disk-free and deterministic — the I/O
 // wrappers below (checkStepAgainstGovernance, checkContentAgainstGovernance)
 // just supply the enforceable set from getConstraints().
-// Global safety valve: NEUROWORKS_GOVERNANCE_MODE=monitor keeps constraints
+// Global safety valve: NAXION_GOVERNANCE_MODE=monitor keeps constraints
 // active and logged but STOPS them from blocking execution — an operator can
 // flip this if a mis-tuned rule is halting real work, without deleting the
 // policy or un-accepting every constraint one by one. Default is "enforce".
 function governanceEnforces(): boolean {
-  return String(process.env.NEUROWORKS_GOVERNANCE_MODE ?? "enforce").trim().toLowerCase() !== "monitor";
+  return String(process.env.NAXION_GOVERNANCE_MODE ?? "enforce").trim().toLowerCase() !== "monitor";
 }
 
 export function gateAction(action: string, enforceable: ExtractedConstraint[]): GovernanceGate {

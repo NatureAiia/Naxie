@@ -412,7 +412,7 @@ Write the reflection. Honest, terse, numerically grounded.`;
   // raced the whole thing against the same 8-min cap with complexity:"high"
   // forcing the slowest large-tier model — so attempt 1 alone could consume
   // the cap and the retry never had room to succeed).
-  const rawReflectionTimeoutMs = Number(process.env.NEUROWORKS_REFLECTION_SYNTH_TIMEOUT_MS ?? String(8 * 60_000));
+  const rawReflectionTimeoutMs = Number(process.env.NAXION_REFLECTION_SYNTH_TIMEOUT_MS ?? String(8 * 60_000));
   const SYNTH_TIMEOUT_MS = Math.max(60_000, Number.isFinite(rawReflectionTimeoutMs) ? rawReflectionTimeoutMs : 8 * 60_000);
   // Two attempts must fit inside the cap with a 2s backoff between them.
   const PER_ATTEMPT_MS = Math.max(60_000, Math.floor((SYNTH_TIMEOUT_MS - 5_000) / 2));
@@ -734,7 +734,7 @@ export function lastReflection(): ReflectionResult | null {
 // alongside user Schedules without duplicating the scheduler itself.
 export async function reflectionStatus(): Promise<{ last: ReflectionResult | null; nextFireAt: number | null }> {
   const { nextFireAt } = await import("./schedules.js");
-  const REFLECTION_HOUR = Number(process.env.NEUROWORKS_REFLECTION_HOUR ?? "20");
+  const REFLECTION_HOUR = Number(process.env.NAXION_REFLECTION_HOUR ?? "20");
   return { last: lastReflection(), nextFireAt: nextFireAt({ daysOfWeek: [], hour: REFLECTION_HOUR, minute: 0 }) };
 }
 
@@ -792,7 +792,7 @@ export function startReflectionScheduler(): void {
   // Default 8 PM local — end-of-day reflection for *that day's* report (user
   // request 2026-09-12). Innovation scan stays at 8am; todo brief at 6am.
   // They are offset so they don't compete for the LLM backend at once.
-  const REFLECTION_HOUR = Number(process.env.NEUROWORKS_REFLECTION_HOUR ?? "20");
+  const REFLECTION_HOUR = Number(process.env.NAXION_REFLECTION_HOUR ?? "20");
   const tick = async () => {
     const now = new Date();
     // LOCAL date — toISOString() is UTC and put late-evening runs on the wrong

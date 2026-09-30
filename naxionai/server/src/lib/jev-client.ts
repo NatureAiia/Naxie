@@ -11,7 +11,7 @@
 
 import { config } from "../config.js";
 
-const REQUEST_TIMEOUT_MS = Number(process.env.NEUROWORKS_JEV_TIMEOUT_MS ?? "10000");
+const REQUEST_TIMEOUT_MS = Number(process.env.NAXION_JEV_TIMEOUT_MS ?? "10000");
 
 export type JevQuestion =
   | { type: "noul"; instructions: string }

@@ -8,8 +8,8 @@ import {
 } from "../src/lib/llm-trace.js";
 
 beforeEach(() => {
-  process.env.NEUROWORKS_STATE_DIR = mkdtempSync(join(tmpdir(), "llm-trace-"));
-  delete process.env.NEUROWORKS_TRACE;
+  process.env.NAXION_STATE_DIR = mkdtempSync(join(tmpdir(), "llm-trace-"));
+  delete process.env.NAXION_TRACE;
 });
 
 function row(over: Partial<TraceRow> = {}): TraceRow {
@@ -44,8 +44,8 @@ describe("recordTrace / readTrace", () => {
     expect(readTrace({ sinceMs: Date.now() - 1000 })).toHaveLength(1);
   });
 
-  it("respects NEUROWORKS_TRACE=0 (disabled)", () => {
-    process.env.NEUROWORKS_TRACE = "0";
+  it("respects NAXION_TRACE=0 (disabled)", () => {
+    process.env.NAXION_TRACE = "0";
     recordTrace(row());
     expect(readTrace()).toHaveLength(0);
   });

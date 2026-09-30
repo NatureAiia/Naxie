@@ -73,7 +73,7 @@ export const SERVER_BOOT_AT = new Date().toISOString();
 // sweep below fails ones past it, and the approve route refuses to replay them.
 // Default 7 days; override via env. Lives here (not the route) so the lib can
 // own the sweep without importing a route module.
-export const APPROVAL_TTL_MS = Number(process.env.NEUROWORKS_APPROVAL_TTL_MS) || 7 * 24 * 3600 * 1000;
+export const APPROVAL_TTL_MS = Number(process.env.NAXION_APPROVAL_TTL_MS) || 7 * 24 * 3600 * 1000;
 // Bumped from 50 → 200 because team-dispatch can fire 12 parallel jobs that
 // each spawn sub-jobs (peer.delegate, peer.review), and at 50 the eviction
 // would kick out still-running team-task jobs before the harness could poll
@@ -308,23 +308,23 @@ export type ProgressUpdater = (patch: Record<string, unknown>) => void;
 // Without this, every job ran its work immediately (fire-and-forget), so N
 // tasks submitted together all hit the LLM at once — on free-tier OpenRouter
 // that's a thundering herd where all N stall on rate limits. With a cap, only
-// NEUROWORKS_MAX_CONCURRENT_JOBS run at a time; the rest wait in FIFO order while
+// NAXION_MAX_CONCURRENT_JOBS run at a time; the rest wait in FIFO order while
 // staying `pending` (still pollable). 0 = unbounded (legacy behaviour, default
 // so nothing changes unless the operator opts in).
-const MAX_CONCURRENT_JOBS = Math.max(0, Number(process.env.NEUROWORKS_MAX_CONCURRENT_JOBS ?? "0"));
+const MAX_CONCURRENT_JOBS = Math.max(0, Number(process.env.NAXION_MAX_CONCURRENT_JOBS ?? "0"));
 // Crown-priority jobs may borrow this many slots ABOVE the cap (see
 // acquireSlot below) so a Crown Job never sits stuck behind a full queue of
 // ordinary work. Only meaningful when MAX_CONCURRENT_JOBS > 0 — with the
 // default unbounded queue there's no cap to reserve against, so this is a
 // pure no-op and every job (crown or not) still runs immediately.
-const CROWN_RESERVED_SLOTS = Math.max(0, Number(process.env.NEUROWORKS_CROWN_RESERVED_SLOTS ?? "1"));
+const CROWN_RESERVED_SLOTS = Math.max(0, Number(process.env.NAXION_CROWN_RESERVED_SLOTS ?? "1"));
 // Mirror every job into the Obsidian vault as a markdown note? Default OFF — it
 // littered the user's real vault (D:\Main brain\_neuroworks\jobs\) with a new
 // file per task (incl. delegated sub-tasks + test runs). The durable record the
 // app actually reads (Reports, calendar, reflection) is the slim JSONL journal
 // via persistJobRecord, NOT these notes — so turning the mirror off loses no
-// function. Set NEUROWORKS_JOURNAL_TO_VAULT=1 to restore the second-brain mirror.
-const JOURNAL_TO_VAULT = process.env.NEUROWORKS_JOURNAL_TO_VAULT === "1";
+// function. Set NAXION_JOURNAL_TO_VAULT=1 to restore the second-brain mirror.
+const JOURNAL_TO_VAULT = process.env.NAXION_JOURNAL_TO_VAULT === "1";
 
 // "Important" tasks are journaled to the vault as knowledge even when the
 // blanket mirror is off — so genuinely knowledge-bearing work (real research,
@@ -332,8 +332,8 @@ const JOURNAL_TO_VAULT = process.env.NEUROWORKS_JOURNAL_TO_VAULT === "1";
 // clutter that made us disable per-task journaling (voice Q&A, db writes,
 // one-line lookups, failures). A task counts as important when it SUCCEEDED,
 // produced a substantial answer (≥800 chars), and either cited sources or ran
-// a knowledge-producing tool. Tunable off with NEUROWORKS_JOURNAL_IMPORTANT=0.
-const JOURNAL_IMPORTANT = process.env.NEUROWORKS_JOURNAL_IMPORTANT !== "0";
+// a knowledge-producing tool. Tunable off with NAXION_JOURNAL_IMPORTANT=0.
+const JOURNAL_IMPORTANT = process.env.NAXION_JOURNAL_IMPORTANT !== "0";
 const KNOWLEDGE_TOOLS = new Set([
   "research.deep", "research.multiperspective", "web.scrape", "web.firecrawl",
 ]);
@@ -539,7 +539,7 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
               "",
               ...(items.length ? items : [`- ${String(hr?.reason ?? "input required")}`]),
               "",
-              `Answer it on the **My Work** page and the neuro resumes automatically: http://127.0.0.1:${process.env.NEUROWORKS_PORT ?? "7471"}/my-work`,
+              `Answer it on the **My Work** page and the neuro resumes automatically: http://127.0.0.1:${process.env.NAXION_PORT ?? "7471"}/my-work`,
             ].join("\n"),
           });
         } catch { /* notification is best-effort */ }
@@ -566,7 +566,7 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
     // (a file per task cluttered the real vault). SCHEDULED runs are the
     // exception: those are the progress reports the operator wants in the
     // second brain (daily briefing, recurring digests). Opt everything in with
-    // NEUROWORKS_JOURNAL_TO_VAULT=1.
+    // NAXION_JOURNAL_TO_VAULT=1.
     if (JOURNAL_TO_VAULT || j.scheduledBy || isImportantForVault(j)) void journalJob(j);
     // Append a slim JSONL record to .neuroworks/jobs/ so the nightly
     // reflection still sees this job after the in-memory RECENT=200 cap

@@ -71,8 +71,8 @@ export function lastWeeklyRollup(): WeeklyRollupResult|null { return lastResult;
 // alongside user Schedules without duplicating the scheduler itself.
 export async function weeklyRollupStatus(): Promise<{ last: WeeklyRollupResult | null; nextFireAt: number | null }> {
   const { nextFireAt } = await import("./schedules.js");
-  const HOUR = Number(process.env.NEUROWORKS_WEEKLY_ROLLUP_HOUR ?? "9");
-  const DOW = Number(process.env.NEUROWORKS_WEEKLY_ROLLUP_DOW ?? "0");
+  const HOUR = Number(process.env.NAXION_WEEKLY_ROLLUP_HOUR ?? "9");
+  const DOW = Number(process.env.NAXION_WEEKLY_ROLLUP_DOW ?? "0");
   return { last: lastWeeklyRollup(), nextFireAt: nextFireAt({ daysOfWeek: [DOW], hour: HOUR, minute: 0 }) };
 }
 
@@ -153,8 +153,8 @@ let scheduler: NodeJS.Timeout|null=null;
 let lastRunWeek: string|null=null;
 export function startWeeklyRollupScheduler(): void {
   if (scheduler) return;
-  const HOUR = Number(process.env.NEUROWORKS_WEEKLY_ROLLUP_HOUR ?? "9");
-  const DOW = Number(process.env.NEUROWORKS_WEEKLY_ROLLUP_DOW ?? "0"); // 0 Sun
+  const HOUR = Number(process.env.NAXION_WEEKLY_ROLLUP_HOUR ?? "9");
+  const DOW = Number(process.env.NAXION_WEEKLY_ROLLUP_DOW ?? "0"); // 0 Sun
   const tick = async () => {
     const now = new Date();
     if (now.getDay() !== DOW || now.getHours() < HOUR) return;

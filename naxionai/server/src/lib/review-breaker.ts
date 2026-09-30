@@ -35,10 +35,10 @@ const state = new Map<BreakerName, State>();
 // without a restart, and tests can exercise the cooldown without a fake clock.
 //
 // Three strikes: one slow run is noise, three in a row is a loaded machine.
-const tripAfter = () => Number(process.env.NEUROWORKS_REVIEW_BREAKER_TRIP ?? "3");
+const tripAfter = () => Number(process.env.NAXION_REVIEW_BREAKER_TRIP ?? "3");
 // Long enough to ride out a burst, short enough that a recovered machine gets
 // its reviews back within a few tasks.
-const cooldownMs = () => Number(process.env.NEUROWORKS_REVIEW_BREAKER_COOLDOWN_MS ?? String(10 * 60_000));
+const cooldownMs = () => Number(process.env.NAXION_REVIEW_BREAKER_COOLDOWN_MS ?? String(10 * 60_000));
 
 function get(name: BreakerName): State {
   let s = state.get(name);

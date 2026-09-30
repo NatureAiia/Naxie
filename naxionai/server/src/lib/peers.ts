@@ -236,7 +236,7 @@ export async function delegateToPeer(peer: PeerInfo, args: {
   // at 12min), so the default is now 20 min — a fan-out plan can run several
   // slow sub-agents plus a synth serially on a small local model. Tunable via
   // env so customers on larger/faster models can shorten it.
-  const DELEGATE_TIMEOUT_MS = Number(process.env.NEUROWORKS_PEER_DELEGATE_TIMEOUT_MS ?? (20 * 60_000));
+  const DELEGATE_TIMEOUT_MS = Number(process.env.NAXION_PEER_DELEGATE_TIMEOUT_MS ?? (20 * 60_000));
   const deadline = Date.now() + DELEGATE_TIMEOUT_MS;
   let attempt = 0;
   // Track how many log lines we've already forwarded so each poll only emits
@@ -356,7 +356,7 @@ export async function delegateToBestPeer(args: { task: string; persona?: string 
   // delegated via this path timed out at 12 min while the specific-peer path had
   // 20 (4 such timeouts in the 30-day audit, 2026-07-28). A fan-out plan on a
   // slow local model (qwen2.5:3b) needs the extra headroom.
-  const DELEGATE_TIMEOUT_MS = Number(process.env.NEUROWORKS_PEER_DELEGATE_TIMEOUT_MS ?? (20 * 60_000));
+  const DELEGATE_TIMEOUT_MS = Number(process.env.NAXION_PEER_DELEGATE_TIMEOUT_MS ?? (20 * 60_000));
   const deadline = Date.now() + DELEGATE_TIMEOUT_MS;
   let attempt = 0;
   // Same transient-poll tolerance as delegateToPeer — one dropped connection
@@ -422,13 +422,13 @@ export async function reviewWithPeer(args: { task: string; answer: string }): Pr
   // on a long answer) blocked the whole task unbounded. Measured live
   // 2026-07-26: one peer.review ran 1213s (20min) on a long innovation-scan
   // report, dominating a 39-min task. Abort at REVIEW_CAP_MS (default 240s,
-  // NEUROWORKS_PEER_REVIEW_TIMEOUT_MS) and let the caller keep the draft it
+  // NAXION_PEER_REVIEW_TIMEOUT_MS) and let the caller keep the draft it
   // already has rather than pay minutes for a second opinion that stalled.
   // Strict 90s wall cap (was 240s). Combined with the handler-side bounding
   // (skip the full-rewrite on long answers + maxTokens cap), a second opinion
   // that can't land in 90s isn't worth stalling the task for — keep the draft.
-  // Tunable via NEUROWORKS_PEER_REVIEW_TIMEOUT_MS.
-  const REVIEW_CAP_MS = Math.max(30_000, Number(process.env.NEUROWORKS_PEER_REVIEW_TIMEOUT_MS ?? "90000"));
+  // Tunable via NAXION_PEER_REVIEW_TIMEOUT_MS.
+  const REVIEW_CAP_MS = Math.max(30_000, Number(process.env.NAXION_PEER_REVIEW_TIMEOUT_MS ?? "90000"));
   const ctrl = new AbortController();
   const capTimer = setTimeout(() => ctrl.abort(), REVIEW_CAP_MS);
   let r: Response;
@@ -480,8 +480,8 @@ export async function crosscheckAnswers(args: {
     : `http://127.0.0.1:${config.port}`;
   // Same caller-side wall cap philosophy as reviewWithPeer — a hung judge (peer
   // or self) must not stall the task that's waiting on a final answer.
-  // Tunable via NEUROWORKS_PEER_CROSSCHECK_TIMEOUT_MS.
-  const CROSSCHECK_CAP_MS = Math.max(30_000, Number(process.env.NEUROWORKS_PEER_CROSSCHECK_TIMEOUT_MS ?? "90000"));
+  // Tunable via NAXION_PEER_CROSSCHECK_TIMEOUT_MS.
+  const CROSSCHECK_CAP_MS = Math.max(30_000, Number(process.env.NAXION_PEER_CROSSCHECK_TIMEOUT_MS ?? "90000"));
   const ctrl = new AbortController();
   const capTimer = setTimeout(() => ctrl.abort(), CROSSCHECK_CAP_MS);
   try {

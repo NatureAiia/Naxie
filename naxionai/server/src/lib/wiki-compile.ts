@@ -147,7 +147,7 @@ function localDateStr(d = new Date()): string {
 
 export function startWikiCompileScheduler(): void {
   if (compileScheduler) return;
-  const HOUR = Number(process.env.NEUROWORKS_WIKI_COMPILE_HOUR ?? "3");
+  const HOUR = Number(process.env.NAXION_WIKI_COMPILE_HOUR ?? "3");
   const tick = async () => {
     const now = new Date();
     const today = localDateStr(now);
@@ -178,7 +178,7 @@ export function stopWikiCompileScheduler(): void {
 // (whether it ran just now or earlier tonight) once per day.
 export function startWikiDigestScheduler(): void {
   if (digestScheduler) return;
-  const HOUR = Number(process.env.NEUROWORKS_WIKI_DIGEST_HOUR ?? "7");
+  const HOUR = Number(process.env.NAXION_WIKI_DIGEST_HOUR ?? "7");
   const tick = async () => {
     const now = new Date();
     const today = localDateStr(now);

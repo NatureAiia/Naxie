@@ -11,7 +11,7 @@
 //               OPENAI_TTS_API_KEY. Supports a natural-language `instructions`
 //               field to steer delivery style per persona.
 //   localTts  — an OpenAI-compatible speech sidecar (Kokoro-FastAPI, Piper
-//               behind LocalAI, etc.) at NEUROWORKS_TTS_URL. Free, offline,
+//               behind LocalAI, etc.) at NAXION_TTS_URL. Free, offline,
 //               per-employee voices. Falls back here if openaiTts fails.
 //   webSpeech — the browser's own speechSynthesis. Always there; the client
 //               falls back to it when this module reports both tiers dark.
@@ -31,10 +31,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ── per-tier availability ──────────────────────────────────────────────────
 
-const TTS_URL = (process.env.NEUROWORKS_TTS_URL ?? "").replace(/\/+$/, "");
-const TTS_MODEL = process.env.NEUROWORKS_TTS_MODEL ?? "kokoro";
-const TTS_KEY = process.env.NEUROWORKS_TTS_API_KEY ?? "";
-const REALTIME_MODEL = process.env.NEUROWORKS_REALTIME_MODEL ?? "gpt-realtime";
+const TTS_URL = (process.env.NAXION_TTS_URL ?? "").replace(/\/+$/, "");
+const TTS_MODEL = process.env.NAXION_TTS_MODEL ?? "kokoro";
+const TTS_KEY = process.env.NAXION_TTS_API_KEY ?? "";
+const REALTIME_MODEL = process.env.NAXION_REALTIME_MODEL ?? "gpt-realtime";
 
 // Decrypted OpenAI credentials from the provider pool. The fallback chain
 // carries every NON-active registered provider decrypted; if OpenAI happens
@@ -71,10 +71,10 @@ export function openaiTtsAvailable(): boolean {
 // approachable, subtle conversational warmth, studio-quality diction, steady
 // professional pacing — reassuring and capable without robotic stiffness or
 // over-the-top excitement. "sage" is OpenAI's calm/measured voice, closest
-// static match; NEUROWORKS_NAXIE_OPENAI_VOICE overrides the voice id and
-// NEUROWORKS_NAXIE_VOICE_INSTRUCTIONS overrides the delivery brief below.
-const NAXIE_OPENAI_VOICE = (process.env.NEUROWORKS_NAXIE_OPENAI_VOICE ?? "sage").trim();
-const NAXIE_VOICE_INSTRUCTIONS = (process.env.NEUROWORKS_NAXIE_VOICE_INSTRUCTIONS ?? (
+// static match; NAXION_NAXIE_OPENAI_VOICE overrides the voice id and
+// NAXION_NAXIE_VOICE_INSTRUCTIONS overrides the delivery brief below.
+const NAXIE_OPENAI_VOICE = (process.env.NAXION_NAXIE_OPENAI_VOICE ?? "sage").trim();
+const NAXIE_VOICE_INSTRUCTIONS = (process.env.NAXION_NAXIE_VOICE_INSTRUCTIONS ?? (
   "A smooth, mid-range female voice with a naturally comforting and approachable quality. " +
   "Subtle conversational warmth, as if speaking with a smile, while maintaining impeccable " +
   "studio-quality diction, clear pronunciation, and steady, professional pacing. Reassuring, " +
@@ -165,8 +165,8 @@ export function ttsCacheLoad(key: string): { audio: Buffer; contentType: string 
   return null;
 }
 
-const TTS_CACHE_MAX_FILES = Number(process.env.NEUROWORKS_TTS_CACHE_MAX_FILES ?? 500);
-const TTS_CACHE_MAX_BYTES = Number(process.env.NEUROWORKS_TTS_CACHE_MAX_BYTES ?? 200 * 1024 * 1024);
+const TTS_CACHE_MAX_FILES = Number(process.env.NAXION_TTS_CACHE_MAX_FILES ?? 500);
+const TTS_CACHE_MAX_BYTES = Number(process.env.NAXION_TTS_CACHE_MAX_BYTES ?? 200 * 1024 * 1024);
 
 function pruneTtsCacheIfNeeded(): void {
   try {
@@ -278,7 +278,7 @@ export async function synthesizeOpenAITts(text: string, voice: string, instructi
 }
 
 export async function synthesizeLocal(text: string, voice: string, onChunk?: (chunk: Buffer) => void): Promise<{ audio: Buffer; contentType: string }> {
-  if (!TTS_URL) throw new Error("no local TTS sidecar configured (NEUROWORKS_TTS_URL)");
+  if (!TTS_URL) throw new Error("no local TTS sidecar configured (NAXION_TTS_URL)");
   const r = await fetch(`${TTS_URL}/audio/speech`, {
     method: "POST",
     headers: {

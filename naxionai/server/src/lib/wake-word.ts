@@ -54,7 +54,7 @@ export function voskAvailable(): boolean {
 
 export function wakeWordStatus(): { available: boolean; modelDir: string | null; phrase: string; variants: string[] } {
   const dir = findVoskModelDir();
-  const phrase = (process.env.NEUROWORKS_WAKE_PHRASE ?? "hey naxie").trim() || "hey naxie";
+  const phrase = (process.env.NAXION_WAKE_PHRASE ?? "hey naxie").trim() || "hey naxie";
   return {
     available: dir !== null,
     modelDir: dir,
@@ -91,7 +91,7 @@ function getVoskModel(): any | null {
 export function createWakeWordSession(phrase?: string, sampleRate = 16000): WakeWordSession | null {
   const model = getVoskModel();
   if (!model) return null;
-  const targets = new Set(buildGrammar(phrase ?? (process.env.NEUROWORKS_WAKE_PHRASE ?? "hey naxie")));
+  const targets = new Set(buildGrammar(phrase ?? (process.env.NAXION_WAKE_PHRASE ?? "hey naxie")));
   const grammar = JSON.stringify([...targets].sort().concat(["[unk]"]));
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -19,8 +19,8 @@ executorRouter.get("/", (_req, res) => {
     hermesModelOverride: cfg.hermesModel ?? null,
     hermesLocal: local,
     crosscheck: cfg.crosscheck === true,
-    fallbackToClawbot: process.env.NEUROWORKS_HERMES_FALLBACK !== "0",
-    qualityGate: process.env.NEUROWORKS_HERMES_QUALITY_GATE !== "0",
+    fallbackToClawbot: process.env.NAXION_HERMES_FALLBACK !== "0",
+    qualityGate: process.env.NAXION_HERMES_QUALITY_GATE !== "0",
     hermes: {
       available: hermesAvailable(),
       binPath: detectHermesBin() ?? undefined,

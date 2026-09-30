@@ -443,7 +443,7 @@ export async function synthesizeDigest(targeted: TargetedFinding[], broad: Broad
   // Same defensive TOTAL wall-clock cap as before (env-compatible name kept)
   // — a hung backend must still cost minutes, not hours, across all four
   // sections combined.
-  const totalTimeoutMs = Math.max(60_000, Number(process.env.NEUROWORKS_INNOVATION_SCAN_SYNTH_TIMEOUT_MS ?? String(8 * 60_000)));
+  const totalTimeoutMs = Math.max(60_000, Number(process.env.NAXION_INNOVATION_SCAN_SYNTH_TIMEOUT_MS ?? String(8 * 60_000)));
   const t0 = Date.now();
   const remaining = () => Math.max(0, totalTimeoutMs - (Date.now() - t0));
 
@@ -653,7 +653,7 @@ export function lastInnovationScan(): InnovationScanResult | null {
 // alongside user Schedules without duplicating the scheduler itself.
 export async function innovationScanStatus(): Promise<{ last: InnovationScanResult | null; nextFireAt: number | null }> {
   const { nextFireAt } = await import("./schedules.js");
-  const SCAN_HOUR = Number(process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8");
+  const SCAN_HOUR = Number(process.env.NAXION_INNOVATION_SCAN_HOUR ?? "8");
   return { last: lastInnovationScan(), nextFireAt: nextFireAt({ daysOfWeek: [], hour: SCAN_HOUR, minute: 0 }) };
 }
 
@@ -685,7 +685,7 @@ export function startInnovationScanScheduler(): void {
   // daily reflection (8pm) are offset so they don't compete for the LLM backend
   // at once. They may still land in the same catch-up tick; that's fine, each
   // fires and delivers independently.
-  const SCAN_HOUR = Number(process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8");
+  const SCAN_HOUR = Number(process.env.NAXION_INNOVATION_SCAN_HOUR ?? "8");
   const tick = async () => {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;

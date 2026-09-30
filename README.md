@@ -43,7 +43,7 @@ pages, security model, and configuration.
 |---|---|
 | **NaxionAI** | The engine — the platform/codebase that powers everything. |
 | **Naxie** | The system's nickname — the personal assistant this engine runs. |
-| **NeuroWorks** | An **inspiration only**, not a dependency: the "local-first AI workforce + second-brain" idea that shaped early design. The name survives in some internal identifiers (env-var prefixes like `NEUROWORKS_*`, a few file paths) for backward compatibility, but NaxionAI is the engine, not a fork of NeuroWorks. |
+| **NeuroWorks** | An **inspiration only**, not a dependency: the "local-first AI workforce + second-brain" idea that shaped early design. The name survives in some internal identifiers (env-var prefixes like `NAXION_*`, a few file paths) for backward compatibility, but NaxionAI is the engine, not a fork of NeuroWorks. |
 | **Jarvis** | An **inspiration only**: the "build your own AI assistant" concept — a single-user loop that listens, thinks, and acts on your behalf — scaled here into a multi-agent workforce with memory, governance, and network reach. |
 
 Earlier working names (**Digital Force**, and a voice page once called

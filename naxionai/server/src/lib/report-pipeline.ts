@@ -157,15 +157,15 @@ const CURATED_RE = /^(?:_knowledge\/(?!downloads\/)|_company\/|2-Permanent\/|1-L
  * failover — a tighter budget was measured to expire mid-failover and record
  * every section as a gap.
  */
-const SECTION_TIMEOUT_MS = Number(process.env.NEUROWORKS_REPORT_SECTION_TIMEOUT_MS ?? "150000");
+const SECTION_TIMEOUT_MS = Number(process.env.NAXION_REPORT_SECTION_TIMEOUT_MS ?? "150000");
 /** Total budget. A scheduled report must land, not run until someone notices. */
-const TOTAL_TIMEOUT_MS = Number(process.env.NEUROWORKS_REPORT_TOTAL_TIMEOUT_MS ?? String(18 * 60_000));
+const TOTAL_TIMEOUT_MS = Number(process.env.NAXION_REPORT_TOTAL_TIMEOUT_MS ?? String(18 * 60_000));
 
 /**
  * How much evidence, and how much already-written report, a single
  * section's prompt may carry — in characters (~4 per token).
  *
- * Sized against NEUROWORKS_OLLAMA_NUM_CTX so a local model's window isn't
+ * Sized against NAXION_OLLAMA_NUM_CTX so a local model's window isn't
  * silently overflowed: an overflowing prompt is truncated by Ollama from the
  * LEFT, which deletes the numbered source list, and the model writes a
  * section it had no sources for — reading like a model that won't cite
@@ -173,13 +173,13 @@ const TOTAL_TIMEOUT_MS = Number(process.env.NEUROWORKS_REPORT_TOTAL_TIMEOUT_MS ?
  * Tune DOWN to match a small local window, back up when a large-context
  * model is available. An explicit env var always wins.
  */
-const NUM_CTX = Math.max(1024, Number(process.env.NEUROWORKS_OLLAMA_NUM_CTX ?? "4096"));
+const NUM_CTX = Math.max(1024, Number(process.env.NAXION_OLLAMA_NUM_CTX ?? "4096"));
 const PROMPT_CHAR_BUDGET = Math.max(3_000, NUM_CTX * 4 - 650 * 4 - 2_500);
 const EVIDENCE_CHARS = Math.max(2_000, Number(
-  process.env.NEUROWORKS_REPORT_EVIDENCE_CHARS ?? String(Math.min(24_000, Math.floor(PROMPT_CHAR_BUDGET * 0.75))),
+  process.env.NAXION_REPORT_EVIDENCE_CHARS ?? String(Math.min(24_000, Math.floor(PROMPT_CHAR_BUDGET * 0.75))),
 ));
 const PRIOR_CONTEXT_CHARS = Math.max(1_000, Number(
-  process.env.NEUROWORKS_REPORT_PRIOR_CHARS ?? String(Math.min(6_000, Math.floor(PROMPT_CHAR_BUDGET * 0.25))),
+  process.env.NAXION_REPORT_PRIOR_CHARS ?? String(Math.min(6_000, Math.floor(PROMPT_CHAR_BUDGET * 0.25))),
 ));
 /** Governance is prepended to EVERY section's system prompt and was unbounded. */
 const SYSTEM_PREFIX_CHARS = 2_000;

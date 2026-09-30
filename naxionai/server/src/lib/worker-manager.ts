@@ -5,15 +5,15 @@
 //
 // Design notes:
 //   • Idempotent: concurrent ensureWorker() calls share one spawn promise.
-//   • Pool-based: holds up to NEUROWORKS_MAX_WORKERS (default 3). The primary
+//   • Pool-based: holds up to NAXION_MAX_WORKERS (default 3). The primary
 //     can scale UP under load via ensureExtraWorker(); each additional
 //     worker gets its own port allocated sequentially from the base port.
 //   • External peers (registered via env or API) are untouched — the pool
 //     only tracks workers WE spawned.
 //   • Cross-platform: uses `pnpm` (or `pnpm.cmd` on Windows). Spawns the
 //     server dev script directly (`pnpm -F neuroworks-server dev`) with
-//     NEUROWORKS_PORT set per-worker so each binds its own port. We do NOT use
-//     the root `secondary` script — it hardcodes NEUROWORKS_PORT=7473, which
+//     NAXION_PORT set per-worker so each binds its own port. We do NOT use
+//     the root `secondary` script — it hardcodes NAXION_PORT=7473, which
 //     would make every extra worker collide on 7473 (EADDRINUSE) and cap the
 //     pool at one agent.
 //   • Lifecycle: spawned children are killed on graceful shutdown via
@@ -32,7 +32,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../../../");
 // The server package dir (server/). We spawn workers by running THIS package's
 // own `dev` script from here, so there's no workspace filter to misfire and the
-// worker honours the NEUROWORKS_PORT we pass in its env.
+// worker honours the NAXION_PORT we pass in its env.
 const SERVER_DIR = resolve(__dirname, "../../");
 
 // Use the base ChildProcess type rather than ChildProcessWithoutNullStreams.
@@ -60,8 +60,8 @@ let extraSpawnInFlight: Promise<WorkerHandle | null> | null = null;
 
 // Base port for the first managed worker matches the `pnpm secondary`
 // default. Subsequent workers get BASE_PORT+1, +2, … up to MAX_WORKERS.
-const BASE_PORT = Number(process.env.NEUROWORKS_WORKER_PORT ?? "7473");
-const MAX_WORKERS = Math.max(1, Math.min(6, Number(process.env.NEUROWORKS_MAX_WORKERS ?? "3")));
+const BASE_PORT = Number(process.env.NAXION_WORKER_PORT ?? "7473");
+const MAX_WORKERS = Math.max(1, Math.min(6, Number(process.env.NAXION_MAX_WORKERS ?? "3")));
 const READY_TIMEOUT_MS = 30_000;
 
 export function workerStatus() {
@@ -105,7 +105,7 @@ export async function ensureWorker(opts: { waitForReady?: boolean } = {}): Promi
     if (!w.child.killed) return { url: w.url, spawned: false };
   }
   // Maybe an external peer is already there (env-seeded via
-  // NEUROWORKS_PEERS or registered at runtime).
+  // NAXION_PEERS or registered at runtime).
   const peers = await pollPeers();
   const alive = peers.find(p => p.ok && p.ready);
   if (alive) return { url: alive.url, spawned: false };
@@ -277,30 +277,30 @@ function spawnWorker(port: number): Promise<WorkerHandle> {
   // when the pool is >1 (e.g. "managed-worker-7473" vs "managed-worker-7474").
   const env = {
     ...process.env,
-    NEUROWORKS_NAME: `managed-worker-${port}`,
-    NEUROWORKS_ROLE: "persona-shifter",
-    NEUROWORKS_PORT: String(port),
-    NEUROWORKS_PEERS: `http://127.0.0.1:${config.port}`,
-    NEUROWORKS_SUBAGENT_BUDGET: process.env.NEUROWORKS_WORKER_SUBAGENT_BUDGET ?? "4",
-    NEUROWORKS_IO_BUDGET: process.env.NEUROWORKS_WORKER_IO_BUDGET ?? "8",
+    NAXION_NAME: `managed-worker-${port}`,
+    NAXION_ROLE: "persona-shifter",
+    NAXION_PORT: String(port),
+    NAXION_PEERS: `http://127.0.0.1:${config.port}`,
+    NAXION_SUBAGENT_BUDGET: process.env.NAXION_WORKER_SUBAGENT_BUDGET ?? "4",
+    NAXION_IO_BUDGET: process.env.NAXION_WORKER_IO_BUDGET ?? "8",
     // Prevent the child from itself trying to spawn another worker — that
     // would chain infinitely. Children are leaves.
-    NEUROWORKS_AUTO_SPAWN_WORKER: "0",
+    NAXION_AUTO_SPAWN_WORKER: "0",
     // Parent-death watchdog: the worker self-terminates if THIS primary
     // process disappears without a graceful shutdown (crash, OOM, SIGKILL).
     // Graceful shutdown already reaps children via shutdownManagedWorker();
     // this covers the ungraceful case so a dead primary never leaves a fleet
     // of orphaned workers holding ports (observed 2026-07-13 after a forced
     // primary kill left 9 parentless workers listening).
-    NEUROWORKS_PARENT_PID: String(process.pid),
+    NAXION_PARENT_PID: String(process.pid),
   };
   console.log(`  ⓦ spawning managed worker on port ${port}…`);
   // Run the server package's OWN `dev` script from the server dir. We avoid the
-  // root `secondary` script (it hardcodes `cross-env NEUROWORKS_PORT=7473`, so
+  // root `secondary` script (it hardcodes `cross-env NAXION_PORT=7473`, so
   // every extra worker collided on 7473 → EADDRINUSE, capping the pool at one)
   // AND avoid a `-F` workspace filter (it threw ERR_PNPM_RECURSIVE_RUN_NO_SCRIPT
   // when spawned directly). Running `pnpm run dev` in SERVER_DIR honours the
-  // NEUROWORKS_PORT we set in env.
+  // NAXION_PORT we set in env.
   const child = spawn(cmd, ["run", "dev"], {
     cwd: SERVER_DIR,
     env,

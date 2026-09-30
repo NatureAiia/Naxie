@@ -36,7 +36,7 @@ const MEASURED_AGGREGATE_TPS: ReadonlyArray<readonly [n: number, tps: number]> =
 /** Per-call decode rate at n=1, overridable per box. */
 const MEASURED_DECODE_TPS_N1 = Math.max(
   0.1,
-  Number(process.env.NEUROWORKS_LOCAL_DECODE_TPS ?? "3.19") || 3.19,
+  Number(process.env.NAXION_LOCAL_DECODE_TPS ?? "3.19") || 3.19,
 );
 
 /** Prompt-eval rate by prompt size. Slower on short prompts: fixed overhead. */
@@ -70,11 +70,11 @@ export function promptEvalMs(promptChars: number): number {
 /** What this box can actually be asked for, on local, per section/call. Overridable per box. */
 export const LOCAL_MAX_OUTPUT_TOKENS = Math.max(
   120,
-  Number(process.env.NEUROWORKS_LOCAL_MAX_OUTPUT_TOKENS ?? "500") || 500,
+  Number(process.env.NAXION_LOCAL_MAX_OUTPUT_TOKENS ?? "500") || 500,
 );
 export const LOCAL_EVIDENCE_CHARS = Math.max(
   1_000,
-  Number(process.env.NEUROWORKS_LOCAL_EVIDENCE_CHARS ?? "6000") || 6_000,
+  Number(process.env.NAXION_LOCAL_EVIDENCE_CHARS ?? "6000") || 6_000,
 );
 
 /**
@@ -85,7 +85,7 @@ export const LOCAL_EVIDENCE_CHARS = Math.max(
  */
 export const LOCAL_SYNTH_MAX_OUTPUT_TOKENS = Math.max(
   LOCAL_MAX_OUTPUT_TOKENS,
-  Number(process.env.NEUROWORKS_LOCAL_SYNTH_MAX_OUTPUT_TOKENS ?? "900") || 900,
+  Number(process.env.NAXION_LOCAL_SYNTH_MAX_OUTPUT_TOKENS ?? "900") || 900,
 );
 
 /** Per-call decode rate at N in flight, interpolated between measured points. */
@@ -119,13 +119,13 @@ export function perCallTps(inFlight: number): number {
 /** Time to the first token — prompt processing, not generation. Overridable per box. */
 export const LOCAL_TTFT_MS = Math.max(
   10_000,
-  Number(process.env.NEUROWORKS_LOCAL_TTFT_MS ?? "130000") || 130_000,
+  Number(process.env.NAXION_LOCAL_TTFT_MS ?? "130000") || 130_000,
 );
 
 /** Never go below this, however small the ask. */
 export const LOCAL_BUDGET_FLOOR_MS = Math.max(
   60_000,
-  Number(process.env.NEUROWORKS_LOCAL_BUDGET_FLOOR_MS ?? "240000") || 240_000,
+  Number(process.env.NAXION_LOCAL_BUDGET_FLOOR_MS ?? "240000") || 240_000,
 );
 
 /**
@@ -135,10 +135,10 @@ export const LOCAL_BUDGET_FLOOR_MS = Math.max(
  */
 export const CLOUD_BUDGET_MS = Math.max(
   30_000,
-  Number(process.env.NEUROWORKS_CLOUD_SECTION_MS ?? "300000") || 300_000,
+  Number(process.env.NAXION_CLOUD_SECTION_MS ?? "300000") || 300_000,
 );
 
-const SAFETY = Math.max(1, Number(process.env.NEUROWORKS_LOCAL_BUDGET_SAFETY ?? "1.5") || 1.5);
+const SAFETY = Math.max(1, Number(process.env.NAXION_LOCAL_BUDGET_SAFETY ?? "1.5") || 1.5);
 
 export type BudgetInput = {
   /** Tokens the caller asked the model to generate. */

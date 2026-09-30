@@ -42,11 +42,11 @@ const ollamaModel = pick("OLLAMA_MODEL", "llama3.1:8b-instruct-q4_K_M");
 // existing registered OAuth app just needs repointing, not reconfiguring.
 const googleClientId = pick("GOOGLE_CLIENT_ID", "");
 const googleClientSecret = pick("GOOGLE_CLIENT_SECRET", "");
-const googleRedirectUri = pick("GOOGLE_REDIRECT_URI", `http://localhost:${pick("NEUROWORKS_PORT", "7471")}/api/connectors/google/callback`);
+const googleRedirectUri = pick("GOOGLE_REDIRECT_URI", `http://localhost:${pick("NAXION_PORT", "7471")}/api/connectors/google/callback`);
 const microsoftClientId = pick("MICROSOFT_CLIENT_ID", "");
 const microsoftClientSecret = pick("MICROSOFT_CLIENT_SECRET", "");
 const microsoftTenantId = pick("MICROSOFT_TENANT_ID", "common");
-const microsoftRedirectUri = pick("MICROSOFT_REDIRECT_URI", `http://localhost:${pick("NEUROWORKS_PORT", "7471")}/api/connectors/microsoft/callback`);
+const microsoftRedirectUri = pick("MICROSOFT_REDIRECT_URI", `http://localhost:${pick("NAXION_PORT", "7471")}/api/connectors/microsoft/callback`);
 // Where the OAuth callback redirects the browser back to after connecting —
 // the web app's own origin (Vite dev server in local dev, or this server's
 // own origin when SERVE_WEB=1 serves the built SPA).
@@ -182,20 +182,20 @@ const whatsappPhoneNumberId = pick("WHATSAPP_PHONE_NUMBER_ID", "");
 const whatsappAccessToken = pick("WHATSAPP_ACCESS_TOKEN", "");
 const whatsappVerifyToken = pick("WHATSAPP_VERIFY_TOKEN", "");
 
-const port = Number(pick("NEUROWORKS_PORT", "7471"));
+const port = Number(pick("NAXION_PORT", "7471"));
 // Comma-separated list of peer clawbot base URLs. Each peer is another running
 // instance of this same server (different port, optionally different model).
 // Empty by default — single-clawbot mode. Example:
-//   NEUROWORKS_PEERS=http://127.0.0.1:7472,http://127.0.0.1:7473
-const peers = pick("NEUROWORKS_PEERS", "")
+//   NAXION_PEERS=http://127.0.0.1:7472,http://127.0.0.1:7473
+const peers = pick("NAXION_PEERS", "")
   .split(",").map(s => s.trim()).filter(Boolean);
 // Optional human-readable name for this clawbot — shows up in /api/health and
 // peer roll-call responses so dual-clawbot work can be told apart in logs.
-const name = pick("NEUROWORKS_NAME", "primary");
+const name = pick("NAXION_NAME", "primary");
 // Functional role for this clawbot. The chat router uses it to decide where
 // to delegate persona-shifted work (away from "primary" toward "persona-shifter").
 // Free-form, but recommended values are: primary | persona-shifter | general | reviewer.
-const role = pick("NEUROWORKS_ROLE", "primary");
+const role = pick("NAXION_ROLE", "primary");
 
 // ── Production web serving + network bind ──────────────────────────────
 // Locally, `pnpm dev` runs two processes: the Vite dev server (7470, proxies
@@ -204,9 +204,9 @@ const role = pick("NEUROWORKS_ROLE", "primary");
 // a single hardened process and no dev server exposed. All three toggles
 // default to the local two-port behaviour so nothing changes for `pnpm dev`.
 //   SERVE_WEB=1            → serve web/dist (built SPA) with a history fallback
-//   NEUROWORKS_BIND_HOST   → 0.0.0.0 in a container so the port is reachable
+//   NAXION_BIND_HOST   → 0.0.0.0 in a container so the port is reachable
 //   NODE_ENV=production    → flips fail-fast validation on (see validateConfig)
-const bindHost = pick("NEUROWORKS_BIND_HOST", "127.0.0.1");
+const bindHost = pick("NAXION_BIND_HOST", "127.0.0.1");
 // Enterprise mode — off by default (current local/loopback trust model is
 // unchanged), flip to "1" the moment this instance is network-reachable
 // (cloud VM, shared server, behind a proxy that isn't strictly loopback-only).
@@ -217,14 +217,14 @@ const bindHost = pick("NEUROWORKS_BIND_HOST", "127.0.0.1");
 // but not once the port is reachable from a wider network. Same-machine
 // requests (loopback remoteAddress) stay exempt regardless, so local peers/
 // workers keep working with zero extra config.
-const enterpriseMode = ["1", "true", "yes"].includes(pick("NEUROWORKS_ENTERPRISE_MODE", "").toLowerCase());
+const enterpriseMode = ["1", "true", "yes"].includes(pick("NAXION_ENTERPRISE_MODE", "").toLowerCase());
 const serveWeb = ["1", "true", "yes"].includes(pick("SERVE_WEB", "").toLowerCase());
 // web/dist sits at clawbot/web/dist; __dirname is server/src (tsx) so ../../web/dist.
 const webDistPath = resolve(__dirname, "../../web/dist");
 const nodeEnv = (process.env.NODE_ENV ?? "development").trim().toLowerCase();
 const isProduction = nodeEnv === "production";
-// Strict env validation: on in production, or forced with NEUROWORKS_STRICT_ENV=1.
-const strictEnv = isProduction || ["1", "true", "yes"].includes((process.env.NEUROWORKS_STRICT_ENV ?? "").toLowerCase());
+// Strict env validation: on in production, or forced with NAXION_STRICT_ENV=1.
+const strictEnv = isProduction || ["1", "true", "yes"].includes((process.env.NAXION_STRICT_ENV ?? "").toLowerCase());
 
 export const config = {
   githubToken,
@@ -314,7 +314,7 @@ if (missing.length > 0) {
 
 // ── Fail-fast validation ───────────────────────────────────────────────
 // Call once at boot BEFORE wiring routes. In strict mode (production, or
-// NEUROWORKS_STRICT_ENV=1) any fatal misconfiguration exits with a clear,
+// NAXION_STRICT_ENV=1) any fatal misconfiguration exits with a clear,
 // actionable message instead of surfacing as a confusing failure deep in a
 // request. In non-strict/local mode these become warnings so `pnpm dev` still
 // boots in degraded mode. Returns nothing; calls process.exit(1) on fatal.
@@ -324,7 +324,7 @@ export function validateConfig(): void {
 
   // Port must be a real listenable number.
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    fatal.push(`NEUROWORKS_PORT="${process.env.NEUROWORKS_PORT ?? ""}" is not a valid TCP port (1-65535).`);
+    fatal.push(`NAXION_PORT="${process.env.NAXION_PORT ?? ""}" is not a valid TCP port (1-65535).`);
   }
 
   // Serving the built SPA requires the build to exist — otherwise every page
@@ -338,18 +338,18 @@ export function validateConfig(): void {
 
   // Exposing the server beyond loopback without the origin guard is a DNS-
   // rebinding hole. Allow it only when explicitly overridden.
-  if (bindHost !== "127.0.0.1" && bindHost !== "localhost" && process.env.NEUROWORKS_ORIGIN_GUARD === "0") {
-    warn.push(`bound to ${bindHost} with NEUROWORKS_ORIGIN_GUARD=0 — the API is reachable off-host with no Host/Origin defense. Put it behind a trusted reverse proxy only.`);
+  if (bindHost !== "127.0.0.1" && bindHost !== "localhost" && process.env.NAXION_ORIGIN_GUARD === "0") {
+    warn.push(`bound to ${bindHost} with NAXION_ORIGIN_GUARD=0 — the API is reachable off-host with no Host/Origin defense. Put it behind a trusted reverse proxy only.`);
   }
   // Wide bind + enterprise mode off means every route requireLayer() doesn't
   // cover (the majority — see lib/access.ts) has NO auth for non-browser
   // callers; origin-guard only defends the browser vector. This exposes the
   // whole API (incl. superadmin Terminal/Connectors/Cost) to the network, so
   // it is FATAL by default. A deliberate deploy behind a trusted authenticating
-  // reverse proxy can opt in with NEUROWORKS_ALLOW_INSECURE_BIND=1.
-  const allowInsecureBind = process.env.NEUROWORKS_ALLOW_INSECURE_BIND === "1";
+  // reverse proxy can opt in with NAXION_ALLOW_INSECURE_BIND=1.
+  const allowInsecureBind = process.env.NAXION_ALLOW_INSECURE_BIND === "1";
   if (bindHost !== "127.0.0.1" && bindHost !== "localhost" && !enterpriseMode && !allowInsecureBind) {
-    fatal.push(`bound to ${bindHost} with NEUROWORKS_ENTERPRISE_MODE unset — most routes have NO authentication for non-browser callers, exposing the entire API to the network. Set NEUROWORKS_ENTERPRISE_MODE=1 (and mint a "machine:full" API key for cross-host peers). If this instance genuinely sits behind a trusted authenticating reverse proxy, set NEUROWORKS_ALLOW_INSECURE_BIND=1 to accept the risk.`);
+    fatal.push(`bound to ${bindHost} with NAXION_ENTERPRISE_MODE unset — most routes have NO authentication for non-browser callers, exposing the entire API to the network. Set NAXION_ENTERPRISE_MODE=1 (and mint a "machine:full" API key for cross-host peers). If this instance genuinely sits behind a trusted authenticating reverse proxy, set NAXION_ALLOW_INSECURE_BIND=1 to accept the risk.`);
   }
 
   // In strict mode the required env (GITHUB_TOKEN etc.) must actually be set.
@@ -362,7 +362,7 @@ export function validateConfig(): void {
   if (fatal.length > 0) {
     console.error(`\n✖  NeuroWorks refused to start — fatal configuration ${fatal.length === 1 ? "error" : "errors"}:`);
     for (const f of fatal) console.error(`   • ${f}`);
-    console.error(`\n   (strict validation is ${strictEnv ? "ON" : "OFF"}; set NEUROWORKS_STRICT_ENV=0 to downgrade to warnings for local dev.)\n`);
+    console.error(`\n   (strict validation is ${strictEnv ? "ON" : "OFF"}; set NAXION_STRICT_ENV=0 to downgrade to warnings for local dev.)\n`);
     process.exit(1);
   }
 }

@@ -138,7 +138,7 @@ export const ROLE_AUTONOMY: Record<OrgRole, { autonomous: readonly AutonomyCateg
 
 // The one rule with no override anywhere in this system (docs §5, §7): a
 // step proposed by the architect role always requires approval, regardless
-// of governance policy state, NEUROWORKS_GOVERNANCE_MODE=monitor, or
+// of governance policy state, NAXION_GOVERNANCE_MODE=monitor, or
 // anything else. Pure and disk-free so it's trivially testable and so
 // callers can't accidentally bypass it via some other code path.
 export function forceApprovalForRole(role: OrgRole): boolean {

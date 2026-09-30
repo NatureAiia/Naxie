@@ -63,6 +63,6 @@
 - docs: document the governance policy constraint gate (cef4c95, Arthur Magaya)
 - fix: Cost page undercounts spend — uses real token usage, not chars/4 (7ea1b98, Arthur Magaya)
 - fix: heuristicPlan misroutes GitHub+action tasks to research.deep (1aa0b74, Arthur Magaya)
-- refactor: rename CLAWBOT_* env prefix and package identities to NEUROWORKS_* (f222073, Arthur Magaya)
+- refactor: rename CLAWBOT_* env prefix and package identities to NAXION_* (f222073, Arthur Magaya)
 - docs: fix hardcoded old repo URL in 2 places after the rename (74ee934, Arthur Magaya)
 - docs: reflect the clawbot -> neuroworks repo rename in the README (6466bb0, Arthur Magaya)

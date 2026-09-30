@@ -93,7 +93,7 @@ type FindCacheEntry = {
   files: { path: string; name: string; ext: string; size: number; modified: string; folder: string }[];
 };
 const FIND_CACHE = new Map<string, FindCacheEntry>();
-const FIND_CACHE_TTL_MS = Number(process.env.NEUROWORKS_FIND_CACHE_TTL_MS ?? "30000");
+const FIND_CACHE_TTL_MS = Number(process.env.NAXION_FIND_CACHE_TTL_MS ?? "30000");
 const FIND_CACHE_MAX = 32;
 
 function findCacheKey(roots: string[], depth: number): string {
@@ -370,11 +370,11 @@ export const primitives: Primitive[] = [
   },
   {
     name: "audio.transcribe",
-    description: "Transcribe an audio/video file to text (meeting recording, voice note, call audio). Local STT sidecar first when NEUROWORKS_STT_URL is set, OpenAI cloud fallback — whichever runs returns the transcript text plus engine/model/duration metadata. Use when the customer asks what's in an audio file or to turn a recording into notes/action items (then feed the text to the usual transform skills).",
+    description: "Transcribe an audio/video file to text (meeting recording, voice note, call audio). Local STT sidecar first when NAXION_STT_URL is set, OpenAI cloud fallback — whichever runs returns the transcript text plus engine/model/duration metadata. Use when the customer asks what's in an audio file or to turn a recording into notes/action items (then feed the text to the usual transform skills).",
     readonly: true,
     args: [
       { name: "path", type: "string", required: true, description: "Absolute path to the audio/video file (.mp3/.wav/.m4a/.ogg/.flac/.aac/.mp4/.webm, max 25MB)." },
-      { name: "engine", type: "string", required: false, description: "'auto' (default), 'local' (NEUROWORKS_STT_URL sidecar), or 'cloud' (OpenAI key)." },
+      { name: "engine", type: "string", required: false, description: "'auto' (default), 'local' (NAXION_STT_URL sidecar), or 'cloud' (OpenAI key)." },
       { name: "language", type: "string", required: false, description: "Force a source language code, e.g. 'en'. Default: auto-detect." },
       { name: "model", type: "string", required: false, description: "Override the duration-picked local model size (tiny/base/small/medium)." },
     ],
@@ -441,7 +441,7 @@ export const primitives: Primitive[] = [
   },
   {
     name: "vault.edit",
-    description: "Edit an existing markdown file in the vault according to an instruction. Reads the file, applies the edit (via LLM), scans the result for secrets, writes it back, and commits. REQUIRES the user to have authorised vault edits via NEUROWORKS_VAULT_EDIT=1 in .env — otherwise this tool refuses. Markdown only; refuses to edit binary docs.",
+    description: "Edit an existing markdown file in the vault according to an instruction. Reads the file, applies the edit (via LLM), scans the result for secrets, writes it back, and commits. REQUIRES the user to have authorised vault edits via NAXION_VAULT_EDIT=1 in .env — otherwise this tool refuses. Markdown only; refuses to edit binary docs.",
     readonly: false,
     args: [
       { name: "path", type: "string", required: true, description: "Vault-relative path to the .md file to edit" },
@@ -449,12 +449,12 @@ export const primitives: Primitive[] = [
     ],
     handler: async (args) => {
       // Top-level approval gate. The customer authorises vault editing by
-      // setting NEUROWORKS_VAULT_EDIT=1 in .env. Until they do, the tool refuses
+      // setting NAXION_VAULT_EDIT=1 in .env. Until they do, the tool refuses
       // — this protects against unintended overwrites by an agent that picks
       // vault.edit speculatively. The refusal message tells the customer
       // exactly what to do.
-      if (process.env.NEUROWORKS_VAULT_EDIT !== "1") {
-        throw new Error("vault.edit refused: vault editing isn't authorised. To allow clawbot to edit docs in your vault, set NEUROWORKS_VAULT_EDIT=1 in clawbot/.env and restart the server.");
+      if (process.env.NAXION_VAULT_EDIT !== "1") {
+        throw new Error("vault.edit refused: vault editing isn't authorised. To allow clawbot to edit docs in your vault, set NAXION_VAULT_EDIT=1 in clawbot/.env and restart the server.");
       }
       const path = String(args.path);
       const instruction = String(args.instruction);
@@ -1220,7 +1220,7 @@ export const primitives: Primitive[] = [
       // SECURITY GATE: refuse known-sensitive paths (.env, SSH keys, cloud
       // creds, browser stores, etc.) before we even touch the filesystem.
       // A prompt-injected LLM could otherwise be coaxed into exfiltrating
-      // these via the chat reply. Override via NEUROWORKS_FS_UNRESTRICTED=1.
+      // these via the chat reply. Override via NAXION_FS_UNRESTRICTED=1.
       const { assertSafeExternalPath } = await import("./security-gates.js");
       assertSafeExternalPath(raw);
       // Absolute (drive-letter / POSIX / UNC) → read as-is. Anything else is
@@ -1672,7 +1672,7 @@ export const primitives: Primitive[] = [
       if (!src) throw new Error("fs.import_to_vault: 'path' is required");
       // SECURITY GATE: don't let an agent import .env or .ssh keys into the
       // vault as a bypass route. assertSafeExternalPath blocks known-sensitive
-      // shapes (override with NEUROWORKS_FS_UNRESTRICTED=1 for trusted work).
+      // shapes (override with NAXION_FS_UNRESTRICTED=1 for trusted work).
       const { assertSafeExternalPath } = await import("./security-gates.js");
       assertSafeExternalPath(src);
       const fullSrc = resolve(src);
@@ -1849,11 +1849,11 @@ export const primitives: Primitive[] = [
     ],
     handler: async (args) => {
       const query = String(args.query);
-      // Depth cap is env-tunable (NEUROWORKS_RESEARCH_MAX_DEPTH, default 3).
+      // Depth cap is env-tunable (NAXION_RESEARCH_MAX_DEPTH, default 3).
       // Jobs 36172d9e/b6d90f2a burned ~346s each in research.deep — most of it
       // fetch+synth over sources 4-5 that rarely change the answer. Planners
       // habitually ask for depth 3; anything above the cap now clamps.
-      const DEPTH_CAP = Math.min(5, Math.max(1, Number(process.env.NEUROWORKS_RESEARCH_MAX_DEPTH ?? "3")));
+      const DEPTH_CAP = Math.min(5, Math.max(1, Number(process.env.NAXION_RESEARCH_MAX_DEPTH ?? "3")));
       const depth = Math.min(DEPTH_CAP, Math.max(1, Number(args.depth ?? 2)));
       const capture = args.capture !== false;
 
@@ -1956,10 +1956,10 @@ export const primitives: Primitive[] = [
         // TIME-BOX the synth: the fetch path is already bounded (8s/URL), but
         // the local-LLM synth over a big evidence catalog was UNBOUNDED — two
         // runs hit 399s (6.7min) each in the 07-14→16 journal. Cap it
-        // (NEUROWORKS_RESEARCH_SYNTH_TIMEOUT_MS, default 120s); on timeout we
+        // (NAXION_RESEARCH_SYNTH_TIMEOUT_MS, default 120s); on timeout we
         // fall into the same source-list fallback as a synth failure, so the
         // gathered evidence is never thrown away.
-        const SYNTH_TIMEOUT_MS = Number(process.env.NEUROWORKS_RESEARCH_SYNTH_TIMEOUT_MS ?? "120000");
+        const SYNTH_TIMEOUT_MS = Number(process.env.NAXION_RESEARCH_SYNTH_TIMEOUT_MS ?? "120000");
         synth = await Promise.race([
           ollamaGenerate(`Question: ${query}\n\n${evidence}\n\nWrite the answer.`, sysSynth, { profile: "synthesis", complexity: "high", maxTokens: 512 } as any),
           new Promise<string>((_, rej) => setTimeout(() => rej(new Error(`research synth exceeded ${Math.round(SYNTH_TIMEOUT_MS / 1000)}s`)), SYNTH_TIMEOUT_MS)),
@@ -2721,11 +2721,11 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       // return a non-passing verdict rather than letting the QA gate hang.
       let raw: string = "";
       let timer: ReturnType<typeof setTimeout> | undefined;
-      // Wall cap tightened 300s → 120s (NEUROWORKS_QUALITY_TIMEOUT_MS): with the
+      // Wall cap tightened 300s → 120s (NAXION_QUALITY_TIMEOUT_MS): with the
       // extraction profile on the cheap cloud tier the grader answers in
       // seconds, so anything past 2 min is a stall, not a slow grade. The
       // 2026-07-03 reflection flagged 76s→171s doublings under the old cap.
-      const QUALITY_CAP_MS = Math.max(15_000, Number(process.env.NEUROWORKS_QUALITY_TIMEOUT_MS ?? "120000"));
+      const QUALITY_CAP_MS = Math.max(15_000, Number(process.env.NAXION_QUALITY_TIMEOUT_MS ?? "120000"));
       try {
         raw = await Promise.race<string>([
           (async () => {
@@ -2859,7 +2859,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "brave.list_tabs",
-    description: "List the URLs and titles of every open tab in the user's Brave browser (read-only). Requires the user to launch Brave with --remote-debugging-port=9222 AND set NEUROWORKS_BRAVE_READ=1 in .env. Returns { url, title, contextIndex, pageIndex } per tab — use the indices with brave.read_tab to fetch a specific tab's content. Refuses with a clear setup message when Brave isn't reachable.",
+    description: "List the URLs and titles of every open tab in the user's Brave browser (read-only). Requires the user to launch Brave with --remote-debugging-port=9222 AND set NAXION_BRAVE_READ=1 in .env. Returns { url, title, contextIndex, pageIndex } per tab — use the indices with brave.read_tab to fetch a specific tab's content. Refuses with a clear setup message when Brave isn't reachable.",
     readonly: true,
     args: [],
     handler: async () => {
@@ -2979,7 +2979,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "skill.fetch_remote",
-    description: "Fetch a skill .md file from a public URL (e.g. a GitHub raw URL or gist) and save it under skills/_user/ so it joins the local catalog. REQUIRES the user to have opted in via NEUROWORKS_REMOTE_SKILLS=1 in .env — refuses otherwise. Use to pull in community-curated playbooks.",
+    description: "Fetch a skill .md file from a public URL (e.g. a GitHub raw URL or gist) and save it under skills/_user/ so it joins the local catalog. REQUIRES the user to have opted in via NAXION_REMOTE_SKILLS=1 in .env — refuses otherwise. Use to pull in community-curated playbooks.",
     readonly: false,
     args: [
       { name: "url", type: "string", required: true, description: "HTTPS URL to a raw .md file with optional YAML frontmatter (name/description/applies_to)" },
@@ -3176,7 +3176,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "calendar.plan_day",
-    description: "Synthesise a day plan for a date: today's meetings (from NEUROWORKS_CALENDAR_ICAL_URL if configured), scheduled clawbot tasks for that day-of-week, dated commitments recalled from long-term memory (memory.note facts anchored to this date), and any open follow-ups carried over from yesterday's activity. Returns the structured pieces; the planner is expected to feed them through the `daily-briefing` skill to produce the prose briefing.",
+    description: "Synthesise a day plan for a date: today's meetings (from NAXION_CALENDAR_ICAL_URL if configured), scheduled clawbot tasks for that day-of-week, dated commitments recalled from long-term memory (memory.note facts anchored to this date), and any open follow-ups carried over from yesterday's activity. Returns the structured pieces; the planner is expected to feed them through the `daily-briefing` skill to produce the prose briefing.",
     readonly: true,
     args: [
       { name: "date", type: "string", required: false, description: "Target date YYYY-MM-DD (default: today)" },
@@ -3208,7 +3208,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
 
       let meetings: any[] = [];
       let meetingsError: string | undefined;
-      const src = process.env.NEUROWORKS_CALENDAR_ICAL_URL;
+      const src = process.env.NAXION_CALENDAR_ICAL_URL;
       if (src) {
         try {
           const { readICalSource } = await import("./calendar-ical.js");
@@ -3258,14 +3258,14 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "calendar.read_today",
-    description: "Read today's events from an iCal feed (URL) or local .ics file. Returns [{ summary, start, end?, location?, description? }]. Source defaults to NEUROWORKS_CALENDAR_ICAL_URL in env — pass `source` to override per call. Use as the first step of a daily-briefing skill or whenever the persona needs to know what's on the calendar.",
+    description: "Read today's events from an iCal feed (URL) or local .ics file. Returns [{ summary, start, end?, location?, description? }]. Source defaults to NAXION_CALENDAR_ICAL_URL in env — pass `source` to override per call. Use as the first step of a daily-briefing skill or whenever the persona needs to know what's on the calendar.",
     readonly: true,
     args: [
-      { name: "source", type: "string", required: false, description: "iCal URL or .ics file path. Defaults to NEUROWORKS_CALENDAR_ICAL_URL." },
+      { name: "source", type: "string", required: false, description: "iCal URL or .ics file path. Defaults to NAXION_CALENDAR_ICAL_URL." },
     ],
     handler: async (args) => {
-      const src = String(args.source ?? process.env.NEUROWORKS_CALENDAR_ICAL_URL ?? "").trim();
-      if (!src) return { error: "no source — pass `source` or set NEUROWORKS_CALENDAR_ICAL_URL in clawbot/.env (public Google Calendar 'secret iCal' URL or an Outlook publish link)" };
+      const src = String(args.source ?? process.env.NAXION_CALENDAR_ICAL_URL ?? "").trim();
+      if (!src) return { error: "no source — pass `source` or set NAXION_CALENDAR_ICAL_URL in clawbot/.env (public Google Calendar 'secret iCal' URL or an Outlook publish link)" };
       try {
         const { readICalSource, todaysEvents } = await import("./calendar-ical.js");
         const all = await readICalSource(src);
@@ -3277,7 +3277,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "inbox.read_unread",
-    description: "Read messages from the NeuroWorks mailbox over IMAP. Returns [{ from, subject, date, preview, body?, links? }]. Uses the existing NEUROWORKS_EMAIL_USER / NEUROWORKS_EMAIL_APP_PASSWORD credentials. By default returns only UNSEEN messages (what needs attention); pass unreadOnly=false to return the most recent messages regardless of read state. Pass bodyChars>240 to also get the fuller body text + extracted links (for summarising a story out of a newsletter/briefing). Does NOT mark messages as seen — read-only.",
+    description: "Read messages from the NeuroWorks mailbox over IMAP. Returns [{ from, subject, date, preview, body?, links? }]. Uses the existing NAXION_EMAIL_USER / NAXION_EMAIL_APP_PASSWORD credentials. By default returns only UNSEEN messages (what needs attention); pass unreadOnly=false to return the most recent messages regardless of read state. Pass bodyChars>240 to also get the fuller body text + extracted links (for summarising a story out of a newsletter/briefing). Does NOT mark messages as seen — read-only.",
     readonly: true,
     args: [
       { name: "limit", type: "number", required: false, description: "Max messages to return (default 10, max 50)" },
@@ -3285,16 +3285,16 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "bodyChars", type: "number", required: false, description: "How many chars of body text to return per message (default 240 = a short preview; pass e.g. 8000 to get the full body + `links` for summarising a story out of a briefing)." },
     ],
     handler: async (args) => {
-      const user = process.env.NEUROWORKS_EMAIL_USER;
-      const pass = (process.env.NEUROWORKS_EMAIL_APP_PASSWORD ?? "").replace(/\s/g, "");
-      if (!user || !pass) return { error: "email not configured — set NEUROWORKS_EMAIL_USER + NEUROWORKS_EMAIL_APP_PASSWORD in clawbot/.env" };
+      const user = process.env.NAXION_EMAIL_USER;
+      const pass = (process.env.NAXION_EMAIL_APP_PASSWORD ?? "").replace(/\s/g, "");
+      if (!user || !pass) return { error: "email not configured — set NAXION_EMAIL_USER + NAXION_EMAIL_APP_PASSWORD in clawbot/.env" };
       const limit = Math.min(50, Math.max(1, Number(args.limit ?? 10)));
       const bodyChars = Math.min(20000, Math.max(240, Number(args.bodyChars ?? 240)));
       const wantBody = bodyChars > 240;
       const { ImapFlow } = await import("imapflow");
       const client = new ImapFlow({
-        host: process.env.NEUROWORKS_EMAIL_IMAP_HOST ?? "imap.gmail.com",
-        port: Number(process.env.NEUROWORKS_EMAIL_IMAP_PORT ?? 993),
+        host: process.env.NAXION_EMAIL_IMAP_HOST ?? "imap.gmail.com",
+        port: Number(process.env.NAXION_EMAIL_IMAP_PORT ?? 993),
         secure: true,
         auth: { user, pass },
         logger: false as any,
@@ -3552,7 +3552,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "code.exec",
-    description: "Run a short Python or Node.js snippet in a subprocess with a 30 s timeout. Output is captured (stdout + stderr) and returned to the planner. For data shaping, parsing, quick computation — anything you'd otherwise have to make the LLM imagine. GATED: requires NEUROWORKS_CODE_EXEC=1 in clawbot/.env (off by default — child gets a trimmed env (PATH/system vars only, no API keys), but there is still no process isolation; treat code as trusted-author).",
+    description: "Run a short Python or Node.js snippet in a subprocess with a 30 s timeout. Output is captured (stdout + stderr) and returned to the planner. For data shaping, parsing, quick computation — anything you'd otherwise have to make the LLM imagine. GATED: requires NAXION_CODE_EXEC=1 in clawbot/.env (off by default — child gets a trimmed env (PATH/system vars only, no API keys), but there is still no process isolation; treat code as trusted-author).",
     readonly: false,
     args: [
       { name: "language", type: "string", required: true, description: "'python' or 'node'" },
@@ -3560,8 +3560,8 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "timeoutMs", type: "number", required: false, description: "Wall budget (default 30000, max 120000)" },
     ],
     handler: async (args) => {
-      if (process.env.NEUROWORKS_CODE_EXEC !== "1") {
-        return { error: "code.exec disabled — set NEUROWORKS_CODE_EXEC=1 in clawbot/.env and restart to enable. This primitive runs code in the host process; only enable in trusted environments." };
+      if (process.env.NAXION_CODE_EXEC !== "1") {
+        return { error: "code.exec disabled — set NAXION_CODE_EXEC=1 in clawbot/.env and restart to enable. This primitive runs code in the host process; only enable in trusted environments." };
       }
       // Trimmed child env — ported by behavior from
       // naxionai/backend/agent/tools/sandbox.py's _SANDBOX_ENV_ALLOWLIST.
@@ -3584,7 +3584,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       if (!code.trim()) return { error: "code is required" };
       const timeoutMs = Math.min(120_000, Math.max(1_000, Number(args.timeoutMs ?? 30_000)));
       const { spawn } = await import("node:child_process");
-      const bin = lang === "python" ? (process.env.NEUROWORKS_PYTHON ?? "python") : "node";
+      const bin = lang === "python" ? (process.env.NAXION_PYTHON ?? "python") : "node";
       const flags = lang === "python" ? ["-c", code] : ["-e", code];
       return await new Promise<any>((resolve) => {
         const t0 = Date.now();
@@ -3620,7 +3620,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       const { assertSafeExternalPath } = await import("./security-gates.js");
       assertSafeExternalPath(targetPath);
       const { spawn } = await import("node:child_process");
-      const bin = process.env.NEUROWORKS_GRAPHIFY_BIN ?? "graphify";
+      const bin = process.env.NAXION_GRAPHIFY_BIN ?? "graphify";
       let cliArgs: string[];
       if (action === "update") {
         cliArgs = ["update", targetPath];
@@ -3712,21 +3712,21 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "browser.harness_exec",
-    description: "Run a short Python snippet against a REAL Chrome browser tab via browser-harness (github.com/browser-use/browser-harness) — CDP-level control: navigate, click by pixel coordinate, extract via JS, screenshot. Pre-imported helpers available in the snippet: new_tab(url) (use for FIRST navigation), ensure_real_tab(), page_info(), capture_screenshot(), click_at_xy(x,y), wait_for_load(), js(expr) for DOM extraction, cdp(\"Domain.method\", ...) for raw CDP. Use print(...) to return data — stdout is what comes back. Prefer this over web.interact when a site needs real browser rendering/login state the headless path can't reach. GATED: requires NEUROWORKS_BROWSER_HARNESS=1 (off by default — executes arbitrary Python with live browser + network access; only enable in trusted environments). Requires local Chrome with chrome://inspect/#remote-debugging enabled (the harness will prompt on first use) OR `browser-harness auth login` for a cloud browser.",
+    description: "Run a short Python snippet against a REAL Chrome browser tab via browser-harness (github.com/browser-use/browser-harness) — CDP-level control: navigate, click by pixel coordinate, extract via JS, screenshot. Pre-imported helpers available in the snippet: new_tab(url) (use for FIRST navigation), ensure_real_tab(), page_info(), capture_screenshot(), click_at_xy(x,y), wait_for_load(), js(expr) for DOM extraction, cdp(\"Domain.method\", ...) for raw CDP. Use print(...) to return data — stdout is what comes back. Prefer this over web.interact when a site needs real browser rendering/login state the headless path can't reach. GATED: requires NAXION_BROWSER_HARNESS=1 (off by default — executes arbitrary Python with live browser + network access; only enable in trusted environments). Requires local Chrome with chrome://inspect/#remote-debugging enabled (the harness will prompt on first use) OR `browser-harness auth login` for a cloud browser.",
     readonly: false,
     args: [
       { name: "code", type: "string", required: true, description: "Python snippet to run. Helpers are pre-imported — do not import browser_harness yourself. End with print(...) to surface results." },
       { name: "timeout_ms", type: "number", required: false, description: "Wall budget (default 45000, max 120000) — browser actions are slower than plain code.exec" },
     ],
     handler: async (args) => {
-      if (process.env.NEUROWORKS_BROWSER_HARNESS !== "1") {
-        return { error: "browser.harness_exec disabled — set NEUROWORKS_BROWSER_HARNESS=1 in clawbot/.env and restart to enable. This primitive runs arbitrary Python with live browser + network access; only enable in trusted environments." };
+      if (process.env.NAXION_BROWSER_HARNESS !== "1") {
+        return { error: "browser.harness_exec disabled — set NAXION_BROWSER_HARNESS=1 in clawbot/.env and restart to enable. This primitive runs arbitrary Python with live browser + network access; only enable in trusted environments." };
       }
       const code = String(args.code ?? "");
       if (!code.trim()) return { error: "code is required" };
       const timeoutMs = Math.min(120_000, Math.max(5_000, Number(args.timeout_ms ?? 45_000)));
       const { spawn } = await import("node:child_process");
-      const bin = process.env.NEUROWORKS_BROWSER_HARNESS_BIN ?? "browser-harness";
+      const bin = process.env.NAXION_BROWSER_HARNESS_BIN ?? "browser-harness";
       return await new Promise<any>((resolve) => {
         const t0 = Date.now();
         let proc: any;

@@ -15,7 +15,7 @@
 //   - Engines mirror ocr.ts's local/cloud shape, not the Python module's
 //     faster/openai split (both Python engines were in-process libraries —
 //     there is no Node equivalent, so both become HTTP tiers):
-//       "local" → OpenAI-compatible STT sidecar at NEUROWORKS_STT_URL
+//       "local" → OpenAI-compatible STT sidecar at NAXION_STT_URL
 //                 (LocalAI whisper, faster-whisper-server, etc.)
 //       "cloud" → OpenAI audio/transcriptions (whisper-1 default) via the
 //                 same provider-pool credential lookup voice.ts uses.
@@ -108,9 +108,9 @@ export function probeDurationSeconds(absPath: string): Promise<number | null> {
   });
 }
 
-const STT_URL = (process.env.NEUROWORKS_STT_URL ?? "").replace(/\/+$/, "");
-const STT_MODEL_OVERRIDE = (process.env.NEUROWORKS_STT_MODEL ?? "").trim();
-const STT_CLOUD_MODEL = (process.env.NEUROWORKS_STT_CLOUD_MODEL ?? "whisper-1").trim() || "whisper-1";
+const STT_URL = (process.env.NAXION_STT_URL ?? "").replace(/\/+$/, "");
+const STT_MODEL_OVERRIDE = (process.env.NAXION_STT_MODEL ?? "").trim();
+const STT_CLOUD_MODEL = (process.env.NAXION_STT_CLOUD_MODEL ?? "whisper-1").trim() || "whisper-1";
 
 // Same credential lookup as voice.ts's openaiCreds(): decrypted OpenAI key
 // from the provider pool (or the shared OpenRouter slot when it points at
@@ -199,7 +199,7 @@ export async function transcribeAudioFile(
 
   const fail = (which: string) => `transcribe: ${which} engine unavailable — `;
   if (engine === "local") {
-    if (!localSttConfigured()) throw new Error(`${fail("local")}set NEUROWORKS_STT_URL to an OpenAI-compatible STT sidecar`);
+    if (!localSttConfigured()) throw new Error(`${fail("local")}set NAXION_STT_URL to an OpenAI-compatible STT sidecar`);
     const out = await transcribeLocal(buf, filename, mime, model, lang);
     return pack(out, "local", model, duration, buf.length);
   }
@@ -228,7 +228,7 @@ export async function transcribeAudioFile(
     const out = await transcribeCloud(buf, filename, mime, lang);
     return pack(out, "cloud", STT_CLOUD_MODEL, duration, buf.length);
   }
-  throw new Error("transcribe: no engine available — set NEUROWORKS_STT_URL (local sidecar) or register an OpenAI provider key (cloud)");
+  throw new Error("transcribe: no engine available — set NAXION_STT_URL (local sidecar) or register an OpenAI provider key (cloud)");
 }
 
 function pack(

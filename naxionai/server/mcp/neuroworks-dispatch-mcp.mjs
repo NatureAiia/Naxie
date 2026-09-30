@@ -11,15 +11,15 @@
 //   "neuroworks": {
 //     "command": "node",
 //     "args": ["<repo>/server/mcp/neuroworks-dispatch-mcp.mjs"],
-//     "env": { "NEUROWORKS_API_KEY": "nw_...", "NEUROWORKS_BASE": "http://127.0.0.1:7471" }
+//     "env": { "NAXION_API_KEY": "nw_...", "NAXION_BASE": "http://127.0.0.1:7471" }
 //   }
 //
-// Env: NEUROWORKS_BASE (default http://127.0.0.1:7471), NEUROWORKS_API_KEY (required to dispatch).
+// Env: NAXION_BASE (default http://127.0.0.1:7471), NAXION_API_KEY (required to dispatch).
 
 import { createInterface } from "node:readline";
 
-const BASE = process.env.NEUROWORKS_BASE ?? "http://127.0.0.1:7471";
-const API_KEY = process.env.NEUROWORKS_API_KEY ?? "";
+const BASE = process.env.NAXION_BASE ?? "http://127.0.0.1:7471";
+const API_KEY = process.env.NAXION_API_KEY ?? "";
 const PROTOCOL_VERSION = "2024-11-05";
 
 function send(msg) { try { process.stdout.write(JSON.stringify(msg) + "\n"); } catch { /* pipe closed */ } }
@@ -95,7 +95,7 @@ async function waitFor(jobId, timeoutMs = 120000) {
 
 async function runTool(name, args) {
   if (!API_KEY && name === "dispatch_task") {
-    throw new Error("NEUROWORKS_API_KEY is not set — mint one via POST /api/dispatch-keys and set it in this server's env.");
+    throw new Error("NAXION_API_KEY is not set — mint one via POST /api/dispatch-keys and set it in this server's env.");
   }
   switch (name) {
     case "dispatch_task": return await dispatch(args);

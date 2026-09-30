@@ -9,7 +9,7 @@ Obsidian second-brain. The running system's nickname is **Naxie**.
 > workforce + second-brain" and "build your own AI assistant" ideas that shaped
 > early design — not dependencies or a base this is forked from. The name
 > `NeuroWorks` survives in some internal identifiers (env-var prefixes
-> `NEUROWORKS_*`, a few file paths) for backward compatibility only.
+> `NAXION_*`, a few file paths) for backward compatibility only.
 
 **This particular instance is Mark's own personal, non-commercial deployment**
 (see the [root README](../README.md)) — not a hosted product or a
@@ -20,7 +20,7 @@ signs it's being run or sold as a product for others.
 Two surfaces in one repo:
 
 - **NaxionAI console** — local web console: chat with the agent, browse the vault, run templated tasks, review daily reflections. Multi-worker capable (primary + secondary).
-- **clawbot** — the cloud cron worker (GitHub Actions) inside it that feeds repo activity into the `main-brain` Obsidian vault. Also a historical/internal name still used for env var prefixes (`NEUROWORKS_*`) and some file paths.
+- **clawbot** — the cloud cron worker (GitHub Actions) inside it that feeds repo activity into the `main-brain` Obsidian vault. Also a historical/internal name still used for env var prefixes (`NAXION_*`) and some file paths.
 
 ## What the cron worker does
 
@@ -103,14 +103,14 @@ payments are optional add-ons configured in `.env`.
 ### Configuration
 
 `.env` keys (see `.env.example`):
-- `GITHUB_TOKEN` — fine-grained PAT (same one used for `NEUROWORKS_PAT`).
+- `GITHUB_TOKEN` — fine-grained PAT (same one used for `NAXION_PAT`).
 - `GITHUB_OWNER` — `RUBIEM-DEVELOPERS-REPO`.
 - `VAULT_REPO` — `RUBIEM-DEVELOPERS-REPO/main-brain`.
 - `VAULT_PATH` — local path to vault (`D:\Main brain`).
 - `OLLAMA_HOST` — defaults to `http://127.0.0.1:11434`.
 - `OLLAMA_MODEL` — defaults to `qwen2.5:3b`. Pull a stronger model for better summaries: `ollama pull llama3.1:8b`.
 - `OPENROUTER_API_KEY` — optional cloud LLM acceleration for planning/synthesis when local Ollama can't keep up.
-- `NEUROWORKS_PORT` — server bind port (default `7471`).
+- `NAXION_PORT` — server bind port (default `7471`).
 
 ## Skills
 
@@ -118,7 +118,7 @@ The agent ships with 40+ skill `.md` playbooks at [server/src/skills/](server/sr
 
 Browse the catalog at `GET /api/skills` (JSON) — `name`, `description`, `source`, `applies_to`, `bodyChars`. Full body at `GET /api/skills/:name`.
 
-User playbooks dropped under [server/src/skills/_user/](server/src/skills/_user/) (gitignored) override built-ins with the same name. Remote skill fetching is gated behind `NEUROWORKS_REMOTE_SKILLS=1` — see `.env.example`.
+User playbooks dropped under [server/src/skills/_user/](server/src/skills/_user/) (gitignored) override built-ins with the same name. Remote skill fetching is gated behind `NAXION_REMOTE_SKILLS=1` — see `.env.example`.
 
 The reflection loop reports per-skill success rate + avg picker score in the daily reflection, so weak playbooks surface for revision.
 
@@ -132,12 +132,12 @@ NeuroWorks binds loopback-only, but loopback alone doesn't defeat two real brows
 The server enforces:
 
 - **Host header allow-list**: `127.0.0.1:<port>` and `localhost:<port>` only.
-- **Origin header allow-list**: when set, must match `http://127.0.0.1:7470` (override with `NEUROWORKS_WEB_ORIGIN`).
+- **Origin header allow-list**: when set, must match `http://127.0.0.1:7470` (override with `NAXION_WEB_ORIGIN`).
 - `/api/health` and `/api/peers/self` exempt for handshake.
 - `OPTIONS` preflight passes through.
-- Lift entirely with `NEUROWORKS_ORIGIN_GUARD=0` (e.g., when fronted by a reverse proxy that rewrites Host — logged).
+- Lift entirely with `NAXION_ORIGIN_GUARD=0` (e.g., when fronted by a reverse proxy that rewrites Host — logged).
 
-**Enterprise mode** (`NEUROWORKS_ENTERPRISE_MODE=1`, off by default): the
+**Enterprise mode** (`NAXION_ENTERPRISE_MODE=1`, off by default): the
 checks above stop DNS rebinding and cross-origin browser POSTs, but neither
 authenticates a plain server-to-server request — fine for a single loopback-
 bound machine, not once this instance is reachable from a wider network.
@@ -146,10 +146,10 @@ Flipping this on requires every non-loopback request to carry a session or a
 before exposing this beyond one trusted machine.
 
 Path + URL gates on agent primitives:
-- `NEUROWORKS_FS_UNRESTRICTED=1` — lifts the sensitive-path guard for `fs.read_external` / `fs.list_external`.
-- `NEUROWORKS_WEB_ALLOW_PRIVATE=1` — lifts the SSRF guard against private/loopback IPs.
-- `NEUROWORKS_VAULT_EDIT=1` — enables `vault.edit` (off by default).
-- Vault writes scanned for high-severity secrets — refused outright (set `NEUROWORKS_VAULT_SCAN=0` to disable, not recommended).
+- `NAXION_FS_UNRESTRICTED=1` — lifts the sensitive-path guard for `fs.read_external` / `fs.list_external`.
+- `NAXION_WEB_ALLOW_PRIVATE=1` — lifts the SSRF guard against private/loopback IPs.
+- `NAXION_VAULT_EDIT=1` — enables `vault.edit` (off by default).
+- Vault writes scanned for high-severity secrets — refused outright (set `NAXION_VAULT_SCAN=0` to disable, not recommended).
 
 ## How summaries work
 
@@ -164,7 +164,7 @@ The Knowledge page lists committed summaries; click "Refresh summary" to regener
 ## Persistence + reflection
 
 - Job history persists as append-only JSONL at `.neuroworks/jobs/<YYYY-MM-DD>.jsonl` (gitignored). Survives restarts and the in-memory `RECENT=200` cap.
-- Daily reflection at 2 AM local (configurable via `NEUROWORKS_REFLECTION_HOUR`) aggregates the last 24h across the local store, in-memory state, and every peer's `/api/peers/jobs` endpoint — so delegations to the secondary are visible.
+- Daily reflection at 2 AM local (configurable via `NAXION_REFLECTION_HOUR`) aggregates the last 24h across the local store, in-memory state, and every peer's `/api/peers/jobs` endpoint — so delegations to the secondary are visible.
 - Output lands at `<vault>/_neuroworks/reflections/<YYYY-MM-DD>.md` with sections "What went well / What went wrong / What I notice / What to try next" plus a raw stats snapshot.
 
 ## Multi-clawbot (primary + secondary)
@@ -187,7 +187,7 @@ Tests cover the cascade contract: heuristic planning, skill picker scoring, dire
 
 ## Required configuration (GitHub Actions side)
 
-- **Secret `NEUROWORKS_PAT`** — fine-grained personal access token with: Contents read+write on the vault repo, Contents read across all owned repos, Metadata read, Pull requests read, Issues read, Administration read+write (for `publish-folder` to create new repos).
+- **Secret `NAXION_PAT`** — fine-grained personal access token with: Contents read+write on the vault repo, Contents read across all owned repos, Metadata read, Pull requests read, Issues read, Administration read+write (for `publish-folder` to create new repos).
 - **Variable `VAULT_REPO`** — `<owner>/main-brain`.
 
 ## Local use

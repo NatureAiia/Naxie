@@ -19,7 +19,7 @@
 // .neuroworks/whatsapp-session/ so subsequent restarts reconnect silently.
 //
 // Config (env):
-//   NEUROWORKS_WHATSAPP_INBOUND=0   hard-disable the bridge (default on)
+//   NAXION_WHATSAPP_INBOUND=0   hard-disable the bridge (default on)
 // Outbound (whatsapp.send / whatsapp.broadcast primitives, and the
 // Respond → confirm_send flow here) all go through sendWhatsAppMessage below.
 
@@ -309,8 +309,8 @@ async function handleInboundMessage(jid: string, name: string | undefined, body:
 // restart reconnects silently afterwards.
 export async function startWhatsAppBridge(): Promise<void> {
   if (state.running) return;
-  if (process.env.NEUROWORKS_PARENT_PID) return; // ephemeral worker — never hosts the bridge
-  if (process.env.NEUROWORKS_WHATSAPP_INBOUND === "0") { console.log("[whatsapp] inbound disabled (NEUROWORKS_WHATSAPP_INBOUND=0)"); return; }
+  if (process.env.NAXION_PARENT_PID) return; // ephemeral worker — never hosts the bridge
+  if (process.env.NAXION_WHATSAPP_INBOUND === "0") { console.log("[whatsapp] inbound disabled (NAXION_WHATSAPP_INBOUND=0)"); return; }
   if (!tryAcquireLock()) {
     console.log("[whatsapp] another process already holds the WhatsApp session lock — not starting a second connection.");
     return;

@@ -9,7 +9,7 @@ import { primitives, findPrimitive, type Primitive } from "../lib/primitives.js"
 // used. NOT exposed: money-moving (payment.link) or destructive writes
 // (vault.edit/write/append, web.interact) — see ALLOWLIST.
 //
-// Scope is "grounding + connectors + Aiia". Override with NEUROWORKS_MCP_TOOLS
+// Scope is "grounding + connectors + Aiia". Override with NAXION_MCP_TOOLS
 // (comma-separated primitive names) if you need a different set.
 
 export const primitivesRouter = Router();
@@ -48,7 +48,7 @@ const DEFAULT_ALLOWLIST = [
   // Email — agents send through OUR bridge (Mailjet/SMTP), never an external
   // mail CLI (Himalaya/sendmail). This is the only sanctioned send path.
   "email.send",
-  // Email READ — the IMAP unread reader (NEUROWORKS_EMAIL_* creds) and the
+  // Email READ — the IMAP unread reader (NAXION_EMAIL_* creds) and the
   // Gmail-connection reader. Read-only; neither marks messages seen. Lets an
   // agent triage / summarise the inbox, not just send.
   "inbox.read_unread", "integration.gmail.read",
@@ -69,7 +69,7 @@ const DEFAULT_ALLOWLIST = [
 // Exported so routes/hermes-bridge.ts can render the same catalog the bridge
 // actually serves, without duplicating the allowlist.
 export function allowlist(): Set<string> {
-  const env = (process.env.NEUROWORKS_MCP_TOOLS ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  const env = (process.env.NAXION_MCP_TOOLS ?? "").split(",").map(s => s.trim()).filter(Boolean);
   return new Set(env.length ? env : DEFAULT_ALLOWLIST);
 }
 

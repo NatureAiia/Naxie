@@ -17,7 +17,7 @@ import { embedText, EmbeddingsUnavailable } from "./embeddings.js";
 import { getPgPool, isPgAvailable, type Pool } from "./pg-client.js";
 import { config } from "../config.js";
 
-const DEBOUNCE_MS = Number(process.env.NEUROWORKS_REEMBED_DEBOUNCE_MS ?? "10000");
+const DEBOUNCE_MS = Number(process.env.NAXION_REEMBED_DEBOUNCE_MS ?? "10000");
 
 let timer: NodeJS.Timeout | null = null;
 let inFlight: Promise<void> | null = null;

@@ -150,9 +150,9 @@ const WEATHER_EMOJI: Record<string, string> = {
 // ANY failure silently, fall back to the always-free Open-Meteo path — and
 // tell the caller which one actually answered, so the markdown block never
 // claims a source it didn't use. Open-Meteo alone (today's only behavior)
-// is unaffected when NEUROWORKS_GOOGLE_WEATHER_API_KEY is unset.
+// is unaffected when NAXION_GOOGLE_WEATHER_API_KEY is unset.
 async function getGoogleWeather(lat: number, lon: number): Promise<{ current: any; hourly: { humidity?: number }; daily: { max?: number; min?: number } } | null> {
-  const key = process.env.NEUROWORKS_GOOGLE_WEATHER_API_KEY;
+  const key = process.env.NAXION_GOOGLE_WEATHER_API_KEY;
   if (!key) return null;
   try {
     const url = `https://weather.googleapis.com/v1/currentConditions:lookup?key=${key}&location.latitude=${lat}&location.longitude=${lon}`;

@@ -48,7 +48,7 @@ const listeners = new Set<(offline: boolean) => void>();
 function load(): OfflineModeState {
   if (cache) return cache;
   if (!existsSync(SETTINGS_FILE)) {
-    cache = { offline: process.env.NEUROWORKS_OFFLINE === "1" };
+    cache = { offline: process.env.NAXION_OFFLINE === "1" };
     return cache;
   }
   try {

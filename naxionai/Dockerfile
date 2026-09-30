@@ -39,15 +39,15 @@ COPY server/ server/
 COPY --from=web-build /app/web/dist web/dist/
 
 ENV NODE_ENV=production \
-    NEUROWORKS_PORT=7471 \
+    NAXION_PORT=7471 \
     SERVE_WEB=1 \
     # Wide bind inside the container is expected; put a TLS proxy in front
-    # or set NEUROWORKS_ENTERPRISE_MODE=1 for cross-host peers.
-    NEUROWORKS_BIND_HOST=0.0.0.0 \
-    NEUROWORKS_ALLOW_INSECURE_BIND=1
+    # or set NAXION_ENTERPRISE_MODE=1 for cross-host peers.
+    NAXION_BIND_HOST=0.0.0.0 \
+    NAXION_ALLOW_INSECURE_BIND=1
 EXPOSE 7471
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.NEUROWORKS_PORT||7471)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.NAXION_PORT||7471)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["pnpm", "-F", "neuroworks-server", "start"]
