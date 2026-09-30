@@ -5108,6 +5108,35 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       };
     },
   },
+  {
+    name: "intent.classify",
+    description: "Classify a short utterance into a domain/intent pair using the built-in hierarchical anchor classifier (currently seeded with Zimbabwe mobile-money intents: send money, buy airtime, buy data bundle, buy electricity, check balance, mini statement, pay bill). Returns status \"resolved\" (confident single intent), \"ambiguous\" (top two intents too close to call), or \"unknown\" (nothing scored high enough) — never guesses past that.",
+    readonly: true,
+    args: [{ name: "text", type: "string", required: true, description: "The utterance to classify." }],
+    handler: async (args) => {
+      const { classifyIntent } = await import("./hier-intent.js");
+      const text = String(args.text ?? "").trim();
+      if (!text) return { error: "text is required" };
+      return classifyIntent(text);
+    },
+  },
+  {
+    name: "dialogue.advance_flow",
+    description: "Advance (or start) a multi-turn slot-filling flow for this session — pass the same sessionKey across turns. Every call re-checks every still-missing slot against the new text, so one reply can fill several slots at once. Returns status \"started\"/\"advanced\" with the next prompt while slots remain missing, or \"complete\" with every collected slot once done. Pass flowId only to start a new flow (ignored if one is already active for this sessionKey).",
+    readonly: false,
+    args: [
+      { name: "sessionKey", type: "string", required: true, description: "Stable per-conversation key (e.g. the chat sessionId)." },
+      { name: "text", type: "string", required: true, description: "The user's latest reply." },
+      { name: "flowId", type: "string", required: false, description: "Registered flow id to start, if no flow is active yet for this sessionKey." },
+    ],
+    handler: async (args) => {
+      const { advanceFlow } = await import("./slot-fill.js");
+      const sessionKey = String(args.sessionKey ?? "").trim();
+      const text = String(args.text ?? "");
+      if (!sessionKey) return { error: "sessionKey is required" };
+      return advanceFlow(sessionKey, text, args.flowId ? String(args.flowId) : undefined);
+    },
+  },
 ];
 
 void sep;
@@ -5246,6 +5275,8 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "finance.biz_product_add": return s("name") ? `Adding "${s("name")}" to the price book (needs your approval)` : "Adding a price-book product (needs your approval)";
     case "finance.biz_leaks":    return "Scanning the books for leaks (needs your approval)";
     case "finance.biz_forecast": return "Forecasting cash runway (needs your approval)";
+    case "intent.classify":    return s("text") ? `Classifying intent for "${s("text").slice(0, 60)}"` : "Classifying intent";
+    case "dialogue.advance_flow": return "Advancing the conversation flow";
     default:                   return tool;
   }
 }

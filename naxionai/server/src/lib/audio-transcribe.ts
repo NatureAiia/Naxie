@@ -29,6 +29,7 @@ import { readFileSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { extname, basename } from "node:path";
 import { getFallbackChain } from "./model-providers.js";
+import { repairTranscript } from "./asr-repair.js";
 import { config } from "../config.js";
 
 export type TranscribeEngine = "auto" | "local" | "cloud";
@@ -238,9 +239,10 @@ function pack(
   duration: number | null,
   bytes: number,
 ): TranscribeResult {
-  const truncated = out.text.length > MAX_CHARS_OUT;
+  const repaired = repairTranscript(out.text).text;
+  const truncated = repaired.length > MAX_CHARS_OUT;
   return {
-    text: truncated ? out.text.slice(0, MAX_CHARS_OUT) : out.text,
+    text: truncated ? repaired.slice(0, MAX_CHARS_OUT) : repaired,
     engine,
     model,
     duration_seconds: duration,

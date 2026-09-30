@@ -70,7 +70,7 @@ export function getShonaNdebeleMatches(text: string): string[] {
 // English phrasings for each intent, straight from ZimVoice's ANCHORS
 // table. Grounds the agent so "tumira mari kuna Tatenda" is read as a
 // send-money request, not noise.
-const ZIM_FINANCIAL_PHRASES: Record<string, string[]> = {
+export const ZIM_FINANCIAL_PHRASES: Record<string, string[]> = {
   "Send money": ["tumira mari", "thumela imali", "thuma mari", "senda"],
   "Buy airtime": ["isa airtime", "tenga airtime", "isira airtime"],
   "Buy data bundle": ["tenga data", "ndoda internet bundle", "data package"],
