@@ -4,6 +4,7 @@ import { resolve, basename, extname, sep, join, dirname } from "node:path";
 import { config } from "../config.js";
 import { ollamaGenerate, ollamaGenerateWithMeta } from "./ollama.js";
 import { checkRequestedFormat, FORMAT_BREAK_ALIGNMENT_CAP } from "./format-check.js";
+import { llmGenerateWithMeta } from "./llm.js";
 import { listVault, readVaultFile, searchVault, writeVaultFile, writeZettel, importBinaryIntoVault, ARCHIVE_DIR, WIKI_DIR } from "./vault.js";
 import { fetchYoutubeTranscript } from "./youtube-transcript.js";
 import { extractDocText, extractDocsParallel } from "./doc-extractor.js";
@@ -4811,6 +4812,70 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     readonly: true,
     args: [],
     handler: async () => ({ datasets: listDatasets() }),
+  },
+  {
+    name: "report.generate",
+    description: "Run the deterministic research-to-report pipeline (report-pipeline.ts) instead of one unbounded synthesis call: gathers internal vault evidence + a bounded, validated web pass, then drafts EACH section as its own small bounded LLM call — a section that fails becomes a named gap in an otherwise-complete report rather than losing the whole thing, and every claim-bearing section must cite its evidence or gets withheld. Use for any 'write me a report on X' ask instead of research.deep + one big synth. Returns { markdown, gaps, stats }.",
+    readonly: false,
+    args: [
+      { name: "topic", type: "string", required: true, description: "What the report is about — also used to search the vault and the web." },
+      { name: "sections", type: "string", required: false, description: "Comma-separated section headings for a custom report (e.g. 'Summary, What we know, Risks, Recommendation'). Omit to use the generic 5-section schema (Summary / What we already know / External landscape / Gaps / Recommendation)." },
+      { name: "skipWeb", type: "boolean", required: false, description: "Skip the external web-evidence pass and draft from vault evidence only (faster, no network). Default false." },
+    ],
+    handler: async (args) => {
+      const topic = String(args.topic ?? "").trim();
+      if (!topic) return { error: "topic is required" };
+
+      const { gatherInternalEvidence, gatherExternalEvidence, deriveQueries, runReportPipeline, schemaFromHeadings, GENERIC_REPORT, renderReportForReader } = await import("./report-pipeline.js");
+      const { localSynthBudget } = await import("./local-budget.js");
+      const { llmLaneStatus } = await import("./llm-lane.js");
+
+      const schema = args.sections
+        ? schemaFromHeadings(String(args.sections).split(",").map(s => s.trim()).filter(Boolean), `a cited research report on: ${topic}`)
+        : GENERIC_REPORT;
+
+      const internal = gatherInternalEvidence(topic, { maxDocs: 8 });
+      let external: Awaited<ReturnType<typeof gatherExternalEvidence>> = { kept: [], dropped: 0, reasons: {} };
+      if (args.skipWeb !== true) {
+        try { external = await gatherExternalEvidence(deriveQueries(topic), { maxSources: 8 }); }
+        catch { /* web pass is best-effort — the pipeline runs fine on internal evidence alone */ }
+      }
+
+      // Section budget derived from measured local throughput + the lane's
+      // own observed queue wait (local-budget.ts), rather than a flat
+      // constant — sections here run serially (writeConcurrency's `cloud:
+      // false` case), so inFlight is 1 per section.
+      const budget = localSynthBudget({
+        maxTokens: 650,
+        inFlight: 1,
+        observedWaitMs: llmLaneStatus().avgWaitMs,
+        cloud: config.openrouterEnabled,
+      });
+
+      const result = await runReportPipeline({
+        schema,
+        topic,
+        internal,
+        external: external.kept,
+        externalDropped: external.dropped,
+        sectionTimeoutMs: budget.ms,
+        generate: async (prompt, system, o) => {
+          // Naxie's llmGenerateWithMeta has no AbortSignal/firstTokenMs param —
+          // the pipeline's own withTimeout() still bounds wall-clock time via
+          // Promise.race, it just can't cancel an orphaned call's socket the
+          // way llm-lane.ts's own header warns about. Acceptable for a
+          // section-sized (≤650 token) call.
+          const r = await llmGenerateWithMeta(prompt, system, { profile: "synthesis", maxTokens: o.maxTokens, temperature: 0.3 });
+          return r.text;
+        },
+      });
+
+      return {
+        markdown: renderReportForReader(result.markdown, result.internal, result.external),
+        gaps: result.gaps,
+        stats: result.stats,
+      };
+    },
   },
 ];
 
