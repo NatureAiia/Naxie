@@ -8,6 +8,7 @@ import { classifyOrgRole, createOrgTask, updateOrgTaskStatus, requestApproval, l
 import type { Plan } from "./agent.js"; // type-only — erased at runtime, no import cycle
 import { recordUsage } from "./tool-dna.js";
 import { runOutcome, outcomeToJobStatus } from "./run-outcome.js";
+import { runInJobScope } from "./job-scope.js";
 
 export type Job = {
   id: string;
@@ -460,7 +461,11 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
     try { ee.emit("patch", patch); } catch { /* tolerate */ }
   };
   try {
-    const final = await fn(push, progress);
+    // Every LLM call fn makes, at any depth, can now attribute its cost and
+    // trace rows to this job (job-scope.ts) instead of the literal "adhoc" —
+    // AsyncLocalStorage carries the job id down the whole async subtree
+    // without threading a new option through every call site in between.
+    const final = await runInJobScope(j.id, () => fn(push, progress));
     // Operator cancelled while fn was unwinding — the delegate/agent path
     // returns NORMALLY after a cancel (it doesn't throw), so without this
     // guard the success path below would flip the job back to "succeeded"

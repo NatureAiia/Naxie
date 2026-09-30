@@ -110,6 +110,7 @@ import { datasetsRouter } from "./routes/datasets.js";
 import { omnisignalRouter } from "./routes/omnisignal.js";
 import { qualityRouter } from "./routes/quality.js";
 import { costRouter } from "./routes/cost.js";
+import { traceRouter } from "./routes/trace.js";
 import { auditRouter } from "./routes/audit.js";
 import { skillForgeRouter } from "./routes/skill-forge.js";
 import { orchestratorRouter } from "./routes/orchestrator.js";
@@ -366,6 +367,7 @@ app.use("/api/public", publicFinanceRouter);
 app.use("/api/public/agent", agentIngestRouter);
 app.use("/api/quality", qualityRouter);
 app.use("/api/cost", costRouter); // money
+app.use("/api/trace", traceRouter); // model-call trace (sizes/timings/outcomes only, never prompt/response text)
 app.use("/api/audit", auditRouter); // audit trail (actors, role changes, sensitive-tool calls)
 app.use("/api/skill-forge", skillForgeRouter); // writes org-wide agent skill playbooks
 app.use("/api/orchestrate", orchestratorRouter);
