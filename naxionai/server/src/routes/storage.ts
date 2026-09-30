@@ -57,7 +57,7 @@ export async function computeStorageBackends(): Promise<StorageBackendStatus[]> 
     id: "obsidian",
     label: "Obsidian vault",
     configured: true,
-    reachable: vaultHealth.exists && (vaultHealth.gitRepo || !!process.env.NEUROWORKS_VAULT_ALLOW_NO_GIT),
+    reachable: vaultHealth.exists && (vaultHealth.gitRepo || !!process.env.NAXION_VAULT_ALLOW_NO_GIT),
     detail: vaultHealth.index ? `${vaultHealth.index.docs} note(s) indexed` : "index not built yet",
   };
 

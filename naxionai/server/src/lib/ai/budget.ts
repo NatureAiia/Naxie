@@ -5,7 +5,7 @@
  */
 import { getCostRecords } from "../cost-tracker.js";
 
-const DEFAULT_BUDGET_USD = Number(process.env.LLM_MONTHLY_BUDGET_USD ?? process.env.NEUROWORKS_LLM_BUDGET_USD ?? "20");
+const DEFAULT_BUDGET_USD = Number(process.env.LLM_MONTHLY_BUDGET_USD ?? process.env.NAXION_LLM_BUDGET_USD ?? "20");
 
 export type BudgetStatus = { allowed: boolean; spentUsd: number; budgetUsd: number; remainingUsd: number };
 
@@ -14,7 +14,7 @@ function monthStart(d = new Date()): Date {
 }
 
 export function getBudgetUsd(): number {
-  const v = Number(process.env.LLM_MONTHLY_BUDGET_USD ?? process.env.NEUROWORKS_LLM_BUDGET_USD ?? String(DEFAULT_BUDGET_USD));
+  const v = Number(process.env.LLM_MONTHLY_BUDGET_USD ?? process.env.NAXION_LLM_BUDGET_USD ?? String(DEFAULT_BUDGET_USD));
   if (!Number.isFinite(v) || v < 0) return DEFAULT_BUDGET_USD;
   return v;
 }

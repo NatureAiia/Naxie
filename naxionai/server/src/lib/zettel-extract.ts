@@ -15,8 +15,8 @@ import { listVault, readVaultFile, writeZettel } from "./vault.js";
 import { enqueueVaultCommit } from "./commit-queue.js";
 import { logAudit } from "./audit-log.js";
 
-const ZETTEL_EXTRACT_MS = Number(process.env.NEUROWORKS_ZETTEL_EXTRACT_MS) || 6 * 3600 * 1000;
-const ZETTEL_EXTRACT_THROTTLE_MS = Number(process.env.NEUROWORKS_ZETTEL_EXTRACT_THROTTLE_MS) || 6 * 3600 * 1000;
+const ZETTEL_EXTRACT_MS = Number(process.env.NAXION_ZETTEL_EXTRACT_MS) || 6 * 3600 * 1000;
+const ZETTEL_EXTRACT_THROTTLE_MS = Number(process.env.NAXION_ZETTEL_EXTRACT_THROTTLE_MS) || 6 * 3600 * 1000;
 const MAX_EXCHANGES_PER_RUN = 30;
 const MAX_RECENT_TITLES = 20;
 

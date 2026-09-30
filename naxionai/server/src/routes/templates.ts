@@ -178,7 +178,7 @@ templatesRouter.get("/jobs", (_req, res) => {
   // fast and focused. Everything older still lives on disk (the job journal) and
   // is surfaced through the vault + Knowledge (reflections + journaled notes),
   // so nothing is lost — it's just not loaded into the live list.
-  const MAX_FEED = Number(process.env.NEUROWORKS_TASKS_FEED_LIMIT ?? "150");
+  const MAX_FEED = Number(process.env.NAXION_TASKS_FEED_LIMIT ?? "150");
   const visible = filterJobsForCaller(_req, all);
   const jobs = visible.slice(0, MAX_FEED);
   res.json({ jobs, total: visible.length, limit: MAX_FEED, truncated: visible.length > MAX_FEED });
@@ -1033,7 +1033,7 @@ function readVaultText(rel: string): string | null {
 }
 
 // Pull recent emails from a specific sender. Tries the IMAP mailbox first
-// (NEUROWORKS_EMAIL_* — the org inbox), then a Gmail connection if present.
+// (NAXION_EMAIL_* — the org inbox), then a Gmail connection if present.
 // Filters client-side by sender substring so a display-name or +alias still
 // matches. Returns newest-first, deduped by subject+date.
 type SenderEmail = { from: string; subject: string; date: string; body: string; links: string[] };
@@ -1850,7 +1850,7 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
   if (reviewTelegram) {
     try {
       const tg = findPrimitive("telegram.send");
-      const reviewChatId = (process.env.NEUROWORKS_TELEGRAM_GROUP_CHAT ?? "").trim() || undefined;
+      const reviewChatId = (process.env.NAXION_TELEGRAM_GROUP_CHAT ?? "").trim() || undefined;
       if (tg) { review.telegram = await tg.handler({ text: reviewText, ...(reviewChatId ? { chatId: reviewChatId } : {}) }); push(review.telegram?.ok ? "Sent the post to the Telegram group for review." : `Telegram review skipped: ${review.telegram?.error ?? "unknown"}`); }
     } catch (e: any) { review.telegram = { error: String(e?.message ?? e).slice(0, 120) }; push(`Telegram review failed: ${review.telegram.error}`); }
   }

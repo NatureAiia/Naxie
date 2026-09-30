@@ -365,7 +365,7 @@ describeVault("a whole-question query still retrieves", () => {
   });
 
   it("puts the canonical explainer where research.deep will actually READ it", () => {
-    // research.deep reads only the top NEUROWORKS_RESEARCH_VAULT_FILES (4) hits
+    // research.deep reads only the top NAXION_RESEARCH_VAULT_FILES (4) hits
     // in full; the rest contribute a one-line preview. So "the canonical note is
     // in the top 20" is not the guarantee that matters — being inside the read
     // window is.

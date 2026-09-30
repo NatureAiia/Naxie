@@ -411,7 +411,7 @@ Rules:
     let lastErr: any;
     // Bounded per-attempt budget — same stall-fast reasoning as the system
     // audit's synthesis (8-min outer cap burned whole scans on slow backends).
-    const rawTimeoutMs = Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000");
+    const rawTimeoutMs = Number(process.env.NAXION_SYNTH_TIMEOUT_MS ?? "180000");
     // A non-numeric override (e.g. "3m") must not silently become NaN — Math.max
     // with a NaN operand returns NaN, which setTimeout coerces to a ~1ms delay,
     // aborting every synthesis call almost instantly.
@@ -439,7 +439,7 @@ Rules:
   // Same defensive wall-clock cap as reflection.ts's synthesizeReflection —
   // a hung backend must cost minutes, not hours, and the scan must still
   // land a usable file via the stat-only fallback.
-  const SYNTH_TIMEOUT_MS = Math.max(60_000, Number(process.env.NEUROWORKS_INNOVATION_SCAN_SYNTH_TIMEOUT_MS ?? String(8 * 60_000)));
+  const SYNTH_TIMEOUT_MS = Math.max(60_000, Number(process.env.NAXION_INNOVATION_SCAN_SYNTH_TIMEOUT_MS ?? String(8 * 60_000)));
   let capTimer: NodeJS.Timeout | undefined;
   const cap = new Promise<{ text: string; modelUsed?: string }>((resolve) => {
     capTimer = setTimeout(() => {
@@ -611,7 +611,7 @@ export function lastInnovationScan(): InnovationScanResult | null {
 // alongside user Schedules without duplicating the scheduler itself.
 export async function innovationScanStatus(): Promise<{ last: InnovationScanResult | null; nextFireAt: number | null }> {
   const { nextFireAt } = await import("./schedules.js");
-  const SCAN_HOUR = Number(process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8");
+  const SCAN_HOUR = Number(process.env.NAXION_INNOVATION_SCAN_HOUR ?? "8");
   return { last: lastInnovationScan(), nextFireAt: nextFireAt({ daysOfWeek: [], hour: SCAN_HOUR, minute: 0 }) };
 }
 
@@ -643,7 +643,7 @@ export function startInnovationScanScheduler(): void {
   // daily reflection (8pm) are offset so they don't compete for the LLM backend
   // at once. They may still land in the same catch-up tick; that's fine, each
   // fires and delivers independently.
-  const SCAN_HOUR = Number(process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8");
+  const SCAN_HOUR = Number(process.env.NAXION_INNOVATION_SCAN_HOUR ?? "8");
   const tick = async () => {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;

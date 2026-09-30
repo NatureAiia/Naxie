@@ -56,9 +56,9 @@ async function tick() {
 
 export function startExtensionHealthScheduler() {
   if (timer) return;
-  const intervalMs = Math.max(60_000, Number(process.env.NEUROWORKS_EXTENSION_HEALTH_INTERVAL_MS ?? 3600000) || 3600000); // default 1h
-  if (process.env.NEUROWORKS_EXTENSION_HEALTH_SCHEDULER === "0") {
-    console.log("  ⓘ extension health scheduler disabled (NEUROWORKS_EXTENSION_HEALTH_SCHEDULER=0)");
+  const intervalMs = Math.max(60_000, Number(process.env.NAXION_EXTENSION_HEALTH_INTERVAL_MS ?? 3600000) || 3600000); // default 1h
+  if (process.env.NAXION_EXTENSION_HEALTH_SCHEDULER === "0") {
+    console.log("  ⓘ extension health scheduler disabled (NAXION_EXTENSION_HEALTH_SCHEDULER=0)");
     return;
   }
   console.log(`  ⓘ extension health scheduler armed (${intervalMs/1000}s interval)`);
@@ -75,7 +75,7 @@ export function stopExtensionHealthScheduler() {
 }
 
 export function getExtensionSchedulerStatus() {
-  return { running: !!timer, lastRunAt, lastResult, intervalMs: Number(process.env.NEUROWORKS_EXTENSION_HEALTH_INTERVAL_MS ?? 3600000) };
+  return { running: !!timer, lastRunAt, lastResult, intervalMs: Number(process.env.NAXION_EXTENSION_HEALTH_INTERVAL_MS ?? 3600000) };
 }
 
 // Manual trigger for UI button

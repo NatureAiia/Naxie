@@ -47,11 +47,11 @@ spec:
           env:
             - name: SERVE_WEB
               value: "1"
-            - name: NEUROWORKS_ROLE
+            - name: NAXION_ROLE
               value: "primary"
-            - name: NEUROWORKS_NAME
+            - name: NAXION_NAME
               value: "primary"
-            # Static peer list — matches how NEUROWORKS_PEERS already works
+            # Static peer list — matches how NAXION_PEERS already works
             # for real multi-host setups (docker-compose.scale.yml), just
             # pointed at the peer StatefulSet's stable per-pod DNS names via
             # the headless Service in 04-peers.yaml. 5 entries here to match
@@ -60,7 +60,7 @@ spec:
             # have to be kept in sync by hand. If you change peer replica
             # count, update both and roll the primary (kubectl rollout
             # restart statefulset/neuroworks-primary -n neuroworks).
-            - name: NEUROWORKS_PEERS
+            - name: NAXION_PEERS
               value: >-
                 http://neuroworks-peer-0.neuroworks-peer.neuroworks.svc.cluster.local:7471,
                 http://neuroworks-peer-1.neuroworks-peer.neuroworks.svc.cluster.local:7471,

@@ -46,12 +46,12 @@ const SHONA_NDEBELE_RE = new RegExp(
 );
 
 // Configurable detection threshold — default 2 markers. Increase to 3 to
-// reduce false positives when needed (set NEUROWORKS_SHONA_THRESHOLD=3).
-const SHONA_NDEBELE_THRESHOLD = Number(process.env.NEUROWORKS_SHONA_THRESHOLD ?? "2");
+// reduce false positives when needed (set NAXION_SHONA_THRESHOLD=3).
+const SHONA_NDEBELE_THRESHOLD = Number(process.env.NAXION_SHONA_THRESHOLD ?? "2");
 
 /** True when the text contains enough Shona/Ndebele markers to treat it as
  *  Shona/Ndebele (or Shona-English code-switched) input, not incidental
- *  overlap with an English word. Uses `NEUROWORKS_SHONA_THRESHOLD` to allow
+ *  overlap with an English word. Uses `NAXION_SHONA_THRESHOLD` to allow
  *  runtime tuning without code edits. */
 export function detectsShonaOrNdebele(text: string): boolean {
   if (!text) return false;

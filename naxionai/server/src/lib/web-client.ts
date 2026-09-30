@@ -30,7 +30,7 @@ function pickUA(seed?: string): string {
 // Tiny in-memory cache. Keyed by URL; TTL configurable via env. Default 10
 // minutes — long enough that a multiperspective run reuses fetches, short
 // enough that real news pages aren't stale by the next call.
-const CACHE_TTL_MS = Number(process.env.NEUROWORKS_WEB_CACHE_TTL_MS ?? "600000");
+const CACHE_TTL_MS = Number(process.env.NAXION_WEB_CACHE_TTL_MS ?? "600000");
 const cache = new Map<string, { at: number; status: number; contentType: string; text: string; title?: string; structured?: StructuredData }>();
 
 function cacheGet(url: string) {
@@ -114,7 +114,7 @@ export type StructuredData = { jsonLd: Record<string, unknown>[]; price: Extract
 export async function fetchWeb(url: string, opts: FetchOptions = {}): Promise<{ status: number; contentType: string; text: string; title?: string; fromCache: boolean; structured?: StructuredData }> {
   // SECURITY: block private / loopback / metadata-service addresses to
   // prevent SSRF via a prompt-injected agent. Override with
-  // NEUROWORKS_WEB_ALLOW_PRIVATE=1 for legitimate local-host fetches.
+  // NAXION_WEB_ALLOW_PRIVATE=1 for legitimate local-host fetches.
   // Offline mode: public web is off-limits — fail fast with a clear message
   // the agent can relay ("use the local vault instead").
   const { assertOnline } = await import("./offline-mode.js");

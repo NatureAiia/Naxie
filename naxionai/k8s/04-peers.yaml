@@ -3,7 +3,7 @@
 # reached only by the primary, over the headless Service below. Headless
 # (clusterIP: None) so each pod gets a stable, individually-addressable DNS
 # name (neuroworks-peer-0.neuroworks-peer…, -1, -2…) — the primary's
-# NEUROWORKS_PEERS list in 03-primary.yaml depends on these exact names.
+# NAXION_PEERS list in 03-primary.yaml depends on these exact names.
 #
 # Mirrors docker-compose.scale.yml's own warning: extra peer pods only add
 # throughput if inference doesn't bottleneck on one shared Ollama. Confirm
@@ -41,7 +41,7 @@ spec:
   # applied to the part of this app that's actually safe to scale — see the
   # top of 01-configmap.yaml for why the primary stays at 1). Static list,
   # not auto-discovered: if you change this number, update the primary's
-  # NEUROWORKS_PEERS in 03-primary.yaml to match (peer-0..peer-4) and roll
+  # NAXION_PEERS in 03-primary.yaml to match (peer-0..peer-4) and roll
   # it. Started this at 3 and validated end-to-end before bumping to 5 —
   # don't jump straight to 5 on a cluster you haven't tested this on yet.
   replicas: 5
@@ -85,13 +85,13 @@ spec:
           env:
             - name: SERVE_WEB
               value: "0"
-            - name: NEUROWORKS_ROLE
+            - name: NAXION_ROLE
               value: "persona-shifter"
             # Stable, human-legible identity per pod (shows up in /api/health
             # and logs) — the StatefulSet pod name is already unique and
             # ordinal, so just reuse it via the downward API instead of a
             # wrapper script.
-            - name: NEUROWORKS_NAME
+            - name: NAXION_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name

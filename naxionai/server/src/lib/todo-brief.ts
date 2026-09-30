@@ -54,7 +54,7 @@ export function lastTodoBrief(): TodoBriefResult | null {
 // alongside user Schedules without duplicating the scheduler itself.
 export async function todoBriefStatus(): Promise<{ last: TodoBriefResult | null; nextFireAt: number | null }> {
   const { nextFireAt } = await import("./schedules.js");
-  const TODO_HOUR = Number(process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6");
+  const TODO_HOUR = Number(process.env.NAXION_TODO_BRIEF_HOUR ?? "6");
   return { last: lastTodoBrief(), nextFireAt: nextFireAt({ daysOfWeek: [], hour: TODO_HOUR, minute: 0 }) };
 }
 
@@ -301,7 +301,7 @@ let lastRunDate: string | null = null;
 
 export function startTodoBriefScheduler(): void {
   if (scheduler) return;
-  const TODO_HOUR = Number(process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6");
+  const TODO_HOUR = Number(process.env.NAXION_TODO_BRIEF_HOUR ?? "6");
   const tick = async () => {
     const now = new Date();
     const today = localYmd(now);

@@ -178,7 +178,7 @@ async function sendAlert(brand: Brand, text: string): Promise<void> {
     const tg = findPrimitive("telegram.send");
     if (tg) await tg.handler({ text });
   } catch { /* non-fatal — alerting must never break the scan */ }
-  const alertEmail = process.env.NEUROWORKS_BRAND_ALERT_EMAIL?.trim();
+  const alertEmail = process.env.NAXION_BRAND_ALERT_EMAIL?.trim();
   if (alertEmail) {
     try {
       const em = findPrimitive("email.send");

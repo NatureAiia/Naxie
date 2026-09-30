@@ -110,7 +110,7 @@ async function checkProjectStatus(): Promise<void> {
   }
 }
 
-const WATCH_INTERVAL_SECONDS = Number(process.env.NEUROWORKS_GITHUB_WATCH_INTERVAL_SECONDS ?? "300") || 300;
+const WATCH_INTERVAL_SECONDS = Number(process.env.NAXION_GITHUB_WATCH_INTERVAL_SECONDS ?? "300") || 300;
 
 export function startGithubWatcher(): void {
   registerEngine({ name: "github-commit-watcher", intervalSeconds: WATCH_INTERVAL_SECONDS, run: checkForNewCommits });

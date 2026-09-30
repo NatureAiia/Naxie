@@ -10,7 +10,7 @@
 //           primitive).
 //
 // SECURITY — inbound is an external trust boundary. We ONLY act on messages from
-// chats on the allow-list (NEUROWORKS_TELEGRAM_ALLOWED_CHATS, union the
+// chats on the allow-list (NAXION_TELEGRAM_ALLOWED_CHATS, union the
 // integration's default chat id). Empty allow-list ⇒ inbound DISABLED (outbound
 // still works). Fail-safe: an open bridge would let anyone who finds the bot
 // drive jobs against the user's machine and vault.
@@ -19,9 +19,9 @@
 // firehose), and the mention is stripped before the text reaches the agent.
 //
 // Config (env):
-//   NEUROWORKS_TELEGRAM_INBOUND=0        hard-disable inbound (default on)
-//   NEUROWORKS_TELEGRAM_ALLOWED_CHATS    comma list of chat ids allowed to drive
-//   NEUROWORKS_TELEGRAM_POLL_TIMEOUT_S   long-poll seconds (default 25)
+//   NAXION_TELEGRAM_INBOUND=0        hard-disable inbound (default on)
+//   NAXION_TELEGRAM_ALLOWED_CHATS    comma list of chat ids allowed to drive
+//   NAXION_TELEGRAM_POLL_TIMEOUT_S   long-poll seconds (default 25)
 // Bot token comes from the Telegram integration connection (Integrations page).
 
 import { config } from "../config.js";
@@ -37,7 +37,7 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 // ── Single-poller lock ──
 // Telegram getUpdates allows only ONE long-poll consumer per bot; a second
 // poller 409-conflicts and the two steal each other's updates. `role` defaults
-// to "primary" (config.ts), so a worker spawned without NEUROWORKS_ROLE would
+// to "primary" (config.ts), so a worker spawned without NAXION_ROLE would
 // otherwise start a SECOND bridge. This lock guarantees exactly one poller
 // across all local processes: a heartbeat'd lock file whose owner is a live PID.
 const STATE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.neuroworks");
@@ -162,7 +162,7 @@ export async function sendTelegramMessage(text: string, chatId?: string, keyboar
 // with no extra env. All compared as strings.
 async function allowedChats(): Promise<Set<string>> {
   const set = new Set<string>();
-  for (const c of (process.env.NEUROWORKS_TELEGRAM_ALLOWED_CHATS ?? "").split(",").map(s => s.trim()).filter(Boolean)) set.add(c);
+  for (const c of (process.env.NAXION_TELEGRAM_ALLOWED_CHATS ?? "").split(",").map(s => s.trim()).filter(Boolean)) set.add(c);
   try {
     const { getConnectionByProvider } = await import("./integrations.js");
     const chatId = (getConnectionByProvider("telegram")?.config?.chatId ?? "").trim();
@@ -589,9 +589,9 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
     const history = historyFor(chatId);
     const messages = [...history, { role: "user" as const, content: text }];
     // First point of contact is Naxie (your PA) — she triages and delegates.
-    // Override with NEUROWORKS_TELEGRAM_PERSONA if you want a different
+    // Override with NAXION_TELEGRAM_PERSONA if you want a different
     // specialist to own Telegram (e.g. "clawbot", "it-support").
-    const persona = (process.env.NEUROWORKS_TELEGRAM_PERSONA ?? "naxie").trim() || "naxie";
+    const persona = (process.env.NAXION_TELEGRAM_PERSONA ?? "naxie").trim() || "naxie";
     const r = await apiPost("/api/chat", { messages, persona });
     let answer = "";
     if (r?.kind === "message") {
@@ -620,17 +620,17 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
 // replay old messages), then processes new updates as they arrive.
 export async function startTelegramBridge(): Promise<void> {
   if (state.running) return;
-  // Spawned workers carry NEUROWORKS_PARENT_PID and are ephemeral (recycled by
+  // Spawned workers carry NAXION_PARENT_PID and are ephemeral (recycled by
   // the pool). The single getUpdates poller must live on the STABLE primary, so
   // a worker never hosts it. (`role` defaults to "primary" (config.ts) so the
   // role check alone wouldn't exclude a worker whose role env is unset.)
-  if (process.env.NEUROWORKS_PARENT_PID) return;
-  if (process.env.NEUROWORKS_TELEGRAM_INBOUND === "0") { console.log("[telegram] inbound disabled (NEUROWORKS_TELEGRAM_INBOUND=0)"); return; }
+  if (process.env.NAXION_PARENT_PID) return;
+  if (process.env.NAXION_TELEGRAM_INBOUND === "0") { console.log("[telegram] inbound disabled (NAXION_TELEGRAM_INBOUND=0)"); return; }
   const token = await getBotToken();
   if (!token) { console.log("[telegram] no bot token (connect Telegram on the Integrations page) — inbound bridge not started"); return; }
   const allow = await allowedChats();
   if (allow.size === 0) {
-    console.log("[telegram] no allow-listed chats — inbound DISABLED (set NEUROWORKS_TELEGRAM_ALLOWED_CHATS, or a numeric default chat id on the Integrations page). Outbound (telegram.send) still works.");
+    console.log("[telegram] no allow-listed chats — inbound DISABLED (set NAXION_TELEGRAM_ALLOWED_CHATS, or a numeric default chat id on the Integrations page). Outbound (telegram.send) still works.");
     return;
   }
   // Validate the token + learn the bot username (needed for group mentions).
@@ -657,7 +657,7 @@ export async function startTelegramBridge(): Promise<void> {
   state.startedAt = new Date().toISOString();
   console.log(`[telegram] inbound bridge live as @${state.botUsername} — ${allow.size} allow-listed chat(s)`);
 
-  const pollTimeout = Math.max(1, Math.min(50, Number(process.env.NEUROWORKS_TELEGRAM_POLL_TIMEOUT_S ?? "25")));
+  const pollTimeout = Math.max(1, Math.min(50, Number(process.env.NAXION_TELEGRAM_POLL_TIMEOUT_S ?? "25")));
   let offset: number | undefined;
   // Drain backlog to now: confirm everything up to the latest update without
   // processing it, so a restart doesn't replay a day of old messages.

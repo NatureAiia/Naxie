@@ -217,7 +217,7 @@ function BridgeCard() {
             )}
             <div className="text-[10px] text-cream-300/40 mt-2">
               Catalog controlled by the allowlist in <span className="font-mono">server/src/routes/primitives.ts</span> (override with the
-              <span className="font-mono"> NEUROWORKS_MCP_TOOLS</span> env var).
+              <span className="font-mono"> NAXION_MCP_TOOLS</span> env var).
             </div>
           </Card>
         </>

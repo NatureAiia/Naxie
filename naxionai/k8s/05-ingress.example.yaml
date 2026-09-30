@@ -7,7 +7,7 @@
 # svc/neuroworks-primary -n neuroworks 7471:7471` for testing, or change
 # 03-primary.yaml's Service `type` to LoadBalancer for a quick external IP
 # (fine for a demo; a real Ingress gets you TLS termination + a stable
-# hostname, which NEUROWORKS_ALLOWED_HOSTS also needs to match).
+# hostname, which NAXION_ALLOWED_HOSTS also needs to match).
 #
 # This example assumes ingress-nginx + cert-manager (the common combo). If
 # your cluster uses something else (Traefik, an AWS/GCP/Azure-native
@@ -31,7 +31,7 @@ metadata:
 spec:
   tls:
     - hosts:
-        # CHANGEME — must match NEUROWORKS_ALLOWED_HOSTS in 01-configmap.yaml
+        # CHANGEME — must match NAXION_ALLOWED_HOSTS in 01-configmap.yaml
         - neuroworks.CHANGEME.example.com
       secretName: neuroworks-tls
   rules:

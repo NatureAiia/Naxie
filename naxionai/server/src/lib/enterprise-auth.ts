@@ -1,4 +1,4 @@
-// Enterprise-mode gate — OFF by default, toggled with NEUROWORKS_ENTERPRISE_MODE=1.
+// Enterprise-mode gate — OFF by default, toggled with NAXION_ENTERPRISE_MODE=1.
 //
 // The problem this closes: lib/access.ts's requireLayer() explicitly lets
 // token-less requests through ("machine/operator context"), and only 7 of
@@ -87,7 +87,7 @@ export function enterpriseAuthGuard(req: Request, res: Response, next: NextFunct
   res.status(401).json({
     error: "unauthorized",
     message:
-      "NEUROWORKS_ENTERPRISE_MODE is on — this request is neither same-machine, a logged-in session, " +
+      "NAXION_ENTERPRISE_MODE is on — this request is neither same-machine, a logged-in session, " +
       "nor carrying a valid 'machine:full' API key. Provide 'Authorization: Bearer nw_...' " +
       "(mint one via POST /api/dispatch-keys with scopes:[\"machine:full\"]) or log in via /api/auth.",
   });

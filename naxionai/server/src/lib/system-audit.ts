@@ -773,7 +773,7 @@ Write the Managing Director's system update.`;
     // Bounded per-attempt budget: a stalled backend must fail fast into the
     // retry/findings-fallback instead of hanging to the 8-min outer cap
     // (which is what burned whole audits on the 2026-09-28 outage).
-    const rawTimeoutMs = Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000");
+    const rawTimeoutMs = Number(process.env.NAXION_SYNTH_TIMEOUT_MS ?? "180000");
     // A non-numeric override (e.g. "3m") must not silently become NaN — Math.max
     // with a NaN operand returns NaN, which setTimeout coerces to a ~1ms delay,
     // aborting every synthesis call almost instantly.
@@ -819,7 +819,7 @@ Write the Managing Director's system update.`;
     return { text: fallback };
   };
 
-  const SYNTH_TIMEOUT_MS = Math.max(60_000, Number(process.env.NEUROWORKS_SYSTEM_AUDIT_SYNTH_TIMEOUT_MS ?? String(8 * 60_000)));
+  const SYNTH_TIMEOUT_MS = Math.max(60_000, Number(process.env.NAXION_SYSTEM_AUDIT_SYNTH_TIMEOUT_MS ?? String(8 * 60_000)));
   let capTimer: NodeJS.Timeout | undefined;
   const cap = new Promise<{ text: string; modelUsed?: string }>((resolve) => {
     capTimer = setTimeout(() => {
@@ -1069,7 +1069,7 @@ async function deliverToTelegram(result: SystemAuditResult): Promise<void> {
 
 export function startSystemAuditScheduler(): void {
   if (scheduler) return;
-  const AUDIT_HOUR = Number(process.env.NEUROWORKS_SYSTEM_AUDIT_HOUR ?? "7");
+  const AUDIT_HOUR = Number(process.env.NAXION_SYSTEM_AUDIT_HOUR ?? "7");
   const tick = async () => {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;

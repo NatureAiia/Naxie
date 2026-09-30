@@ -39,9 +39,9 @@ import { maybeExtractZettels } from "./zettel-extract.js";
 // past this threshold (docs/naxie-architecture.md §2.3 "needs your attention
 // soon" tier). Silent until you look at the widget; a toast is the only
 // proactive interruption, and only for approvals.
-const NUDGE_AFTER_MS = Number(process.env.NEUROWORKS_ORG_NUDGE_MS) || 30 * 60 * 1000;
+const NUDGE_AFTER_MS = Number(process.env.NAXION_ORG_NUDGE_MS) || 30 * 60 * 1000;
 let lastNudgedAt = 0;
-const NUDGE_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_NUDGE_THROTTLE_MS) || 30 * 60 * 1000;
+const NUDGE_THROTTLE_MS = Number(process.env.NAXION_ORG_NUDGE_THROTTLE_MS) || 30 * 60 * 1000;
 
 export function maybeNudgePendingApprovals(now = Date.now()): number {
   const waiting = listOrgTasks({ status: "waiting-on-approval" });
@@ -72,7 +72,7 @@ export function maybeNudgePendingApprovals(now = Date.now()): number {
 // plenty for a backup tick (contrast NUDGE_AFTER_MS above, which is about
 // user-facing latency, not data durability).
 let lastBackedUpAt = 0;
-const BACKUP_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_BACKUP_THROTTLE_MS) || 60 * 60 * 1000;
+const BACKUP_THROTTLE_MS = Number(process.env.NAXION_ORG_BACKUP_THROTTLE_MS) || 60 * 60 * 1000;
 
 export function maybeBackupVault(now = Date.now()): boolean {
   if (now - lastBackedUpAt < BACKUP_THROTTLE_MS) return false;
@@ -92,7 +92,7 @@ export function maybeBackupVault(now = Date.now()): boolean {
 // always land in waiting-on-approval, never auto-applied. A manual trigger
 // also exists (POST /api/naxie/architect/review) for testing/on-demand runs.
 let lastArchitectReviewAt = 0;
-const ARCHITECT_REVIEW_THROTTLE_MS = Number(process.env.NEUROWORKS_ARCHITECT_REVIEW_THROTTLE_MS) || 7 * 24 * 60 * 60 * 1000;
+const ARCHITECT_REVIEW_THROTTLE_MS = Number(process.env.NAXION_ARCHITECT_REVIEW_THROTTLE_MS) || 7 * 24 * 60 * 60 * 1000;
 
 export async function maybeRunArchitectReview(now = Date.now()): Promise<boolean> {
   if (now - lastArchitectReviewAt < ARCHITECT_REVIEW_THROTTLE_MS) return false;
@@ -116,11 +116,11 @@ let latestBriefing: { text: string; generatedAt: string } | null = null;
 export function getLatestBriefing(): { text: string; generatedAt: string } | null { return latestBriefing; }
 
 let lastBriefingAt = 0;
-const BRIEFING_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_BRIEFING_THROTTLE_MS) || 24 * 3600 * 1000;
+const BRIEFING_THROTTLE_MS = Number(process.env.NAXION_ORG_BRIEFING_THROTTLE_MS) || 24 * 3600 * 1000;
 // Local hour (0-23) the briefing is allowed to fire — checked every tick, so
 // with the default 5-min cycle it actually fires within a few minutes of
 // this hour, then the throttle above keeps it to once a day.
-const BRIEFING_HOUR = Number(process.env.NEUROWORKS_ORG_BRIEFING_HOUR ?? "8");
+const BRIEFING_HOUR = Number(process.env.NAXION_ORG_BRIEFING_HOUR ?? "8");
 
 export async function maybeGenerateBriefing(now = Date.now()): Promise<boolean> {
   if (now - lastBriefingAt < BRIEFING_THROTTLE_MS) return false;
@@ -148,8 +148,8 @@ export async function maybeGenerateBriefing(now = Date.now()): Promise<boolean> 
 // the Job's own log tail (every line is `[ISO] message` — see jobs.ts's
 // push()), not a new Job field, since a running Job already timestamps
 // every step it takes.
-const EXECUTOR_CHECKIN_AFTER_MS = Number(process.env.NEUROWORKS_ORG_EXECUTOR_CHECKIN_MS) || 15 * 60 * 1000;
-const EXECUTOR_CHECKIN_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_EXECUTOR_CHECKIN_THROTTLE_MS) || 30 * 60 * 1000;
+const EXECUTOR_CHECKIN_AFTER_MS = Number(process.env.NAXION_ORG_EXECUTOR_CHECKIN_MS) || 15 * 60 * 1000;
+const EXECUTOR_CHECKIN_THROTTLE_MS = Number(process.env.NAXION_ORG_EXECUTOR_CHECKIN_THROTTLE_MS) || 30 * 60 * 1000;
 const executorLastNudgedAt = new Map<string, number>(); // OrgTask id -> last nudge ts
 
 function lastJobActivity(job: { log: string[]; startedAt: string }): number {
@@ -187,8 +187,8 @@ export function maybeNudgeStaleExecutorTasks(now = Date.now()): number {
 // Deliberately conservative: fires at most once a day, and only when there's
 // actually something outstanding to report (an idle backlog that's also
 // EMPTY isn't worth an interruption).
-const IDLE_REPORT_AFTER_MS = Number(process.env.NEUROWORKS_ORG_IDLE_REPORT_MS) || 24 * 3600 * 1000;
-const IDLE_REPORT_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_IDLE_REPORT_THROTTLE_MS) || 24 * 3600 * 1000;
+const IDLE_REPORT_AFTER_MS = Number(process.env.NAXION_ORG_IDLE_REPORT_MS) || 24 * 3600 * 1000;
+const IDLE_REPORT_THROTTLE_MS = Number(process.env.NAXION_ORG_IDLE_REPORT_THROTTLE_MS) || 24 * 3600 * 1000;
 let lastIdleReportAt = 0;
 
 export function maybeReportIdleActivity(now = Date.now()): boolean {
@@ -216,11 +216,11 @@ export function maybeReportIdleActivity(now = Date.now()): boolean {
 // Chat-inactivity check-in — ports agency_daemon.py:_check_idle_chat_nudge.
 // Fires purely because *you* went quiet (not task state). Requires a persisted
 // lastInteractionAt (naxie-interactions.json); never fires if you've never chatted.
-const CHAT_IDLE_MS = Number(process.env.NEUROWORKS_CHAT_IDLE_MS) || 2 * 3600 * 1000;
-const CHAT_NUDGE_THROTTLE_MS = Number(process.env.NEUROWORKS_CHAT_NUDGE_THROTTLE_MS) || 2 * 3600 * 1000;
+const CHAT_IDLE_MS = Number(process.env.NAXION_CHAT_IDLE_MS) || 2 * 3600 * 1000;
+const CHAT_NUDGE_THROTTLE_MS = Number(process.env.NAXION_CHAT_NUDGE_THROTTLE_MS) || 2 * 3600 * 1000;
 
 export async function maybeNudgeChatInactivity(now = Date.now()): Promise<boolean> {
-  if (process.env.NEUROWORKS_CHAT_NUDGE_ENABLED === "0") return false;
+  if (process.env.NAXION_CHAT_NUDGE_ENABLED === "0") return false;
   const interactions = getInteractions();
   if (!interactions?.lastInteractionAt) return false;
   const lastAt = new Date(interactions.lastInteractionAt).getTime();
@@ -247,18 +247,18 @@ export async function maybeNudgeChatInactivity(now = Date.now()): Promise<boolea
 
 // Proactive research — ports agency_daemon.py:_run_proactive_research but with
 // TS-native topic sources (research-interests.ts resolver) instead of Goal/ChatMessage tables.
-const PROACTIVE_RESEARCH_MS = Number(process.env.NEUROWORKS_PROACTIVE_RESEARCH_MS) || 4 * 3600 * 1000;
-const PROACTIVE_RESEARCH_THROTTLE_MS = Number(process.env.NEUROWORKS_PROACTIVE_RESEARCH_THROTTLE_MS) || 4 * 3600 * 1000;
+const PROACTIVE_RESEARCH_MS = Number(process.env.NAXION_PROACTIVE_RESEARCH_MS) || 4 * 3600 * 1000;
+const PROACTIVE_RESEARCH_THROTTLE_MS = Number(process.env.NAXION_PROACTIVE_RESEARCH_THROTTLE_MS) || 4 * 3600 * 1000;
 let lastResearchAt = 0;
 
 export async function maybeRunProactiveResearch(now = Date.now()): Promise<boolean> {
-  if (process.env.NEUROWORKS_PROACTIVE_RESEARCH_ENABLED === "0") return false;
+  if (process.env.NAXION_PROACTIVE_RESEARCH_ENABLED === "0") return false;
   const topics = resolveResearchTopics();
   // Require at least one real topic; sector+MAG fallback still counts, but empty vault on fresh install yields nothing.
   if (topics.length === 0) return false;
   // Also default OFF unless operator opted in via env or has interests/sector.
-  const optedIn = process.env.NEUROWORKS_PROACTIVE_RESEARCH_ENABLED === "1" || topics.some(t => t.length > 20);
-  if (!optedIn && process.env.NEUROWORKS_PROACTIVE_RESEARCH_ENABLED !== "1") {
+  const optedIn = process.env.NAXION_PROACTIVE_RESEARCH_ENABLED === "1" || topics.some(t => t.length > 20);
+  if (!optedIn && process.env.NAXION_PROACTIVE_RESEARCH_ENABLED !== "1") {
     // Allow sector-derived single-topic fallback to run (fresh install with sector picked) — treat that as opt-in.
     const singleSectorOnly = topics.length === 1 && topics[0].startsWith("Zimbabwe");
     if (!singleSectorOnly && topics.length === 1) return false;
@@ -327,18 +327,18 @@ export async function maybeProcessComplianceReminders(now = Date.now()): Promise
   }
 }
 
-export const DAEMON_CYCLE_SECONDS = Number(process.env.NEUROWORKS_ORG_DAEMON_CYCLE_SECONDS ?? "300") || 300;
+export const DAEMON_CYCLE_SECONDS = Number(process.env.NAXION_ORG_DAEMON_CYCLE_SECONDS ?? "300") || 300;
 
 // How long an OrgTask may sit at waiting-on-approval before it's stale.
 // Shorter than Job's own 7-day APPROVAL_TTL_MS (jobs.ts) — naxionai's
 // precedent (config.py's approval_token_expires_hours) is 48h, and an
 // OrgTask approval is meant to be a PA-shaped "should I go ahead?" ask, not
 // a long-lived operational approval queue.
-export const ORG_APPROVAL_TTL_MS = Number(process.env.NEUROWORKS_ORG_APPROVAL_TTL_MS) || 48 * 3600 * 1000;
+export const ORG_APPROVAL_TTL_MS = Number(process.env.NAXION_ORG_APPROVAL_TTL_MS) || 48 * 3600 * 1000;
 
 // An "active" OrgTask whose underlying Job hasn't been seen for this long is
 // treated as orphaned rather than genuinely still running.
-export const ORPHANED_ACTIVE_TTL_MS = Number(process.env.NEUROWORKS_ORG_ORPHAN_TTL_MS) || 30 * 60 * 1000;
+export const ORPHANED_ACTIVE_TTL_MS = Number(process.env.NAXION_ORG_ORPHAN_TTL_MS) || 30 * 60 * 1000;
 
 function auditBestEffort(task: OrgTask, action: string, detail: string): void {
   try {
@@ -388,12 +388,12 @@ export function reconcileOrphanedActiveTasks(now = Date.now()): number {
 }
 
 // SLA: blocked tasks that have sat >48h without update get escalated (priority bump + urgent notify)
-const BLOCKED_SLA_MS = Number(process.env.NEUROWORKS_ORG_BLOCKED_SLA_MS) || 48 * 3600 * 1000;
+const BLOCKED_SLA_MS = Number(process.env.NAXION_ORG_BLOCKED_SLA_MS) || 48 * 3600 * 1000;
 const BLOCKED_SLA_THROTTLE_MS = 24 * 3600 * 1000;
 // Crown priority gets a much tighter SLA and re-notify cadence — it shouldn't
 // sit blocked for anywhere near as long before paging the operator again.
-const CROWN_BLOCKED_SLA_MS = Number(process.env.NEUROWORKS_ORG_CROWN_BLOCKED_SLA_MS) || 2 * 3600 * 1000;
-const CROWN_BLOCKED_SLA_THROTTLE_MS = Number(process.env.NEUROWORKS_ORG_CROWN_BLOCKED_SLA_THROTTLE_MS) || 1 * 3600 * 1000;
+const CROWN_BLOCKED_SLA_MS = Number(process.env.NAXION_ORG_CROWN_BLOCKED_SLA_MS) || 2 * 3600 * 1000;
+const CROWN_BLOCKED_SLA_THROTTLE_MS = Number(process.env.NAXION_ORG_CROWN_BLOCKED_SLA_THROTTLE_MS) || 1 * 3600 * 1000;
 const blockedSlaNotified = new Map<string, number>();
 
 export function maybeEscalateBlockedSLA(now = Date.now()): number {

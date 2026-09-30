@@ -11,13 +11,13 @@ import {
 const realFetch = global.fetch;
 
 beforeEach(() => {
-  process.env.NEUROWORKS_STATE_DIR = mkdtempSync(join(tmpdir(), "webhook-delivery-"));
+  process.env.NAXION_STATE_DIR = mkdtempSync(join(tmpdir(), "webhook-delivery-"));
   _resetForTests();
 });
 
 afterEach(() => {
   global.fetch = realFetch;
-  delete process.env.NEUROWORKS_STATE_DIR;
+  delete process.env.NAXION_STATE_DIR;
 });
 
 function mockFetchOnce(status: number) {

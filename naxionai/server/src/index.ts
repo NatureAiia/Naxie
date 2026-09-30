@@ -162,11 +162,11 @@ const app = express();
 // proxy / ingress (security-watch flood/auth scoring would otherwise score the
 // proxy IP). Enabled when enterprise-mode or an explicit trust-proxy env is set;
 // loopback-only dev needs no proxy and stays 0 for least surprise.
-if (config.enterpriseMode || process.env.NEUROWORKS_TRUST_PROXY === "1" || process.env.NEUROWORKS_BEHIND_PROXY === "1") {
+if (config.enterpriseMode || process.env.NAXION_TRUST_PROXY === "1" || process.env.NAXION_BEHIND_PROXY === "1") {
   app.set("trust proxy", 1);
 }
-if (process.env.NEUROWORKS_ALLOW_INSECURE_BIND === "1" && config.bindHost !== "127.0.0.1" && config.bindHost !== "localhost") {
-  console.warn(`\n⚠  [security] NEUROWORKS_ALLOW_INSECURE_BIND=1 with bind ${config.bindHost} — API is reachable off-host with no Host/Origin defense beyond what originGuard provides. Only use behind a trusted authenticating reverse proxy.\n`);
+if (process.env.NAXION_ALLOW_INSECURE_BIND === "1" && config.bindHost !== "127.0.0.1" && config.bindHost !== "localhost") {
+  console.warn(`\n⚠  [security] NAXION_ALLOW_INSECURE_BIND=1 with bind ${config.bindHost} — API is reachable off-host with no Host/Origin defense beyond what originGuard provides. Only use behind a trusted authenticating reverse proxy.\n`);
 }
 // CSP + Permissions-Policy (absent before now — see lib/security-headers.ts)
 // applied first so every response carries them, including an early error.
@@ -230,7 +230,7 @@ app.use(originGuard);
 // blocked — see lib/security-watch.ts.
 app.use(securityWatch);
 // Real authentication for non-browser callers when this instance is
-// network-exposed. No-op unless NEUROWORKS_ENTERPRISE_MODE=1 — see
+// network-exposed. No-op unless NAXION_ENTERPRISE_MODE=1 — see
 // lib/enterprise-auth.ts for what problem this closes.
 app.use(enterpriseAuthGuard);
 
@@ -442,9 +442,9 @@ const server = app.listen(config.port, config.bindHost, async () => {
 
   // Shell build: the workspace ships with NO connectors — UAT operators add
   // their own on the Connectors page. The old demo/company connectors only seed
-  // when explicitly asked for via NEUROWORKS_SEED_DEMO_CONNECTORS=1. Idempotent,
+  // when explicitly asked for via NAXION_SEED_DEMO_CONNECTORS=1. Idempotent,
   // primary-only (workers share connectors.json and would race on a cold store).
-  if (config.role === "primary" && process.env.NEUROWORKS_SEED_DEMO_CONNECTORS === "1") {
+  if (config.role === "primary" && process.env.NAXION_SEED_DEMO_CONNECTORS === "1") {
     try { const s = seedAiiAWebsiteConnector(); if (s) console.log(`  ✓ seeded connector "${s.label}" (${s.endpoints?.length ?? 0} endpoints)`); }
     catch (e: any) { console.warn(`  ⚠ connector seeding failed: ${e?.message ?? e}`); }
     try { const seeded = seedPublicApiConnectors(); if (seeded.length) console.log(`  ✓ seeded ${seeded.length} free public-API connector(s): ${seeded.join(", ")}`); }
@@ -458,13 +458,13 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // Pre-warm the default model so the first user task doesn't pay model-load
   // tax (5-8s on cold cache). Fire-and-forget — server is already accepting
   // requests; we just want the model resident in Ollama's memory by the time
-  // someone clicks Send. Skipped if NEUROWORKS_NO_WARMUP=1.
+  // someone clicks Send. Skipped if NAXION_NO_WARMUP=1.
   //
   // We now warm every UNIQUE model the profile router could pick — default +
   // any profile-specific env pin. Triage on qwen3.5:0.8b + synthesis on
   // qwen2.5:3b means two cold-load hits on the first ad-hoc task; warming
   // both at boot eliminates both.
-  if (process.env.NEUROWORKS_NO_WARMUP !== "1") {
+  if (process.env.NAXION_NO_WARMUP !== "1") {
     const toWarm = new Set<string>([config.ollamaModel]);
     for (const envKey of ["OLLAMA_TRIAGE_MODEL", "OLLAMA_PLAN_MODEL", "OLLAMA_SYNTH_MODEL", "OLLAMA_EXTRACT_MODEL", "OLLAMA_BALANCED_MODEL"]) {
       const v = process.env[envKey]?.trim();
@@ -492,9 +492,9 @@ const server = app.listen(config.port, config.bindHost, async () => {
   }
 
   // Scan localhost for other clawbot instances. Saves the user from having
-  // to set NEUROWORKS_PEERS just to wire the primary ↔ secondary loop together.
-  // Disabled with NEUROWORKS_NO_AUTODISCOVER=1.
-  if (process.env.NEUROWORKS_NO_AUTODISCOVER !== "1") {
+  // to set NAXION_PEERS just to wire the primary ↔ secondary loop together.
+  // Disabled with NAXION_NO_AUTODISCOVER=1.
+  if (process.env.NAXION_NO_AUTODISCOVER !== "1") {
     autodiscoverLocalPeers()
       .then(r => { if (r.found > 0) console.log(`  ✓ auto-discovered ${r.found} peer${r.found === 1 ? "" : "s"} on localhost`); })
       .catch(() => { /* swallow */ });
@@ -528,13 +528,13 @@ const server = app.listen(config.port, config.bindHost, async () => {
   }
 
   // Parent-death watchdog (managed workers only). worker-manager.ts sets
-  // NEUROWORKS_PARENT_PID when it spawns us; if that primary process vanishes
+  // NAXION_PARENT_PID when it spawns us; if that primary process vanishes
   // ungracefully (crash/OOM/SIGKILL — graceful shutdown reaps us directly),
   // exit so we don't linger as an orphan holding a port. process.kill(pid, 0)
   // sends no signal, just probes existence: it throws ESRCH once the parent
   // is gone.
-  if (config.role !== "primary" && process.env.NEUROWORKS_PARENT_PID) {
-    const parentPid = Number(process.env.NEUROWORKS_PARENT_PID);
+  if (config.role !== "primary" && process.env.NAXION_PARENT_PID) {
+    const parentPid = Number(process.env.NAXION_PARENT_PID);
     if (Number.isFinite(parentPid) && parentPid > 0) {
       const wd = setInterval(() => {
         try { process.kill(parentPid, 0); }
@@ -555,12 +555,12 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // Auto-spawn a managed worker POOL if we are the primary. With >1 worker,
   // concurrent tasks fan out across the pool (least-loaded routing) instead of
   // funnelling to a single agent — the "only one agent working" fix. Pool size
-  // is NEUROWORKS_POOL_WORKERS (default 2; capped at NEUROWORKS_MAX_WORKERS). Set
-  // NEUROWORKS_AUTO_SPAWN_WORKER=0 to disable spawning entirely, or
-  // NEUROWORKS_POOL_WORKERS=1 to keep a single worker. The user gets parallel
+  // is NAXION_POOL_WORKERS (default 2; capped at NAXION_MAX_WORKERS). Set
+  // NAXION_AUTO_SPAWN_WORKER=0 to disable spawning entirely, or
+  // NAXION_POOL_WORKERS=1 to keep a single worker. The user gets parallel
   // sub-agents + the curation gate "for free" — no need to know `pnpm secondary`.
-  if (process.env.NEUROWORKS_AUTO_SPAWN_WORKER !== "0" && config.role === "primary") {
-    const poolTarget = Math.max(1, Number(process.env.NEUROWORKS_POOL_WORKERS ?? "2") || 2);
+  if (process.env.NAXION_AUTO_SPAWN_WORKER !== "0" && config.role === "primary") {
+    const poolTarget = Math.max(1, Number(process.env.NAXION_POOL_WORKERS ?? "2") || 2);
     setTimeout(() => {
       void ensurePool(poolTarget)
         .then(r => console.log(`  ⓦ worker pool warm — ${r.running} managed worker(s) ready (target ${poolTarget})`))
@@ -570,7 +570,7 @@ const server = app.listen(config.port, config.bindHost, async () => {
 
   // Watch the vault for external edits so the search cache busts when
   // the user edits notes in Obsidian directly. Default-on; opt out via
-  // NEUROWORKS_VAULT_WATCH=0 if you're on a filesystem where the recursive
+  // NAXION_VAULT_WATCH=0 if you're on a filesystem where the recursive
   // watcher misbehaves. Fall-back behaviour is the 60s search cache TTL.
   startVaultWatcher();
 
@@ -592,56 +592,56 @@ const server = app.listen(config.port, config.bindHost, async () => {
 
   // Periodic git pull from origin so Obsidian edits made on another machine
   // (or via Obsidian's git plugin) sync into the local vault that clawbot
-  // reads. Default every 5m; opt out with NEUROWORKS_VAULT_PULL=0.
+  // reads. Default every 5m; opt out with NAXION_VAULT_PULL=0.
   startVaultPullScheduler();
 
   // End-of-day reflection at 8pm (20:00) — the day's report. Only the primary
   // runs the scheduler — secondary clawbots are workers and the reflection
   // covers the whole fleet from the primary's job list anyway. Disable with
-  // NEUROWORKS_REFLECTION=0. Override hour with NEUROWORKS_REFLECTION_HOUR.
-  if (process.env.NEUROWORKS_REFLECTION !== "0" && config.role === "primary") {
+  // NAXION_REFLECTION=0. Override hour with NAXION_REFLECTION_HOUR.
+  if (process.env.NAXION_REFLECTION !== "0" && config.role === "primary") {
     startReflectionScheduler();
-    console.log(`  ⓘ daily reflection scheduler armed (hour=${process.env.NEUROWORKS_REFLECTION_HOUR ?? "20"}, delivers to Telegram if connected)`);
+    console.log(`  ⓘ daily reflection scheduler armed (hour=${process.env.NAXION_REFLECTION_HOUR ?? "20"}, delivers to Telegram if connected)`);
   }
 
   // Innovation Scan at 8am — Naxie's morning scan with nicer headings & emojis.
   // Same primary-only guard as reflection above. Disable with
-  // NEUROWORKS_INNOVATION_SCAN=0. Todo brief (6am) fires just before this
+  // NAXION_INNOVATION_SCAN=0. Todo brief (6am) fires just before this
   // so the operator gets todos first, then the scan.
-  if (process.env.NEUROWORKS_INNOVATION_SCAN !== "0" && config.role === "primary") {
+  if (process.env.NAXION_INNOVATION_SCAN !== "0" && config.role === "primary") {
     startInnovationScanScheduler();
-    console.log(`  ⓘ innovation scan scheduler armed (hour=${process.env.NEUROWORKS_INNOVATION_SCAN_HOUR ?? "8"}, delivers to Telegram if connected)`);
+    console.log(`  ⓘ innovation scan scheduler armed (hour=${process.env.NAXION_INNOVATION_SCAN_HOUR ?? "8"}, delivers to Telegram if connected)`);
   }
 
   // MD System Audit at 7am — Naxie's daily managing-director scan (every file,
   // feature, page — what's improving, dormant, useless). Fires before the 8am
   // innovation scan so the operator gets MD report first, then the tech watch.
-  // Primary-only. Disable with NEUROWORKS_SYSTEM_AUDIT=0.
-  if (process.env.NEUROWORKS_SYSTEM_AUDIT !== "0" && config.role === "primary") {
+  // Primary-only. Disable with NAXION_SYSTEM_AUDIT=0.
+  if (process.env.NAXION_SYSTEM_AUDIT !== "0" && config.role === "primary") {
     startSystemAuditScheduler();
-    console.log(`  ⓘ MD system-audit scheduler armed (hour=${process.env.NEUROWORKS_SYSTEM_AUDIT_HOUR ?? "7"}, delivers to Telegram if connected)`);
+    console.log(`  ⓘ MD system-audit scheduler armed (hour=${process.env.NAXION_SYSTEM_AUDIT_HOUR ?? "7"}, delivers to Telegram if connected)`);
   }
 
   // Todo brief at 6am — today's tasks + remaining for the week (with weather + 🔥 Top 3 + inline buttons). Fires before
   // the 7am MD audit so the operator starts the day with todos, then the MD
   // report, then the 8am innovation scan.
-  // Primary-only. Disable with NEUROWORKS_TODO_BRIEF=0.
-  if (process.env.NEUROWORKS_TODO_BRIEF !== "0" && config.role === "primary") {
+  // Primary-only. Disable with NAXION_TODO_BRIEF=0.
+  if (process.env.NAXION_TODO_BRIEF !== "0" && config.role === "primary") {
     // Optional proof migration (formerly the standalone _workflows/ tree
     // engine — retired; its scheduling/tool-allowlist/handler model now
     // lives as an optional `automation` on a regular Planner task, see
-    // lib/my-tasks.ts). With NEUROWORKS_PLANNER_AUTOMATION=1, todo-brief
+    // lib/my-tasks.ts). With NAXION_PLANNER_AUTOMATION=1, todo-brief
     // shows up as an editable, pausable task in Planner instead of running
     // its own bespoke scheduler. Default stays off so a revert is this one
     // env var, not a code rollback.
-    if (process.env.NEUROWORKS_PLANNER_AUTOMATION === "1") {
+    if (process.env.NAXION_PLANNER_AUTOMATION === "1") {
       registerNativeHandler("todo-brief", () => runTodoBrief());
       seedAutomationIfMissing(
         "local",
         "Daily todo brief",
         {
           enabled: true,
-          cadence: { daysOfWeek: [], hour: Number(process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"), minute: 0 },
+          cadence: { daysOfWeek: [], hour: Number(process.env.NAXION_TODO_BRIEF_HOUR ?? "6"), minute: 0 },
           tools: ["vault.write"],
           data: ["_neuroworks/"],
           outputPath: "_neuroworks/todo-briefs/{date}.md",
@@ -653,45 +653,45 @@ const server = app.listen(config.port, config.bindHost, async () => {
       console.log(`  ⓘ todo brief now driven by a Planner task automation (edit "Daily todo brief" in Planner to change cadence)`);
     } else {
       startTodoBriefScheduler();
-      console.log(`  ⓘ todo brief scheduler armed (hour=${process.env.NEUROWORKS_TODO_BRIEF_HOUR ?? "6"}, delivers to Telegram if connected)`);
+      console.log(`  ⓘ todo brief scheduler armed (hour=${process.env.NAXION_TODO_BRIEF_HOUR ?? "6"}, delivers to Telegram if connected)`);
     }
   }
 
   // MD Weekly Board — Monday 08:00, convenes on latest audit's top improvements
-  if (process.env.NEUROWORKS_WEEKLY_BOARD !== "0" && config.role === "primary") {
+  if (process.env.NAXION_WEEKLY_BOARD !== "0" && config.role === "primary") {
     startWeeklyBoardScheduler();
     console.log(`  ⓘ MD weekly board scheduler armed (Monday 08:00)`);
   }
 
   // Weekly rollup Sundays 9am — combines todos + reflections + scans.
-  if (process.env.NEUROWORKS_WEEKLY_ROLLUP !== "0" && config.role === "primary") {
+  if (process.env.NAXION_WEEKLY_ROLLUP !== "0" && config.role === "primary") {
     startWeeklyRollupScheduler();
-    console.log(`  ⓘ weekly rollup scheduler armed (dow=${process.env.NEUROWORKS_WEEKLY_ROLLUP_DOW ?? "0"} hour=${process.env.NEUROWORKS_WEEKLY_ROLLUP_HOUR ?? "9"})`);
+    console.log(`  ⓘ weekly rollup scheduler armed (dow=${process.env.NAXION_WEEKLY_ROLLUP_DOW ?? "0"} hour=${process.env.NAXION_WEEKLY_ROLLUP_HOUR ?? "9"})`);
   }
 
   // Weekly self-improvement review ("Weekly Reflect") Sundays 10am — right
   // after the rollup. Proposes schedules/code/MCP/CLI/skills/retrieval fixes
   // as approval cards; nothing auto-applies.
-  if (process.env.NEUROWORKS_WEEKLY_IMPROVEMENT !== "0" && config.role === "primary") {
+  if (process.env.NAXION_WEEKLY_IMPROVEMENT !== "0" && config.role === "primary") {
     startWeeklyImprovementScheduler();
-    console.log(`  ⓘ weekly self-improvement review armed (dow=${process.env.NEUROWORKS_WEEKLY_IMPROVEMENT_DOW ?? "0"} hour=${process.env.NEUROWORKS_WEEKLY_IMPROVEMENT_HOUR ?? "10"})`);
+    console.log(`  ⓘ weekly self-improvement review armed (dow=${process.env.NAXION_WEEKLY_IMPROVEMENT_DOW ?? "0"} hour=${process.env.NAXION_WEEKLY_IMPROVEMENT_HOUR ?? "10"})`);
   }
 
   // Second-brain wiki compile — distills raw captures (_archive/) into
   // compiled wiki entries (_wiki/) nightly, then emails/toasts a morning
   // digest a few hours later. Same primary-only, opt-out convention as
   // reflection above. Also bootstraps a starter agents.md routing table.
-  if (process.env.NEUROWORKS_WIKI_COMPILE !== "0" && config.role === "primary") {
+  if (process.env.NAXION_WIKI_COMPILE !== "0" && config.role === "primary") {
     ensureAgentsMdExists();
     startWikiCompileScheduler();
     startWikiDigestScheduler();
-    console.log(`  ⓘ wiki-compile scheduler armed (compile hour=${process.env.NEUROWORKS_WIKI_COMPILE_HOUR ?? "3"}, digest hour=${process.env.NEUROWORKS_WIKI_DIGEST_HOUR ?? "7"})`);
+    console.log(`  ⓘ wiki-compile scheduler armed (compile hour=${process.env.NAXION_WIKI_COMPILE_HOUR ?? "3"}, digest hour=${process.env.NAXION_WIKI_DIGEST_HOUR ?? "7"})`);
   }
 
   // User-defined schedules — fires template runs on a friendly day-of-week +
   // time-of-day cadence. Primary-only so the same schedule doesn't run on
-  // every worker. Disable with NEUROWORKS_SCHEDULES=0.
-  if (process.env.NEUROWORKS_SCHEDULES !== "0" && config.role === "primary") {
+  // every worker. Disable with NAXION_SCHEDULES=0.
+  if (process.env.NAXION_SCHEDULES !== "0" && config.role === "primary") {
     startScheduleScheduler();
     console.log(`  ⓘ schedule tick armed (30s interval)`);
   }
@@ -700,8 +700,8 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // job parked "awaiting-approval" sits unanswered past 15m/1h/4h, instead
   // of relying on them to remember to go check. Primary-only, same
   // reasoning as the schedule tick above. Disable with
-  // NEUROWORKS_APPROVAL_ESCALATION=0.
-  if (process.env.NEUROWORKS_APPROVAL_ESCALATION !== "0" && config.role === "primary") {
+  // NAXION_APPROVAL_ESCALATION=0.
+  if (process.env.NAXION_APPROVAL_ESCALATION !== "0" && config.role === "primary") {
     startApprovalEscalationSweep();
     console.log(`  ⓘ approval escalation sweep armed (5min interval)`);
   }
@@ -709,10 +709,10 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // Naxie org-orchestration daemon (docs/naxie-architecture.md §6) — keeps
   // the OrgTask backlog honest between conversations (stale-approval sweep,
   // orphaned-active-task reconciliation). Primary-only, same reasoning as
-  // the schedule tick above. Disable with NEUROWORKS_ORG_DAEMON=0.
-  if (process.env.NEUROWORKS_ORG_DAEMON !== "0" && config.role === "primary") {
+  // the schedule tick above. Disable with NAXION_ORG_DAEMON=0.
+  if (process.env.NAXION_ORG_DAEMON !== "0" && config.role === "primary") {
     startOrgDaemon();
-    console.log(`  ⓘ org daemon armed (${process.env.NEUROWORKS_ORG_DAEMON_CYCLE_SECONDS ?? "300"}s interval)`);
+    console.log(`  ⓘ org daemon armed (${process.env.NAXION_ORG_DAEMON_CYCLE_SECONDS ?? "300"}s interval)`);
   }
 
   // Extension health scheduler — hourly test-all + alert (primary-only).
@@ -724,7 +724,7 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // registered into the new orchestration core (scheduler-registry.ts).
   // Primary-only, same reasoning as every other scheduler above.
   if (config.role === "primary") {
-    try { startGithubWatcher(); console.log(`  ⓘ github watcher armed (${process.env.NEUROWORKS_GITHUB_WATCH_INTERVAL_SECONDS ?? "300"}s interval)`); }
+    try { startGithubWatcher(); console.log(`  ⓘ github watcher armed (${process.env.NAXION_GITHUB_WATCH_INTERVAL_SECONDS ?? "300"}s interval)`); }
     catch (e: any) { console.warn(`  ⚠ github watcher failed: ${e?.message ?? e}`); }
   }
 
@@ -750,7 +750,7 @@ const server = app.listen(config.port, config.bindHost, async () => {
 
   // Email bridge — inbound IMAP poll + outbound SMTP so users can drive
   // clawbot over email. Primary-only (one poller for the fleet). No-ops with
-  // a log when NEUROWORKS_EMAIL_USER / NEUROWORKS_EMAIL_APP_PASSWORD aren't set.
+  // a log when NAXION_EMAIL_USER / NAXION_EMAIL_APP_PASSWORD aren't set.
   if (config.role === "primary") {
     void startEmailBridge().catch(e =>
       console.warn(`  ⚠ email bridge start failed: ${e?.message ?? e}`)
@@ -783,7 +783,7 @@ async function gracefulExit(signal: string) {
   // Hard-exit safety net: if any teardown step wedges (a hung socket, a stuck
   // flush), don't hang the container forever — force exit after a bounded grace
   // period so the orchestrator's SIGKILL never has to.
-  const graceMs = Number(process.env.NEUROWORKS_SHUTDOWN_GRACE_MS ?? "12000") || 12000;
+  const graceMs = Number(process.env.NAXION_SHUTDOWN_GRACE_MS ?? "12000") || 12000;
   const hardKill = setTimeout(() => {
     console.warn(`  ⚠ shutdown grace (${graceMs}ms) elapsed — forcing exit`);
     process.exit(1);

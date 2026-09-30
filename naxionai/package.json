@@ -14,7 +14,7 @@
     "dev": "concurrently -n server,web -c cyan,magenta \"pnpm -F neuroworks-server dev\" \"pnpm -F neuroworks-web dev\"",
     "dev:theia": "concurrently -n server,web,theia -c cyan,magenta,yellow \"pnpm -F neuroworks-server dev\" \"pnpm -F neuroworks-web dev\" \"pnpm -F @naxion/theia-app theia start --port 7472\"",
     "neuroworks": "pnpm dev",
-    "secondary": "cross-env NEUROWORKS_NAME=secondary NEUROWORKS_ROLE=persona-shifter NEUROWORKS_PORT=7473 NEUROWORKS_PEERS=http://127.0.0.1:7471 NEUROWORKS_SUBAGENT_BUDGET=4 NEUROWORKS_IO_BUDGET=8 pnpm -F neuroworks-server dev"
+    "secondary": "cross-env NAXION_NAME=secondary NAXION_ROLE=persona-shifter NAXION_PORT=7473 NAXION_PEERS=http://127.0.0.1:7471 NAXION_SUBAGENT_BUDGET=4 NAXION_IO_BUDGET=8 pnpm -F neuroworks-server dev"
   },
   "dependencies": {
     "@octokit/rest": "^21.0.2",

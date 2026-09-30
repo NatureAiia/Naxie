@@ -27,7 +27,7 @@
  * the only copies that will ever exist.
  *
  * Path resolution lives here too. Only 15 of ~53 writers honoured
- * NEUROWORKS_STATE_DIR; the rest hardcoded `resolve(__dirname, "../../../.neuroworks")`,
+ * NAXION_STATE_DIR; the rest hardcoded `resolve(__dirname, "../../../.neuroworks")`,
  * so a test that imported one wrote to the operator's real state (that is how
  * two Postgres connection strings were destroyed — commit e439344). Modules that
  * take their path from `statePath()` cannot have that bug.
@@ -41,10 +41,10 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/** The state directory, honouring NEUROWORKS_STATE_DIR. Read every call, never cached. */
+/** The state directory, honouring NAXION_STATE_DIR. Read every call, never cached. */
 export function stateDir(): string {
-  return process.env.NEUROWORKS_STATE_DIR
-    ? resolve(process.env.NEUROWORKS_STATE_DIR)
+  return process.env.NAXION_STATE_DIR
+    ? resolve(process.env.NAXION_STATE_DIR)
     : resolve(__dirname, "../../../.neuroworks");
 }
 

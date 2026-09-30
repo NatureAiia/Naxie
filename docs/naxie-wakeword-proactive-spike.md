@@ -37,7 +37,7 @@ Covers `docs/naxie-architecture.md` §2.1 (wake-word), §2.4/§6 (`agency_daemon
 
 **Phase 2b — Host-level mic (true tab-less, after §2.0 service lands):**
 * Add `lib/wake-word-host.ts` daemon: `node-record-lpcm16` (or `mic`) → `vosk.Model` + `KaldiRecognizer` with same grammar JSON (`_PHONETIC_VARIANTS` ported verbatim). Runs inside the Windows Service process, no browser involved. Emits `wake` event → same `notifyAttention` toast / orb state as Phase 2a, and optionally auto-starts a short capture window for the follow-up command (sent to `voice.py`-style Whisper or directly to `/api/voice/converse`).
-* Native-deps gate: behind `NEUROWORKS_WAKE_WORD_HOST=1` env flag; auto-detects missing `sox`/`vosk` native and degrades to Phase 2a with a `voiceStatus` hint, same degrade posture as Python's `get_vosk_model()->None`.
+* Native-deps gate: behind `NAXION_WAKE_WORD_HOST=1` env flag; auto-detects missing `sox`/`vosk` native and degrades to Phase 2a with a `voiceStatus` hint, same degrade posture as Python's `get_vosk_model()->None`.
 
 **Shared contract (both phases):**
 * Grammar = `JSON.stringify(sorted(expandPhrase(phrase)) + ["[unk]"])` — port `wake_word.py:67` `_build_grammar` exactly, including the `_PHONETIC_VARIANTS` dict.
@@ -78,12 +78,12 @@ type NaxieInteractions = {
 
 | Param | `agency_daemon.py` | Proposed TS |
 |---|---|---|
-| Idle threshold | `CHAT_IDLE_THRESHOLD_HRS = 2` | `NEUROWORKS_CHAT_IDLE_HRS` env, default `2` (same) |
+| Idle threshold | `CHAT_IDLE_THRESHOLD_HRS = 2` | `NAXION_CHAT_IDLE_HRS` env, default `2` (same) |
 | Throttle | `last_idle_chat_nudge` column | `lastNudgeAt` in same JSON file; check `now - lastNudge >= threshold` |
 | Guard | `if not last_msg: return` | `if not lastInteractionAt: return` (never chatted → no check-in) |
 | Content | `agent.llm.generate_completion` with `preferred_name` + `prefs_text` | `llmGenerate` with `getOperatorIdentity().name` + `buildMagContext()` facts (operator facts), same 1-3 sentence warm check-in prompt (`agency_daemon.py:454`) |
 | Delivery | `chat_push(user_id, msg, "naxie")` | `notifyAttention("Naxie — checking in", msg, {actor:"naxie"})` + `logAudit("naxie","nudge.chat_checkin",...)` — respects `docs/naxie-architecture.md:234` silent-until-engaged (badge/toast, never unsolicited voice) |
-| Env tuning | hardcoded | `NEUROWORKS_CHAT_NUDGE_ENABLED=0` to disable; threshold/throttle via env |
+| Env tuning | hardcoded | `NAXION_CHAT_NUDGE_ENABLED=0` to disable; threshold/throttle via env |
 
 * Tests: pure `maybeNudgeChatInactivity(now)` with injected `lastInteractionAt`/`lastNudgeAt` — same `now` param pattern `org-daemon.ts:59` already uses for `maybeNudgePendingApprovals`.
 
@@ -100,7 +100,7 @@ type NaxieInteractions = {
 
 **Daemon behavior (`org-daemon.ts` new `maybeRunProactiveResearch(now)`):**
 
-* Cadence: `PROACTIVE_RESEARCH_HRS = 2` → `NEUROWORKS_PROACTIVE_RESEARCH_HRS` env, default `4` (more conservative than Python's 2h — PA research every 2h was noisy in `agency_daemon.py`'s own throttle comments). Throttle timestamp `lastResearchAt` in same `.neuroworks/naxie-interactions.json` or a dedicated `.neuroworks/research-state.json` — either works, keep it one file for simplicity.
+* Cadence: `PROACTIVE_RESEARCH_HRS = 2` → `NAXION_PROACTIVE_RESEARCH_HRS` env, default `4` (more conservative than Python's 2h — PA research every 2h was noisy in `agency_daemon.py`'s own throttle comments). Throttle timestamp `lastResearchAt` in same `.neuroworks/naxie-interactions.json` or a dedicated `.neuroworks/research-state.json` — either works, keep it one file for simplicity.
 * LLM prompt: ports `agency_daemon.py:332` structure but with TS sources:
 
 ```
@@ -115,7 +115,7 @@ Task: surface 2-3 actionable opportunities + 1 angle to watch, ≤250 words, gro
 ```
 
 * Delivery: same `notifyAttention` (toast + in-app briefing card) as `maybeGenerateBriefing` — **not** an auto-created `OrgTask` (research is a digest, not a backlog item). Optionally `noteFact(subject="research", fact=summary)` so next turn's MAG remembers it.
-* Disable: `NEUROWORKS_PROACTIVE_RESEARCH_ENABLED=0` (default **OFF** until interests or sector exist — avoids empty "researching nothing" runs on a fresh install).
+* Disable: `NAXION_PROACTIVE_RESEARCH_ENABLED=0` (default **OFF** until interests or sector exist — avoids empty "researching nothing" runs on a fresh install).
 * Tests: topic-source resolver is pure (`resolveResearchTopics({ interestsFile, sector, magSubjects }) -> string[]`); daemon tick respects throttle and disabled flag.
 
 ### 2.4 Relationship to existing daemon & briefing
@@ -143,6 +143,6 @@ tick: sweepStale → reconcile → nudgeApprovals → backup → architect → b
 2. **Interactions persistence** (≈0.5 day): `.neuroworks/naxie-interactions.json` + `touchInteraction()` called from `voice.ts:89` + `naxie.ts:91` + `chat.ts`.
 3. **Chat check-in** (≈0.5 day): `org-daemon.ts: maybeNudgeChatInactivity` + `notifyAttention`, env flags, tests.
 4. **Research interests + spec** (≈1 day): `vault/_neuroworks/interests.md` + `routes/naxie.ts` interests endpoints, `Onboarding.tsx` field, `org-daemon.ts: maybeRunProactiveResearch` with ordered topic resolver, env flags, tests.
-5. **Host mic 2b** (deferred until §2.0 service): `lib/wake-word-host.ts` + `NEUROWORKS_WAKE_WORD_HOST` gate.
+5. **Host mic 2b** (deferred until §2.0 service): `lib/wake-word-host.ts` + `NAXION_WAKE_WORD_HOST` gate.
 
 Each lands with `vitest run` + `tsc --noEmit` per `docs/naxie-architecture.md:273` "after each phase" rule.

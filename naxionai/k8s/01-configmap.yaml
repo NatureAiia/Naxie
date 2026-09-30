@@ -18,7 +18,7 @@
 #     always running — this is where "3-5 containers, always up, for scale"
 #     actually comes from. Dial peer replicas down (e.g. to 3) in
 #     04-peers.yaml if 5 is more than your cluster/inference capacity needs
-#     — just keep 03-primary.yaml's NEUROWORKS_PEERS list in sync.
+#     — just keep 03-primary.yaml's NAXION_PEERS list in sync.
 #
 # Each pod gets its OWN state + vault volume (never shared across pods — RWO
 # block storage can't multi-attach across nodes anyway). The vault stays in
@@ -36,10 +36,10 @@
 #     inference itself scales (OLLAMA_NUM_PARALLEL, multiple Ollama replicas,
 #     or a paid cloud tier).
 #   • VAULT_REPO / GITHUB_OWNER — your vault's git remote.
-#   • NEUROWORKS_ALLOWED_HOSTS — the real hostname you'll reach this through
+#   • NAXION_ALLOWED_HOSTS — the real hostname you'll reach this through
 #     (Ingress host, LoadBalancer DNS, etc.) — the origin-guard 403s anything
 #     not on this list.
-#   • Everything in 02-secret.example.yaml, especially NEUROWORKS_SECRET_KEY
+#   • Everything in 02-secret.example.yaml, especially NAXION_SECRET_KEY
 #     (see the comment there — this one is not optional in a real deployment).
 #
 # NOT verified against a live cluster in this session (no docker/kubectl
@@ -55,8 +55,8 @@ metadata:
   name: neuroworks-config
   namespace: neuroworks
 data:
-  NEUROWORKS_PORT: "7471"
-  NEUROWORKS_BIND_HOST: "0.0.0.0"
+  NAXION_PORT: "7471"
+  NAXION_BIND_HOST: "0.0.0.0"
   VAULT_PATH: "/data/vault"
   # Enterprise auth gate — OFF by default in the app because a loopback-bound
   # single instance doesn't need it. A multi-pod cluster reachable over the
@@ -64,12 +64,12 @@ data:
   # via Ingress) is exactly the "reachable from a wider network" case
   # enterprise-auth.ts exists for. Must be "1" here — see risk-note.md and
   # server/src/lib/enterprise-auth.ts.
-  NEUROWORKS_ENTERPRISE_MODE: "1"
+  NAXION_ENTERPRISE_MODE: "1"
   # CHANGEME — the hostname you'll actually reach the primary through
   # (Ingress host / LoadBalancer external DNS / port-forward host). Comma-
   # separated for more than one. The origin-guard 403s any Host header not
   # on this list — see server/src/lib/origin-guard.ts.
-  NEUROWORKS_ALLOWED_HOSTS: "neuroworks.CHANGEME.example.com"
+  NAXION_ALLOWED_HOSTS: "neuroworks.CHANGEME.example.com"
   # CHANGEME — point at a real Ollama. Nothing in these manifests deploys one.
   OLLAMA_HOST: "http://ollama.CHANGEME.svc.cluster.local:11434"
   OLLAMA_MODEL: "qwen2.5:3b"
@@ -79,5 +79,5 @@ data:
   GITHUB_OWNER: "CHANGEME"
   # In-cluster scale-out replaces the single-host managed-worker pool and
   # localhost auto-discovery — both are meaningless/wasteful across pods.
-  NEUROWORKS_AUTO_SPAWN_WORKER: "0"
-  NEUROWORKS_NO_AUTODISCOVER: "1"
+  NAXION_AUTO_SPAWN_WORKER: "0"
+  NAXION_NO_AUTODISCOVER: "1"

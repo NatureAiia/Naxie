@@ -48,7 +48,7 @@ export type PersonaStore = {
 };
 
 // The Personal Assistant's own visible identity — the single entity the
-// customer always talks to in chat, distinct from BUILTIN_NEUROWORKS_PERSONA
+// customer always talks to in chat, distinct from BUILTIN_NAXION_PERSONA
 // ("Neuro"), which remains the internal working-voice persona used for vault
 // authorship attribution. Hired personas do the work; Naxie is who reports
 // back. Not part of the hireable catalog — this is display identity only.
@@ -67,7 +67,7 @@ export function isMasterEmployee(personaId: string | null | undefined): boolean 
 }
 
 // Naxie PA — the first point of contact. Wired to Telegram (telegram-bridge.ts)
-// via NEUROWORKS_TELEGRAM_PERSONA=naxie. Triages every inbound, remembers the
+// via NAXION_TELEGRAM_PERSONA=naxie. Triages every inbound, remembers the
 // operator, and delegates to specialists when needed.
 export const BUILTIN_NAXIE_PERSONA: Persona = {
   id: "naxie",
@@ -128,7 +128,7 @@ let personasSyncDirty = false;
 // filtered by `persona: clawbot` in their frontmatter. The systemPromptOverride
 // is what drives the structured-output style on the Results page (no markdown
 // bullet noise unless lists are genuinely listy).
-export const BUILTIN_NEUROWORKS_PERSONA: Persona = {
+export const BUILTIN_NAXION_PERSONA: Persona = {
   id: "clawbot",
   name: "Neuro",
   role: "AI agent operator",
@@ -372,7 +372,7 @@ How you operate:
 // blocks were removed outright rather than left dead in the file.
 export const BUILTIN_PERSONAS: Persona[] = [
   BUILTIN_NAXIE_PERSONA,
-  BUILTIN_NEUROWORKS_PERSONA,
+  BUILTIN_NAXION_PERSONA,
   BUILTIN_RESEARCHER_PERSONA,
   BUILTIN_KNOWITALL_PERSONA,
   BUILTIN_ENGINEER_PERSONA,
@@ -525,7 +525,7 @@ export function deletePersona(id: string): boolean {
 export function setActivePersona(id: string | null): Persona | null {
   const s = loadPersonas();
   if (id === null) { s.activeId = null; savePersonaStore(s); return null; }
-  if (id === BUILTIN_NEUROWORKS_PERSONA.id) throw new Error("clawbot is an internal tool, not an activatable persona");
+  if (id === BUILTIN_NAXION_PERSONA.id) throw new Error("clawbot is an internal tool, not an activatable persona");
   const p = s.personas.find(x => x.id === id);
   if (!p) throw new Error(`persona not found: ${id}`);
   s.activeId = id;
@@ -540,7 +540,7 @@ export function setActivePersona(id: string | null): Persona | null {
 // path calls this for formatting-heavy drafting or vault-authorship
 // sub-tasks where Clawbot's structured-document style is the better fit.
 export async function runAsClawbot(prompt: string): Promise<string> {
-  const suffix = personaSystemSuffix(BUILTIN_NEUROWORKS_PERSONA);
+  const suffix = personaSystemSuffix(BUILTIN_NAXION_PERSONA);
   return ollamaGenerate(prompt, suffix);
 }
 

@@ -319,8 +319,8 @@ export function lastWeeklyImprovement(): WeeklyImprovementResult | null { return
 
 function scheduleConfig(): { dow: number; hour: number } {
   return {
-    dow: Number(process.env.NEUROWORKS_WEEKLY_IMPROVEMENT_DOW ?? "0"),
-    hour: Number(process.env.NEUROWORKS_WEEKLY_IMPROVEMENT_HOUR ?? "10"),
+    dow: Number(process.env.NAXION_WEEKLY_IMPROVEMENT_DOW ?? "0"),
+    hour: Number(process.env.NAXION_WEEKLY_IMPROVEMENT_HOUR ?? "10"),
   };
 }
 

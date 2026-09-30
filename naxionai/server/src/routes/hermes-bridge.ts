@@ -120,14 +120,14 @@ hermesBridgeRouter.post("/register", (_req, res) => {
   if (scan.registered) {
     return res.json({ ok: true, alreadyRegistered: true, status: status() });
   }
-  const base = process.env.NEUROWORKS_BASE ?? "http://127.0.0.1:7471";
+  const base = process.env.NAXION_BASE ?? "http://127.0.0.1:7471";
   const argsLine = `["${BRIDGE_SCRIPT_PATH.replace(/\\/g, "/")}"]`;
   const entryLines = [
     `  ${SERVER_NAME}:`,
     `    command: "node"`,
     `    args: ${argsLine}`,
     "    env:",
-    `      NEUROWORKS_BASE: "${base}"`,
+    `      NAXION_BASE: "${base}"`,
     "    enabled: true",
     "    trust: full",
   ];

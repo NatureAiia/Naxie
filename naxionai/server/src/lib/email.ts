@@ -10,7 +10,7 @@
 // Outbound: SMTP via the same Gmail account.
 //
 // SECURITY — inbound is an external trust boundary. We ONLY act on mail from
-// addresses on NEUROWORKS_EMAIL_ALLOWED_SENDERS. If that list is empty, inbound
+// addresses on NAXION_EMAIL_ALLOWED_SENDERS. If that list is empty, inbound
 // processing is DISABLED (outbound send still works). Fail-safe: an open
 // inbound bridge would let anyone email-trigger jobs against the user's machine
 // and vault. The allow-list gates WHO may drive clawbot.
@@ -98,19 +98,19 @@ type GlobalEmailConfig = {
 };
 
 export function readGlobalConfig(): GlobalEmailConfig {
-  const allowedSenders = (process.env.NEUROWORKS_EMAIL_ALLOWED_SENDERS ?? "")
+  const allowedSenders = (process.env.NAXION_EMAIL_ALLOWED_SENDERS ?? "")
     .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-  const pollMs = Math.max(10_000, Number(process.env.NEUROWORKS_EMAIL_POLL_MS ?? "30000") || 30_000);
-  const mailjetApiKey = (process.env.NEUROWORKS_MAILJET_API_KEY ?? "").trim();
-  const mailjetApiSecret = (process.env.NEUROWORKS_MAILJET_API_SECRET ?? "").trim();
-  const rawMode = (process.env.NEUROWORKS_EMAIL_INBOUND_MODE ?? "").trim().toLowerCase();
+  const pollMs = Math.max(10_000, Number(process.env.NAXION_EMAIL_POLL_MS ?? "30000") || 30_000);
+  const mailjetApiKey = (process.env.NAXION_MAILJET_API_KEY ?? "").trim();
+  const mailjetApiSecret = (process.env.NAXION_MAILJET_API_SECRET ?? "").trim();
+  const rawMode = (process.env.NAXION_EMAIL_INBOUND_MODE ?? "").trim().toLowerCase();
   const inboundMode: InboundMode = rawMode === "webhook" || rawMode === "off" ? rawMode : "imap";
-  const replyTo = (process.env.NEUROWORKS_EMAIL_REPLY_TO ?? "").trim();
-  const triageMode = (process.env.NEUROWORKS_EMAIL_TRIAGE_MODE ?? "").trim().toLowerCase() === "1";
+  const replyTo = (process.env.NAXION_EMAIL_REPLY_TO ?? "").trim();
+  const triageMode = (process.env.NAXION_EMAIL_TRIAGE_MODE ?? "").trim().toLowerCase() === "1";
   return { allowedSenders, pollMs, mailjetApiKey, mailjetApiSecret, inboundMode, replyTo, triageMode };
 }
 
-// The inbound allow-list used to be ONLY the static NEUROWORKS_EMAIL_ALLOWED_
+// The inbound allow-list used to be ONLY the static NAXION_EMAIL_ALLOWED_
 // SENDERS list — every registered org user had to be manually added to .env to
 // email the bridge and get a reply. Caught live 2026-07-21: 8 real users
 // registered (Users page) and 0 of them were on the allow-list (only two of
@@ -427,7 +427,7 @@ export async function fileAttachmentsToVault(attachments: InboundAttachment[] | 
 }
 
 // Mailjet HTTPS sender — POSTs to api.mailjet.com/v3.1/send. Used instead
-// of nodemailer.sendMail when NEUROWORKS_MAILJET_API_KEY + _SECRET are set.
+// of nodemailer.sendMail when NAXION_MAILJET_API_KEY + _SECRET are set.
 // Auth is HTTP Basic with API_KEY:SECRET. The From: address must be on a
 // domain verified in the Mailjet dashboard or the send is rejected with
 // a "sender_unverified" / domain_not_authorized style error.
@@ -486,7 +486,7 @@ async function sendViaMailjet(env: GlobalEmailConfig & { from: string }, opts: {
   }
   const text = await res.text();
   if (res.status === 401 || res.status === 403) {
-    throw new Error(`mailjet auth failed (${res.status}) — check NEUROWORKS_MAILJET_API_KEY + NEUROWORKS_MAILJET_API_SECRET`);
+    throw new Error(`mailjet auth failed (${res.status}) — check NAXION_MAILJET_API_KEY + NAXION_MAILJET_API_SECRET`);
   }
   if (!res.ok) {
     // Mailjet returns 4xx for validation errors with a useful body.
@@ -563,7 +563,7 @@ async function sendOutbound(account: EmailAccount, global: GlobalEmailConfig, op
  *  key alone is configured (outbound-only). The bridge can't poll inbound
  *  without the IMAP creds, but sendTestEmail / sendReply work either way. */
 export function emailConfigured(): boolean {
-  if (process.env.NEUROWORKS_EMAIL === "0") return false;
+  if (process.env.NAXION_EMAIL === "0") return false;
   const global = readGlobalConfig();
   const accounts = loadEmailAccounts().filter(a => a.enabled);
   const user = accounts[0]?.user ?? "";
@@ -847,7 +847,7 @@ export async function processInboundEmail(account: EmailAccount, global: GlobalE
   // Anti-spoofing: an allow-listed From is attacker-controlled until verified.
   // The IMAP path supplies a cryptographic DKIM/DMARC verdict; reject explicit
   // failures (a spoof), and unverifiable mail too when REQUIRE_AUTH=strict.
-  const strictAuth = (process.env.NEUROWORKS_EMAIL_REQUIRE_AUTH ?? "").trim().toLowerCase() === "strict";
+  const strictAuth = (process.env.NAXION_EMAIL_REQUIRE_AUTH ?? "").trim().toLowerCase() === "strict";
   if (msg.authVerdict === "fail" || (msg.authVerdict === "unknown" && strictAuth)) {
     status.skippedUnauthorized += 1;
     console.warn(`[email] rejected ${sender}: email auth ${msg.authVerdict} (DKIM/DMARC) — possible spoof`);
@@ -1106,14 +1106,14 @@ export async function startEmailBridge(): Promise<void> {
 
   const effectiveAllowedSenders = await resolveAllowedSenders(global.allowedSenders);
   if (effectiveAllowedSenders.length === 0) {
-    console.warn("  ⚠ email INBOUND disabled — no allowed senders (add users, or set NEUROWORKS_EMAIL_ALLOWED_SENDERS) (outbound send still works)");
+    console.warn("  ⚠ email INBOUND disabled — no allowed senders (add users, or set NAXION_EMAIL_ALLOWED_SENDERS) (outbound send still works)");
     return; // fail safe — never accept inbound without an allow-list
   }
 
   // ── Triage snooze reminders ──
   // Runs in all inbound modes (imap + webhook). checkSnoozedEmails is a
   // no-op when nothing is snoozed, so this is cheap when triage is empty.
-  const snoozeMs = Math.max(15 * 60_000, Number(process.env.NEUROWORKS_EMAIL_SNOOZE_REMIND_MS ?? String(4 * 3600_000)) || 4 * 3600_000);
+  const snoozeMs = Math.max(15 * 60_000, Number(process.env.NAXION_EMAIL_SNOOZE_REMIND_MS ?? String(4 * 3600_000)) || 4 * 3600_000);
   const snoozeTick = () => {
     void checkSnoozedEmails().catch(e =>
       console.warn(`[email] snooze reminder failed: ${e?.message ?? e}`));
@@ -1129,7 +1129,7 @@ export async function startEmailBridge(): Promise<void> {
   }
   if (global.inboundMode === "off") {
     started = true;
-    console.log("  ⓘ email inbound OFF (NEUROWORKS_EMAIL_INBOUND_MODE=off) — outbound only · snooze reminders active");
+    console.log("  ⓘ email inbound OFF (NAXION_EMAIL_INBOUND_MODE=off) — outbound only · snooze reminders active");
     return;
   }
 
@@ -1395,7 +1395,7 @@ export async function sendEmail(opts: {
 }): Promise<{ ok: true; transport: "mailjet" | "smtp"; from: string; to: string; recipients: string[]; subject: string; sentAt: string; attachments?: { filename: string; bytes: number }[] }> {
   const global = readGlobalConfig();
   const accounts = loadEmailAccounts().filter(a => a.enabled);
-  if (!emailConfigured()) throw new Error("email not configured — set NEUROWORKS_MAILJET_API_KEY + _SECRET, or provide enabled accounts in email-accounts.json");
+  if (!emailConfigured()) throw new Error("email not configured — set NAXION_MAILJET_API_KEY + _SECRET, or provide enabled accounts in email-accounts.json");
   
   // Default to the first enabled account for general sends
   const account = accounts[0];

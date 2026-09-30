@@ -126,7 +126,7 @@ export function WhatsApp() {
             <div className="flex items-start gap-2 text-sm text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
               <AlertTriangle size={16} className="shrink-0 mt-0.5" />
               <div>
-                The bridge isn't running — either <code className="text-xs">NEUROWORKS_WHATSAPP_INBOUND=0</code> is set,
+                The bridge isn't running — either <code className="text-xs">NAXION_WHATSAPP_INBOUND=0</code> is set,
                 the server hasn't started it yet, or it's logged out. Try Generate new QR, or check the server logs.
               </div>
             </div>
