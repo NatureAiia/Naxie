@@ -34,7 +34,7 @@ const vaultPath = resolve(vaultPathRaw);
 const localFilesPathRaw = pick("LOCAL_FILES_PATH", "C:\\NaxieFiles");
 const localFilesPath = resolve(localFilesPathRaw);
 const ollamaHost = pick("OLLAMA_HOST", "http://127.0.0.1:11434");
-const ollamaModel = pick("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0");
+const ollamaModel = pick("OLLAMA_MODEL", "llama3.1:8b-instruct-q4_K_M");
 // Google/Microsoft OAuth (authorization-code flow) for the personal connectors
 // — ported from naxionai/backend/api/{google,microsoft}_connector.py. Optional:
 // each platform is simply unavailable (authorize returns 400) until its client

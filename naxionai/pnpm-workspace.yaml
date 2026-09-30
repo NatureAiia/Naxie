@@ -5,18 +5,24 @@ packages:
 shamefully-hoist: true
 allowBuilds:
   '@parcel/watcher': true
-  '@theia/ffmpeg': true
+  # '@theia/ffmpeg' needs VS Build Tools (node-gyp) — not installed on this
+  # box, so its build is skipped. Theia IDE is opt-in (dev:theia) and unused
+  # by the server+web stack; re-enable if the IDE surface is ever needed.
+  '@theia/ffmpeg': false
   '@whiskeysockets/baileys': true
-  cpu-features: set this to true or false
+  # cpu-features / find-git-repositories / puppeteer / ssh2 were pnpm's
+  # unresolved placeholders — pinned to safe values. puppeteer (theia-only,
+  # downloads Chrome) stays off like @theia/ffmpeg above.
+  cpu-features: false
   drivelist: true
   esbuild: true
-  find-git-repositories: set this to true or false
+  find-git-repositories: false
   keytar: true
-  msgpackr-extract: set this to true or false
+  msgpackr-extract: true
   node-pty: true
   protobufjs: true
-  puppeteer: set this to true or false
-  ssh2: set this to true or false
+  puppeteer: false
+  ssh2: false
   tesseract.js: true
 overrides:
   drivelist: "file:theia/packages/app/shims/drivelist-mock"
