@@ -4,6 +4,7 @@
 // monitors. Env secrets are NEVER returned — only prefix + enabled/health.
 
 import { config } from "../config.js";
+import { listProviders } from "./model-providers.js";
 import { llmHealth } from "./llm.js";
 import { recordHealth } from "./extension-health.js";
 import { isThrottled, recordCircuit, getCircuitState } from "./extension-circuit.js";
@@ -44,6 +45,37 @@ export const EXTENSION_CATALOG: ExtensionDef[] = [
     docsUrl: "https://ollama.com",
     testable: true,
     connectHint: "Set OLLAMA_HOST (default http://127.0.0.1:11434) and pull a model with `ollama pull llama3.1:8b`.",
+  },
+  {
+    id: "ollama-cloud",
+    name: "Ollama Cloud",
+    category: "llm",
+    description: "Hosted Ollama models (gpt-oss, deepseek, gemma…). Managed on the Models page provider registry.",
+    envKey: "OLLAMA_API_KEY",
+    docsUrl: "https://ollama.com",
+    testable: false,
+    connectHint: "Add an Ollama Cloud provider on the Models page (or set OLLAMA_API_KEY in neuroworks/.env).",
+  },
+  {
+    id: "gemini",
+    name: "Google Gemini",
+    category: "llm",
+    description: "Gemini via its OpenAI-compatible endpoint. Managed on the Models page provider registry.",
+    envKey: "GEMINI_API_KEY",
+    envKeys: ["GEMINI_SMALL_MODEL", "GEMINI_LARGE_MODEL"],
+    docsUrl: "https://aistudio.google.com/apikey",
+    testable: false,
+    connectHint: "Add a Google (Gemini) provider on the Models page (or set GEMINI_API_KEY in neuroworks/.env).",
+  },
+  {
+    id: "nvidia",
+    name: "NVIDIA NIM",
+    category: "llm",
+    description: "NVIDIA Build models via the OpenAI-compatible NIM endpoint. Register as a Custom provider.",
+    envKey: "NVIDIA_API_KEY",
+    docsUrl: "https://build.nvidia.com",
+    testable: false,
+    connectHint: "Set NVIDIA_API_KEY in neuroworks/.env, then add it as a Custom provider on the Models page.",
   },
   {
     id: "supabase",
@@ -127,10 +159,17 @@ export async function getExtensionsStatus(): Promise<ExtensionStatus[]> {
   let llm: Awaited<ReturnType<typeof llmHealth>> | null = null;
   try { llm = await llmHealth(); } catch { /* treat as unknown */ }
 
+  // Model-provider registry state (Models page) — the LLM cloud providers
+  // below are managed there, not purely by env, so the Platform APIs tab
+  // reflects registry truth (registered? active? which model?).
+  let providers: ReturnType<typeof listProviders> = [];
+  try { providers = listProviders(); } catch { /* registry unreadable — fall back to env presence */ }
+  const registry = (kind: string) => providers.filter(p => p.kind === kind);
+
   return EXTENSION_CATALOG.map((def) => {
     const raw = (process.env[def.envKey] ?? "").trim();
-    const enabled = !!raw || (def.id === "ollama" && !!config.ollamaHost);
-    const configured = !!raw;
+    let enabled = !!raw || (def.id === "ollama" && !!config.ollamaHost);
+    let configured = !!raw;
     let detail = "";
     let model: string | undefined;
     let health: { ok: boolean; detail: string } | undefined;
@@ -147,6 +186,35 @@ export async function getExtensionsStatus(): Promise<ExtensionStatus[]> {
         model = config.ollamaModel;
         if (llm?.ollama) health = { ok: llm.ollama.ok, detail: llm.ollama.error ?? `model ${llm.ollama.model}` };
         detail = health ? (health.ok ? `Model ${model} at ${config.ollamaHost}` : health.detail) : `${config.ollamaHost} / ${model}`;
+        break;
+      }
+      case "ollama-cloud": {
+        const reg = registry("ollama_cloud");
+        const active = reg.find(p => p.active);
+        configured = configured || reg.length > 0;
+        enabled = configured;
+        model = active?.model;
+        if (active) detail = `Active: ${active.model} (${active.label})`;
+        else if (reg.length > 0) detail = `${reg.length} provider(s) registered, none active — activate one on the Models page`;
+        else if (configured) detail = `Key set (${prefixOf(raw)}) — add as a provider on the Models page to use it`;
+        else detail = "Not configured — add an Ollama Cloud provider on the Models page";
+        break;
+      }
+      case "gemini": {
+        const reg = registry("gemini");
+        const active = reg.find(p => p.active);
+        configured = configured || reg.length > 0;
+        enabled = configured;
+        model = active?.model ?? (((process.env.GEMINI_SMALL_MODEL ?? "").trim()) || undefined);
+        if (active) detail = `Active: ${active.model} (${active.label})`;
+        else if (reg.length > 0) detail = `${reg.length} provider(s) registered, none active — activate one on the Models page`;
+        else if (configured) detail = `Key set (${prefixOf(raw)}) — add as a provider on the Models page to use it`;
+        else detail = "Not configured — add a Google (Gemini) provider on the Models page";
+        break;
+      }
+      case "nvidia": {
+        if (configured) detail = `Key set (${prefixOf(raw)}) — register as a Custom provider on the Models page to use it`;
+        else detail = "Not configured — set NVIDIA_API_KEY, then register as a Custom provider";
         break;
       }
       case "supabase": {

@@ -17,6 +17,7 @@ import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { scanForSecurityRisks } from "../lib/security.js";
 import { nextSkillVersion } from "../lib/skill-version.js";
+import { listSkills } from "../lib/skills.js";
 
 export const extensionsRouter = Router();
 
@@ -354,12 +355,12 @@ extensionsRouter.post("/export/:id", async (req, res) => {
     try {
       version = nextSkillVersion(existsSync(dest) ? readFileSync(dest, "utf8") : null, req.body?.version ? String(req.body.version) : undefined);
     } catch { version = "1.0.1"; }
-    const frontmatter = `---\nname: ${slug}\ndescription: "${description.replace(/"/g, "'")} — auto-exported from Extensions marketplace"\napplies_to: [${kind === "integration" ? '"integration"' : '"connector"'}]\nversion: ${version}\n---\n`;
+    const frontmatter = `---\nname: ${slug}\ndescription: "${description.replace(/"/g, "'")} — auto-exported from Skills"\napplies_to: [${kind === "integration" ? '"integration"' : '"connector"'}]\nversion: ${version}\n---\n`;
     const body = `# ${label}
 
 ${description}
 
-> Auto-exported from **Extensions → Marketplace** on ${new Date().toISOString()}. This skill teaches the agent how to use the \`${label}\` ${kind}.
+> Auto-exported from **Skills** on ${new Date().toISOString()}. This skill teaches the agent how to use the \`${label}\` ${kind}.
 
 ## Connection
 ${detailLines.map(l => `- ${l}`).join("\n")}
@@ -415,24 +416,23 @@ Audit is at \`GET /api/audit?action=webhook\`.
   }
 });
 
-// Marketplace listing — versioned skills in skills/_user
+// Marketplace listing — DEPRECATED. The Marketplace tab is gone; versioned
+// user skills now live on the Skills page (GET /api/skills, which carries
+// version + mtime per skill). This endpoint stays as a thin compat shim over
+// the same skills lib so old clients don't 404 — same { skills } shape as
+// before, sourced from listSkills() instead of a second hand-rolled parser.
 extensionsRouter.get("/marketplace", (_req, res) => {
   try {
-    const __dir = dirname(fileURLToPath(import.meta.url));
-    const SKILLS_USER2 = resolve(__dir, "../skills/_user");
-    if (!existsSync(SKILLS_USER2)) return res.json({ skills: [] });
-    const files = readdirSync(SKILLS_USER2).filter(f => f.endsWith(".md"));
-    const skills = files.map(f => {
-      try {
-        const raw = readFileSync(join(SKILLS_USER2, f), "utf8");
-        const nameM = raw.match(/^name:\s*(.+)$/m);
-        const descM = raw.match(/^description:\s*(.+)$/m);
-        const verM = raw.match(/^version:\s*([0-9.]+)$/m);
-        let mtime: string | null = null;
-        try { mtime = statSync(join(SKILLS_USER2, f)).mtime.toISOString(); } catch {}
-        return { filename: f, name: nameM ? nameM[1].trim() : f.replace(/\.md$/, ""), description: descM ? descM[1].trim().replace(/^"|"$/g, "") : "", version: verM ? verM[1].trim() : "0.0.0", mtime };
-      } catch { return null; }
-    }).filter(Boolean);
+    const skills = listSkills()
+      .filter(s => s.source === "user")
+      .map(s => ({
+        filename: s.path.split(/[\\/]/).pop() ?? `${s.name}.md`,
+        name: s.name,
+        description: s.description,
+        version: s.version ?? "0.0.0",
+        mtime: s.mtime ?? null,
+      }));
+    res.setHeader("Deprecation", "true");
     res.json({ skills });
   } catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
 });

@@ -526,7 +526,7 @@ export const api = {
   jobStream: (id: string): EventSource => new EventSource(`/api/tasks/jobs/${encodeURIComponent(id)}/stream`),
   listSkills: () => req<{
     count: number;
-    skills: { name: string; description: string; source: "builtin" | "user" | "remote"; applies_to: string[]; bodyChars: number }[];
+    skills: { name: string; description: string; source: "builtin" | "user" | "remote"; applies_to: string[]; bodyChars: number; version?: string | null; mtime?: string | null }[];
     issues: { file: string; source: "builtin" | "user" | "remote"; error: string }[];
   }>("/api/skills"),
   getSkill: (name: string) => req<{
@@ -536,6 +536,8 @@ export const api = {
     applies_to: string[];
     path: string;
     body: string;
+    version?: string | null;
+    mtime?: string | null;
   }>(`/api/skills/${encodeURIComponent(name)}`),
   listGovernance: () => req<{ policies: GovernancePolicy[]; prefixBytes: number; prefixActive: boolean }>("/api/governance"),
   getGovernance: (name: string) => req<{ name: string; path: string; body: string }>(`/api/governance/${encodeURIComponent(name)}`),

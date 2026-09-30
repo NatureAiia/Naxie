@@ -45,6 +45,8 @@ type SkillRow = {
   source: "builtin" | "user" | "remote";
   applies_to: string[];
   bodyChars: number;
+  version?: string | null;
+  mtime?: string | null;
 };
 
 type FullSkill = {
@@ -54,6 +56,8 @@ type FullSkill = {
   applies_to: string[];
   path: string;
   body: string;
+  version?: string | null;
+  mtime?: string | null;
 };
 
 type SkillIssue = { file: string; source: "builtin" | "user" | "remote"; error: string };
@@ -156,11 +160,16 @@ function SkillsCatalog() {
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="font-mono text-sm text-cream-100 truncate">{s.name}</div>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
-                  s.source === "builtin" ? "bg-ink-800 text-cream-300/70"
-                    : s.source === "user" ? "bg-violet-500/15 text-violet-300"
-                    : "bg-coral-500/15 text-coral-300"
-                }`}>{s.source}</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  {s.version && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-ink-800 text-cream-300/60">v{s.version}</span>
+                  )}
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
+                    s.source === "builtin" ? "bg-ink-800 text-cream-300/70"
+                      : s.source === "user" ? "bg-violet-500/15 text-violet-300"
+                      : "bg-coral-500/15 text-coral-300"
+                  }`}>{s.source}</span>
+                </div>
               </div>
               <div className="text-xs text-cream-300/70 mt-1 line-clamp-2">{s.description}</div>
               {s.applies_to.length > 0 && (
@@ -188,6 +197,12 @@ function SkillsCatalog() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="font-display text-xl text-cream-50">{active.name}</h2>
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-ink-800 text-cream-300/70">{active.source}</span>
+                  {active.version && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-ink-800 text-cream-300/60">v{active.version}</span>
+                  )}
+                  {active.mtime && (
+                    <span className="text-[10px] text-cream-300/40 font-mono">updated {new Date(active.mtime).toLocaleDateString()}</span>
+                  )}
                 </div>
                 <p className="text-sm text-cream-300/80 mt-1">{active.description}</p>
                 {active.applies_to.length > 0 && (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Share2, Webhook, Download, LayoutGrid, DollarSign, BarChart3, TrendingUp, Calendar, Hourglass, Server } from "lucide-react";
+import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Webhook, Download, LayoutGrid, DollarSign, BarChart3, TrendingUp, Calendar, Hourglass, Server } from "lucide-react";
 import { api, type ConnectorAuthType, type RagStatus, type TimeAnalysis, type CostTrend, type RosterRow } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { Integrations } from "./Integrations";
@@ -18,13 +18,12 @@ import { GlassCard } from "../components/GlassCard";
 // pages/McpServers.tsx, and Layout.tsx's connectNav.
 // Env secrets are never returned — only prefix + enabled/health.
 
-type ExtTab = "overview" | "platform" | "integrations" | "marketplace" | "audit" | "cost";
+type ExtTab = "overview" | "platform" | "integrations" | "audit" | "cost";
 
 const TABS: { id: ExtTab; label: string; icon: any }[] = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
   { id: "platform", label: "Platform APIs", icon: Cpu },
   { id: "integrations", label: "Integrations", icon: Plug },
-  { id: "marketplace", label: "Marketplace", icon: Share2 },
   { id: "audit", label: "Audit", icon: History },
   { id: "cost", label: "AI Models & Cost", icon: DollarSign },
 ];
@@ -88,8 +87,13 @@ function ExpiryBadge({ state, days, expiresAt }: { state?: string; days?: number
 export function Extensions() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabParam = searchParams.get("tab") as ExtTab | null;
-  const tab: ExtTab = tabParam && TABS.some(t => t.id === tabParam) ? tabParam : "overview";
+  const tabParam = searchParams.get("tab");
+  // The old Marketplace tab was removed — its content (versioned user skills)
+  // now lives on the Skills page. Deep-links land there instead of overview.
+  if (tabParam === "marketplace") {
+    window.location.replace("/skills");
+  }
+  const tab: ExtTab = tabParam && TABS.some(t => t.id === tabParam) ? (tabParam as ExtTab) : "overview";
   function setTab(t: ExtTab) {
     setSearchParams(t === "overview" ? {} : { tab: t }, { replace: true });
   }
@@ -102,7 +106,6 @@ export function Extensions() {
   const [addTab, setAddTab] = useState<"integration" | "connector" | "model">("integration");
   const [rotateTarget, setRotateTarget] = useState<{ kind: "integration" | "connector"; id: string; label: string } | null>(null);
   const [scheduler, setScheduler] = useState<any>(null);
-  const [marketplace, setMarketplace] = useState<any[]>([]);
   const [ragStatus, setRagStatus] = useState<RagStatus | null>(null);
   const [ragDbUrl, setRagDbUrl] = useState("");
   const [ragEmbedKey, setRagEmbedKey] = useState("");
@@ -173,9 +176,8 @@ export function Extensions() {
   }
   useEffect(() => { void refresh(); }, []);
   useEffect(() => {
-    // scheduler + marketplace
+    // scheduler status
     fetch("/api/extensions/scheduler/status", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(setScheduler).catch(()=>{});
-    fetch("/api/extensions/marketplace", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(j=> setMarketplace(j.skills ?? [])).catch(()=>{});
     refreshRagStatus();
   }, []);
 
@@ -184,9 +186,7 @@ export function Extensions() {
       const r = await fetch(`/api/extensions/export/${encodeURIComponent(id)}`, { method: "POST", headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) }, body: JSON.stringify({ kind }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error + (j.findings ? `: ${j.findings.map((f:any)=>f.type).join(", ")}` : ""));
-      showToast(`Exported ${j.filename} v${j.version}`, "success");
-      // refresh marketplace
-      fetch("/api/extensions/marketplace", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(j=> setMarketplace(j.skills ?? [])).catch(()=>{});
+      showToast(`Exported ${j.filename} v${j.version} — view it on the Skills page`, "success");
     } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
   }
 
@@ -242,7 +242,8 @@ export function Extensions() {
       </div>
 
       {/* Tabs — Integrations & Connectors used to be separate pages; they now
-          live here alongside Platform APIs, Marketplace & Audit. */}
+          live here alongside Platform APIs & Audit. Versioned user skills
+          moved to the Skills page. */}
       <div className="flex flex-wrap gap-1 p-1 bg-ink-950 rounded-lg border border-ink-800 w-fit">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -440,30 +441,6 @@ export function Extensions() {
 
       {/* Integrations — full management UI, formerly the /integrations page */}
       {tab === "integrations" && <Integrations />}
-
-      {/* Marketplace — versioned skills */}
-      {tab === "marketplace" && (
-      <Card title={`Marketplace · ${marketplace.length} skills`} action={<Button variant="subtle" onClick={() => fetch("/api/extensions/marketplace", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=>r.json()).then(j=> setMarketplace(j.skills ?? [])).catch(()=>{})}><RefreshCw size={13} /> Refresh</Button>}>
-        <div className="text-[11px] text-cream-300/50 mb-3">Exported bundles from <span className="font-mono">skills/_user/</span> — versioned on each re-export ( <span className="font-mono">version: 1.0.0 → 1.0.1</span> ). High-severity secrets are blocked by <span className="font-mono">security.ts:14</span> scan.</div>
-        {marketplace.length === 0 ? (
-          <div className="text-sm text-cream-300/50 py-2">No exported skills yet. Click <span className="font-mono text-cream-300">Export</span> on any connector/integration to create one.</div>
-        ) : (
-          <div className="space-y-2">
-            {marketplace.map((s: any) => (
-              <div key={s.filename} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-ink-950/50 border border-ink-800">
-                <span className="w-8 h-8 rounded bg-violet-500/15 grid place-items-center text-violet-300 text-xs font-semibold">{s.name.slice(0,2).toUpperCase()}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-cream-100 flex items-center gap-1.5">{s.name} <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/60">v{s.version}</span> <span className="font-mono text-[10px] text-cream-300/40">{s.filename}</span></div>
-                  <div className="text-[11px] text-cream-300/50 truncate">{s.description || "no description"}</div>
-                  <div className="text-[10px] text-cream-300/30">skills/_user/{s.filename} · {s.mtime ? new Date(s.mtime).toLocaleDateString() : ""}</div>
-                </div>
-                <a href="/skills" className="text-[11px] text-violet-400 hover:text-violet-300">View in Skills →</a>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-      )}
 
       {/* Audit — full log, formerly the /audit page */}
       {tab === "audit" && <AuditLog />}

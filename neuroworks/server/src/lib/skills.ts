@@ -28,6 +28,8 @@ export type Skill = {
   body: string;          // full markdown body (after the frontmatter block)
   source: "builtin" | "user" | "remote";
   path: string;          // absolute path on disk
+  version?: string;      // `version:` frontmatter (user/exported skills) — was Marketplace-only, now surfaced here
+  mtime?: string;        // file modification time (ISO) — same provenance the old Marketplace tab showed
 };
 
 // Cache parsed skills by absolute path + mtime so we don't re-parse on every
@@ -87,7 +89,8 @@ function loadSkillFromDisk(fullPath: string, source: Skill["source"]): Skill | n
     }
     const description = String(meta.description ?? "(no description)").trim();
     const applies_to = Array.isArray(meta.applies_to) ? meta.applies_to.map(String) : [];
-    const skill: Skill = { name, description, applies_to, body: body.trim(), source, path: fullPath };
+    const version = meta.version !== undefined ? String(meta.version).trim().replace(/^["']|["']$/g, "") || undefined : undefined;
+    const skill: Skill = { name, description, applies_to, body: body.trim(), source, path: fullPath, version, mtime: st.mtime.toISOString() };
     cache.set(fullPath, { mtime: st.mtimeMs, skill });
     return skill;
   } catch (e: any) {

@@ -40,6 +40,10 @@ skillsRouter.get("/", (_req, res) => {
       source: s.source,
       applies_to: s.applies_to,
       bodyChars: s.body.length,
+      // Version + file mtime — the data the old Extensions → Marketplace tab
+      // showed, now served from the single skills source of truth.
+      version: s.version ?? null,
+      mtime: s.mtime ?? null,
     })),
     // Skill files that failed to load or lost a name collision on this scan —
     // never silent, same as a rejected plugin still showing up (with its
@@ -61,5 +65,7 @@ skillsRouter.get("/:name", (req, res) => {
     applies_to: skill.applies_to,
     path: skill.path,
     body: skill.body,
+    version: skill.version ?? null,
+    mtime: skill.mtime ?? null,
   });
 });
