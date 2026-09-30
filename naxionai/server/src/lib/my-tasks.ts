@@ -30,7 +30,12 @@ export type RepeatRule = { freq: "daily" | "weekly" | "monthly"; interval: numbe
 // is the only handler kind (the tree's unused "template:" path — planned for
 // planAndExecute(body, {toolAllowlist}) but never wired up — is dropped here;
 // a later pass can add it back onto this same field if it's actually needed).
-export type TaskHandler = `native:${string}`;
+//
+// "planner" is that later pass: dispatches the item's own title+notes
+// through planAndExecute with its automation.tools as a hard allowlist —
+// what makes spawnSubtask's children (below) actually executable, not just
+// inert records.
+export type TaskHandler = `native:${string}` | "planner";
 
 export type TaskAutomation = {
   enabled: boolean;
@@ -64,6 +69,10 @@ export type TaskItem = {
   // Present only on tasks the operator has turned into a scheduled
   // automation (see TaskAutomation above) — absent on every plain to-do.
   automation?: TaskAutomation;
+  // Present only on a task spawned by spawnSubtask() below — absent on
+  // every task the operator created directly. Parent is folder-nesting's
+  // flat-store equivalent: no separate tree, just this one id.
+  parentId?: string;
 };
 
 export type TaskList = {
@@ -345,16 +354,84 @@ function recordFire(id: string, ok: boolean, error?: string): void {
   save(store);
 }
 
-export async function runAutomation(id: string): Promise<{ ok: boolean; error?: string }> {
+export async function runAutomation(id: string): Promise<{ ok: boolean; error?: string; answer?: string }> {
   const item = getAutomationItem(id);
   if (!item?.automation) return { ok: false, error: "task has no automation configured" };
   const handler = item.automation.handler;
   if (!handler) return { ok: false, error: `automation on "${item.title}" has no handler` };
+  if (handler === "planner") {
+    const { planAndExecute } = await import("./agent.js");
+    const { runInTaskScope } = await import("./task-scope.js");
+    const taskText = item.notes ? `${item.title}\n\n${item.notes}` : item.title;
+    try {
+      const result = await runInTaskScope(item.id, () =>
+        planAndExecute(taskText, () => {}, undefined, { toolAllowlist: item.automation!.tools, scopeId: item.id }),
+      );
+      recordFire(id, true);
+      return { ok: true, answer: result.answer };
+    } catch (e: any) {
+      const error = String(e?.message ?? e);
+      recordFire(id, false, error);
+      return { ok: false, error };
+    }
+  }
   const name = handler.slice("native:".length);
   const fn = NATIVE_HANDLERS.get(name);
   if (!fn) return { ok: false, error: `no native handler registered for "${name}"` };
   try { await fn(); recordFire(id, true); return { ok: true }; }
   catch (e: any) { const error = String(e?.message ?? e); recordFire(id, false, error); return { ok: false, error }; }
+}
+
+// ─── scoped sub-tasks ───────────────────────────────────────────────────
+// A task can spawn a narrower child task, dispatched independently via the
+// "planner" handler above. The parent must itself be an automation-backed
+// item (only those carry a tools/data scope to narrow from) — this is what
+// guarantees a child's effective scope is never wider than its parent's:
+// a requested tool/data path not already in the parent's own scope is
+// silently dropped, never added, and an empty result after filtering a
+// non-empty request is reported as an error rather than silently falling
+// back to "everything."
+
+export type SpawnSubtaskInput = { title: string; notes?: string; tools?: string[]; data?: string[] };
+
+export function spawnSubtask(parentId: string, input: SpawnSubtaskInput): { item: TaskItem } | { error: string } {
+  const found = findItemById(parentId);
+  if (!found) return { error: `parent task "${parentId}" not found` };
+  const { store, item: parent } = found;
+  const parentScope = parent.automation;
+  if (!parentScope) {
+    return { error: `"${parent.title}" has no automation scope to narrow from — only an automation-backed task can spawn a scoped sub-task` };
+  }
+
+  const tools = input.tools && input.tools.length > 0
+    ? input.tools.filter(t => parentScope.tools.includes(t))
+    : [...parentScope.tools];
+  if (input.tools && input.tools.length > 0 && tools.length === 0) {
+    return { error: `none of the requested tools are within the parent task's own scope (${parentScope.tools.join(", ") || "none"})` };
+  }
+
+  const data = input.data && input.data.length > 0
+    ? input.data.filter(d => parentScope.data.some(pd => d === pd || d.startsWith(pd)))
+    : [...parentScope.data];
+
+  const order = store.items.filter(i => i.ownerEmail === parent.ownerEmail && i.listId === parent.listId).length;
+  const child: TaskItem = {
+    id: randomUUID(), listId: parent.listId, ownerEmail: parent.ownerEmail,
+    title: String(input.title ?? "").trim() || "Subtask",
+    notes: input.notes ? String(input.notes) : undefined,
+    steps: [], important: false, completed: false,
+    createdAt: new Date().toISOString(), order,
+    parentId: parent.id,
+    automation: { enabled: true, tools, data, handler: "planner", fireCount: 0 },
+  };
+  store.items.push(child);
+  save(store);
+  return { item: child };
+}
+
+/** Every task spawned (directly) from `parentId`, in creation order. */
+export function listChildren(parentId: string): TaskItem[] {
+  return load().items.filter(i => i.parentId === parentId).sort((a, b) => a.order - b.order);
 }
 
 // Seeds one automation-backed task if a task with this exact title doesn't
