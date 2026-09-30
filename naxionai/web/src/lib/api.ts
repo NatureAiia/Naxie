@@ -158,6 +158,12 @@ export type OrgTask = {
   updatedAt: string;
   createdBy: "naxie" | "user" | "daemon";
   pendingApproval?: { actionDescription: string; kind: string; requestedAt: string; diff?: string; improvement?: ImprovementProposal };
+  priorityScore?: {
+    composite: number;
+    subScores: { urgency: number; impact: number; effort: number; risk: number };
+    rationale: string;
+    scoredAt: string;
+  };
 };
 
 export type ImprovementKind = "schedule" | "code" | "mcp" | "cli" | "skill" | "retrieval" | "other";
@@ -319,6 +325,8 @@ export const api = {
   },
   resolveOrgTaskApproval: (id: string, approved: boolean) =>
     req<{ task: OrgTask; outcome?: { ok: boolean; message: string } }>(`/api/org-tasks/${encodeURIComponent(id)}/resolve`, { method: "PATCH", body: JSON.stringify({ approved }) }),
+  scoreOrgTask: (id: string) =>
+    req<{ task: OrgTask }>(`/api/org-tasks/${encodeURIComponent(id)}/score`, { method: "POST" }),
   brainLatestDigest: () => req<{ content: string }>("/api/brain/digest/latest"),
   brainPromote: (path: string, opts?: { title?: string; tags?: string; keepOriginal?: boolean }) => req<{ promoted: true; from: string; to: string; archived: boolean }>("/api/brain/promote", { method: "POST", body: JSON.stringify({ path, ...opts }) }),
   brainDiscard: (path: string) => req<{ deleted: string[]; count: number }>("/api/brain/discard", { method: "POST", body: JSON.stringify({ path }) }),

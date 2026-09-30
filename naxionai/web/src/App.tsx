@@ -22,6 +22,7 @@ const RunDetail = lazy(() => import("./pages/Runs").then(m => ({ default: m.RunD
 const Planner = lazy(() => import("./pages/Planner").then(m => ({ default: m.Planner })));
 const MyFinances = lazy(() => import("./pages/MyFinances").then(m => ({ default: m.MyFinances })));
 const BusinessFinance = lazy(() => import("./pages/BusinessFinance").then(m => ({ default: m.BusinessFinance })));
+const Webhooks = lazy(() => import("./pages/Webhooks").then(m => ({ default: m.Webhooks })));
 const Schedules = lazy(() => import("./pages/Schedules").then(m => ({ default: m.Schedules })));
 
 // Build
@@ -109,6 +110,7 @@ function AppShell() {
         <Route path="/planner" element={<Planner />} />
         <Route path="/my-finances" element={<MyFinances />} />
         <Route path="/business-finance" element={<BusinessFinance />} />
+        <Route path="/webhooks" element={<Webhooks />} />
         <Route path="/calendar" element={<Navigate to="/planner" replace />} />
         <Route path="/schedules" element={<Schedules />} />
 

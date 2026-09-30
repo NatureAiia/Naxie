@@ -158,8 +158,15 @@ async function acquireOne(spec: OmniSpec): Promise<{ records: OmniRecord[]; labe
       const records: OmniRecord[] = [];
       for (const url of urls) {
         try {
-          const f = await smartFetch(url, { allowBrowser: true });
-          records.push(tag({ url, title: f.title ?? "", content_type: f.contentType, text: (f.text ?? "").trim().slice(0, MAX_PAGE_TEXT) }));
+          const f = await smartFetch(url, { allowBrowser: true, structured: true });
+          const rec: OmniRecord = { url, title: f.title ?? "", content_type: f.contentType, text: (f.text ?? "").trim().slice(0, MAX_PAGE_TEXT) };
+          // Structured data (schema.org/JSON-LD + a price heuristic) rides
+          // alongside the plain text when the page publishes it — strictly
+          // more reliable than re-deriving these fields from prose. Omitted
+          // entirely when empty so a plain page's record stays uncluttered.
+          if (f.structured?.jsonLd.length) rec.json_ld = f.structured.jsonLd;
+          if (f.structured?.price) rec.price = f.structured.price;
+          records.push(tag(rec));
         } catch (e: any) {
           records.push(tag({ url, error: String(e?.message ?? e).slice(0, 200) }));
         }

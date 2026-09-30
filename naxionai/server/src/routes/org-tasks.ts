@@ -6,8 +6,9 @@
 
 import { Router } from "express";
 import { callerOf } from "../lib/access.js";
-import { listOrgTasks, getOrgTask, resolveApproval, ORG_TASK_PRIORITIES, type OrgRole, type OrgTaskStatus, type OrgTaskPriority } from "../lib/org-tasks.js";
+import { listOrgTasks, getOrgTask, resolveApproval, setOrgTaskPriorityScore, ORG_TASK_PRIORITIES, type OrgRole, type OrgTaskStatus, type OrgTaskPriority } from "../lib/org-tasks.js";
 import { parseFinancePendingRef } from "../lib/business-finance.js";
+import { scorePriority } from "../lib/priority-score.js";
 
 export const orgTasksRouter = Router();
 
@@ -71,4 +72,19 @@ orgTasksRouter.patch("/:id/resolve", async (req, res) => {
   const task = resolveApproval(req.params.id, approved);
   if (!task) return res.status(404).json({ error: "org task not found, or not currently waiting-on-approval" });
   res.json({ task });
+});
+
+// On-demand composite priority score (lib/priority-score.ts) — a single LLM
+// call per request, never automatic on task creation, so this is explicitly
+// operator-triggered from the dashboard rather than a hidden per-task cost.
+orgTasksRouter.post("/:id/score", async (req, res) => {
+  const task = getOrgTask(req.params.id);
+  if (!task) return res.status(404).json({ error: "org task not found" });
+  try {
+    const result = await scorePriority({ title: task.title, detail: task.detail, context: `role: ${task.role}, current manual priority: ${task.priority}` });
+    const scored = setOrgTaskPriorityScore(task.id, { ...result, scoredAt: new Date().toISOString() });
+    res.json({ task: scored });
+  } catch (e: any) {
+    res.status(502).json({ error: e?.message ?? String(e) });
+  }
 });

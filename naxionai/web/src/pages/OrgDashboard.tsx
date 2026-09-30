@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Network, Clock, RefreshCw } from "lucide-react";
+import { Network, Clock, RefreshCw, Sparkles } from "lucide-react";
 import { api, type OrgTask, type OrgRole, type OrgTaskStatus, type OrgTaskPriority } from "../lib/api";
-import { Card } from "../components/Card";
+import { Card, showToast } from "../components/Card";
 
 // Org dashboard (docs/naxie-architecture.md §4/§8/§8.5) — a read-only
 // diagnostics view over Naxie's internal 6-role task backlog. This is
@@ -60,6 +60,7 @@ export function OrgDashboard() {
   const [statusFilter, setStatusFilter] = useState<OrgTaskStatus | "">("");
   const [expanded, setExpanded] = useState<OrgRole | null>(null);
   const [err, setErr] = useState("");
+  const [scoring, setScoring] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -73,6 +74,18 @@ export function OrgDashboard() {
     }
   }
   useEffect(() => { void load(); const i = setInterval(load, 8000); return () => clearInterval(i); }, [statusFilter]);
+
+  async function scoreTask(id: string) {
+    setScoring(id);
+    try {
+      await api.scoreOrgTask(id);
+      void load();
+    } catch (e: any) {
+      showToast(e?.message ?? String(e), "error");
+    } finally {
+      setScoring(null);
+    }
+  }
 
   const byRole = (role: OrgRole) => (tasks ?? []).filter(t => t.role === role);
   const totalActive = (tasks ?? []).filter(t => t.status === "active" || t.status === "waiting-on-approval").length;
@@ -146,6 +159,25 @@ export function OrgDashboard() {
                         </div>
                         <div className="text-cream-300/50 mt-1 flex items-center gap-1.5">
                           <Clock size={10} /> {relTime(t.updatedAt)} · {t.createdBy}
+                          <span className="ml-auto flex items-center gap-1.5">
+                            {t.priorityScore && (
+                              <span
+                                className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300 font-mono"
+                                title={t.priorityScore.rationale || undefined}
+                              >
+                                {t.priorityScore.composite}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => void scoreTask(t.id)}
+                              disabled={scoring === t.id}
+                              title="Score priority (one LLM call)"
+                              className="p-1 rounded-md border border-ink-800 hover:border-violet-500/40 text-cream-300/60 hover:text-cream-100 disabled:opacity-40"
+                            >
+                              <Sparkles size={10} className={scoring === t.id ? "animate-pulse" : ""} />
+                            </button>
+                          </span>
                         </div>
                       </div>
                     ))}

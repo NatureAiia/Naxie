@@ -10,6 +10,8 @@
 //   • A single static User-Agent gets fingerprinted and blocked by some
 //     sites; rotating between a small pool avoids that.
 
+import { extractJsonLd, extractPriceFromText, type ExtractedPrice } from "./structured-extract.js";
+
 const UA_POOL = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -29,7 +31,7 @@ function pickUA(seed?: string): string {
 // minutes — long enough that a multiperspective run reuses fetches, short
 // enough that real news pages aren't stale by the next call.
 const CACHE_TTL_MS = Number(process.env.NEUROWORKS_WEB_CACHE_TTL_MS ?? "600000");
-const cache = new Map<string, { at: number; status: number; contentType: string; text: string; title?: string }>();
+const cache = new Map<string, { at: number; status: number; contentType: string; text: string; title?: string; structured?: StructuredData }>();
 
 function cacheGet(url: string) {
   const hit = cache.get(url);
@@ -38,7 +40,7 @@ function cacheGet(url: string) {
   return hit;
 }
 
-function cacheSet(url: string, value: { status: number; contentType: string; text: string; title?: string }) {
+function cacheSet(url: string, value: { status: number; contentType: string; text: string; title?: string; structured?: StructuredData }) {
   // Cap the cache so a long-running worker doesn't bleed memory.
   if (cache.size > 200) {
     const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
@@ -100,9 +102,16 @@ export type FetchOptions = {
   timeoutMs?: number;
   maxBytes?: number;
   cache?: boolean;
+  // When true, also parses schema.org/JSON-LD blocks and looks for a price
+  // in the extracted text (see structured-extract.ts). Off by default —
+  // most callers (research/synthesis) have no use for it and it's extra
+  // work per fetch.
+  structured?: boolean;
 };
 
-export async function fetchWeb(url: string, opts: FetchOptions = {}): Promise<{ status: number; contentType: string; text: string; title?: string; fromCache: boolean }> {
+export type StructuredData = { jsonLd: Record<string, unknown>[]; price: ExtractedPrice | null };
+
+export async function fetchWeb(url: string, opts: FetchOptions = {}): Promise<{ status: number; contentType: string; text: string; title?: string; fromCache: boolean; structured?: StructuredData }> {
   // SECURITY: block private / loopback / metadata-service addresses to
   // prevent SSRF via a prompt-injected agent. Override with
   // NEUROWORKS_WEB_ALLOW_PRIVATE=1 for legitimate local-host fetches.
@@ -154,7 +163,11 @@ export async function fetchWeb(url: string, opts: FetchOptions = {}): Promise<{ 
       text = ex.text;
       title = ex.title;
     }
-    const result = { status: r.status, contentType, text, title };
+    let structured: StructuredData | undefined;
+    if (opts.structured && contentType.includes("html")) {
+      structured = { jsonLd: extractJsonLd(truncated), price: extractPriceFromText(text) };
+    }
+    const result = { status: r.status, contentType, text, title, structured };
     if (useCache) cacheSet(url, result);
     return { ...result, fromCache: false };
   } finally { clearTimeout(t); }
@@ -376,7 +389,7 @@ export function webCacheStats() {
 // Cached on success in the same per-URL cache as fetchWeb.
 const JS_RENDERED_TEXT_FLOOR = 400;  // under this many chars → suspect SPA
 
-export async function smartFetch(url: string, opts: FetchOptions & { allowBrowser?: boolean } = {}): Promise<{ status: number; contentType: string; text: string; title?: string; fromCache: boolean; usedBrowser: boolean; engine: "http" | "browser" | "firecrawl" }> {
+export async function smartFetch(url: string, opts: FetchOptions & { allowBrowser?: boolean } = {}): Promise<{ status: number; contentType: string; text: string; title?: string; fromCache: boolean; usedBrowser: boolean; engine: "http" | "browser" | "firecrawl"; structured?: StructuredData }> {
   { const { assertOnline } = await import("./offline-mode.js"); assertOnline(url); }
   const allowBrowser = opts.allowBrowser !== false;
   let fetchErr: Error | null = null;
