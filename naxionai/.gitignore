@@ -1,103 +1,57 @@
-# ─────────────────────────────────────────────────────────
-# Python
-# ─────────────────────────────────────────────────────────
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-.eggs/
-venv/
-.venv/
-env/
-.env.local
-*.pyc
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# ─────────────────────────────────────────────────────────
-# Environment & Secrets — NEVER COMMIT THESE
-# ─────────────────────────────────────────────────────────
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-secrets.json
-
-# ─────────────────────────────────────────────────────────
-# Databases
-# ─────────────────────────────────────────────────────────
-*.db
-*.sqlite
-*.sqlite3
-qdrant_data/
-postgres_data/
-redis_data/
-
-# ─────────────────────────────────────────────────────────
-# Node.js / Frontend
-# ─────────────────────────────────────────────────────────
 node_modules/
-.next/
-out/
-.npm
-*.tsbuildinfo
-
-# ─────────────────────────────────────────────────────────
-# Media & Uploads (too large for git)
-# ─────────────────────────────────────────────────────────
-backend/media/uploads/
-backend/media/processed/
-backend/generated_assets/
-*.mp4
-*.mov
-*.avi
-*.mp3
-*.wav
-
-# ─────────────────────────────────────────────────────────
-# AI / ML
-# ─────────────────────────────────────────────────────────
-*.pkl
-*.bin
-*.h5
-*.pt
-*.safetensors
-models/
-
-# ─────────────────────────────────────────────────────────
-# OS
-# ─────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# ─────────────────────────────────────────────────────────
-# IDE
-# ─────────────────────────────────────────────────────────
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# ─────────────────────────────────────────────────────────
-# Docker
-# ─────────────────────────────────────────────────────────
-*.env.docker
-
-# ─────────────────────────────────────────────────────────
-# Logs
-# ─────────────────────────────────────────────────────────
+dist/
+.vault/
+# The knowledge vault is its own git repo (see server/vault/.git), synced
+# independently via VAULT_REPO — not versioned as part of this repo.
+server/vault/
 *.log
-logs/
-celery_logs/
+.env
+.env.local
 
-# Agent-local tooling + ephemeral dumps (not knowledge)
-reflection_dump.json
-.claude/
-.agents/skills/
+# Vite
+web/dist/
+.DS_Store
+
+# NeuroWorks runtime state (custom templates, future caches) — per-machine
+.neuroworks/
+
+# User-fetched skill .md files (skill.fetch_remote drops them here, gated by
+# CLAWBOT_REMOTE_SKILLS=1). Per-machine, not shared.
+server/src/skills/_user/
+
+# Tunnel binary (downloaded per-machine) + operational logs
+.tools/
+_devlog.txt
+_weblog.txt
+_tunnel.log
+# Test/scratch harness artifacts
+server/_*-harness*
+server/_*.out
+server/eng.traineddata
+server/page1.png
+
+# Scratch / one-off outputs (root + server) — never version these
+_*.out
+_*.err
+server/_*.json
+server/_desk/
+# Stray experimental static export (not the web/ app). Un-ignore to track it.
+server/neuroworks_site/
+
+# Personal / private content that should stay local and never be published
+personal/
+private/
+personal-uploads/
+my-notes/
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+
+# env backups (may contain secrets)
+.env.bak*
+.env.*.bak
+.env
