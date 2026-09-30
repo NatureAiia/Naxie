@@ -95,6 +95,15 @@ const openrouterAppName = pick("OPENROUTER_APP_NAME", "NeuroWorks Clawbot");
 const firecrawlApiKey = pick("FIRECRAWL_API_KEY", "");
 const firecrawlBaseUrl = pick("FIRECRAWL_BASE_URL", "https://api.firecrawl.dev");
 
+// Jev (TypeSafe's "System One" model) — optional fast typed-judgment grader
+// for quality.check's factuality/persona/alignment axes (a calibrated 0-1
+// yes/no per axis in ~100s of ms, not a full generative JSON-authoring LLM
+// call). Key absent = quality.check falls back to its existing local/
+// OpenRouter LLM grader exactly as before — this is purely additive.
+const jevApiKey = pick("TYPESAFE_API_KEY", "");
+const jevBaseUrl = pick("TYPESAFE_BASE_URL", "https://api.typesafe.ai/v1/systemone");
+const jevModel = pick("TYPESAFE_MODEL", "jev-latest");
+
 // Supabase — credentials only for now (docs/naxie-storage-architecture.md
 // Phase 2: pgvector RAG store + MAG memory table). No integration code reads
 // these yet; storage.ts's status route uses them for a live reachability
@@ -237,6 +246,10 @@ export const config = {
   firecrawlApiKey,
   firecrawlBaseUrl,
   firecrawlEnabled: firecrawlApiKey.length > 0,
+  jevApiKey,
+  jevBaseUrl,
+  jevModel,
+  jevEnabled: jevApiKey.length > 0,
   supabaseUrl,
   supabasePublishableKey,
   supabaseSecretKey,

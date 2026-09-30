@@ -35,6 +35,17 @@ export const EXTENSION_CATALOG: ExtensionDef[] = [
     connectHint: "Paste your OpenRouter API key (sk-or-v1-…). Set OPENROUTER_MODEL to openai/gpt-4o or openai/gpt-4o-mini.",
   },
   {
+    id: "jev",
+    name: "Jev (TypeSafe)",
+    category: "llm",
+    description: "Fast typed-judgment grader for quality.check (factuality/persona/alignment) — a calibrated yes/no in ~100s of ms instead of a full LLM call. Absent = quality.check uses its existing LLM grader.",
+    envKey: "TYPESAFE_API_KEY",
+    envKeys: ["TYPESAFE_BASE_URL", "TYPESAFE_MODEL"],
+    docsUrl: "https://typesafe.ai",
+    testable: true,
+    connectHint: "Paste your TypeSafe API key. Optionally set TYPESAFE_MODEL (defaults to jev-latest).",
+  },
+  {
     id: "ollama",
     name: "Ollama (local LLM)",
     category: "llm",
@@ -149,6 +160,11 @@ export async function getExtensionsStatus(): Promise<ExtensionStatus[]> {
         detail = health ? (health.ok ? `Model ${model} at ${config.ollamaHost}` : health.detail) : `${config.ollamaHost} / ${model}`;
         break;
       }
+      case "jev": {
+        model = config.jevModel;
+        detail = configured ? `Key set (${prefixOf(raw)})` : "Not configured — quality.check uses its existing LLM grader";
+        break;
+      }
       case "supabase": {
         const url = (process.env.SUPABASE_URL ?? "").trim();
         if (!url) detail = "Not configured — Phase 2 pgvector/MAG not wired";
@@ -225,6 +241,14 @@ export async function testExtension(id: string): Promise<{ ok: boolean; detail: 
       try {
         const llm = await llmHealth();
         result = llm.ollama.ok ? { ok: true, detail: `Ollama ok — ${llm.ollama.model}` } : { ok: false, detail: llm.ollama.error ?? "Ollama unreachable" };
+      } catch (e: any) { result = { ok: false, detail: String(e?.message ?? e) }; }
+      break;
+    }
+    case "jev": {
+      try {
+        const { askJev } = await import("./jev-client.js");
+        const r = await askJev({ probe: true }, { ok: { type: "noul", instructions: "Is this a connectivity test?" } });
+        result = typeof r.ok?.probability === "number" ? { ok: true, detail: `Jev ok — ${config.jevModel}` } : { ok: false, detail: "Jev answered with no probability" };
       } catch (e: any) { result = { ok: false, detail: String(e?.message ?? e) }; }
       break;
     }
