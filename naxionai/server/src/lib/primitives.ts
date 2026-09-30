@@ -5121,6 +5121,55 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     },
   },
   {
+    name: "task.spawn_subtask",
+    description: "Spawn a scoped sub-task from the automation-backed task this run is executing for, and dispatch it immediately. The child's tool/data scope is your own scope narrowed to whatever subset of it you request (omit tools/data to inherit your own scope exactly) — it can never be wider than yours. Only callable from within a task-automation run (via the Tasks page's automation feature); refused otherwise. Returns the created task id plus the dispatched run's outcome.",
+    readonly: false,
+    args: [
+      { name: "title", type: "string", required: true, description: "Short title for the sub-task." },
+      { name: "notes", type: "string", required: false, description: "Instructions for the sub-task — becomes its task text when dispatched." },
+      { name: "tools", type: "string", required: false, description: "Tool names to narrow to, comma-separated (must already be within your own scope). Omit to inherit your full scope." },
+      { name: "data", type: "string", required: false, description: "Vault-relative data paths to narrow to, comma-separated (must already be within your own scope). Omit to inherit your full scope." },
+    ],
+    handler: async (args) => {
+      const { currentTaskItemId } = await import("./task-scope.js");
+      const parentId = currentTaskItemId();
+      if (!parentId) return { error: "task.spawn_subtask can only be called from within a task-automation run" };
+      const { spawnSubtask, runAutomation } = await import("./my-tasks.js");
+      const title = String(args.title ?? "").trim();
+      if (!title) return { error: "title is required" };
+      const tools = parseFlexibleList(args.tools);
+      const data = parseFlexibleList(args.data);
+      const result = spawnSubtask(parentId, {
+        title,
+        notes: args.notes ? String(args.notes) : undefined,
+        tools: tools.length > 0 ? tools : undefined,
+        data: data.length > 0 ? data : undefined,
+      });
+      if ("error" in result) return result;
+      const run = await runAutomation(result.item.id);
+      return { taskId: result.item.id, tools: result.item.automation?.tools, data: result.item.automation?.data, ...run };
+    },
+  },
+  {
+    name: "task.list_children",
+    description: "List every sub-task previously spawned from the automation-backed task this run is executing for (see task.spawn_subtask). Read-only.",
+    readonly: true,
+    args: [],
+    handler: async () => {
+      const { currentTaskItemId } = await import("./task-scope.js");
+      const parentId = currentTaskItemId();
+      if (!parentId) return { error: "task.list_children can only be called from within a task-automation run" };
+      const { listChildren } = await import("./my-tasks.js");
+      return {
+        children: listChildren(parentId).map(c => ({
+          id: c.id, title: c.title, completed: c.completed,
+          tools: c.automation?.tools, data: c.automation?.data,
+          lastFiredAt: c.automation?.lastFiredAt, lastError: c.automation?.lastError,
+        })),
+      };
+    },
+  },
+  {
     name: "dialogue.advance_flow",
     description: "Advance (or start) a multi-turn slot-filling flow for this session — pass the same sessionKey across turns. Every call re-checks every still-missing slot against the new text, so one reply can fill several slots at once. Returns status \"started\"/\"advanced\" with the next prompt while slots remain missing, or \"complete\" with every collected slot once done. Pass flowId only to start a new flow (ignored if one is already active for this sessionKey).",
     readonly: false,
@@ -5277,6 +5326,8 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "finance.biz_forecast": return "Forecasting cash runway (needs your approval)";
     case "intent.classify":    return s("text") ? `Classifying intent for "${s("text").slice(0, 60)}"` : "Classifying intent";
     case "dialogue.advance_flow": return "Advancing the conversation flow";
+    case "task.spawn_subtask": return s("title") ? `Spawning sub-task "${s("title")}"` : "Spawning a sub-task";
+    case "task.list_children": return "Listing this task's sub-tasks";
     default:                   return tool;
   }
 }
