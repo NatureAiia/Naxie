@@ -9,8 +9,9 @@
 // note's title so embeddings retain document-level context even once split.
 
 import { readFileSync, statSync } from "node:fs";
-import { relative, sep } from "node:path";
-import { walk, extractTitle } from "./vault-index.js";
+import { relative, sep, extname } from "node:path";
+import { walk, extractTitle, readIndexableText } from "./vault-index.js";
+import { extractEntities, extractKeywords, type RagEntities } from "./rag-entities.js";
 
 export type VaultChunk = {
   path: string;        // vault-relative path, forward slashes
@@ -18,6 +19,9 @@ export type VaultChunk = {
   heading: string | null;
   chunkIndex: number;
   content: string;      // includes the title prefix — this is what gets embedded
+  entities?: RagEntities;
+  keywords?: string[];
+  sourceKind?: string;  // md | pdf | docx | xlsx | image | txt ...
 };
 
 // ~4 chars/token is a standard rough heuristic for English prose; good enough
@@ -77,7 +81,8 @@ function capSize(body: string): string[] {
 
 // Chunk one note's raw markdown into VaultChunk records, prefixed with the
 // note's title (frontmatter `title:` or the H1, falling back to filename).
-export function chunkNote(relPath: string, body: string): VaultChunk[] {
+// Attaches the entity/keyword sidecar used for overlap boosting.
+export function chunkNote(relPath: string, body: string, sourceKind = "md"): VaultChunk[] {
   const filename = relPath.split("/").pop() ?? relPath;
   const stem = filename.replace(/\.(md|markdown|txt|canvas)$/i, "");
   const title = extractTitle(body, stem);
@@ -91,7 +96,10 @@ export function chunkNote(relPath: string, body: string): VaultChunk[] {
       if (!piece.trim()) continue;
       const headingLine = section.heading ? `## ${section.heading}\n\n` : "";
       const content = `# ${title}\n\n${headingLine}${piece.trim()}`.trim();
-      chunks.push({ path: relPath, title, heading: section.heading, chunkIndex: idx, content });
+      chunks.push({
+        path: relPath, title, heading: section.heading, chunkIndex: idx, content,
+        entities: extractEntities(content), keywords: extractKeywords(content), sourceKind,
+      });
       idx += 1;
     }
   }
@@ -99,15 +107,19 @@ export function chunkNote(relPath: string, body: string): VaultChunk[] {
   // frontmatter) still gets a single title-only chunk so it's not silently
   // dropped from the store.
   if (chunks.length === 0) {
-    chunks.push({ path: relPath, title, heading: null, chunkIndex: 0, content: `# ${title}` });
+    const content = `# ${title}`;
+    chunks.push({
+      path: relPath, title, heading: null, chunkIndex: 0, content,
+      entities: extractEntities(content), keywords: extractKeywords(content), sourceKind,
+    });
   }
   return chunks;
 }
 
 const HIDDEN = new Set([".md", ".markdown", ".txt", ".canvas"]);
 
-// Walk the whole vault and chunk every note. Tolerates unreadable/oversized
-// files the same way vault-index.ts's buildIndex does (skip, keep going).
+// Legacy sync walker — markdown/text only, kept for callers that can't
+// await (tests, offline paths). Binary docs are covered by chunkVaultAsync.
 export function chunkVault(vaultRoot: string): VaultChunk[] {
   const chunks: VaultChunk[] = [];
   for (const full of walk(vaultRoot)) {
@@ -118,7 +130,28 @@ export function chunkVault(vaultRoot: string): VaultChunk[] {
       if (!HIDDEN.has(ext)) continue;
       const body = readFileSync(full, "utf8");
       const rel = relative(vaultRoot, full).split(sep).join("/");
-      chunks.push(...chunkNote(rel, body));
+      chunks.push(...chunkNote(rel, body, "md"));
+    } catch { /* tolerate one bad file */ }
+  }
+  return chunks;
+}
+
+// Async walker — markdown/text PLUS office docs + images via the shared
+// readIndexableText() extractor. Used by the re-embed job so PDFs/DOCXs
+// land in vault_chunks instead of being invisible to semantic search.
+export async function chunkVaultAsync(vaultRoot: string): Promise<VaultChunk[]> {
+  const chunks: VaultChunk[] = [];
+  for (const full of walk(vaultRoot)) {
+    try {
+      const st = statSync(full);
+      if (st.size > 25_000_000) continue;
+      const rel = relative(vaultRoot, full).split(sep).join("/");
+      const filename = full.split(/[\\/]/).pop() ?? rel;
+      const stem = filename.replace(/\.[^.]+$/i, "");
+      const ext = extname(full).toLowerCase().replace(".", "") || "md";
+      const { text: body } = await readIndexableText(full, stem);
+      if (!body.trim()) continue;
+      chunks.push(...chunkNote(rel, body, ext));
     } catch { /* tolerate one bad file */ }
   }
   return chunks;

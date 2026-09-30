@@ -156,7 +156,12 @@ export function identifyOwnWeaknesses(): Weakness[] {
 // anything concretely actionable so Naxie can propose a fix via
 // system.admin's "switch_model" action (approval-gated, same as every other
 // self-improvement loop this session wired up).
-export type ModelHealthFinding = { area: string; issue: string; recommendation: string; evidence: string; actionable: boolean };
+// `key` is the STABLE identity for OrgTask dedup below — unlike `issue`
+// (which embeds the live failure count/percentage and so is a different
+// string every day the rolling window shifts), `key` never changes for the
+// same underlying model, so "already have an open task for this" can
+// actually match day over day instead of re-triggering on every run.
+export type ModelHealthFinding = { area: string; issue: string; recommendation: string; evidence: string; actionable: boolean; key?: string };
 
 export function deriveModelHealthFindings(): ModelHealthFinding[] {
   const out: ModelHealthFinding[] = [];
@@ -170,6 +175,7 @@ export function deriveModelHealthFindings(): ModelHealthFinding[] {
         recommendation: `Switch the tier using "${m.model}" to a healthier model via system.admin's switch_model action — prefer a free one (isFreeModelId) unless paid models are separately approved.`,
         evidence: `byModel["${m.model}"]: calls=${m.calls} failed=${m.failed} failureRate=${m.failureRate.toFixed(2)}`,
         actionable: true,
+        key: `model-reliability:${m.model}`,
       });
     }
   }
@@ -533,9 +539,17 @@ export async function runInnovationScan(opts: { force?: boolean } = {}): Promise
       const openTitles = new Set(listOrgTasks({ role: "admin" }).filter(t => t.status !== "done").map(t => t.title));
       for (const f of modelHealth) {
         if (!f.actionable) continue;
-        const title = `Innovation Scan: ${f.area} — ${f.issue}`.slice(0, 160);
+        // The title (the dedup key) must stay STABLE across runs — it used to
+        // be built from f.issue, which embeds the live failure count/percent
+        // and so is a different string every day the rolling window shifts.
+        // That defeated the openTitles check entirely: 7 near-duplicate
+        // "gemma4:31b"/"meta/llama-3.3-70b-instruct" reliability tasks piled
+        // up in backlog over a week (caught live 2026-09-30) because no two
+        // days' titles ever matched. f.key (e.g. "model-reliability:<model>")
+        // is the same every day; the live numbers still show up in `detail`.
+        const title = `Innovation Scan: ${f.area} — ${f.key ?? f.issue}`.slice(0, 160);
         if (openTitles.has(title)) continue;
-        createOrgTask({ role: "admin", title, detail: `${f.recommendation}\n\nEvidence: ${f.evidence}`, priority: "high", createdBy: "daemon" });
+        createOrgTask({ role: "admin", title, detail: `${f.issue}\n\n${f.recommendation}\n\nEvidence: ${f.evidence}`, priority: "high", createdBy: "daemon" });
       }
     } catch (e: any) {
       console.warn(`[innovation-scan] model-health org-task creation failed: ${e?.message ?? e}`);

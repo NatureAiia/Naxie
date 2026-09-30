@@ -179,7 +179,13 @@ voiceRouter.post("/converse", async (req, res) => {
       "direct",
     );
     // RAG + MAG + CAG injection — so Naxie never forgets who she is, who Nature is, and what subagents do
-    const naxieCtx = await buildNaxieContext(last.content, { ragLimit: 6, includeDated: true });
+    const { callerOf: callerOfVoice } = await import("../lib/access.js").catch(() => ({ callerOf: undefined as any }));
+    let voiceSession = "voice:default";
+    try {
+      const c = callerOfVoice ? callerOfVoice(req) : undefined;
+      voiceSession = `voice:${c?.id ?? "local"}`;
+    } catch { /* best-effort */ }
+    const naxieCtx = await buildNaxieContext(last.content, { ragLimit: 6, includeDated: true, sessionId: voiceSession });
     const system = baseSystem + "\n\n" + naxieCtx.combinedSystemAddendum;
     const convo = trimmed.map(m => `${m.role}: ${m.content}`).join("\n");
     const convoTokens = Math.ceil(convo.length / 4);

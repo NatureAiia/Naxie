@@ -8,6 +8,7 @@ import { isOffline } from "./offline-mode.js";
 import { scanForSecurityRisks } from "./security.js";
 import { buildIndex, invalidateIndex, searchIndex, indexStats, isBuildInProgress } from "./vault-index.js";
 import { scheduleReembed } from "./rag-embed.js";
+import { recordCustody } from "./file-governance.js";
 
 const VAULT = config.vaultPath;
 
@@ -367,7 +368,12 @@ export function writeVaultFile(rel: string, content: string, opts: { system?: bo
     }
   }
   mkdirSync(resolve(full, ".."), { recursive: true });
+  const existed = existsSync(full);
   writeFileSync(full, content, "utf8");
+  // Chain-of-custody trail (RIFTS-X CustodyLog). Best-effort, never throws.
+  try {
+    recordCustody({ path: rel, action: existed ? "edited" : "created" });
+  } catch { /* governance must never break writes */ }
   // Vault changed — drop the search cache so the next searchVault picks up
   // the new note instead of returning stale results from the 60s window.
   //

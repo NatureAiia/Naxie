@@ -26,6 +26,7 @@ type IndexedDoc = {
   path: string;        // same as id (kept for clarity in result handlers)
   title: string;       // h1 if present, else filename stem
   body: string;        // file contents (text + extracted excerpts already inline)
+  preview?: string;    // first ~200 chars — used when the file can't be re-read as text (PDF/DOCX)
 };
 
 export type IndexSearchHit = {
@@ -37,6 +38,13 @@ export type IndexSearchHit = {
 
 const HIDDEN_PREFIXES = [".git", ".obsidian", "node_modules"];
 const TEXT_EXTS = new Set([".md", ".markdown", ".txt", ".canvas"]);
+// Binary office docs + images indexed via the doc-extractor/OCR pipeline
+// (RIFTS-X DocumentAnalyzer). Walk yields them; buildIndex extracts text.
+export const DOC_EXTS = new Set([
+  ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".xlsm", ".csv", ".tsv",
+  ".pptx", ".ppt", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp",
+]);
+const INDEXABLE_EXTS = new Set([...TEXT_EXTS, ...DOC_EXTS]);
 
 let index: MiniSearch<IndexedDoc> | null = null;
 let buildTimer: NodeJS.Timeout | null = null;
@@ -74,7 +82,7 @@ export function isBuildInProgress(): boolean {
 // options or load throws ("incompatible"). Factor it out so they can't drift.
 const INDEX_OPTIONS = {
   fields: ["title", "body"],
-  storeFields: ["path", "title"],
+  storeFields: ["path", "title", "preview"],
   searchOptions: {
     // Prefix matching catches "neur" → "neuroworks"; fuzzy 0.2 tolerates
     // one-character typos on words of length ≥5 without exploding the
@@ -141,9 +149,46 @@ export function* walk(root: string): Generator<string> {
     if (e.isDirectory()) yield* walk(full);
     else {
       const ext = extname(e.name).toLowerCase();
-      if (TEXT_EXTS.has(ext)) yield full;
+      if (INDEXABLE_EXTS.has(ext)) yield full;
     }
   }
+}
+
+// Read a vault file as indexable text. Markdown/text reads directly;
+// office docs + images go through the extractor/OCR pipeline. Returns
+// { text, title } — never throws (unreadable files yield "").
+export async function readIndexableText(full: string, fallbackStem: string): Promise<{ text: string; title: string }> {
+  const ext = extname(full).toLowerCase();
+  try {
+    if (TEXT_EXTS.has(ext)) {
+      const body = readFileSync(full, "utf8");
+      return { text: body, title: extractTitle(body, fallbackStem) };
+    }
+    if (DOC_EXTS.has(ext)) {
+      const st = statSync(full);
+      if (st.size > 25_000_000) return { text: "", title: fallbackStem };
+      if ([".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp"].includes(ext)) {
+        try {
+          const { ocrFile } = await import("./ocr.js");
+          const ocr = await ocrFile(full, "auto");
+          const text = `# ${fallbackStem}\n\n${ocr.text ?? ""}`.trim();
+          return { text, title: fallbackStem };
+        } catch { return { text: "", title: fallbackStem }; }
+      }
+      const { extractDocText } = await import("./doc-extractor.js");
+      const ex = await extractDocText(full);
+      const raw = (ex.text ?? "").trim();
+      // Don't index placeholder text ("(binary file…)", "(extraction
+      // failed…)") — it pollutes BM25 with tokens every binary shares.
+      // Direct-read callers still get the hint; the index just skips it.
+      if (ex.kind === "unsupported" || /^\([^()\n]{0,220}\)$/.test(raw)) {
+        return { text: "", title: fallbackStem };
+      }
+      const text = raw ? `# ${fallbackStem}\n\n${raw}` : "";
+      return { text, title: fallbackStem };
+    }
+  } catch { /* tolerate one bad file */ }
+  return { text: "", title: fallbackStem };
 }
 
 export function extractTitle(body: string, fallback: string): string {
@@ -192,16 +237,18 @@ export function buildIndex(vaultRoot: string): Promise<void> {
       for (const full of walk(vaultRoot)) {
         try {
           const st = statSync(full);
-          if (st.size > 1_000_000) continue;
-          const body = readFileSync(full, "utf8");
+          if (st.size > 25_000_000) continue;
           const rel = relative(vaultRoot, full).split(sep).join("/");
           const filename = full.split(sep).pop() ?? rel;
-          const stem = filename.replace(/\.(md|markdown|txt|canvas)$/i, "");
+          const stem = filename.replace(/\.[^.]+$/i, "");
+          const { text: body, title } = await readIndexableText(full, stem);
+          if (!body.trim()) continue;
           next.add({
             id: rel,
             path: rel,
-            title: extractTitle(body, stem),
-            body,
+            title: title.slice(0, 200),
+            body: body.slice(0, 100_000),
+            preview: body.slice(0, 200),
           });
           count += 1;
         } catch { /* tolerate one bad file */ }
@@ -269,8 +316,15 @@ export function searchIndex(query: string, vaultRoot: string, limit = 50): Index
   const raw = index.search(q, { combineWith: "AND" }).slice(0, limit);
   const hits: IndexSearchHit[] = [];
   for (const r of raw) {
+    const storedPreview = (r as unknown as { preview?: string }).preview ?? "";
     try {
       const full = join(vaultRoot, r.path);
+      const ext = extname(r.path).toLowerCase();
+      if (!TEXT_EXTS.has(ext)) {
+        // Binary doc — don't re-read bytes as UTF-8; use indexed preview.
+        hits.push({ path: r.path, line: 1, preview: (storedPreview || r.title || r.path).slice(0, 200), score: r.score });
+        continue;
+      }
       const body = readFileSync(full, "utf8");
       const lines = body.split("\n");
       // Find the first line matching any query term.

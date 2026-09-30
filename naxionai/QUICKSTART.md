@@ -1,6 +1,7 @@
-# Download & run NeuroWorks on your PC
+# Download & run NaxionAI (Naxie) on your PC
 
-NeuroWorks runs locally with a **free local core** — no personal keys or cloud
+NaxionAI — the engine behind the assistant nicknamed **Naxie** — runs locally
+with a **free local core** — no personal keys or cloud
 accounts required to start. Cloud models, email, payments, and a synced vault
 are optional add-ons you can configure later in `.env`.
 

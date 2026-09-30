@@ -1,7 +1,15 @@
-# NeuroWorks
+# NaxionAI
 
-Local-first AI workforce platform paired with an Obsidian second-brain.
+**NaxionAI** is the engine — a local-first AI-workforce platform paired with an
+Obsidian second-brain. The running system's nickname is **Naxie**.
 (Repo renamed from `clawbot` on 2026-07-11 — GitHub redirects the old URL.)
+
+> **Naming & inspiration:** NaxionAI is the engine and the product name here.
+> **NeuroWorks** and **Jarvis** were *inspiration only* — the "local-first AI
+> workforce + second-brain" and "build your own AI assistant" ideas that shaped
+> early design — not dependencies or a base this is forked from. The name
+> `NeuroWorks` survives in some internal identifiers (env-var prefixes
+> `NEUROWORKS_*`, a few file paths) for backward compatibility only.
 
 **This particular instance is Mark's own personal, non-commercial deployment**
 (see the [root README](../README.md)) — not a hosted product or a
@@ -11,8 +19,8 @@ signs it's being run or sold as a product for others.
 
 Two surfaces in one repo:
 
-- **NeuroWorks** — local web console: chat with the agent, browse the vault, run templated tasks, review daily reflections. Multi-worker capable (primary + secondary).
-- **clawbot** — the cloud cron worker (GitHub Actions) inside it that feeds repo activity into the `main-brain` Obsidian vault. Also the historical/internal name still used for env var prefixes (`NEUROWORKS_*`) and some file paths.
+- **NaxionAI console** — local web console: chat with the agent, browse the vault, run templated tasks, review daily reflections. Multi-worker capable (primary + secondary).
+- **clawbot** — the cloud cron worker (GitHub Actions) inside it that feeds repo activity into the `main-brain` Obsidian vault. Also a historical/internal name still used for env var prefixes (`NEUROWORKS_*`) and some file paths.
 
 ## What the cron worker does
 

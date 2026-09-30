@@ -23,7 +23,7 @@ export type RagQueryRecord = {
   ts: string;
   query: string;
   hitCount: number;
-  sources: { index: number; memory: number; vaultScan: number; vector: number };
+  sources: { index: number; memory: number; vaultScan: number; vector: number; structured?: number };
   topScore: number;
   ms: number;
   vectorEnabled: boolean;
@@ -36,7 +36,7 @@ export type RagTelemetrySummary = {
   lowHitQueries: number;       // < 2 hits
   avgLatencyMs: number;
   vectorEnabledShare: number;  // 0..1 — share of queries where semantic search was live
-  sourceShare: { index: number; memory: number; vaultScan: number; vector: number }; // share of all hits
+  sourceShare: { index: number; memory: number; vaultScan: number; vector: number; structured?: number }; // share of all hits
   fallbackScanShare: number;   // share of queries that needed the slow vault walk
   topMissedTerms: { term: string; count: number }[];
   sampleMissedQueries: string[];
@@ -88,14 +88,15 @@ export function summarizeRagTelemetry(records: RagQueryRecord[]): RagTelemetrySu
   const n = records.length;
   const zero = records.filter(r => r.hitCount === 0);
   const low = records.filter(r => r.hitCount < 2);
-  const totalHits = { index: 0, memory: 0, vaultScan: 0, vector: 0 };
+  const totalHits = { index: 0, memory: 0, vaultScan: 0, vector: 0, structured: 0 };
   for (const r of records) {
     totalHits.index += r.sources.index;
     totalHits.memory += r.sources.memory;
     totalHits.vaultScan += r.sources.vaultScan;
     totalHits.vector += r.sources.vector;
+    totalHits.structured += r.sources.structured ?? 0;
   }
-  const hitSum = totalHits.index + totalHits.memory + totalHits.vaultScan + totalHits.vector;
+  const hitSum = totalHits.index + totalHits.memory + totalHits.vaultScan + totalHits.vector + totalHits.structured;
   const share = (x: number) => (hitSum ? x / hitSum : 0);
 
   const termCounts = new Map<string, number>();
@@ -115,7 +116,7 @@ export function summarizeRagTelemetry(records: RagQueryRecord[]): RagTelemetrySu
     lowHitQueries: low.length,
     avgLatencyMs: n ? Math.round(records.reduce((s, r) => s + r.ms, 0) / n) : 0,
     vectorEnabledShare: n ? records.filter(r => r.vectorEnabled).length / n : 0,
-    sourceShare: { index: share(totalHits.index), memory: share(totalHits.memory), vaultScan: share(totalHits.vaultScan), vector: share(totalHits.vector) },
+    sourceShare: { index: share(totalHits.index), memory: share(totalHits.memory), vaultScan: share(totalHits.vaultScan), vector: share(totalHits.vector), structured: share(totalHits.structured) },
     fallbackScanShare: n ? records.filter(r => r.sources.vaultScan > 0).length / n : 0,
     topMissedTerms,
     sampleMissedQueries: [...new Set(zero.map(r => r.query))].slice(-8),

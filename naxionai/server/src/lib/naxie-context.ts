@@ -35,7 +35,7 @@ export type NaxieContext = {
   sourceNoteId: string | null;
 };
 
-export async function buildNaxieContext(query: string, opts: { ragLimit?: number; includeDated?: boolean; scopeId?: string } = {}): Promise<NaxieContext> {
+export async function buildNaxieContext(query: string, opts: { ragLimit?: number; includeDated?: boolean; scopeId?: string; sessionId?: string } = {}): Promise<NaxieContext> {
   ensureOnce();
   const cag = buildCagPrefix();
   // MAG as standalone (fresh) — CAG already contains a mag snapshot but we add a
@@ -44,7 +44,7 @@ export async function buildNaxieContext(query: string, opts: { ragLimit?: number
 
   // Kick ragSearch early so vault walks + pgvector embed run concurrently with
   // the synchronous mission-log / CRM / audit file reads below.
-  const hitsPromise = ragSearch(query, opts.ragLimit ?? 6);
+  const hitsPromise = ragSearch(query, opts.ragLimit ?? 6, { sessionId: opts.sessionId });
   // Gather sync context slices while ragSearch is in flight
   const syncSlices = (() => {
     let missionLog = "";
@@ -143,11 +143,11 @@ export async function buildNaxieContext(query: string, opts: { ragLimit?: number
 }
 
 // For subagents: same memory, but preface with "You are <persona> — Naxie's delegate"
-export function buildSubagentContext(personaId: string, query: string): Promise<NaxieContext> {
+export function buildSubagentContext(personaId: string, query: string, opts: { sessionId?: string } = {}): Promise<NaxieContext> {
   // Reuse same RAG/MAG/CAG — subagents share the same durable memory so they
   // also never forget who Nature is. Persona-specific profile is layered by
   // personaSystemSuffix() elsewhere; this just adds the shared memory.
-  return buildNaxieContext(query, { ragLimit: 6 });
+  return buildNaxieContext(query, { ragLimit: 6, sessionId: opts.sessionId ?? `subagent:${personaId}` });
 }
 
 // Lightweight probe for /api/status

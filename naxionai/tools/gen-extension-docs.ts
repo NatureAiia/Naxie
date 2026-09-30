@@ -1,6 +1,6 @@
 // Auto-generate docs/EXTENSIONS.md from EXTENSION_CATALOG so the doc never
 // drifts from the code. Run: pnpm -F neuroworks exec tsx tools/gen-extension-docs.ts
-// (or: tsx tools/gen-extension-docs.ts from the neuroworks/ root).
+// (or: tsx tools/gen-extension-docs.ts from the naxionai/ root).
 
 import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";

@@ -16,7 +16,7 @@ export const naxieRouter = Router();
 naxieRouter.get("/context", async (req, res) => {
   const q = String(req.query.q ?? "operator and naxie second in command").slice(0, 200);
   try {
-    const ctx = await buildNaxieContext(q, { ragLimit: 5 });
+    const ctx = await buildNaxieContext(q, { ragLimit: 5, sessionId: "inspector" });
     const op = getOperatorIdentity();
     const cag = cagStats();
     const roster = getSubagentRoster();

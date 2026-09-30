@@ -831,7 +831,13 @@ async function handleChat(req: any, res: any) {
     // When this turn continues a prior job, key the mission-log lookup on
     // that job's id so the model sees its own working notes from earlier in
     // the same task instead of whatever scope was most recently touched.
-    const ctx = await buildNaxieContext(text, { ragLimit: 5, scopeId: isContinuation ? continuation!.originalJobId : undefined });
+    const ctx = await buildNaxieContext(text, {
+      ragLimit: 5,
+      scopeId: isContinuation ? continuation!.originalJobId : undefined,
+      // Session-scoped RAG memory — follow-ups ("that file") resolve against
+      // this conversation's last retrieval, keyed by user + chat session.
+      sessionId: `${callerOf(req)?.id ?? "local"}:${typeof req.body?.sessionId === "string" && req.body.sessionId.trim() ? req.body.sessionId.trim().slice(0, 60) : "default"}`,
+    });
     if (ctx.rag) enrichedTask += "\n\n" + ctx.rag;
     // Keep MAG hints lightweight here — full CAG prefix is system-side, but a
     // one-line operator reminder ensures even a 3b local model doesn't forget.

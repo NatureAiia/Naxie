@@ -22,7 +22,7 @@ import { logAudit } from "./audit-log.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../../../..");
 const SERVER_ROOT = resolve(__dirname, "..");
-const WEB_SRC = resolve(REPO_ROOT, "neuroworks/web/src");
+const WEB_SRC = resolve(REPO_ROOT, "naxionai/web/src");
 
 const AUDIT_DIR = "_neuroworks/system-audits";
 
@@ -33,7 +33,7 @@ const AUDIT_DIR = "_neuroworks/system-audits";
 // real path FIRST; only fall back to the legacy path when the real one is
 // missing/empty (e.g. a truly fresh install with nothing written yet).
 function readSchedulesArray(): any[] {
-  for (const p of [join(REPO_ROOT, "neuroworks/.neuroworks/schedules.json"), join(REPO_ROOT, ".neuroworks/schedules.json")]) {
+  for (const p of [join(REPO_ROOT, "naxionai/.neuroworks/schedules.json"), join(REPO_ROOT, ".neuroworks/schedules.json")]) {
     try {
       const parsed = JSON.parse(readFileSync(p, "utf8"));
       const arr = Array.isArray(parsed) ? parsed : (parsed.schedules ?? []);
@@ -190,7 +190,7 @@ export function scanInventory(): FileInventory {
   } catch { /* ignore */ }
   if (personas.length === 0) {
     try {
-      const raw2 = readFileSync(join(REPO_ROOT, "neuroworks/.neuroworks/personas.json"), "utf8");
+      const raw2 = readFileSync(join(REPO_ROOT, "naxionai/.neuroworks/personas.json"), "utf8");
       personas = (JSON.parse(raw2)?.personas ?? []).map((p: any) => p.name ?? p.id);
     } catch { /* ignore */ }
   }
@@ -633,7 +633,7 @@ export function getPersonaMergeCandidates(): PersonaMergeCandidate[] {
       if (!Array.isArray(personas)) personas = [];
     } catch {
       try {
-        const alt = join(REPO_ROOT, "neuroworks/.neuroworks/personas.json");
+        const alt = join(REPO_ROOT, "naxionai/.neuroworks/personas.json");
         if (existsSync(alt)) personas = (JSON.parse(readFileSync(alt, "utf8")).personas ?? []) as any[];
       } catch { /* ignore */ }
     }
@@ -778,18 +778,21 @@ Write the Managing Director's system update.`;
     // with a NaN operand returns NaN, which setTimeout coerces to a ~1ms delay,
     // aborting every synthesis call almost instantly.
     const timeoutMs = Math.max(60_000, Number.isFinite(rawTimeoutMs) ? rawTimeoutMs : 180_000);
-    for (let attemptIdx = 0; attemptIdx < 2; attemptIdx++) {
-      try {
-        const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs } as any);
-        if (attemptIdx > 0) console.log(`[system-audit] LLM synthesis succeeded on retry`);
-        return { text: meta.text.trim(), modelUsed: meta.model };
-      } catch (e: any) {
-        lastErr = e;
-        if (attemptIdx === 0) {
-          console.warn(`[system-audit] LLM synthesis failed (${String(e?.message ?? e).slice(0, 100)}) — retrying in 2s`);
-          await new Promise(r => setTimeout(r, 2_000));
-        }
-      }
+    // ONE attempt, not two (this used to loop and retry once more after a
+    // 2s backoff). llmGenerateWithMeta already walks a full multi-provider
+    // fallback chain internally (primary OpenRouter -> its OpenAI/Anthropic
+    // failover providers -> local Ollama as the last resort — see llm.ts's
+    // generateWithMetaInner), each hop bounded by timeoutMs above. A failure
+    // here means ALL of that already failed, including local Ollama;
+    // retrying the identical chain 2s later rarely succeeds and doubles the
+    // worst-case wall-clock time, which is exactly what was blowing the
+    // 8min outer cap (SYNTH_TIMEOUT_MS below) even with the per-call
+    // timeout fix (caught live 2026-09-30).
+    try {
+      const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs } as any);
+      return { text: meta.text.trim(), modelUsed: meta.model };
+    } catch (e: any) {
+      lastErr = e;
     }
     // Fallback: render without LLM
     const fallback = [
@@ -984,12 +987,23 @@ export async function runSystemAudit(): Promise<SystemAuditResult> {
       const openTitles = new Set(open.map(t => t.title));
       for (const imp of stats.improvements) {
         if (imp.priority === "low") continue;
-        const title = `MD Audit: ${imp.area} — ${imp.issue}`.slice(0, 160);
+        // The title (the dedup key) must stay STABLE across runs — it used
+        // to include imp.issue, which embeds live counts ("10 tasks stuck in
+        // blocked", "46/46 personas dormant", "60% failure rate (3/5)") and
+        // so is a different string every day the numbers move even slightly.
+        // That defeated the openTitles check entirely: duplicate "Org
+        // Tasks"/"Personas"/"Template: general-task" entries piled up in
+        // backlog because no two days' titles ever matched (caught live
+        // 2026-09-30, same bug as innovation-scan.ts's model-health tasks).
+        // imp.area is already the per-finding-kind unique identifier
+        // (e.g. "Template: general-task" already names the specific
+        // template) — the live numbers still show up in `detail`.
+        const title = `MD Audit: ${imp.area}`.slice(0, 160);
         if (openTitles.has(title)) continue;
         createOrgTask({
           role: "admin",
           title,
-          detail: `${imp.recommendation}\n\nEvidence: ${imp.evidence}\n\nFrom the ${date} MD System Audit — ${path}`,
+          detail: `${imp.issue}\n\n${imp.recommendation}\n\nEvidence: ${imp.evidence}\n\nFrom the ${date} MD System Audit — ${path}`,
           priority: imp.priority === "high" ? "high" : "normal",
           createdBy: "daemon",
         });
@@ -1109,8 +1123,10 @@ export async function triggerVoiceBriefing(): Promise<{ ok: boolean; text?: stri
       } catch { /* ignore */ }
       void import("./telegram-bridge.js").then(m => m.sendTelegramMessage(`🎙️ *MD Voice Briefing — ${s.date}*\n${script}`).catch(() => {}));
       return { ok: true, text: script };
-    } catch (e: any) {
-      void import("./telegram-bridge.js").then(m => m.sendTelegramMessage(`🎙️ *MD Voice Briefing — ${s.date}*\n${script}\n\n_TTS unavailable: ${String(e?.message ?? e).slice(0, 80)}_`).catch(() => {}));
+    } catch {
+      // TTS is best-effort — fall back to the same plain text message the
+      // success path sends, no error caption cluttering the briefing.
+      void import("./telegram-bridge.js").then(m => m.sendTelegramMessage(`🎙️ *MD Voice Briefing — ${s.date}*\n${script}`).catch(() => {}));
       return { ok: true, text: script };
     }
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }

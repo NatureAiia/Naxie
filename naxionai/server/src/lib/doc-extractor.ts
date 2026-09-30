@@ -14,7 +14,7 @@ import { extname, basename } from "node:path";
 
 export type ExtractResult = {
   text: string;
-  kind: "markdown" | "pdf" | "docx" | "xlsx" | "csv" | "txt" | "code" | "unsupported";
+  kind: "markdown" | "pdf" | "docx" | "pptx" | "xlsx" | "csv" | "txt" | "code" | "unsupported";
   ext: string;
   name: string;
   bytes: number;
@@ -92,6 +92,8 @@ export async function extractDocText(absPath: string): Promise<ExtractResult> {
     result = await extractPdf(absPath, baseMeta);
   } else if (ext === ".docx") {
     result = await extractDocx(absPath, baseMeta);
+  } else if (ext === ".pptx") {
+    result = await extractPptx(absPath, baseMeta);
   } else if (ext === ".xlsx" || ext === ".xls" || ext === ".xlsm") {
     result = await extractXlsx(absPath, baseMeta);
   } else if (ext === ".csv" || ext === ".tsv") {
@@ -184,7 +186,68 @@ async function extractDocx(path: string, meta: { ext: string; name: string; byte
   }
 }
 
-// XLSX — SheetJS gives us per-sheet rows, which we render as Markdown tables.
+// PPTX — a .pptx is a ZIP of slide XML (OOXML). adm-zip (already a
+// dependency) opens it with no native build; slide + speaker-notes text
+// lives in <a:t> nodes. This is what makes decks retrievable — the
+// summit-deck grounding case depends on slide text reaching the index,
+// not just the filename.
+async function extractPptx(path: string, meta: { ext: string; name: string; bytes: number; fromCache: boolean }): Promise<ExtractResult> {
+  try {
+    const mod: any = await import("adm-zip");
+    const AdmZip = mod.default ?? mod;
+    const zip = new AdmZip(readFileSync(path));
+    const sections: string[] = [];
+    const entries: { entryName: string }[] = typeof zip.getEntries === "function" ? zip.getEntries() : [];
+    const slideNames = entries
+      .map(e => e.entryName)
+      .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+      .sort((a, b) => {
+        const na = Number(a.match(/slide(\d+)\.xml/)?.[1] ?? 0);
+        const nb = Number(b.match(/slide(\d+)\.xml/)?.[1] ?? 0);
+        return na - nb;
+      })
+      .slice(0, 200);
+    const noteNames = new Set(
+      entries.map(e => e.entryName).filter(n => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n)),
+    );
+    let slideNo = 0;
+    for (const name of slideNames) {
+      slideNo += 1;
+      try {
+        const xml = zip.readAsText(name);
+        const texts = [...xml.matchAll(/<a:t>([^<]*)<\/a:t>/g)]
+          .map(m => unescapeXml(m[1]).trim())
+          .filter(Boolean);
+        if (texts.length === 0) continue;
+        sections.push(`## Slide ${slideNo}\n\n${texts.join("\n")}`);
+        const noteName = name.replace("ppt/slides/slide", "ppt/notesSlides/notesSlide");
+        if (noteNames.has(noteName)) {
+          try {
+            const noteXml = zip.readAsText(noteName);
+            const noteTexts = [...noteXml.matchAll(/<a:t>([^<]*)<\/a:t>/g)]
+              .map(m => unescapeXml(m[1]).trim())
+              .filter(t => t && !texts.includes(t));
+            if (noteTexts.length > 0) sections.push(`Speaker notes (slide ${slideNo}):\n${noteTexts.join("\n")}`);
+          } catch { /* notes are optional */ }
+        }
+      } catch { /* tolerate one bad slide */ }
+    }
+    const merged = sections.join("\n\n");
+    if (!merged.trim()) {
+      return { ...meta, text: `(no extractable text in this presentation — likely image-only slides)`, kind: "pptx" };
+    }
+    const { text, truncated } = clampText(merged);
+    return { ...meta, text, kind: "pptx", truncated };
+  } catch (e: any) {
+    return { ...meta, text: `(PPTX extraction failed: ${String(e?.message ?? e).slice(0, 200)})`, kind: "pptx" };
+  }
+}
+
+function unescapeXml(s: string): string {
+  return s
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+}
 // Multi-sheet workbooks become multi-section markdown so the agent can
 // distinguish "Revenue" sheet from "Costs" sheet by heading.
 async function extractXlsx(path: string, meta: { ext: string; name: string; bytes: number; fromCache: boolean }): Promise<ExtractResult> {

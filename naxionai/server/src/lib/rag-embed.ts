@@ -12,7 +12,7 @@
 // convenience job, never something that should surface an error to a user
 // mid-chat.
 
-import { chunkVault, type VaultChunk } from "./rag-chunk.js";
+import { chunkVaultAsync, type VaultChunk } from "./rag-chunk.js";
 import { embedText, EmbeddingsUnavailable } from "./embeddings.js";
 import { getPgPool, isPgAvailable, type Pool } from "./pg-client.js";
 import { config } from "../config.js";
@@ -81,7 +81,7 @@ async function doRun(): Promise<void> {
       return;
     }
 
-    const chunks = chunkVault(config.vaultPath);
+    const chunks = await chunkVaultAsync(config.vaultPath);
     if (chunks.length === 0) return;
 
     let embedded = 0;
@@ -126,6 +126,15 @@ async function upsertChunks(pool: Pool, batch: VaultChunk[], vectors: number[][]
            embedding_model = excluded.embedding_model, updated_at = now()`,
         [c.path, c.heading, c.title, c.chunkIndex, c.content, vecLiteral, config.openaiEmbeddingModel],
       );
+      // Best-effort entity sidecar — the 0003 migration adds these columns;
+      // older DBs without the migration keep working (update skipped).
+      try {
+        await pool.query(
+          `update vault_chunks set entities = $3::jsonb, keywords = $4::text[], source_kind = $5
+           where path = $1 and chunk_index = $2`,
+          [c.path, c.chunkIndex, JSON.stringify(c.entities ?? {}), c.keywords ?? [], c.sourceKind ?? "md"],
+        );
+      } catch { /* pre-0003 schema — content+embedding already saved */ }
     } catch (e: any) {
       console.warn(`[rag-embed] upsert failed for ${c.path}#${c.chunkIndex} (tolerated): ${e?.message ?? e}`);
     }

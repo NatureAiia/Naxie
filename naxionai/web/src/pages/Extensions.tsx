@@ -393,7 +393,7 @@ export function Extensions() {
           })}
         </div>
         <div className="mt-3 text-[11px] text-cream-300/40">
-          Platform APIs are configured via <span className="font-mono text-cream-300/70">neuroworks/.env</span> (gitignored). Change a key → restart the server. The health dots above reflect live status.
+          Platform APIs are configured via <span className="font-mono text-cream-300/70">naxionai/.env</span> (gitignored). Change a key → restart the server. The health dots above reflect live status.
         </div>
       </Card>
       )}
@@ -610,12 +610,12 @@ export function Extensions() {
               <div className="font-mono text-sm text-cream-100">{hintFor.envKey}=<span className="text-cream-300/50">••••••</span></div>
               <div className="text-[11px] text-cream-300/60">{(() => {
                 const cat = data.catalog.find(c => c.id === hintFor.id);
-                return cat?.connectHint ?? "Set the key in neuroworks/.env then restart the server.";
+                return cat?.connectHint ?? "Set the key in naxionai/.env then restart the server.";
               })()}</div>
             </div>
             <div className="rounded-lg bg-amber-400/10 border border-amber-400/20 px-3 py-2 text-[11px] text-amber-300/90 flex gap-1.5">
               <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-              <span>Keys live in <span className="font-mono">neuroworks/.env</span> (gitignored). Never paste a secret into chat. After editing, restart with <span className="font-mono">pnpm -F neuroworks-server dev</span> or your process manager.</span>
+              <span>Keys live in <span className="font-mono">naxionai/.env</span> (gitignored). Never paste a secret into chat. After editing, restart with <span className="font-mono">pnpm -F neuroworks-server dev</span> or your process manager.</span>
             </div>
             <div className="flex items-center justify-between">
               {hintFor.docsUrl ? <a href={hintFor.docsUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-violet-400 hover:text-violet-300 inline-flex items-center gap-1">Get a key <ExternalLink size={11} /></a> : <span />}

@@ -1,4 +1,4 @@
-# NeuroWorks / clawbot — System Architecture
+# NaxionAI (Naxie) — System Architecture
 
 _Generated 2026-06-08. Render in Obsidian, VS Code (Markdown Preview Mermaid Support), or GitHub._
 

@@ -2,7 +2,8 @@
 
 # Naxie
 
-**Naxie** is Nature's (Mark's) personal AI assistant system — built on the open-source NeuroWorks platform.
+**Naxie** is the nickname for Nature's (Mark's) personal AI assistant system.
+It runs on **NaxionAI** — the engine that powers it.
 
 </div>
 
@@ -15,46 +16,40 @@ accounts, and credentials, which is exactly why it stays private. If you're
 looking at this expecting a general-purpose product or a multi-tenant SaaS,
 this isn't that: it's one person's own AI staff.
 
-It contains two systems that can run independently or together:
-
-- **`neuroworks-ts/`** — the TypeScript build (Express API + React SPA), one
-  port, `http://localhost:7471`.
-- **`digital-force-py/`** — the Python build (FastAPI backend + Next.js
-  frontend + Qdrant + Postgres), `http://localhost:8000` / `:3000`.
+- **NaxionAI** — the engine. A local-first TypeScript stack (Express API +
+  React SPA) that plans, executes, and synthesizes agent work against an
+  Obsidian second-brain vault. Lives in [`naxionai/`](naxionai/), one port,
+  `http://localhost:7471`.
+- **Naxie** — the nickname for the whole running system: the assistant you
+  actually talk to, backed by the NaxionAI engine.
 
 ## Start here
 
-Read **[AI-STARTUP.md](AI-STARTUP.md)** — a step-by-step, copy-pasteable startup
-runbook designed so an **AI assistant or a human** can bring the stack up from
-zero. The short version:
+Everything runs from the [`naxionai/`](naxionai/) workspace:
 
 ```bash
-cp neuroworks-ts/.env.example    neuroworks-ts/.env
-cp digital-force-py/.env.example digital-force-py/.env
-# set JWT_SECRET_KEY + ENCRYPTION_KEY in digital-force-py/.env (see AI-STARTUP.md §2)
-# Run the components locally per AI-STARTUP.md (no Docker)
+cp naxionai/.env.example naxionai/.env
+# fill in the keys you want (see naxionai/.env.example for what each does)
+cd naxionai && pnpm install && pnpm dev
+# → web http://localhost:7470 · server http://localhost:7471
 ```
 
-## History
+See [`naxionai/README.md`](naxionai/README.md) for the full console tour,
+pages, security model, and configuration.
 
-This started as **Digital Force**, an autonomous social-media-agency
-multi-agent platform, with a voice-assistant page internally named **Jarvis**.
-Both were renamed once the project became Mark's own personal assistant
-rather than a product:
+## Naming & inspiration
 
-| Old name | New name | Scope |
-|---|---|---|
-| Digital Force | **NaxionAI** | The overall codebase |
-| Jarvis | **Naxie** | The voice-assistant persona/page (`/naxie` in both the `neuroworks/` and `naxionai/` frontends) |
+| Name | What it is |
+|---|---|
+| **NaxionAI** | The engine — the platform/codebase that powers everything. |
+| **Naxie** | The system's nickname — the personal assistant this engine runs. |
+| **NeuroWorks** | An **inspiration only**, not a dependency: the "local-first AI workforce + second-brain" idea that shaped early design. The name survives in some internal identifiers (env-var prefixes like `NEUROWORKS_*`, a few file paths) for backward compatibility, but NaxionAI is the engine, not a fork of NeuroWorks. |
+| **Jarvis** | An **inspiration only**: the "build your own AI assistant" concept — a single-user loop that listens, thinks, and acts on your behalf — scaled here into a multi-agent workforce with memory, governance, and network reach. |
 
-**NeuroWorks** is unaffected by this rename and keeps its name — it's the
-open-source platform this personal system is built on top of, not the
-personal system itself. Early design inspiration for the voice-assistant
-concept drew loosely from the "build your own AI assistant" open-source
-community — a single-user, single-machine loop that listens, thinks, and
-acts on your behalf — scaled here into a multi-agent workforce with memory,
-governance, and network reach.
+Earlier working names (**Digital Force**, and a voice page once called
+**Jarvis**) were retired once the project became Mark's own personal
+assistant rather than a product.
 
 ## License
 
-See `neuroworks/LICENSE`.
+See [`naxionai/LICENSE`](naxionai/LICENSE).

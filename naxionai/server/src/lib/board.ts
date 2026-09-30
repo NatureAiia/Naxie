@@ -274,7 +274,7 @@ export async function executeBoardRun(run: BoardRun, push: (msg: string) => void
     // (Feature C), so a correction days later could act on a stale snapshot
     // if the vault changed a lot meanwhile — acceptable for v1.
     try {
-      const hits = await ragSearch(run.topic, 6);
+      const hits = await ragSearch(run.topic, 6, { sessionId: `board:${run.id}` });
       run.ragBlock = formatRagBlock(hits);
       run.groundedIn = hits.map(h => ({ path: h.path, preview: h.preview, source: h.source }));
     } catch { /* grounding is best-effort — an empty ragBlock just means ungrounded opinions, not a failed meeting */ }

@@ -6,6 +6,9 @@ import { buildIndex, indexStats, isBuildInProgress } from "../lib/vault-index.js
 import { enqueueVaultCommit } from "../lib/commit-queue.js";
 import { buildVaultGraph } from "../lib/vault-graph.js";
 import { extractDocText } from "../lib/doc-extractor.js";
+import { custodyTimeline, recordCustody, createShareToken, verifyShareToken, consumeShareToken, revokeShareToken, recordFileAccess, scanRetention, listScannedInbox, inboxScanned } from "../lib/file-governance.js";
+import { parseFileMeta } from "../lib/rag-entities.js";
+import { walk } from "../lib/vault-index.js";
 import { newJob, runJob } from "../lib/jobs.js";
 import { config } from "../config.js";
 import { requireLayer } from "../lib/access.js";
@@ -462,4 +465,136 @@ brainRouter.post("/promote", (req, res) => {
   } catch (e: any) {
     res.status(400).json({ error: e?.message ?? String(e) });
   }
+});
+
+// --- File governance (RIFTS-X records layer) ---
+
+// GET /api/brain/custody?path= — chain-of-custody timeline for one file.
+brainRouter.get("/custody", (req, res) => {
+  if (!requireVault(res)) return;
+  const path = String(req.query.path ?? "").trim();
+  if (!path) return res.status(400).json({ error: "path required" });
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 50) || 50, 1), 200);
+  res.json({ path, timeline: custodyTimeline(path, limit) });
+});
+
+// POST /api/brain/share — create an expiring share token (admin).
+// Body: { path, ttlHours?, maxUses? }
+brainRouter.post("/share", requireLayer("admin"), (req, res) => {
+  if (!requireVault(res)) return;
+  const path = String(req.body?.path ?? "").trim().replace(/^[/\\]+/, "");
+  if (!path) return res.status(400).json({ error: "path required" });
+  if (path.includes("..")) return res.status(400).json({ error: "path may not contain .." });
+  const full = resolve(config.vaultPath, path);
+  if (!full.startsWith(resolve(config.vaultPath) + sep)) return res.status(400).json({ error: "path escapes vault" });
+  if (!existsSync(full)) return res.status(404).json({ error: "not found" });
+  const actor = String(req.body?.actor ?? "operator").slice(0, 120);
+  const share = createShareToken(path, {
+    ttlHours: Number(req.body?.ttlHours ?? 72),
+    maxUses: Number(req.body?.maxUses ?? 10),
+    createdBy: actor,
+  });
+  res.json({ ok: true, ...share });
+});
+
+// GET /api/brain/share/verify?token= — check a share token (open tier:
+// recipients aren't signed in).
+brainRouter.get("/share/verify", (req, res) => {
+  const token = String(req.query.token ?? "");
+  if (!token) return res.status(400).json({ error: "token required" });
+  const v = verifyShareToken(token);
+  if (!v.ok) return res.status(403).json({ ok: false, error: v.error });
+  res.json({ ok: true, path: v.share.path, expiresAt: v.share.expiresAt, uses: v.share.uses, maxUses: v.share.maxUses });
+});
+
+// GET /api/brain/share/download?token= — consume one use and download.
+brainRouter.get("/share/download", (req, res) => {
+  const token = String(req.query.token ?? "");
+  if (!token) return res.status(400).json({ error: "token required" });
+  const c = consumeShareToken(token, "share-recipient");
+  if (!c.ok) return res.status(403).json({ ok: false, error: c.error });
+  const full = resolve(config.vaultPath, c.path);
+  if (!full.startsWith(resolve(config.vaultPath) + sep) || !existsSync(full)) {
+    return res.status(404).json({ error: "file not found" });
+  }
+  res.download(full, basename(full));
+});
+
+// POST /api/brain/share/revoke — revoke a token (admin). Body: { token }
+brainRouter.post("/share/revoke", requireLayer("admin"), (req, res) => {
+  const token = String(req.body?.token ?? "");
+  if (!token) return res.status(400).json({ error: "token required" });
+  res.json({ ok: revokeShareToken(token) });
+});
+
+// GET /api/brain/retention — vault-wide retention lifecycle scan. Walks the
+// vault, parses frontmatter expiry/retention, returns expired + expiring.
+brainRouter.get("/retention", (req, res) => {
+  if (!requireVault(res)) return;
+  try {
+    const findings: { path: string; expiryDate?: string; sensitivity?: string }[] = [];
+    for (const full of walk(config.vaultPath)) {
+      try {
+        const st = statSync(full);
+        if (!st.isFile() || st.size > 2_000_000) continue;
+        const ext = extname(full).toLowerCase();
+        if (![".md", ".markdown", ".txt"].includes(ext)) continue;
+        const head = readFileSync(full, "utf8").slice(0, 4000);
+        if (!head.startsWith("---")) continue;
+        const meta = parseFileMeta(head);
+        if (!meta.expiryDate && !meta.retention) continue;
+        const rel = relative(resolve(config.vaultPath), full).split(sep).join("/");
+        findings.push({ path: rel, expiryDate: meta.expiryDate, sensitivity: meta.sensitivity });
+        if (findings.length >= 2000) break;
+      } catch { /* tolerate one bad file */ }
+    }
+    res.json({ ok: true, scanned: findings.length, findings: scanRetention(findings) });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? String(e) });
+  }
+});
+
+// GET /api/brain/scanned — OCR inbox status list.
+brainRouter.get("/scanned", (req, res) => {
+  if (!requireVault(res)) return;
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 100) || 100, 1), 500);
+  res.json({ records: listScannedInbox(limit) });
+});
+
+// POST /api/brain/scanned — file a scan record (admin; the OCR job calls
+// this after processing). Body: { path, status, textChars?, confidence?, linkedPath?, error? }
+brainRouter.post("/scanned", requireLayer("admin"), (req, res) => {
+  const path = String(req.body?.path ?? "").trim();
+  if (!path) return res.status(400).json({ error: "path required" });
+  const status = String(req.body?.status ?? "completed");
+  if (!["pending", "processing", "completed", "failed"].includes(status)) {
+    return res.status(400).json({ error: "invalid status" });
+  }
+  const rec = {
+    path: path.slice(0, 400),
+    status: status as "pending" | "processing" | "completed" | "failed",
+    textChars: req.body?.textChars !== undefined ? Number(req.body.textChars) : undefined,
+    confidence: req.body?.confidence !== undefined ? Number(req.body.confidence) : undefined,
+    linkedPath: req.body?.linkedPath ? String(req.body.linkedPath).slice(0, 400) : undefined,
+    error: req.body?.error ? String(req.body.error).slice(0, 300) : undefined,
+  };
+  inboxScanned(rec);
+  if (rec.status === "completed" && rec.linkedPath) {
+    recordCustody({ path: rec.linkedPath, action: "sidecar", reason: `OCR inbox: ${path}` });
+  }
+  res.json({ ok: true });
+});
+
+// POST /api/brain/access — log a file view/download (open tier; the UI
+// calls this when rendering a preview). Body: { path, action?, actor? }
+brainRouter.post("/access", (req, res) => {
+  const path = String(req.body?.path ?? "").trim();
+  if (!path) return res.status(400).json({ error: "path required" });
+  const action = String(req.body?.action ?? "view");
+  if (!["view", "download", "share", "search-hit"].includes(action)) {
+    return res.status(400).json({ error: "invalid action" });
+  }
+  recordFileAccess(path, action as "view" | "download" | "share" | "search-hit",
+    req.body?.actor ? String(req.body.actor) : undefined);
+  res.json({ ok: true });
 });
