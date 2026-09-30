@@ -7,6 +7,8 @@ import { logAudit } from "./audit-log.js";
 import { classifyOrgRole, createOrgTask, updateOrgTaskStatus, requestApproval, listOrgTasks, type OrgTaskPriority } from "./org-tasks.js";
 import type { Plan } from "./agent.js"; // type-only — erased at runtime, no import cycle
 import { recordUsage } from "./tool-dna.js";
+import { runOutcome, outcomeToJobStatus } from "./run-outcome.js";
+import { runInJobScope } from "./job-scope.js";
 
 export type Job = {
   id: string;
@@ -459,7 +461,11 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
     try { ee.emit("patch", patch); } catch { /* tolerate */ }
   };
   try {
-    const final = await fn(push, progress);
+    // Every LLM call fn makes, at any depth, can now attribute its cost and
+    // trace rows to this job (job-scope.ts) instead of the literal "adhoc" —
+    // AsyncLocalStorage carries the job id down the whole async subtree
+    // without threading a new option through every call site in between.
+    const final = await runInJobScope(j.id, () => fn(push, progress));
     // Operator cancelled while fn was unwinding — the delegate/agent path
     // returns NORMALLY after a cancel (it doesn't throw), so without this
     // guard the success path below would flip the job back to "succeeded"
@@ -502,7 +508,16 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
     // A run that paused on a structured human ask parks in waiting_on_human
     // instead of succeeded — the Tasks page renders the ask and the resume
     // endpoint continues the loop once the operator responds.
-    j.status = (j.result as any)?.humanRequest ? "waiting_on_human" : "succeeded";
+    if ((j.result as any)?.humanRequest) {
+      j.status = "waiting_on_human";
+    } else {
+      // "Reached the end without throwing" is not "produced something" — a
+      // synthesis failure returned as prose used to record as succeeded with
+      // nothing downstream able to tell. See run-outcome.ts.
+      const verdict = runOutcome(j.result as any);
+      j.status = outcomeToJobStatus(verdict.outcome);
+      if (verdict.reason) j.error = verdict.reason;
+    }
     // Handoff notification: the neuro is now blocked on a person — email the
     // operator so the wait doesn't sit invisible until someone opens the app.
     // Best-effort and async; a mail outage must never fail the job itself.

@@ -18,6 +18,7 @@ import {
   defaultVaultPlan,
   deepGet,
   SENSITIVE_APPROVAL_TOOLS,
+  isReviewTimeout,
 } from "../src/lib/agent.js";
 
 describe("SENSITIVE_APPROVAL_TOOLS", () => {
@@ -326,5 +327,18 @@ describe("deepGet — wildcard array extraction", () => {
 
   it("returns undefined for '*' on a non-array", () => {
     expect(deepGet({ users: "not-an-array" }, "users.*.email")).toBeUndefined();
+  });
+});
+
+describe("isReviewTimeout — review-breaker.ts's trigger detector", () => {
+  it("matches quality.check's own wall-time cap message", () => {
+    expect(isReviewTimeout("quality.check wall-time cap (120s) exceeded")).toBe(true);
+  });
+  it("matches peer.review's own wall-time cap message", () => {
+    expect(isReviewTimeout("peer.review wall-time cap (90s) exceeded — kept the existing draft")).toBe(true);
+  });
+  it("does not match an unrelated failure", () => {
+    expect(isReviewTimeout("scorer returned no JSON")).toBe(false);
+    expect(isReviewTimeout(undefined)).toBe(false);
   });
 });

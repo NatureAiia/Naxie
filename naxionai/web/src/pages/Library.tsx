@@ -9,6 +9,7 @@ import { MarkdownPreviewPanel } from "../components/library/MarkdownPreviewPanel
 import { PromoteBar } from "../components/library/PromoteBar";
 import { ImportsActions } from "../components/library/ImportsActions";
 import { LibraryConnections } from "../components/library/LibraryConnections";
+import { CompanyLinksPanel } from "../components/library/CompanyLinksPanel";
 import { DatasetsPanel } from "../components/library/DatasetsPanel";
 
 // The vault path lives in the URL (e.g. /library/NeuroWorks%20Data%20Migration.md)
@@ -137,7 +138,10 @@ export function Library() {
 
       {tab === "connections" ? (
         canSeeConnections ? (
-          <LibraryConnections />
+          <div className="space-y-4">
+            <LibraryConnections />
+            <CompanyLinksPanel />
+          </div>
         ) : (
           <div className="text-sm text-cream-300/70 bg-ink-900 border border-ink-800 rounded-lg px-4 py-3">
             You don't have permission to view database connections. Ask an admin for access.

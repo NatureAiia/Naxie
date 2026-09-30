@@ -1,4 +1,15 @@
 import { findPrimitive, humanStepLabel, primitivesPromptCatalog, primitives } from "./primitives.js";
+import { unsupportedActionClaims, honestNonDelivery } from "./action-claims.js";
+import { reviewSkipReason, noteReviewSuccess, noteReviewTimeout } from "./review-breaker.js";
+
+// Is this a StepRun.error from quality.check/peer.review's own wall-time cap
+// (review-breaker.ts's trigger), as opposed to some other failure (a bad
+// response, a config error)? Matches the exact wording both steps' own wall
+// caps throw — see primitives.ts's "quality.check wall-time cap (Xs)
+// exceeded" and peers.ts's "peer.review wall-time cap (Xs) exceeded".
+export function isReviewTimeout(error: string | undefined): boolean {
+  return /wall-time cap.*exceeded/i.test(String(error ?? ""));
+}
 import { ollamaGenerate, ollamaGenerateWithMeta } from "./ollama.js";
 import { pollPeers } from "./peers.js";
 import { searchVault, searchVaultFilenames } from "./vault.js";
@@ -2139,6 +2150,17 @@ export async function planAndExecute(
     onProgress?.({ partialAnswer: partial });
   }, { push });
 
+  // Anti-hallucination guard: did the answer claim an outward action (sent an
+  // email, delivered a file, posted to social) that no successful step
+  // actually ran? An unverifiable claim gets withheld, not footnoted — see
+  // action-claims.ts for the incident this fixes.
+  {
+    const unsupported = unsupportedActionClaims(synth.answer, runs);
+    if (unsupported.length > 0) {
+      synth.answer = honestNonDelivery({ task, claims: unsupported, runs });
+    }
+  }
+
   // Post-flight QA. Split into two phases so the happy path doesn't pay for
   // peer.review (the slowest QA call, 30-90s):
   //   Phase A — quality.check + security.scan (fast, parallel)
@@ -2190,7 +2212,14 @@ export async function planAndExecute(
   if (wantQA && !trivialTask && !skipQAForExplainer) {
     onProgress?.({ phase: "reviewing", runs });
     // ---- Phase A: quality + security (+ governance when active), parallel ----
-    const phaseASteps: PlanStep[] = [
+    // Circuit breaker (review-breaker.ts): after a few consecutive wall-time
+    // timeouts, quality.check is rested for a cooldown instead of paying its
+    // ~120s cap again on a machine that is currently too slow for it — the
+    // caller keeps the draft it already has either way, so a timed-out review
+    // never changed the outcome, only the wait.
+    const qualitySkip = reviewSkipReason("quality.check");
+    if (qualitySkip) push(qualitySkip);
+    const phaseASteps: PlanStep[] = qualitySkip ? [] : [
       {
         tool: "quality.check",
         // Task-aligned grading: grounded when we actually gathered evidence OR
@@ -2207,13 +2236,13 @@ export async function planAndExecute(
         rationale: "auto-injected: score factuality, citation coverage, persona fit (evidence-aware)",
         label: humanStepLabel("quality.check", {}),
       },
-      {
-        tool: "security.scan",
-        args: { content: synth.answer, kind: "note" },
-        rationale: "auto-injected: scan answer for secrets, dodgy URLs",
-        label: humanStepLabel("security.scan", { kind: "note" }),
-      },
     ];
+    phaseASteps.push({
+      tool: "security.scan",
+      args: { content: synth.answer, kind: "note" },
+      rationale: "auto-injected: scan answer for secrets, dodgy URLs",
+      label: humanStepLabel("security.scan", { kind: "note" }),
+    });
     if (govActive) {
       phaseASteps.push({
         tool: "governance.check",
@@ -2234,6 +2263,11 @@ export async function planAndExecute(
       for (const i of waveA) if (rs[i]) runs[i] = rs[i];
       onProgress?.({ runs: [...runs] });
     });
+    if (!qualitySkip) {
+      const qRun = runs.find(r => r.step.tool === "quality.check");
+      if (qRun?.ok) noteReviewSuccess("quality.check");
+      else if (isReviewTimeout(qRun?.error)) noteReviewTimeout("quality.check");
+    }
 
     // ---- Phase B: peer.review, only when the draft didn't clearly pass ----
     if (!plannerAlreadyReviewed) {
@@ -2243,8 +2277,11 @@ export async function planAndExecute(
       // GOOD bar: quality.check says pass=true AND composite score >= 0.75
       // AND security clean. Skip peer.review on confident outputs.
       const cleanDraft = qPass && qScore >= 0.75 && sPass;
+      const peerSkip = reviewSkipReason("peer.review");
       if (cleanDraft) {
         push(`Quality check passed (${Math.round(qScore * 100)}%) and security is clean — peer review skipped (saves 30-90s).`);
+      } else if (peerSkip) {
+        push(peerSkip);
       } else {
         const peerStep: PlanStep = {
           tool: "peer.review",
@@ -2263,6 +2300,9 @@ export async function planAndExecute(
           for (const i of waveB) if (rs[i]) runs[i] = rs[i];
           onProgress?.({ runs: [...runs] });
         });
+        const peerRun = runs.find(r => r.step.tool === "peer.review");
+        if (peerRun?.ok) noteReviewSuccess("peer.review");
+        else if (isReviewTimeout(peerRun?.error)) noteReviewTimeout("peer.review");
       }
     }
   } else if (wantQA && skipQAForExplainer) {

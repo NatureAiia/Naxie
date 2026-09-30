@@ -451,6 +451,24 @@ export const api = {
   brainSave: (path: string, content: string) => req<{ ok: true; path: string; bytes: number }>("/api/brain/file", { method: "POST", body: JSON.stringify({ path, content }) }),
   brainEnsureSidecar: (path: string, force = false) => req<{ ok: true; sidecarPath: string; sourcePath: string; regenerated: boolean; reason?: string; bytes?: number }>("/api/brain/ensure-sidecar", { method: "POST", body: JSON.stringify({ path, force }) }),
 
+  runOrchestration: (objective: string) =>
+    req<{ id: string; label: string; status: OrchestrationRunStatus; subTasks: { id: string; label: string; status: string; elapsedMs?: number }[] }>("/api/orchestrate/run", { method: "POST", body: JSON.stringify({ objective }) }),
+  listOrchestrations: () =>
+    req<{ runs: { id: string; label: string; status: OrchestrationRunStatus; subTaskCount: number; doneCount: number; createdAt: string; elapsedMs?: number }[] }>("/api/orchestrate/runs"),
+  getOrchestration: (id: string) => req<{ run: OrchestrationRun }>(`/api/orchestrate/runs/${encodeURIComponent(id)}`),
+
+  runTeamTasks: (tasks: { persona?: string; content: string }[]) =>
+    req<{ kind: string; tasksDispatched: number; tasks: { taskIndex: number; persona: { id: string; name: string; role: string } | null; personaAutoRouted: boolean; jobId: string; route: string }[] }>("/api/team", { method: "POST", body: JSON.stringify({ tasks }) }),
+
+  listPresets: () => req<{ presets: Preset[] }>("/api/presets"),
+  applyPreset: (id: string, opts?: { deliverEmail?: string; createSchedules?: boolean }) =>
+    req<PresetApplyResult>(`/api/presets/${encodeURIComponent(id)}/apply`, { method: "POST", body: JSON.stringify(opts ?? {}) }),
+
+  listCompanyLinks: () => req<{ links: CompanyLink[] }>("/api/company-links"),
+  addCompanyLink: (body: { label: string; url: string; description?: string; department?: string }) =>
+    req<{ link: CompanyLink }>("/api/company-links", { method: "POST", body: JSON.stringify(body) }),
+  removeCompanyLink: (id: string) => req<{ ok: boolean }>(`/api/company-links/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
   listDataSources: () => req<{ sources: DataSource[] }>("/api/data-sources"),
   addDataSource: (body: { label: string; kind: DataSourceKind; connection: string; notes?: string; department?: string; readonly: boolean }) =>
     req<{ source: DataSource }>("/api/data-sources", { method: "POST", body: JSON.stringify(body) }),
@@ -1196,6 +1214,43 @@ export type IntegrationConnection = {
   allowedRoles?: string[];
   daysUntilExpiry?: number;
   expiryState?: "ok" | "soon" | "expired" | "unset";
+};
+
+export type OrchestrationRunStatus = "planning" | "running" | "completed" | "failed";
+export type OrchestrationSubTask = {
+  id: string; label: string; personaId?: string; personaName?: string; instructions: string;
+  status: "pending" | "running" | "done" | "failed"; output: string; jobId?: string;
+  elapsedMs?: number; error?: string; startedAt?: string; endedAt?: string;
+};
+export type OrchestrationRun = {
+  id: string; label: string; objective: string; decomposition: string;
+  subTasks: OrchestrationSubTask[]; status: OrchestrationRunStatus; finalReport: string;
+  jobId?: string; createdAt: string; updatedAt: string; elapsedMs?: number;
+};
+
+export type Preset = {
+  id: string; name: string; tagline: string; personaId: string;
+  recommendedSkills: string[]; recommendedIntegrations: string[];
+  schedules?: { name: string; templateId: string; cadence: unknown; emailResult?: boolean }[];
+};
+export type PresetApplyResult = {
+  preset: Preset;
+  persona: { id: string; name: string; role: string };
+  templatesEnsured: number;
+  schedulesCreated: { id: string; name: string; emailTo?: string }[];
+  missingIntegrations: string[];
+};
+
+export type CompanyLink = {
+  id: string;
+  label: string;
+  url: string;
+  description?: string;
+  department?: string;
+  createdAt: string;
+  lastFetchedAt?: string;
+  lastStatus?: number;
+  lastError?: string;
 };
 
 export type DataSourceKind = "postgres" | "mysql" | "sqlite" | "mssql" | "mongodb";

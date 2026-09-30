@@ -4,6 +4,9 @@ import { openrouterGenerateWithMeta, openrouterHealth, isTransientError, openrou
 import { recordLlmCost, recordLlmFailure } from "./cost-tracker.js";
 import { isCloudReachableCached } from "./connectivity.js";
 import { isOffline } from "./offline-mode.js";
+import { withLocalLlmSlot } from "./llm-lane.js";
+import { currentJobId } from "./job-scope.js";
+import { recordTrace, classifyError, hashPrompt } from "./llm-trace.js";
 
 export type LLMCallOptions = {
   model?: string;
@@ -226,6 +229,8 @@ async function chooseBackendAndModel(opts: LLMCallOptions, prompt: string, syste
 // otherwise reuse). Keep it warm for 30m by default. "-1" pins it in memory
 // indefinitely; "0" restores the eager-unload behaviour. Env-tunable.
 const OLLAMA_KEEP_ALIVE = (process.env.NAXION_OLLAMA_KEEP_ALIVE ?? "30m").trim();
+/** Local context window — used both for the actual /api/generate call and llm-trace.ts's overflow detection. */
+const OLLAMA_CTX = 8192;
 
 // Raw Ollama streaming call — same as the original ollamaGenerate body but
 // without the routing logic (that's now upstream in llmGenerateWithMeta).
@@ -236,6 +241,17 @@ async function callOllamaStream(prompt: string, system: string | undefined, mode
   const sys = isQwen3 ? `${system ?? ""}\n/no_think`.trim() : system;
   const numPredict = typeof maxTokens === "number" && maxTokens > 0 ? Math.min(8192, Math.max(8, Math.floor(maxTokens))) : 1024;
 
+  // One global FIFO lane for local inference (llm-lane.ts) — concurrency was
+  // previously bounded in three unrelated, non-shared places (job cap,
+  // per-run sub-agent budget, worker count), which could aim more requests
+  // at Ollama than OLLAMA_NUM_PARALLEL actually serves; the surplus queued
+  // inside Ollama holding open HTTP streams and burning the caller's own
+  // timeout. This wraps exactly one HTTP request and never nests another
+  // slot acquisition inside itself, so a slot holder can never deadlock.
+  return withLocalLlmSlot(() => callOllamaStreamInner(prompt, sys, model, onToken, numPredict, temperature, timeoutMs));
+}
+
+async function callOllamaStreamInner(prompt: string, sys: string | undefined, model: string, onToken: LLMCallOptions["onToken"] | undefined, numPredict: number, temperature: number | undefined, timeoutMs: number | undefined): Promise<{ text: string; model: string }> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), Math.max(5_000, timeoutMs ?? 15 * 60_000));
   try {
@@ -249,7 +265,7 @@ async function callOllamaStream(prompt: string, system: string | undefined, mode
         stream: true,
         think: false,
         keep_alive: OLLAMA_KEEP_ALIVE,
-        options: { temperature: typeof temperature === "number" ? temperature : 0.3, num_ctx: 8192, num_predict: numPredict },
+        options: { temperature: typeof temperature === "number" ? temperature : 0.3, num_ctx: OLLAMA_CTX, num_predict: numPredict },
       }),
       signal: ctrl.signal,
     });
@@ -304,21 +320,60 @@ async function callOllamaStream(prompt: string, system: string | undefined, mode
 // how the Cost monitor page gets its data; recording is best-effort and never
 // blocks or breaks the actual generation).
 export async function llmGenerateWithMeta(prompt: string, system?: string, opts: LLMCallOptions = {}): Promise<{ text: string; model: string; usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } }> {
+  const jobId = currentJobId() ?? "adhoc";
+  const t0 = Date.now();
+  // Captures the LATEST routing decision generateWithMetaInner reports (a
+  // fallback mid-call replaces an earlier one), without recomputing it —
+  // chooseBackendAndModel is only a cheap heuristic pick, but re-deriving it
+  // here could disagree with what the call actually used once a fallback
+  // fires. Forwards to the caller's own onRoutingDecision, if any.
+  let routing: { backend: Backend; model: string; reason?: string; tokenEstimate: number } | undefined;
+  const callerOnRoutingDecision = opts.onRoutingDecision;
+  const tracedOpts: LLMCallOptions = {
+    ...opts,
+    onRoutingDecision: (info) => {
+      routing = info;
+      try { callerOnRoutingDecision?.(info); } catch { /* consumer error */ }
+    },
+  };
   let result: { text: string; model: string; usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } };
   try {
-    result = await generateWithMetaInner(prompt, system, opts);
+    result = await generateWithMetaInner(prompt, system, tracedOpts);
   } catch (e: any) {
     // Terminal failure — every retry/fallback in generateWithMetaInner is
     // exhausted. Record it once (previously invisible: cost-tracker only ever
     // ran on the success path below) so byModel.failureRate is real, then
     // rethrow unchanged — this is purely an observability hook.
     try {
-      const { backend, model } = await chooseBackendAndModel(opts, prompt, system);
-      recordLlmFailure(model, backend, opts.profile ?? "none", e?.message ?? String(e), "adhoc");
+      const { backend, model } = routing ?? await chooseBackendAndModel(opts, prompt, system);
+      recordLlmFailure(model, backend, opts.profile ?? "none", e?.message ?? String(e), jobId);
+      const { outcome, errorClass } = classifyError(e);
+      recordTrace({
+        at: new Date().toISOString(), job: jobId, call: "llmGenerateWithMeta", backend, model,
+        profile: opts.profile, reason: routing?.reason,
+        promptChars: prompt.length, systemChars: (system ?? "").length,
+        estTokens: routing?.tokenEstimate ?? 0,
+        ctx: backend === "ollama" ? OLLAMA_CTX : undefined,
+        overflow: backend === "ollama" && !!routing?.tokenEstimate && routing.tokenEstimate > OLLAMA_CTX,
+        ms: Date.now() - t0, outcome, errorClass, promptHash: hashPrompt(prompt, system),
+      });
     } catch { /* best-effort */ }
     throw e;
   }
-  try { recordLlmCost(result.model, result.text, prompt, system, opts.profile ?? "none", "adhoc", result.usage); } catch { /* best-effort */ }
+  try { recordLlmCost(result.model, result.text, prompt, system, opts.profile ?? "none", jobId, result.usage); } catch { /* best-effort */ }
+  try {
+    recordTrace({
+      at: new Date().toISOString(), job: jobId, call: "llmGenerateWithMeta",
+      backend: routing?.backend ?? "ollama", model: result.model,
+      profile: opts.profile, reason: routing?.reason,
+      promptChars: prompt.length, systemChars: (system ?? "").length,
+      estTokens: routing?.tokenEstimate ?? 0,
+      ctx: routing?.backend === "ollama" ? OLLAMA_CTX : undefined,
+      overflow: routing?.backend === "ollama" && !!routing?.tokenEstimate && routing.tokenEstimate > OLLAMA_CTX,
+      inTok: result.usage?.inputTokens, outTok: result.usage?.outputTokens,
+      ms: Date.now() - t0, outcome: "ok", promptHash: hashPrompt(prompt, system),
+    });
+  } catch { /* best-effort */ }
   // Prompt-cache effectiveness metric — only cloud providers report cached
   // prefix tokens (usage present). Best-effort; never blocks generation.
   try {

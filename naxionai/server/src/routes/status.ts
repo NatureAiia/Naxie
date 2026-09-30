@@ -14,6 +14,8 @@ import { listConnectors } from "../lib/connectors.js";
 import { listConnections } from "../lib/integrations.js";
 import { listProviders } from "../lib/model-providers.js";
 import { isOffline } from "../lib/offline-mode.js";
+import { llmLaneStatus } from "../lib/llm-lane.js";
+import { reviewBreakerState } from "../lib/review-breaker.js";
 
 export const statusRouter = Router();
 
@@ -145,6 +147,8 @@ statusRouter.get("/", async (_req, res) => {
     // Admin page extra calls to /status/vault + a future /jobs/store.
     vaultCommits: vaultCommitStats(),
     jobStore: jobStoreStats(),
+    llmLane: llmLaneStatus(),
+    reviewBreakers: reviewBreakerState(),
     // Org status summary for the Dashboard's "Mission Control" panel.
     // /api/governance, /api/connectors, and /api/models are all
     // superadmin-gated at the router level (they carry secrets/config a
