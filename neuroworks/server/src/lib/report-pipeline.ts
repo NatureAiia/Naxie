@@ -391,7 +391,7 @@ export function deriveQueries(topic: string): string[] {
  * The caller hands the generate function an AbortSignal, so a section that
  * runs out of budget takes its call down with it.
  */
-function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number, what: string): Promise<T> {
+export function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number, what: string): Promise<T> {
   const ctrl = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<T>((_, rej) => {

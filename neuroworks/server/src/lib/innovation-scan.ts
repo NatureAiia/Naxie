@@ -34,6 +34,10 @@ import { scanForSecurityRisks } from "./security.js";
 import { nextSkillVersion } from "./skill-version.js";
 import { logAudit } from "./audit-log.js";
 import { isOffline } from "./offline-mode.js";
+import { withTimeout, cleanSectionText } from "./report-pipeline.js";
+import { localSynthBudget } from "./local-budget.js";
+import { llmLaneStatus } from "./llm-lane.js";
+import { config } from "../config.js";
 
 const SCAN_DIR = "_neuroworks/innovation-scans";
 
@@ -355,33 +359,58 @@ ${repo.url}
 }
 
 // ─── 4. Synthesize the operator-facing digest ───
+//
+// MIGRATED onto report-pipeline.ts's core discipline (2026-09): this used to
+// be ONE unbounded LLM call writing all four sections at once, with an 8-min
+// outer cap that — when it fired — threw away the whole digest and fell back
+// to raw, unsynthesised findings. Structurally the same bug report-pipeline.ts
+// exists to fix: one monolithic call has no partial-credit mode.
+//
+// Now each section is its own small, independently-timed-out call (withTimeout,
+// cleanSectionText from report-pipeline.ts), so a slow/stuck section becomes a
+// named gap in an otherwise-complete digest instead of losing all four. This
+// deliberately does NOT route through runReportPipeline's generic
+// ReportSchema/evidence-pool machinery — that pipeline's citation-checking
+// system prompt would flatten this feature's specific warm, non-technical
+// "Naxie is delivering this" voice, and the four sections here each already
+// have their own distinct, pre-gathered evidence collection (weakness
+// research / cost-tracker data / trending repos+news) rather than one shared
+// pool, so the generic single-pool model doesn't fit. What's reused is the
+// PATTERN: bounded-per-section, retry-once, partial-credit, total-budget-capped.
+const SECTION_RETRY_DELAY_MS = 2_000;
+
+async function draftDigestSection(
+  heading: string, sys: string, prompt: string, maxTokens: number, timeoutMs: number,
+): Promise<{ heading: string; text: string; ok: boolean; modelUsed?: string; gap?: string }> {
+  let lastErr: any;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const meta = await withTimeout(
+        () => llmGenerateWithMeta(prompt, sys, { profile: "synthesis", maxTokens, timeoutMs }),
+        timeoutMs,
+        `innovation-scan section "${heading}"`,
+      );
+      return { heading, text: cleanSectionText(meta.text.trim(), heading), ok: true, modelUsed: meta.model };
+    } catch (e: any) {
+      lastErr = e;
+      if (attempt === 0) {
+        console.warn(`[innovation-scan] "${heading}" failed (${String(e?.message ?? e).slice(0, 100)}) — retrying once in ${SECTION_RETRY_DELAY_MS / 1000}s`);
+        await new Promise(r => setTimeout(r, SECTION_RETRY_DELAY_MS));
+        continue;
+      }
+    }
+  }
+  return { heading, text: "", ok: false, gap: String(lastErr?.message ?? lastErr).slice(0, 160) };
+}
+
+const DIGEST_VOICE = `You are NeuroWorks's Innovation Scan writer — and Naxie, the operator's PA, is delivering this. The operator is NOT deeply technical — plain language, no jargon dump, no wall of acronyms. Warm, concise, skimmable — short paragraphs or bullets. Use emoji sparingly but do use a few tasteful ones (e.g. 🚀 💡 🔭 🛠️ 📦) — no emoji spam. No filler ("In today's fast-moving AI landscape..."). Numbers/names/sources beat vague claims. Write the section body only — no heading, it's added separately.`;
+
 export async function synthesizeDigest(targeted: TargetedFinding[], broad: BroadWatch, modelHealth: ModelHealthFinding[] = []): Promise<{ text: string; modelUsed?: string }> {
   if (targeted.length === 0 && broad.repos.length === 0 && broad.news.length === 0 && broad.curated.length === 0 && modelHealth.length === 0) {
     return {
       text: `_Nothing to report yet. Once the system has run enough tasks to learn where it's weak, and/or the web is reachable, this scan will have real material to work with._`,
     };
   }
-
-  const sys = `You are NeuroWorks's Innovation Scan writer — and Naxie, the operator's PA, is delivering this. The operator is NOT deeply technical — plain language, no jargon dump, no wall of acronyms. Your job is to make three things clear: (1) how we're fixing our own weak spots, (2) how the AI models we're actually using are doing (failure rates, cost, free vs paid), and (3) what's new and interesting in AI/tech this week.
-
-Output sections — use these EXACT headings (including the emoji prefix):
-## 🔧 Fixing our weak spots
-For EACH targeted finding, tie it back to the specific weakness that prompted it — say what's weak, then what the research suggests doing about it. Plain language. If there are no targeted findings, say plainly that nothing weak enough to chase was found.
-
-## 🧠 Model & cost health
-State plainly what's happening with the models this week — failure rates, which ones are struggling, how much (if anything) was spent on paid models and whether that seems worth it. If a finding is flagged actionable, say Naxie will propose a fix for the operator to approve. If there's nothing to report, say so.
-
-## ✨ What's new and interesting
-Digestible highlights from the trending repos and news findings — what it is and why it might matter to us, in plain terms. If there's nothing, say so.
-
-## 🌍 Why it matters for us
-1-2 sentences tying the scan back to "AI for a better Africa" — practical next step the operator could take this week.
-
-Rules:
-- Warm, concise, skimmable — short paragraphs or bullets. Use emoji sparingly but do use them: section headings already have one, and 1-2 tasteful emoji per bullet/list item are welcome (e.g. 🚀 💡 🔭 🛠️ 📦). No emoji spam.
-- No filler ("In today's fast-moving AI landscape...").
-- Keep headings exactly as specified — downstream rendering depends on them.
-- Numbers/names/sources always beat vague claims. Cite a source inline where the finding came from.`;
 
   const targetedBlock = targeted.length > 0
     ? targeted.map(t => `### Weakness: ${t.reason}\nResearch query: "${t.weaknessQuery}"\nFindings: ${t.summary}`).join("\n\n")
@@ -399,57 +428,70 @@ Rules:
     ? broad.news.map(n => `### "${n.query}"\n${n.summary}`).join("\n\n")
     : "_(no news findings)_";
 
-  const prompt = `## Targeted findings (our own weak spots)\n\n${targetedBlock}\n\n## Model & cost health\n\n${modelHealthBlock}\n\n## Trending repos\n\n${reposBlock}\n\n## News findings\n\n${newsBlock}\n\nWrite the digest.`;
+  // Per-section budget derived from measured local throughput + the lane's
+  // own observed queue wait (local-budget.ts) — each section is a small ask
+  // (≤350 tokens), so this lands far below the total cap on a healthy box.
+  const sectionTimeoutMs = localSynthBudget({
+    maxTokens: 350, inFlight: 1, observedWaitMs: llmLaneStatus().avgWaitMs, cloud: config.openrouterEnabled,
+  }).ms;
+  // Same defensive TOTAL wall-clock cap as before (env-compatible name kept)
+  // — a hung backend must still cost minutes, not hours, across all four
+  // sections combined.
+  const totalTimeoutMs = Math.max(60_000, Number(process.env.NEUROWORKS_INNOVATION_SCAN_SYNTH_TIMEOUT_MS ?? String(8 * 60_000)));
+  const t0 = Date.now();
+  const remaining = () => Math.max(0, totalTimeoutMs - (Date.now() - t0));
 
-  const attemptSynthesis = async (): Promise<{ text: string; modelUsed?: string }> => {
-    let lastErr: any;
-    // Bounded per-attempt budget — same stall-fast reasoning as the system
-    // audit's synthesis (8-min outer cap burned whole scans on slow backends).
-    const rawTimeoutMs = Number(process.env.NEUROWORKS_SYNTH_TIMEOUT_MS ?? "180000");
-    // A non-numeric override (e.g. "3m") must not silently become NaN — Math.max
-    // with a NaN operand returns NaN, which setTimeout coerces to a ~1ms delay,
-    // aborting every synthesis call almost instantly.
-    const timeoutMs = Math.max(60_000, Number.isFinite(rawTimeoutMs) ? rawTimeoutMs : 180_000);
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs } as any);
-        if (attempt > 0) console.log(`[innovation-scan] LLM call succeeded on retry`);
-        return { text: meta.text.trim(), modelUsed: meta.model };
-      } catch (e: any) {
-        lastErr = e;
-        if (attempt === 0) {
-          const msg = String(e?.message ?? e).slice(0, 100);
-          console.warn(`[innovation-scan] LLM call failed (${msg}) — retrying once in 2s`);
-          await new Promise(r => setTimeout(r, 2_000));
-          continue;
-        }
-      }
+  const specs: { id: string; heading: string; sys: string; prompt: string; maxTokens: number }[] = [
+    {
+      id: "weak-spots", heading: "🔧 Fixing our weak spots", maxTokens: 300,
+      sys: `${DIGEST_VOICE}\nFor EACH targeted finding, tie it back to the specific weakness that prompted it — say what's weak, then what the research suggests doing about it. If there are no targeted findings, say plainly that nothing weak enough to chase was found.`,
+      prompt: targetedBlock,
+    },
+    {
+      id: "model-health", heading: "🧠 Model & cost health", maxTokens: 300,
+      sys: `${DIGEST_VOICE}\nState plainly what's happening with the models this week — failure rates, which ones are struggling, how much (if anything) was spent on paid models and whether that seems worth it. If a finding is flagged actionable, say Naxie will propose a fix for the operator to approve. If there's nothing to report, say so.`,
+      prompt: modelHealthBlock,
+    },
+    {
+      id: "whats-new", heading: "✨ What's new and interesting", maxTokens: 350,
+      sys: `${DIGEST_VOICE}\nDigestible highlights from the trending repos and news findings — what it is and why it might matter to us, in plain terms. If there's nothing, say so.`,
+      prompt: `## Trending repos\n\n${reposBlock}\n\n## News findings\n\n${newsBlock}`,
+    },
+  ];
+
+  const results: { heading: string; text: string; ok: boolean; gap?: string }[] = [];
+  let modelUsed: string | undefined;
+  for (const spec of specs) {
+    if (remaining() <= 0) {
+      results.push({ heading: spec.heading, text: "", ok: false, gap: `not attempted — the digest's total time budget (${Math.round(totalTimeoutMs / 60_000)}min) was already spent` });
+      continue;
     }
-    return {
-      text: `_LLM digest synthesis failed after retry (\`${String(lastErr?.message ?? lastErr).slice(0, 100)}\`). The raw findings below are still valid — review them manually.\n\n## Fixing our weak spots\n${targetedBlock}\n\n## Model & cost health\n${modelHealthBlock}\n\n## What's new and interesting\n${reposBlock}\n\n${newsBlock}`,
-    };
-  };
-
-  // Same defensive wall-clock cap as reflection.ts's synthesizeReflection —
-  // a hung backend must cost minutes, not hours, and the scan must still
-  // land a usable file via the stat-only fallback.
-  const SYNTH_TIMEOUT_MS = Math.max(60_000, Number(process.env.NEUROWORKS_INNOVATION_SCAN_SYNTH_TIMEOUT_MS ?? String(8 * 60_000)));
-  let capTimer: NodeJS.Timeout | undefined;
-  const cap = new Promise<{ text: string; modelUsed?: string }>((resolve) => {
-    capTimer = setTimeout(() => {
-      const mins = Math.round(SYNTH_TIMEOUT_MS / 60_000);
-      console.warn(`[innovation-scan] synthesis exceeded ${mins}min cap — abandoning the LLM call and writing the findings-only digest`);
-      resolve({
-        text: `_LLM digest synthesis exceeded the ${mins}min cap and was abandoned so the scan wouldn't stall. The raw findings below are still valid.\n\n## Fixing our weak spots\n${targetedBlock}\n\n## Model & cost health\n${modelHealthBlock}\n\n## What's new and interesting\n${reposBlock}\n\n${newsBlock}`,
-      });
-    }, SYNTH_TIMEOUT_MS);
-    if (typeof capTimer.unref === "function") capTimer.unref();
-  });
-  try {
-    return await Promise.race([attemptSynthesis(), cap]);
-  } finally {
-    if (capTimer) clearTimeout(capTimer);
+    const r = await draftDigestSection(spec.heading, spec.sys, spec.prompt, spec.maxTokens, Math.min(sectionTimeoutMs, remaining()));
+    results.push(r);
+    if (r.modelUsed) modelUsed = r.modelUsed;
   }
+
+  // "Why it matters" ties the other three together — sees their FINAL text,
+  // not raw evidence, so it's a small synthesis call, not a research one.
+  const priorBlock = results.map(r => `## ${r.heading}\n${r.ok ? r.text : `_Not written: ${r.gap}_`}`).join("\n\n");
+  const whyMattersHeading = "🌍 Why it matters for us";
+  const whyMatters = remaining() > 0
+    ? await draftDigestSection(
+        whyMattersHeading,
+        `${DIGEST_VOICE}\n1-2 sentences tying the scan back to "AI for a better Africa" — a practical next step the operator could take this week. You'll be shown the digest's other sections already written — build on them, don't repeat them.`,
+        priorBlock,
+        150,
+        Math.min(sectionTimeoutMs, remaining()),
+      )
+    : { heading: whyMattersHeading, text: "", ok: false as const, gap: `not attempted — the digest's total time budget (${Math.round(totalTimeoutMs / 60_000)}min) was already spent` };
+  if (whyMatters.modelUsed) modelUsed = whyMatters.modelUsed;
+  results.push(whyMatters);
+
+  const failed = results.filter(r => !r.ok).length;
+  const text = results.map(r => `## ${r.heading}\n\n${r.ok ? r.text : `_Not written: ${r.gap}. The findings below are still valid — review them manually._`}`).join("\n\n")
+    + (failed > 0 ? `\n\n---\n\n_Digest integrity: ${results.length - failed}/${results.length} sections written._` : "");
+
+  return { text, modelUsed };
 }
 
 // ─── 5. Render markdown — mirrors reflection.ts's renderMarkdown shape ───
