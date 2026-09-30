@@ -4,6 +4,7 @@ import { openrouterGenerateWithMeta, openrouterHealth, isTransientError, openrou
 import { recordLlmCost, recordLlmFailure } from "./cost-tracker.js";
 import { isCloudReachableCached } from "./connectivity.js";
 import { isOffline } from "./offline-mode.js";
+import { withLocalLlmSlot } from "./llm-lane.js";
 
 export type LLMCallOptions = {
   model?: string;
@@ -236,6 +237,17 @@ async function callOllamaStream(prompt: string, system: string | undefined, mode
   const sys = isQwen3 ? `${system ?? ""}\n/no_think`.trim() : system;
   const numPredict = typeof maxTokens === "number" && maxTokens > 0 ? Math.min(8192, Math.max(8, Math.floor(maxTokens))) : 1024;
 
+  // One global FIFO lane for local inference (llm-lane.ts) — concurrency was
+  // previously bounded in three unrelated, non-shared places (job cap,
+  // per-run sub-agent budget, worker count), which could aim more requests
+  // at Ollama than OLLAMA_NUM_PARALLEL actually serves; the surplus queued
+  // inside Ollama holding open HTTP streams and burning the caller's own
+  // timeout. This wraps exactly one HTTP request and never nests another
+  // slot acquisition inside itself, so a slot holder can never deadlock.
+  return withLocalLlmSlot(() => callOllamaStreamInner(prompt, sys, model, onToken, numPredict, temperature, timeoutMs));
+}
+
+async function callOllamaStreamInner(prompt: string, sys: string | undefined, model: string, onToken: LLMCallOptions["onToken"] | undefined, numPredict: number, temperature: number | undefined, timeoutMs: number | undefined): Promise<{ text: string; model: string }> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), Math.max(5_000, timeoutMs ?? 15 * 60_000));
   try {
