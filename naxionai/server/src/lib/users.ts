@@ -451,10 +451,10 @@ export function lookupUser(query: string): { name: string; email: string; role: 
     const operator = list.filter(u => u.role === "superadmin").sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0] ?? list[0];
     if (operator) return { name: operator.name, email: operator.email, role: operator.role, title: operator.title, department: operator.department };
   }
-  // Rank by match QUALITY, not store order. A bare "Arthur" must resolve to the
-  // person whose name IS "Arthur" (arthur@aiinstituteafrica.com), not merely the
-  // first record that happens to contain the substring "arthur" (e.g. "Arthur
-  // Magaya"/admin@rubiem.com). Exact and whole-token matches beat substrings.
+  // Rank by match QUALITY, not store order. A bare "Jordan" must resolve to the
+  // person whose name IS "Jordan" (jordan@example.com), not merely the
+  // first record that happens to contain the substring "jordan" (e.g. "Jordan
+  // Smith"/admin@rubiem.com). Exact and whole-token matches beat substrings.
   const score = (x: StoredUser): number => {
     const email = normEmail(x.email);
     const name = x.name.toLowerCase();
@@ -462,7 +462,7 @@ export function lookupUser(query: string): { name: string; email: string; role: 
     const nameTokens = name.split(/\s+/).filter(Boolean);
     if (email === q) return 100;             // exact email
     if (name === q) return 90;               // exact full name
-    if (local === q) return 85;              // q is the email's local part ("arthur" → arthur@…)
+    if (local === q) return 85;              // q is the email's local part ("jordan" → jordan@…)
     if (nameTokens.includes(q)) return 70;   // exact whole name token (first/last)
     if (name.startsWith(q)) return 55;
     if (email.startsWith(q)) return 50;

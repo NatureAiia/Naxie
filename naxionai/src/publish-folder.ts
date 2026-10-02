@@ -7,7 +7,7 @@ import { basename, resolve } from "node:path";
 // creates a matching GitHub repo (private by default), pushes.
 //
 // Usage:
-//   GITHUB_TOKEN=ghp_... GITHUB_OWNER=arthurmagaya \
+//   GITHUB_TOKEN=ghp_... GITHUB_OWNER=your-github-username \
 //     npx tsx src/publish-folder.ts "C:\path\to\folder" [--public] [--name custom-name]
 
 async function main() {

@@ -3578,7 +3578,7 @@ export function defaultVaultPlan(task: string, opts: { hasAttachments?: boolean 
       // this function's return type is Plan (not nullable), and it's the
       // LAST-resort deterministic fallback (after both heuristicPlan and the
       // LLM planner already declined), so a NAMED recipient with no literal
-      // address ("email Godswill") degrades to the plain find(+read) plan
+      // address ("email Amara") degrades to the plain find(+read) plan
       // below rather than guessing an address.
       // Guard regression: the 2026-07-08 Summit Recon incident, where this
       // exact shape ("find ... and attach it to an email to X") produced a

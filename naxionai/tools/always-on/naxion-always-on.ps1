@@ -16,7 +16,7 @@
 #
 # Stop everything: tools\always-on\stop-always-on.ps1
 
-$root      = "C:\Users\Arthur Magaya\Documents\GitHub\clawbot"
+$root      = "D:\Aiia\Systems\NaxionAI-Powered-by-Neuroworks\naxionai"
 $serverDir = Join-Path $root "server"
 $stateDir  = Join-Path $serverDir ".neuroworks"
 $logFile   = Join-Path $stateDir "always-on.log"

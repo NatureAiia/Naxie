@@ -35,7 +35,7 @@ const strings: Record<Language, Record<string, string>> = {
     "onboarding.intro.title": "Let's introduce you to Naxie",
     "onboarding.intro.body": "A couple of minutes now means Naxie stops starting every conversation from zero — she'll actually know who she's working for.",
     "onboarding.name": "Your name",
-    "onboarding.namePlaceholder": "e.g., Arthur",
+    "onboarding.namePlaceholder": "e.g., Jordan",
     "onboarding.email": "Email",
     "onboarding.emailPlaceholder": "you@company.com",
     "onboarding.role": "How should Naxie think of you?",

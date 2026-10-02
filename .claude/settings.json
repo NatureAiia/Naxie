@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/markn/.conda/envs/NAXION_NaxionAI/Scripts/graphify.EXE hook-guard search"
+            "command": ".claude/graphify-hook.cmd search"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/markn/.conda/envs/NAXION_NaxionAI/Scripts/graphify.EXE hook-guard read"
+            "command": ".claude/graphify-hook.cmd read"
           }
         ]
       }

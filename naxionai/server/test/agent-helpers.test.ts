@@ -48,10 +48,10 @@ describe("parseUserRequestFromTask", () => {
   // once opened with "…email to X **Alignment check — required before…**").
   it("strips the trailing Alignment-check directive", () => {
     const enriched =
-      `Look for Summit Recon in my downloads and summarize it in an email to arthur@example.com\n\n` +
+      `Look for Summit Recon in my downloads and summarize it in an email to jordan@example.com\n\n` +
       `**Alignment check — required before responding.** Before producing the final answer, scan the user's request for CONCRETE elements…`;
     expect(parseUserRequestFromTask(enriched)).toBe(
-      "Look for Summit Recon in my downloads and summarize it in an email to arthur@example.com",
+      "Look for Summit Recon in my downloads and summarize it in an email to jordan@example.com",
     );
   });
 
@@ -251,7 +251,7 @@ describe("heuristicPlan", () => {
 describe("defaultVaultPlan — attach-and-send", () => {
   it("finds the file and chains a real email.send with attach_paths, given a literal address", () => {
     const p = defaultVaultPlan(
-      "Find Summit Recon in my downloads and attach it to an email to arthurmagaya2@gmail.com with a one-line note that it's the finance sheet",
+      "Find Summit Recon in my downloads and attach it to an email to jordan@example.com with a one-line note that it's the finance sheet",
     );
     expect(p.steps.length).toBe(2);
     expect(p.steps[0].tool).toBe("fs.find_in");
@@ -259,19 +259,19 @@ describe("defaultVaultPlan — attach-and-send", () => {
     // this is the exact corruption the tail-strip regex fix prevents.
     expect((p.steps[0].args as any).name).toBe("Summit Recon");
     expect(p.steps[1].tool).toBe("email.send");
-    expect((p.steps[1].args as any).to).toBe("arthurmagaya2@gmail.com");
+    expect((p.steps[1].args as any).to).toBe("jordan@example.com");
     expect((p.steps[1].args as any).attach_paths).toBe("$step_0.matches.0.path");
   });
 
   it("degrades to a plain find (no email.send) when the recipient is named, not a literal address", () => {
-    const p = defaultVaultPlan("find Summit Recon in my downloads and attach it to an email for Godswill");
+    const p = defaultVaultPlan("find Summit Recon in my downloads and attach it to an email for Amara");
     expect(p.steps.some(s => s.tool === "email.send")).toBe(false);
     expect(p.steps[0].tool).toBe("fs.find_in");
   });
 
   it("does not misfire attach-and-send on a plain summarize-in-email ask (no 'attach')", () => {
     const p = defaultVaultPlan(
-      "look for Summit Recon in my downloads and summarize it in an email to arthur@example.com",
+      "look for Summit Recon in my downloads and summarize it in an email to jordan@example.com",
     );
     expect(p.steps.some(s => s.tool === "email.send")).toBe(false);
     expect((p.steps[0].args as any).name).toBe("Summit Recon");
@@ -313,12 +313,12 @@ describe("defaultVaultPlan — attach-and-send", () => {
 // accept the resulting array.
 describe("deepGet — wildcard array extraction", () => {
   const users = { users: [
-    { name: "Arthur", email: "admin@rubiem.com" },
-    { name: "Godswill", email: "godswill@aiinstituteafrica.com" },
+    { name: "Jordan", email: "jordan@example.com" },
+    { name: "Amara", email: "amara@example.com" },
   ] };
 
   it("maps a field across an array with '*'", () => {
-    expect(deepGet(users, "users.*.email")).toEqual(["admin@rubiem.com", "godswill@aiinstituteafrica.com"]);
+    expect(deepGet(users, "users.*.email")).toEqual(["jordan@example.com", "amara@example.com"]);
   });
 
   it("still resolves a plain non-wildcard path", () => {

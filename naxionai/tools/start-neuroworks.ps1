@@ -13,7 +13,7 @@
 # Status -> .neuroworks\launcher.log ; server stdout -> .neuroworks\devstart.log
 
 $ErrorActionPreference = "Continue"
-$repo = "C:\Users\Arthur Magaya\Documents\GitHub\clawbot"
+$repo = "D:\Aiia\Systems\NaxionAI-Powered-by-Neuroworks\naxionai"
 $statusLog = Join-Path $repo ".neuroworks\launcher.log"
 $devLog    = Join-Path $repo ".neuroworks\devstart.log"
 New-Item -ItemType Directory -Force -Path (Split-Path $statusLog) | Out-Null
@@ -34,10 +34,23 @@ for ($i = 0; $i -lt 30 -and -not (Test-Path "D:\Main brain"); $i++) { Start-Slee
 
 if (ApiUp) { Log "already running on :7471 - exiting"; exit 0 }
 
-# Clear any half-dead clawbot node processes so we do not collide on 7470/7471.
-Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-  Where-Object { $_.CommandLine -like "*clawbot*" } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+# Clear half-dead listeners on our ports, but ONLY if the owner is this
+# repo's server (same guard as stop-always-on.ps1). A blanket "*naxionai*"
+# match would also kill a healthy `pnpm dev` tree or debug session.
+foreach ($port in @(7470, 7471)) {
+    $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+    foreach ($c in ($conns | Select-Object -Unique OwningProcess)) {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)" -ErrorAction SilentlyContinue
+        if ($proc -and $proc.CommandLine -like "*naxionai*server*") {
+            Log "clearing stale :$port owner (pid $($proc.ProcessId))"
+            $kids = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($proc.ProcessId)" -ErrorAction SilentlyContinue
+            foreach ($k in $kids) { Stop-Process -Id $k.ProcessId -Force -Confirm:$false -ErrorAction SilentlyContinue }
+            Stop-Process -Id $proc.ProcessId -Force -Confirm:$false -ErrorAction SilentlyContinue
+        } elseif ($proc) {
+            Log "port $port owner (pid $($proc.ProcessId), $($proc.Name)) is not this repo's server - left alone"
+        }
+    }
+}
 
 Log "starting 'pnpm dev' (pnpm: $pnpm)"
 & $pnpm dev *>> $devLog

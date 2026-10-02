@@ -194,6 +194,6 @@ Tests cover the cascade contract: heuristic planning, skill picker scoring, dire
 
 ```sh
 pnpm install
-GITHUB_TOKEN=ghp_... GITHUB_OWNER=arthurmagaya pnpm publish-folder "D:\some\folder"
+GITHUB_TOKEN=ghp_... GITHUB_OWNER=your-github-username pnpm publish-folder "D:\some\folder"
 ```
 

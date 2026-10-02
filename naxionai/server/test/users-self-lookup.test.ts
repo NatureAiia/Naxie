@@ -31,7 +31,7 @@ describe("isSelfReferentialQuery", () => {
 
   it.each([
     "Jane",
-    "arthur@rubiem.com",
+    "operator@rubiem.com",
     "Mr. Khumalo",
     "user", // bare "user" is too ambiguous — could be a partial email local part
     "operators", // plural = likely a department/topic, not the person

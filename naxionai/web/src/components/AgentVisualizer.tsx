@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 type Peer = {
   url?: string;
   name?: string;
+  role?: string;
   model?: string;
   ok?: boolean;
   ready?: boolean;
@@ -98,7 +99,7 @@ function BotChip({ bot }: { bot: Peer }) {
         <span className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ${dot} ring-2 ring-ink-950`} />
       </div>
       <div className="leading-tight">
-        <div className="text-sm text-cream-100 font-medium">{bot.name ?? "Neuro"}</div>
+        <div className="text-sm text-cream-100 font-medium">{bot.name ?? "Neuro"}{bot.role && bot.role !== "primary" ? <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 align-middle">{bot.role}</span> : null}</div>
         <div className="text-[10px] text-cream-300/60 font-mono">{bot.model ?? "?"} · {dead ? "offline" : busy ? `${bot.inflightJobs} task${bot.inflightJobs === 1 ? "" : "s"}` : "idle"}</div>
       </div>
     </div>

@@ -73,7 +73,7 @@ describe("skill picker", () => {
 
   it("routes 'attach the file to the email' to send-attachment", () => {
     const picks = suggestSkillsForTask(
-      "find Summit Recon in my downloads and attach it to an email to arthur@example.com",
+      "find Summit Recon in my downloads and attach it to an email to jordan@example.com",
       undefined,
       1,
     );
@@ -91,7 +91,7 @@ describe("skill picker", () => {
 
   it("does NOT route a plain summary-in-email ask to send-attachment", () => {
     const picks = suggestSkillsForTask(
-      "look for Summit Recon in my downloads and summarize it in an email to arthur@example.com",
+      "look for Summit Recon in my downloads and summarize it in an email to jordan@example.com",
       undefined,
       2,
     );

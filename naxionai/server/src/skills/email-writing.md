@@ -73,7 +73,7 @@ If a section is empty, omit it — don't pad. But never reduce a real item to a 
 
 ## Recipients (resolve real addresses)
 
-- **Never invent an address.** If the user named the recipient by NAME or ROLE ("email Godswill", "send it to the project lead") and did NOT give a literal address, resolve their real email from the org directory FIRST — call `users.lookup` (one person) or `users.list` (browse), then send to what comes back.
+- **Never invent an address.** If the user named the recipient by NAME or ROLE ("email Amara", "send it to the project lead") and did NOT give a literal address, resolve their real email from the org directory FIRST — call `users.lookup` (one person) or `users.list` (browse), then send to what comes back.
 - **No placeholders, ever.** `name@example.com`, `[project lead email]`, `recipient@email.com` and the like are NOT addresses — `email.send` will reject them. Only use a literal address when the user explicitly provided one.
 - **Can't resolve it?** If the directory has no match, say so and ask for the address — don't guess or fall back to an example domain.
 

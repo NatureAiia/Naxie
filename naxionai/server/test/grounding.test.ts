@@ -204,7 +204,7 @@ describe("not-found detector", () => {
     const positives = [
       "Our 2026 strategic plan sets out three pillars: capability, partnerships and revenue. " +
       "[vault:_company/Aiia_2026_Strategic_Plan.extracted.md]",
-      "Anesu is the Innovation Planning Lead and reports to arthur@aiinstituteafrica.com.",
+      "Jordan is the Innovation Planning Lead and reports to amara@example.com.",
       "The Website DB has 14 tables in the public schema, including users and sessions.",
       "The 2027 Mars logistics plan targets launch windows in March and October, with no " +
       "fewer than two resupply flights per window.",

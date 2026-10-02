@@ -2,7 +2,7 @@
 # Safe: only kills the port-7470 owner if its command line points at this
 # repo's server (never a Vite dev server or unrelated process).
 
-$root     = "C:\Users\Arthur Magaya\Documents\GitHub\clawbot"
+$root     = "D:\Aiia\Systems\NaxionAI-Powered-by-Neuroworks\naxionai"
 $stateDir = Join-Path $root "server\.neuroworks"
 $lockFile = Join-Path $stateDir "always-on.lock"
 $port     = 7470
@@ -24,7 +24,7 @@ if (Test-Path $lockFile) {
 $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
 foreach ($c in ($conns | Select-Object -Unique OwningProcess)) {
     $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)" -ErrorAction SilentlyContinue
-    if ($proc -and $proc.CommandLine -match [regex]::Escape("clawbot\server")) {
+    if ($proc -and $proc.CommandLine -match [regex]::Escape("naxionai\server")) {
         # Kill the whole tree: parents first is unreliable, so take children too.
         $kids = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($proc.ProcessId)" -ErrorAction SilentlyContinue
         foreach ($k in $kids) { Stop-Process -Id $k.ProcessId -Force -Confirm:$false -ErrorAction SilentlyContinue }
