@@ -27,7 +27,7 @@ import { extractTopic, looksLikeDirectAnswer, isTriviallyDirectAnswer } from "..
 import { findPrimitive } from "../src/lib/primitives.js";
 import { GROUNDING_CASES, CRITICAL_CASES, detectDeflection, detectNotFound } from "./grounding-cases.js";
 
-const ALL_SURFACES = ["vault", "company", "connection", "directory", "self", "inbox", "honesty", "safety"] as const;
+const ALL_SURFACES = ["vault", "connection", "directory", "self", "inbox", "honesty", "safety"] as const;
 
 const VAULT = config.vaultPath;
 const haveVault = !!VAULT && existsSync(VAULT);
@@ -63,9 +63,9 @@ function triageWouldSkipVault(ask: string): { skips: boolean; topic: string; hit
   // veto. llmTriage applies the same corpus guards looksLikeDirectAnswer does
   // (ORG_STRUCTURE_RE / COMPANY_DOCS_RE), so a task those reject cannot be
   // routed DIRECT no matter what the classifier returns. Modelling the LLM as
-  // omnipotent here made the helper stricter than production and failed
-  // company-brand-guidelines for a filename-probe miss that production never
-  // depends on — its protection comes from the veto, not the probe.
+   // omnipotent here made the helper stricter than production and failed
+   // a filename-probe case for a miss that production never
+   // depends on — its protection comes from the veto, not the probe.
   let direct = looksLikeDirectAnswer(ask);
   // Must mirror agent.ts exactly: same pool size, same exclusion. An earlier
   // version of this helper used a different limit and a narrower filter, so it
@@ -475,7 +475,7 @@ describe("internal-corpus asks never take the direct-answer path", () => {
   // read as chat and be answered from the model card instead of the registry.
   // `honesty` too — it must reach the retrieval path to be able to report an
   // absence, and a DIRECT verdict there produces an invention rather than a no.
-  for (const c of GROUNDING_CASES.filter(c => ["company", "directory", "self", "honesty"].includes(c.surface))) {
+  for (const c of GROUNDING_CASES.filter(c => ["directory", "self", "honesty"].includes(c.surface))) {
     it(`${c.id}: "${c.ask}"`, () => {
       expect(
         looksLikeDirectAnswer(c.ask),

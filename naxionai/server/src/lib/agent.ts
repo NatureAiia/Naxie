@@ -234,7 +234,7 @@ const ORG_STRUCTURE_RE = /\b(job\s+descriptions?|org(?:ani[sz]ational?)?\s+(?:st
 // These can ONLY be answered from the org's own _company/ uploads — never
 // world knowledge, no matter how "what does X say" the phrasing looks.
 // Paired with ORG_STRUCTURE_RE below the same veto covers both real asks
-// (company-strategic-plan, company-github-governance, …) and the honesty
+// (the retired _company/ corpus cases, …) and the honesty
 // counterparts that ask about a document/person that doesn't exist — the
 // veto must fire on the SHAPE of the question, not on whether the answer
 // happens to exist, or the honest "not found" path never gets reached.

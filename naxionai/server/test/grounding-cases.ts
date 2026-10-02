@@ -16,7 +16,6 @@
 //
 // Grounding surfaces covered (the three the operator named):
 //   vault      — the second brain's own knowledge notes (_knowledge/, 2-Permanent/)
-//   company    — uploaded official documents (_company/, extracted sidecars)
 //   connection — registered connectors + data sources (live systems)
 //   directory  — the org's own people/agent catalog (users.list, personas.list)
 //   self       — the console's knowledge of its OWN configuration (schedules,
@@ -35,7 +34,7 @@
 //                agent rather than trusting the code review.
 
 export type GroundingSurface =
-  | "vault" | "company" | "connection" | "directory"
+  | "vault" | "connection" | "directory"
   | "self" | "inbox" | "honesty" | "safety";
 
 export type GroundingCase = {
@@ -273,52 +272,11 @@ export const GROUNDING_CASES: GroundingCase[] = [
     critical: true,
   },
 
-  // ── company data (_company/) ─────────────────────────────────────────────
-  {
-    id: "company-strategic-plan",
-    surface: "company",
-    ask: "What does our 2026 strategic plan say?",
-    rationale:
-      "_company/Aiia_2026_Strategic_Plan.extracted.md is an uploaded official " +
-      "document with an auto-extracted sidecar so vault search can see inside " +
-      "it. 'Our' is an explicit ownership signal — world knowledge is never a " +
-      "valid source for it.",
-    expectSources: ["_company/Aiia_2026_Strategic_Plan"],
-    mustNotAnswerFromWorldKnowledge: true,
-    expectTools: ["company.documents", "vault.search", "vault.read", "research.deep"],
-    mustIncludeAny: ["aiia", "2026", "strategic", "plan"],
-    critical: true,
-  },
-  {
-    id: "company-github-governance",
-    surface: "company",
-    ask: "What are the rules in our GitHub governance policy?",
-    rationale:
-      "_company/AIIA_GitHub_Governance_and_Operational_Policy_v1.2_Draft — a " +
-      "policy question. Answering from general GitHub best practice instead of " +
-      "the org's own policy is a grounding failure even when the advice is good.",
-    expectSources: ["_company/AIIA_GitHub_Governance"],
-    mustNotAnswerFromWorldKnowledge: true,
-    expectTools: ["company.documents", "vault.search", "vault.read", "research.deep"],
-    mustIncludeAny: ["aiia", "governance", "policy", "repository", "branch"],
-    critical: true,
-  },
-  {
-    id: "company-doc-inventory",
-    surface: "company",
-    ask: "Which official company documents do we have on file?",
-    rationale:
-      "Exercises company.documents in LIST mode. Cheap, deterministic, and it " +
-      "isolates 'can the agent enumerate the company corpus' from 'can it read " +
-      "one document'.",
-    // No expectSources: the documents are named for their SUBJECT ("Aiia 2026
-    // Strategic Plan"), so a full-text search for the meta-question "which
-    // documents exist" legitimately finds nothing. This case belongs to the
-    // company.documents LIST primitive, graded end-to-end by L2.
-    expectTools: ["company.documents", "vault.search", "research.deep"],
-    mustIncludeAny: ["strategic", "governance", "proposal", "compliance", "certificate"],
-    critical: false,
-  },
+  // ── company data: retired 2026-10-02 — the _company/ corpus belonged to the
+  // previous owner's org and does not exist in this vault, so the retrieval
+  // cases that asserted on it were deleted (company-strategic-plan,
+  // company-github-governance, company-doc-inventory, company-summit-pricing,
+  // company-org-chart-image, company-summit-deck, company-brand-guidelines).
 
   // ── connections (connectors + data sources) ──────────────────────────────
   {
@@ -555,76 +513,6 @@ export const GROUNDING_CASES: GroundingCase[] = [
     critical: true,
   },
 
-  // ── company documents beyond the two already covered ─────────────────────
-  {
-    id: "company-summit-pricing",
-    surface: "company",
-    ask: "What are the exhibitor prices in the Masvingo summit price schedule?",
-    rationale:
-      "_company/Masvingo_Summit_Price_schedule_2026… — a document of NUMBERS " +
-      "rather than prose. Figures are the least paraphrasable content there is: " +
-      "either the agent read the schedule or it made a price up, with no fluent " +
-      "middle ground to hide in. Also the first spreadsheet-derived extract in " +
-      "the corpus.",
-    expectSources: ["_company/Masvingo_Summit_Price_schedule"],
-    mustNotAnswerFromWorldKnowledge: true,
-    expectTools: ["company.documents", "vault.search", "vault.read", "research.deep"],
-    mustIncludeAny: ["usd", "$", "exhibitor", "sponsor", "package", "price"],
-    critical: false,
-  },
-  {
-    id: "company-org-chart-image",
-    surface: "company",
-    ask: "According to our org structure chart, which departments exist and who handles each one?",
-    rationale:
-      "_company/Aiia_Org_structure.png — an IMAGE. The Company-data page reported " +
-      "it as unreadable, so the one document that actually draws the org (chairman " +
-      "→ CEO → six departments, each with a named owner) contributed nothing to " +
-      "any org question. Now OCR'd into a sidecar. This is the case that proves a " +
-      "picture became evidence: nothing in the text corpus lists these six " +
-      "department names together.",
-    expectSources: ["_company/Aiia_Org_structure"],
-    expectTools: ["company.documents", "vault.search", "vault.read", "research.deep"],
-    // "Technical Operations" and the operator names appear on the CHART and
-    // nowhere in users.list. The first version of this case accepted any
-    // department word, and passed on an answer that opened "a separate
-    // organization-structure chart is not present in the available data" and
-    // then tabulated the user directory — graded correct while asserting the
-    // opposite of the truth. A term list that both candidate sources satisfy
-    // grades nothing.
-    mustIncludeAny: ["technical operations", "department", "owner"],
-    mustNotInclude: ["chart is not present", "no organization-structure chart", "chart is not available"],
-    critical: false,
-  },
-  {
-    id: "company-summit-deck",
-    surface: "company",
-    ask: "What does our AI Summit 2026 agentic systems deck cover?",
-    rationale:
-      "_company/AI_Summit_2026_agentic_systems_1_.pptx — a PowerPoint, previously " +
-      "unreadable. 11 slides on the automation-to-agents progression and the " +
-      "NeuroWorks architecture. Confirms slide text (and speaker notes) reach " +
-      "retrieval, not just the filename.",
-    expectSources: ["_company/AI_Summit_2026_agentic_systems"],
-    expectTools: ["company.documents", "vault.search", "vault.read", "research.deep"],
-    mustIncludeAny: ["agentic", "automation", "neuroworks", "slide", "architecture"],
-    critical: false,
-  },
-  {
-    id: "company-brand-guidelines",
-    surface: "company",
-    ask: "What do our brand guidelines say about logo usage and colours?",
-    rationale:
-      "_company/aiia_brand_guidlines.extracted.md — note the misspelled filename. " +
-      "Retrieval has to work off the CONTENT, because the topic extracted from " +
-      "this ask ('brand guidelines') does not match the path. Every other " +
-      "company case has a filename that mirrors the question.",
-    expectSources: ["_company/aiia_brand_guidlines"],
-    mustNotAnswerFromWorldKnowledge: true,
-    expectTools: ["company.documents", "vault.search", "vault.read", "research.deep"],
-    mustIncludeAny: ["logo", "colour", "color", "brand", "font", "typeface"],
-    critical: false,
-  },
 ];
 
 export const CRITICAL_CASES = GROUNDING_CASES.filter(c => c.critical);

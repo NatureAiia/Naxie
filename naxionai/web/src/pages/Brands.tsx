@@ -42,7 +42,7 @@ export function Brands() {
         <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Megaphone size={24} /> Brands</h1>
         <p className="text-sm text-cream-300/70 mt-1 max-w-3xl">
           Your marketing identities — each with its own voice, audience, channels, and content calendar, kept isolated
-          from each other. The social-drafting templates (buffer-story-post, social-optimize) take a Brand as an input.
+          from each other. The news and brand templates (africa-ai-news, world-ai-news, brand-signal-scan) take a Brand as an input.
         </p>
       </div>
 

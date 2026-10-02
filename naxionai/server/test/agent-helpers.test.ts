@@ -322,7 +322,7 @@ describe("deepGet — wildcard array extraction", () => {
   });
 
   it("still resolves a plain non-wildcard path", () => {
-    expect(deepGet(users, "users.0.email")).toBe("admin@rubiem.com");
+    expect(deepGet(users, "users.0.email")).toBe("jordan@example.com");
   });
 
   it("returns undefined for '*' on a non-array", () => {

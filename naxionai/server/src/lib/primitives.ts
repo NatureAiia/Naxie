@@ -4517,7 +4517,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "minute", type: "number", required: false, description: "Local minute 0-59 (default 0)" },
       { name: "days_of_week", type: "string", required: false, description: "Days to fire, comma-separated 0-6 (0=Sun) or JSON array — e.g. '1,2,3,4,5' for weekdays. Omit for every day." },
       { name: "deliver_email", type: "string", required: false, description: "Optional REAL address to email each run's result to (resolve names via users.lookup first — never invent an address)" },
-      { name: "template_id", type: "string", required: false, description: "Optional built-in template to run instead of a free-form task (e.g. 'daily-briefing', 'innovation-scan', 'buffer-story-post', 'social-optimize'). When set, `task` is optional and `template_inputs` supplies that template's inputs." },
+      { name: "template_id", type: "string", required: false, description: "Optional built-in template to run instead of a free-form task (e.g. 'daily-briefing', 'innovation-scan', 'africa-ai-news'). When set, `task` is optional and `template_inputs` supplies that template's inputs." },
       { name: "template_inputs", type: "string", required: false, description: "Inputs for the chosen template_id — a JSON object or an object (e.g. {\"sender\":\"x@y.com\",\"days\":3}). Ignored when template_id is omitted." },
     ],
     handler: async (args) => {

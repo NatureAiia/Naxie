@@ -23,6 +23,8 @@ export type McpCatalogEnvVar = {
 };
 
 export type McpCatalogEntry = {
+  /** Optional tags to help UI grouping or search */
+  tags?: string[];
   id: string;
   label: string;
   description: string;
@@ -73,7 +75,7 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: "github",
     label: "GitHub",
-    description: "Repository, issue, and PR operations against the GitHub API.",
+    tags: ["github","repo"],
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-github"],
     env: [{ name: "GITHUB_PERSONAL_ACCESS_TOKEN", description: "A GitHub PAT with the scopes you want the agent to use", required: true }],
@@ -155,6 +157,18 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     args: [resolve(dirname(fileURLToPath(import.meta.url)), "../../mcp/pentest-mcp-server.mjs")],
     homepage: "https://github.com/usestrix/strix",
     source: "community",
+  },
+    {
+      id: "openclaw",
+      label: "OpenClaw",
+      description: "Open source AI assistant – will be launched as an MCP stdio server via npm.",
+    tags: ["http","fetch"],
+    command: "npx",
+      args: ["-y", "openclaw@latest", "mcp", "serve"],
+    env: [{ name: "OPENCLAW_API_KEY", description: "API key for the LLM provider used by OpenClaw", required: true }],
+    homepage: "https://github.com/openclaw/openclaw",
+    source: "community",
+    tags: ["assistant","cli"]
   },
 ];
 
