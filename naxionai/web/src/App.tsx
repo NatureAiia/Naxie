@@ -97,7 +97,6 @@ function AppShell() {
         {/* Home Base */}
         <Route path="/naxie" element={<Naxie />} />
         <Route path="/naxie/memory" element={<NaxieMemory />} />
-        <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/chat" element={<BoardMeeting />} />
         <Route path="/command" element={<CommandCenter />} />
 
