@@ -86,7 +86,7 @@ export function TerminalPanel({ scrollHeightClass = "h-[58vh]" }: { scrollHeight
           <div>
             <div className="font-medium text-flame-200">Terminal is disabled</div>
             <div className="mt-0.5 text-flame-300/90">
-              {hint ?? "set NAXION_TERMINAL=1 in clawbot/.env and restart the server to enable."}
+              {hint ?? "set NAXION_TERMINAL=1 in naxionai/.env and restart the server to enable."}
             </div>
           </div>
         </div>

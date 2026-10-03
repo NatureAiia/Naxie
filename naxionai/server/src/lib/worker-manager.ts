@@ -11,7 +11,7 @@
 //   • External peers (registered via env or API) are untouched — the pool
 //     only tracks workers WE spawned.
 //   • Cross-platform: uses `pnpm` (or `pnpm.cmd` on Windows). Spawns the
-//     server dev script directly (`pnpm -F neuroworks-server dev`) with
+//     server dev script directly (`pnpm -F naxion-server dev`) with
 //     NAXION_PORT set per-worker so each binds its own port. We do NOT use
 //     the root `secondary` script — it hardcodes NAXION_PORT=7473, which
 //     would make every extra worker collide on 7473 (EADDRINUSE) and cap the
@@ -28,7 +28,7 @@ import { pollPeers } from "./peers.js";
 import { registerPeer } from "./peer-registry.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// Walk up to the clawbot repo root — package.json lives there.
+// Walk up to the Naxie repo root — package.json lives there.
 const REPO_ROOT = resolve(__dirname, "../../../");
 // The server package dir (server/). We spawn workers by running THIS package's
 // own `dev` script from here, so there's no workspace filter to misfire and the

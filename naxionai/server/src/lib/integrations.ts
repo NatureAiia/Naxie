@@ -1,10 +1,10 @@
 // Integrations registry — the user connects external services (social,
 // productivity, messaging, dev tools) so agents can act on them. Connections
-// live at .neuroworks/integrations.json (per-machine, gitignored).
+// live at .naxion/integrations.json (per-machine, gitignored).
 //
 // Secrets (tokens, webhook URLs) are ENCRYPTED AT REST with AES-256-GCM. The
 // key comes from NAXION_SECRET_KEY (hex/base64/passphrase) or, if unset, a
-// generated key persisted at .neuroworks/.secret-key (also gitignored). So a
+// generated key persisted at .naxion/.secret-key (also gitignored). So a
 // leaked integrations.json is useless without the separate key.
 
 import { dirname, resolve } from "node:path";
@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { encryptSecret as encrypt, decryptSecret as decrypt } from "./secret-box.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const CONFIG_PATH = resolve(CONFIG_DIR, "integrations.json");
 
 // ─── Provider catalog ───
@@ -438,17 +438,17 @@ async function runConnectionTest(id: string): Promise<{ ok: boolean; detail: str
           return j?.ok ? { ok: true, detail: `bot @${j.user ?? "?"} in ${j.team ?? "workspace"}` } : { ok: false, detail: j?.error ?? `HTTP ${r.status}` };
         }
         if (secrets.webhookUrl) {
-          const r = await fetch(secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "✅ Neuro connected to this channel." }) });
+          const r = await fetch(secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "✅ Naxie connected to this channel." }) });
           return r.ok ? { ok: true, detail: "test message sent" } : { ok: false, detail: `HTTP ${r.status}: ${(await r.text()).slice(0, 120)}` };
         }
         return { ok: false, detail: "no bot token or webhook configured" };
       }
       case "msteams": {
-        const r = await fetch(secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "✅ Neuro connected to this Teams channel." }) });
+        const r = await fetch(secrets.webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "✅ Naxie connected to this Teams channel." }) });
         return r.ok ? { ok: true, detail: "test message sent" } : { ok: false, detail: `HTTP ${r.status}: ${(await r.text()).slice(0, 120)}` };
       }
       case "github": {
-        const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${secrets.token}`, "user-agent": "clawbot" } });
+        const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${secrets.token}`, "user-agent": "naxie" } });
         const j: any = await r.json();
         return r.ok ? { ok: true, detail: `@${j?.login}` } : { ok: false, detail: j?.message ?? `HTTP ${r.status}` };
       }

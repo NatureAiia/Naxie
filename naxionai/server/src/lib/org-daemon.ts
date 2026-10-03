@@ -77,7 +77,7 @@ const BACKUP_THROTTLE_MS = Number(process.env.NAXION_ORG_BACKUP_THROTTLE_MS) || 
 export function maybeBackupVault(now = Date.now()): boolean {
   if (now - lastBackedUpAt < BACKUP_THROTTLE_MS) return false;
   lastBackedUpAt = now;
-  // .neuroworks/ (org-tasks.ts's STATE_DIR) lives outside config.vaultPath,
+  // .naxion/ (org-tasks.ts's STATE_DIR) lives outside config.vaultPath,
   // so copy the org-task backlog into the vault first — otherwise the
   // commit below would never actually capture it. See
   // snapshotOrgTasksToVault's own comment in org-tasks.ts for why.

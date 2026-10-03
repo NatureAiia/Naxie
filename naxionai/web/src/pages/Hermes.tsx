@@ -4,8 +4,8 @@ import { api, type HermesBridgeStatus, type ExecutorStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 
 // Everything about the Hermes integration lives on this one page: launching
-// the external CLI, which agent (clawbot vs Hermes) actually runs tasks, and
-// the MCP bridge that lets Hermes call clawbot's own tools. Previously spread
+// the external CLI, which agent (Naxie vs Hermes) actually runs tasks, and
+// the MCP bridge that lets Hermes call Naxie's own tools. Previously spread
 // across SpinUpAgent (the launcher) and nowhere at all (the executor toggle
 // had an API but no UI) — consolidated here so there's one place to look.
 
@@ -47,7 +47,7 @@ function LaunchCard() {
           <div className="shrink-0 rounded-lg bg-violet-500/10 p-2 text-violet-400"><TerminalSquare size={20} /></div>
           <div>
             <div className="font-semibold text-cream-50">Hermes Agent</div>
-            <div className="text-sm text-cream-300/70">External, self-hosted (local, 127.0.0.1) — opens in its own terminal window, not a NeuroWorks persona.</div>
+            <div className="text-sm text-cream-300/70">External, self-hosted (local, 127.0.0.1) — opens in its own terminal window, not a Naxie persona.</div>
           </div>
         </div>
         <Button onClick={launch} disabled={launching}>
@@ -91,11 +91,11 @@ function ExecutorCard() {
   return (
     <Card title="Primary executor">
       <p className="text-[12px] text-cream-300/60 mb-3">
-        Which agent actually runs tasks. Clawbot is the built-in plan → execute → synth pipeline; Hermes runs
-        the task itself and offloads back to clawbot for anything it can't do.
+        Which agent actually runs tasks. Naxie is the built-in plan → execute → synth pipeline; Hermes runs
+        the task itself and offloads back to Naxie for anything it can't do.
       </p>
       <div className="flex gap-2 mb-3">
-        <Button variant={status.mode === "clawbot" ? "primary" : "subtle"} disabled={busy} onClick={() => patch({ mode: "clawbot" })}>Clawbot</Button>
+        <Button variant={status.mode === "naxie" ? "primary" : "subtle"} disabled={busy} onClick={() => patch({ mode: "naxie" })}>Naxie</Button>
         <Button variant={status.mode === "hermes" ? "primary" : "subtle"} disabled={busy || !status.hermes.available} onClick={() => patch({ mode: "hermes" })}>Hermes</Button>
       </div>
 
@@ -113,7 +113,7 @@ function ExecutorCard() {
           <label className="flex items-center gap-2 text-sm text-cream-200">
             <input type="checkbox" checked={status.crosscheck} disabled={busy}
               onChange={e => patch({ crosscheck: e.target.checked })} />
-            Cross-check — on a quality-gate fail, have a peer judge Hermes's answer against clawbot's instead of always taking clawbot's
+            Cross-check — on a quality-gate fail, have a peer judge Hermes's answer against Naxie's instead of always taking Naxie's
           </label>
           <div>
             <label className="block text-[11px] text-cream-300/70 mb-1">Model override (blank = default: {status.hermes.model})</label>
@@ -158,7 +158,7 @@ function BridgeCard() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-cream-100 tracking-tight">MCP bridge — clawbot's tools, exposed to Hermes</h2>
+        <h2 className="text-sm font-semibold text-cream-100 tracking-tight">MCP bridge — Naxie's tools, exposed to Hermes</h2>
         <Button variant="subtle" onClick={() => { setLoading(true); void refresh(); }}>
           {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Refresh
         </Button>
@@ -192,7 +192,7 @@ function BridgeCard() {
             {status.registered && !status.enabled && (
               <div className="mt-3 text-[11px] text-amber-300/70">
                 Present but disabled in Hermes's config — set <span className="font-mono">enabled: true</span> under
-                <span className="font-mono"> mcp_servers.clawbot</span> in {status.hermesConfigPath}.
+                <span className="font-mono"> mcp_servers.naxie</span> in {status.hermesConfigPath}.
               </div>
             )}
           </Card>
@@ -232,7 +232,7 @@ export function Hermes() {
       <div>
         <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><ArrowLeftRight size={24} /> Hermes</h1>
         <p className="text-sm text-cream-300/70 mt-1 max-w-3xl">
-          Nous Research's Hermes CLI — a separate, self-hosted agent NeuroWorks can launch, hand tasks to, and hand
+          Nous Research's Hermes CLI — a separate, self-hosted agent Naxie can launch, hand tasks to, and hand
           its own tools to. Everything about that integration lives here.
         </p>
       </div>

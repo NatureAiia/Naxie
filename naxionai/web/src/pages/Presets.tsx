@@ -7,7 +7,7 @@ import { Notice } from "../components/Notice";
 
 // "Hire a worker" — one-click role bundles: activate a persona, ensure its
 // starter templates, optionally stand up a recurring schedule. Ported from
-// AI-Institute-Africa/neuroworks' Presets.tsx UI over Naxie's already-built,
+// the earlier prototype' Presets.tsx UI over Naxie's already-built,
 // previously-unused presets.ts backend.
 export function Presets() {
   const [presets, setPresets] = useState<Preset[] | null>(null);

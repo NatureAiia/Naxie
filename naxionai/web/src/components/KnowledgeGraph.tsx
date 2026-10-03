@@ -3,7 +3,7 @@ import { api, type WorkMode } from "../lib/api";
 
 // Naxie as a living system map: a glowing brain at the center, with four
 // "legs" (limbs) reaching out to the four kinds of things Naxie is made of —
-// Knowledge (the vault), Agents/Neuros (hired personas), Storage (the 5
+// Knowledge (the vault), Agents (hired personas), Storage (the 5
 // storage backends), and Integrations (connectors + third-party
 // integrations). Each leg ends in its own live force-simulated cluster of
 // nodes, all sharing one canvas/physics loop (no d3/three — a plain

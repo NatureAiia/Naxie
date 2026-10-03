@@ -20,7 +20,7 @@ flowchart TB
 
   CLIENT -->|"/api/* via Vite proxy<br/>Authorization: Bearer token"| GUARD
 
-  subgraph SERVER["⚙️  clawbot server — Express (:7471)"]
+  subgraph SERVER["⚙️  Naxie server — Express (:7471)"]
     GUARD["origin-guard<br/>(loopback + Host/Origin allow-list)"]:::core
     subgraph ROUTES["REST routes"]
       direction LR
@@ -33,13 +33,13 @@ flowchart TB
     GUARD --> ROUTES
   end
 
-  RC --> EXEC{"Executor mode<br/>(.neuroworks/executor.json)"}:::core
-  EXEC -->|clawbot| PIPE["clawbot pipeline<br/>plan → execute → synth → quality → peer-review"]:::core
+  RC --> EXEC{"Executor mode<br/>(.naxion/executor.json)"}:::core
+  EXEC -->|naxie| PIPE["Naxie pipeline<br/>plan → execute → synth → quality → peer-review"]:::core
   EXEC -->|hermes| HERMES["Hermes agent (CLI)<br/>persona + lane + governance injected"]:::agent
   HERMES -.->|"can't do: error / thin /<br/>fails quality.check → OFFLOAD"| PIPE
   PIPE --> POOL["worker pool<br/>persona-shifter (:7473 / :7474)"]:::core
 
-  HERMES -.->|"MCP (stdio)"| MCP["clawbot-mcp.mjs<br/>bridge"]:::agent
+  HERMES -.->|"MCP (stdio)"| MCP["naxie-mcp.mjs<br/>bridge"]:::agent
   MCP -->|"/api/primitives/call (allowlist)"| TOOLS
 
   subgraph TOOLS["🧰  Primitives (agent tools)"]
@@ -61,7 +61,7 @@ flowchart TB
   LLM --> ORX["OpenRouter (cloud / free)"]:::ext
   LLM --> MMX["MiniMax (LLM + media)"]:::ext
 
-  subgraph DATA["🗄️  Local state — .neuroworks/ (encrypted secrets via secret-box)"]
+  subgraph DATA["🗄️  Local state — .naxion/ (encrypted secrets via secret-box)"]
     direction LR
     DU["users · sessions · login-events"]:::store
     DC["connectors.json"]:::store
@@ -70,10 +70,10 @@ flowchart TB
     DE["executor.json"]:::store
   end
 
-  subgraph VAULTFS["📓  Obsidian vault — D:/Main brain (git: main-brain)"]
+  subgraph VAULTFS["📓  Obsidian vault (git: vault repo)"]
     direction LR
     VG["_governance<br/>policies · people · API blueprint"]:::store
-    VR["_neuroworks/reflections + progress"]:::store
+    VR["_naxion/reflections + progress"]:::store
     VN["notes / second brain"]:::store
   end
 
@@ -95,12 +95,12 @@ flowchart TB
 sequenceDiagram
   autonumber
   participant U as User (Web)
-  participant API as clawbot /api/chat
+  participant API as Naxie /api/chat
   participant EX as Executor (executor.json)
   participant H as Hermes
   participant MCP as MCP bridge
-  participant CB as clawbot pipeline
-  participant T as Tools (vault / Aiia / web …)
+  participant CB as Naxie pipeline
+  participant T as Tools (vault / connectors / web …)
   participant J as Jobs journal
 
   U->>API: task (+ Bearer token → attributed to user)
@@ -117,7 +117,7 @@ sequenceDiagram
       CB->>T: plan → execute (full tool access)
       CB-->>API: answer
     end
-  else mode = clawbot
+  else mode = naxie
     EX->>CB: plan → execute → synth → QA → peer-review
     CB->>T: tools (incl. worker pool fan-out)
     CB-->>API: answer
@@ -158,15 +158,15 @@ sequenceDiagram
   D-->>S: 202 { jobId }  (async)
   D->>CB: run task as a job
   CB-->>D: result on job
-  D->>W: POST { jobId, status, answer } (X-NeuroWorks-Signature)
+  D->>W: POST { jobId, status, answer } (X-Naxie-Signature)
   S->>V: GET /api/v1/dispatch/:jobId (own jobs only)
 ```
 
 ## Notes
 
-- **External dispatch:** other systems run agents via `/api/v1/dispatch` with scoped API keys (sha256-hashed). Async jobs, per-key tenancy, idempotency, and HMAC-signed webhooks. The `/api/v1/` surface is origin-guard-exempt because key auth is stronger; key management (`/api/dispatch-keys`) stays loopback-only. **Four client modes** over this one keystone: REST + webhook, SDK (`sdk/`), CLI (`tools/nw.mjs`), and an MCP server (`server/mcp/neuroworks-dispatch-mcp.mjs`) for MCP hosts.
-- **Executor is a live runtime switch** (`POST /api/executor`) — no restart. Hermes is primary now, with automatic offload to clawbot on failure / thin answer / failed quality gate.
-- **MCP bridge** lets Hermes call clawbot's own tools (16-tool allowlist: vault, connectors → Aiia, integrations, web reads, users directory, payment status). Money-moving (`payment.link`) and writes are excluded.
-- **Secrets** (connector tokens, integration creds, user passwords) are encrypted/hashed at rest under `.neuroworks/` (AES-256-GCM via secret-box; scrypt for passwords).
-- **Two git repos:** the clawbot code repo and the `main-brain` vault repo (auto-committed by the commit queue).
+- **External dispatch:** other systems run agents via `/api/v1/dispatch` with scoped API keys (sha256-hashed). Async jobs, per-key tenancy, idempotency, and HMAC-signed webhooks. The `/api/v1/` surface is origin-guard-exempt because key auth is stronger; key management (`/api/dispatch-keys`) stays loopback-only. **Four client modes** over this one keystone: REST + webhook, SDK (`sdk/`), CLI (`tools/nw.mjs`), and an MCP server (`server/mcp/naxie-dispatch-mcp.mjs`) for MCP hosts.
+- **Executor is a live runtime switch** (`POST /api/executor`) — no restart. Hermes is primary now, with automatic offload to Naxie on failure / thin answer / failed quality gate.
+- **MCP bridge** lets Hermes call Naxie's own tools (16-tool allowlist: vault, connectors, integrations, web reads, users directory, payment status). Money-moving (`payment.link`) and writes are excluded.
+- **Secrets** (connector tokens, integration creds, user passwords) are encrypted/hashed at rest under `.naxion/` (AES-256-GCM via secret-box; scrypt for passwords).
+- **Two git repos:** the NaxionAI code repo and the vault repo (auto-committed by the commit queue).
 ```

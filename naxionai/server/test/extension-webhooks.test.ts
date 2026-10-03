@@ -1,6 +1,6 @@
 // extension-webhooks — pure decision logic only (verifySecret env fallback and
 // secret shape). Store-backed functions (create/rotate/remove) touch the real
-// .neuroworks store, consistent with repo convention we don't test I/O here.
+// .naxion store, consistent with repo convention we don't test I/O here.
 
 import { afterEach, describe, expect, it } from "vitest";
 import { verifySecret } from "../src/lib/extension-webhooks.js";

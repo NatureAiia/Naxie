@@ -69,13 +69,13 @@ describe("personaSystemSuffix — language composition", () => {
     expect(langIdx).toBeGreaterThan(bodyIdx);
   });
 
-  it("still applies the lane-discipline preamble for a non-clawbot persona with a language set", () => {
+  it("still applies the lane-discipline preamble for a non-worker persona with a language set", () => {
     const suffix = personaSystemSuffix(persona({ language: "en" }));
     expect(suffix).toContain("Lane rule");
   });
 
-  it("clawbot (catch-all) gets the language block too but skips the lane-discipline preamble", () => {
-    const suffix = personaSystemSuffix(persona({ id: "clawbot", language: "sn" }));
+  it("naxie-agent (catch-all) gets the language block too but skips the lane-discipline preamble", () => {
+    const suffix = personaSystemSuffix(persona({ id: "naxie-agent", language: "sn" }));
     expect(suffix).not.toContain("Lane rule");
     expect(suffix).toContain("This agent's language");
   });

@@ -6,7 +6,7 @@ import { journal } from "./journal.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Persist outside the vault and outside the source tree — survives reinstalls.
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const FILE = join(STATE_DIR, "custom-templates.json");
 
 export type CustomTemplate = {

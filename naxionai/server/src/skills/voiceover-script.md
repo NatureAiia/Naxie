@@ -46,9 +46,10 @@ Bad  (written): "**Status:** Revenue +12% QoQ. 2 deals open (see table)."
 
 ## Pitfalls
 
-- `media.tts` returns `{ error: "...not available..." }` (no TTS provider configured)
-  → deliver the finished script and say the audio render is pending a provider.
-  Don't fabricate a path.
+- `media.tts` returns `{ error }` (ElevenLabs key missing or render failed)
+  → deliver the finished script and say the audio render is pending.
+  Don't fabricate a path. Default voice is Rachel (Naxie's voice) unless the
+  brief needs a different `voice_id`.
 - Feeding raw markdown to `media.tts` → the listener hears "asterisk asterisk".
   Strip formatting first.
 - A 1,500-word article narrated verbatim → unlistenable. Summarise to a

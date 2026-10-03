@@ -8,7 +8,7 @@ import { Notice } from "../components/Notice";
 type ModelRoster = { policy: { allowPaidModels: boolean }; offline: RosterRow[]; online: RosterRow[] };
 
 // Local Ollama model management + spend policy — ported from
-// AI-Institute-Africa/neuroworks' Models.tsx UI over Naxie's already-built,
+// the earlier prototype' Models.tsx UI over Naxie's already-built,
 // previously-unused models.ts backend (roster/catalog/pull/policy).
 export function Models() {
   const [roster, setRoster] = useState<ModelRoster | null>(null);

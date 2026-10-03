@@ -7,19 +7,23 @@ import { primitives, type Primitive } from "../lib/primitives.js";
 import { allowlist } from "./primitives.js";
 
 // Hermes Bridge status — read-only visibility (+ a one-click register) for the
-// clawbot-mcp.mjs stdio bridge (server/mcp/clawbot-mcp.mjs) that lets the
-// Hermes agent call clawbot's own primitives (vault, connectors, calendar,
+// naxie-mcp.mjs stdio bridge (server/mcp/naxie-mcp.mjs) that lets the
+// Hermes agent call Naxie's own primitives (vault, connectors, calendar,
 // memory, …) over MCP. See routes/primitives.ts for the allowlisted catalog
 // the bridge actually serves.
 //
 // The registration itself always lives in HERMES's config.yaml (MCP servers
 // are configured client-side, and Hermes is the client here) — this route
-// just renders that state inside NeuroWorks instead of leaving it invisible
+// just renders that state inside Naxie instead of leaving it invisible
 // in a dotfile, and offers to write it for you.
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const BRIDGE_SCRIPT_PATH = resolve(__dirname, "../../mcp/clawbot-mcp.mjs");
-const SERVER_NAME = "clawbot";
+const BRIDGE_SCRIPT_PATH = resolve(__dirname, "../../mcp/naxie-mcp.mjs");
+const SERVER_NAME = "naxie";
+// Pre-rename installs registered this bridge as `mcp_servers.clawbot` — treat
+// the legacy entry as registered so status doesn't lie and register doesn't
+// write a duplicate.
+const LEGACY_SERVER_NAMES = ["clawbot"];
 
 export const hermesBridgeRouter = Router();
 
@@ -84,8 +88,9 @@ function status() {
     try {
       const text = readFileSync(configPath!, "utf-8");
       const scan = scanMcpServerEntry(text, SERVER_NAME);
-      registered = scan.registered;
-      enabled = scan.enabled;
+      const legacy = LEGACY_SERVER_NAMES.some(n => scanMcpServerEntry(text, n).registered);
+      registered = scan.registered || legacy;
+      enabled = scan.registered ? scan.enabled : legacy;
     } catch { /* leave defaults on read failure */ }
   }
 
@@ -107,7 +112,7 @@ hermesBridgeRouter.get("/status", (_req, res) => {
   res.json(status());
 });
 
-// Idempotent — writes the mcp_servers.clawbot block into Hermes's config.yaml
+// Idempotent — writes the mcp_servers.naxie block into Hermes's config.yaml
 // if it isn't there yet. No-ops (with a message) if already registered, or if
 // Hermes isn't installed / config.yaml doesn't exist yet.
 hermesBridgeRouter.post("/register", (_req, res) => {
@@ -117,7 +122,8 @@ hermesBridgeRouter.post("/register", (_req, res) => {
   }
   const text = readFileSync(configPath, "utf-8");
   const scan = scanMcpServerEntry(text, SERVER_NAME);
-  if (scan.registered) {
+  const legacyRegistered = LEGACY_SERVER_NAMES.some(n => scanMcpServerEntry(text, n).registered);
+  if (scan.registered || legacyRegistered) {
     return res.json({ ok: true, alreadyRegistered: true, status: status() });
   }
   const base = process.env.NAXION_BASE ?? "http://127.0.0.1:7471";
@@ -144,10 +150,10 @@ hermesBridgeRouter.post("/register", (_req, res) => {
     } else {
       const block = [
         "",
-        "# Added by NeuroWorks (Hermes Bridge panel) — exposes clawbot's internal",
+        "# Added by Naxie (Hermes Bridge panel) — exposes Naxie's internal",
         "# tools (vault, connectors, users, calendar, memory, email, web) to Hermes",
-        "# over MCP. Bridge: neuroworks/server/mcp/clawbot-mcp.mjs, allowlist in",
-        "# neuroworks/server/src/routes/primitives.ts.",
+        "# over MCP. Bridge: naxionai/server/mcp/naxie-mcp.mjs, allowlist in",
+        "# naxionai/server/src/routes/primitives.ts.",
         "mcp_servers:",
         ...entryLines,
         "",

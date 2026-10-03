@@ -5,8 +5,8 @@
 // POST   /api/assignments            → create. HIERARCHY GATE: a signed-in human
 //                                      can never assign work UP their own
 //                                      reporting chain (staff → boss = 403).
-//                                      Token-less callers are neuros/machine
-//                                      context and pass (a neuro may brief anyone).
+//                                      Token-less callers are agents/machine
+//                                      context and pass (an agent may brief anyone).
 // POST   /api/assignments/:id/submit → assignee turns in text and/or files.
 // POST   /api/assignments/:id/status → lifecycle moves (start / done / decline /
 //                                      reopen). Closing out (done) belongs to the
@@ -83,8 +83,8 @@ assignmentsRouter.post("/", (req, res) => {
       details: b.details,
       assignedToEmail: toEmail,
       assignedByEmail: caller?.email ?? (b.assignedByEmail ? normEmail(b.assignedByEmail) : undefined),
-      assignedByName: caller?.name ?? String(b.assignedByName ?? "Neuro"),
-      assignedByKind: caller ? "human" : (b.assignedByKind === "human" ? "human" : "neuro"),
+      assignedByName: caller?.name ?? String(b.assignedByName ?? "Naxie"),
+      assignedByKind: caller ? "human" : (b.assignedByKind === "human" ? "human" : "agent"),
       dueAt: b.dueAt,
       fromJobId: b.fromJobId,
       attachments: b.files,
@@ -105,14 +105,14 @@ assignmentsRouter.post("/", (req, res) => {
         const { sendEmail, emailConfigured } = await import("../lib/email.js");
         if (!emailConfigured()) return;
         const lines = [
-          `**${a.assignedByName}** (${a.assignedByKind === "neuro" ? "neuro agent" : "colleague"}) handed you a new assignment:`,
+          `**${a.assignedByName}** (${a.assignedByKind === "agent" ? "agent" : "colleague"}) handed you a new assignment:`,
           "",
           `**${a.title}**`,
           ...(a.details ? ["", a.details] : []),
           ...(a.dueAt ? ["", `Due: ${new Date(a.dueAt).toDateString()}`] : []),
           ...((a.attachments ?? []).length ? ["", `Attached: ${(a.attachments ?? []).map(f => f.name).join(", ")}`] : []),
           "",
-          `Open **My Work** in NeuroWorks to start it, upload your work, or decline: http://127.0.0.1:${(await import("../config.js")).config.port}/my-work`,
+          `Open **My Work** in Naxie to start it, upload your work, or decline: http://127.0.0.1:${(await import("../config.js")).config.port}/my-work`,
         ];
         await sendEmail({
           to: a.assignedToEmail,

@@ -377,7 +377,7 @@ export function writeVaultFile(rel: string, content: string, opts: { system?: bo
   // Vault changed — drop the search cache so the next searchVault picks up
   // the new note instead of returning stale results from the 60s window.
   //
-  // EXCEPT for `_neuroworks/` machine state (job journals, reflections, etc.).
+  // EXCEPT for `_naxion/` machine state (job journals, reflections, etc.).
   // Those are append-only audit records, not user knowledge — and EVERY job
   // completion writes one. Invalidating the index on each of them created a
   // feedback loop under concurrent load: 80 jobs → 80 index busts → every
@@ -413,16 +413,18 @@ export function writeZettel(title: string, body: string, tags: string[] = []): {
   return { path, id: stamp };
 }
 
-// `_neuroworks/` (and its OS path-separator variants) is NeuroWorks's own
+// `_naxion/` (and its OS path-separator variants) is Naxie's own
 // audit/state tree inside the vault — not user knowledge. Writes there must not
 // disturb the user-knowledge search index.
 function isMachineStatePath(rel: string): boolean {
   const norm = rel.replace(/\\/g, "/").replace(/^\.?\//, "");
-  return norm === "_neuroworks" || norm.startsWith("_neuroworks/");
+  return norm === "_naxion" || norm.startsWith("_naxion/") ||
+    // Legacy pre-rename tree — still skipped until old notes age out.
+    norm === "_neuroworks" || norm.startsWith("_neuroworks/");
 }
 
 const AGENT_CAPTURE_RE = /^0-Inbox\/\d{12}-(?:research|curated|multiperspective|board)-/i;
-const AGENT_JOURNAL_RE = /^_neuroworks\/(?:jobs|session|sessions|reflections|templates)\//i;
+const AGENT_JOURNAL_RE = /^_(naxion|neuroworks)\/(?:jobs|session|sessions|reflections|templates)\//i;
 const DERIVED_DATASET_RE = /^_datasets\/[^/]+\/rag\.md$/i;
 
 export function isAgentCapture(path: string): boolean {
@@ -544,7 +546,7 @@ export async function commitAndPush(message: string) {
   }
 
   // Time-box the push. Vault repos with large pack history can stall HTTP push
-  // for minutes before timing out — that hangs every clawbot task. We bound at
+  // for minutes before timing out — that hangs every Naxie task. We bound at
   // 15s; if we can't push in that window, return success-with-deferred and let
   // the user resolve the sync separately (the local commit is already durable).
   const PUSH_TIMEOUT_MS = 15_000;
@@ -617,7 +619,7 @@ async function rebaseWithSidesteppedConflicts(git: ReturnType<typeof simpleGit>,
   }
 
   // Move conflict paths aside, retry, restore
-  const stashRoot = join(tmpdir(), `clawbot-presync-${randomUUID()}`);
+  const stashRoot = join(tmpdir(), `Naxie-presync-${randomUUID()}`);
   mkdirSync(stashRoot, { recursive: true });
   const moved: { src: string; tmp: string }[] = [];
   for (const p of conflictPaths) {
@@ -715,10 +717,11 @@ export function startVaultWatcher(): void {
       // / pull) fire a flood of events that would invalidate the cache
       // for no useful reason.
       if (name.startsWith(".git") || name.includes(`${sep}.git${sep}`) || name.includes("/.git/")) return;
-      // Skip `_neuroworks/` — our own audit/journal tree. Every job completion
+      // Skip `_naxion/` — our own audit/journal tree. Every job completion
       // writes a note there; letting the watcher invalidate on those recreates
       // the same index-bust storm writeVaultFile now avoids (see isMachineStatePath).
-      if (name.startsWith("_neuroworks") || name.includes(`${sep}_neuroworks${sep}`) || name.includes("/_neuroworks/")) return;
+      if (name.startsWith("_naxion") || name.includes(`${sep}_naxion${sep}`) || name.includes("/_naxion/") ||
+        name.startsWith("_neuroworks") || name.includes(`${sep}_neuroworks${sep}`) || name.includes("/_neuroworks/")) return;
       if (watchInvalidateTimer) clearTimeout(watchInvalidateTimer);
       watchInvalidateTimer = setTimeout(() => {
         watchInvalidateTimer = null;
@@ -752,9 +755,9 @@ export function stopVaultWatcher(): void {
 
 // Periodic pull --rebase so Obsidian edits made on ANOTHER machine (or via
 // Obsidian's git plugin pushing to the same remote) sync into the local
-// vault that clawbot reads from. Without this, clawbot only sees changes
+// vault that Naxie reads from. Without this, Naxie only sees changes
 // that landed locally — a remote Obsidian save needs a manual git pull
-// before clawbot can search / read it.
+// before Naxie can search / read it.
 //
 // Defaults: every NAXION_VAULT_PULL_MIN minutes (default 5). Skipped when:
 //   • NAXION_VAULT_PULL=0 (opt-out)
@@ -831,7 +834,7 @@ export function getVaultPullStatus(): { lastPullAt: number; lastPullResult: type
 // is present in the vault. Content search is overkill there; the slow walk
 // was the root cause of the 11s gap measured before this fix.
 //
-// excludeAgentCaptures skips everything under _neuroworks/ (job trackers,
+// excludeAgentCaptures skips everything under _naxion/ (job trackers,
 // reflections, memory, personas, screenshots, exports, ...) — the agent's
 // own prior output, not real user knowledge. Without it, a self-grounding
 // drift bug is possible: the agent cites its own earlier capture as
@@ -881,7 +884,7 @@ export function searchVaultFilenames(query: string, limit = 5, opts?: { excludeA
 
 // excludeAgentCaptures mirrors searchVaultFilenames' option of the same name
 // (see its comment) — the agent's own prior output (job trackers, reflections,
-// memory) under _neuroworks/ is not real user knowledge. The filter MUST run
+// memory) under _naxion/ is not real user knowledge. The filter MUST run
 // INSIDE the search, before the result set is capped to `limit`, not after:
 // filtering a capped set that happens to be dominated by captures can leave
 // the caller with zero real evidence even though plenty exists just past the

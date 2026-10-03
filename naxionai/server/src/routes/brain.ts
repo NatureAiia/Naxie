@@ -246,7 +246,7 @@ brainRouter.get("/diff", async (req, res) => {
 
 brainRouter.get("/digest/latest", (req, res) => {
   if (!requireVault(res)) return;
-  try { res.json({ content: readVaultFile("_clawbot/latest.md") }); }
+  try { res.json({ content: readVaultFile("_naxie/latest.md") }); }
   catch (e: any) { res.status(404).json({ error: e.message }); }
 });
 

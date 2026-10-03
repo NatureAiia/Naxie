@@ -11,7 +11,7 @@
 // activity timeline ("Maya → handed to → Sam → handed to → Casey ✓ complete").
 //
 // The run executes inside a normal job (so it also shows in Activity / Reports),
-// and the structured HandoffRun is persisted to .neuroworks/handoffs.json
+// and the structured HandoffRun is persisted to .naxion/handoffs.json
 // (recent runs only) so the timeline survives a poll/reload.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -23,7 +23,7 @@ import { loadPersonas, personaSystemSuffix, type Persona } from "./personas.js";
 import { planAndExecute } from "./agent.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const FILE = join(STATE_DIR, "handoffs.json");
 const MAX_RUNS = 50;
 // Cap the chain length so a relay can't ping-pong forever. Members can be

@@ -4,7 +4,7 @@
 --
 -- Run this ONCE against the Supabase project's Postgres database (this repo
 -- has no migration runner — apply by hand):
---   psql "$SUPABASE_DB_URL" -f neuroworks/server/migrations/0001_vault_chunks.sql
+--   psql "$SUPABASE_DB_URL" -f naxionai/server/migrations/0001_vault_chunks.sql
 -- or paste it into the Supabase dashboard's SQL editor.
 --
 -- Requires the pgvector extension, which Supabase ships and allows enabling

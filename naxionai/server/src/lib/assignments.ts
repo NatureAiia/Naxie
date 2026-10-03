@@ -1,7 +1,7 @@
 // Assignments — the human-in-the-loop work ledger behind the My Work page.
 //
-// An assignment is a unit of work handed TO a human: by a neuro (an agent run
-// that needs a person to do something), by their boss, or by any colleague.
+// An assignment is a unit of work handed TO a human: by an agent run
+// that needs a person to do something, by their boss, or by any colleague.
 // The human picks it up, works it, and submits their output (text and/or
 // uploaded files) back into the system — which is how human work re-enters
 // the org's record alongside agent work.
@@ -15,8 +15,8 @@
 // a human never assigns work UP their own reporting chain — staff don't
 // delegate to their boss.
 //
-// Persisted under .neuroworks/assignments.json; submitted files land in
-// .neuroworks/assignment-files/<assignmentId>/.
+// Persisted under .naxion/assignments.json; submitted files land in
+// .naxion/assignment-files/<assignmentId>/.
 
 import { dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const STORE_PATH = resolve(CONFIG_DIR, "assignments.json");
 const FILES_DIR = resolve(CONFIG_DIR, "assignment-files");
 
@@ -46,16 +46,16 @@ export type Assignment = {
   details?: string;
   // Who does the work. Always a real directory email.
   assignedToEmail: string;
-  // Who handed it over. Humans carry their email; neuros carry their
-  // persona/agent name with kind "neuro".
+  // Who handed it over. Humans carry their email; agents carry their
+  // persona/agent name with kind "agent".
   assignedByEmail?: string;
   assignedByName: string;
-  assignedByKind: "human" | "neuro";
+  assignedByKind: "human" | "agent";
   status: AssignmentStatus;
   dueAt?: string;
   createdAt: string;
   updatedAt: string;
-  // Agent job that spawned this, when a neuro delegated it.
+  // Agent job that spawned this, when an agent delegated it.
   fromJobId?: string;
   // Docs handed over WITH the work (the brief) — uploaded at creation by the
   // assigner. Submissions carry the assignee's files back the other way.
@@ -116,7 +116,7 @@ export function createAssignment(input: {
   assignedToEmail: string;
   assignedByEmail?: string;
   assignedByName: string;
-  assignedByKind: "human" | "neuro";
+  assignedByKind: "human" | "agent";
   dueAt?: string;
   fromJobId?: string;
   attachments?: { name: string; contentBase64: string }[];
@@ -133,7 +133,7 @@ export function createAssignment(input: {
     assignedToEmail,
     assignedByEmail: input.assignedByEmail ? normEmail(input.assignedByEmail) : undefined,
     assignedByName: String(input.assignedByName ?? "unknown").trim().slice(0, 120) || "unknown",
-    assignedByKind: input.assignedByKind === "neuro" ? "neuro" : "human",
+    assignedByKind: input.assignedByKind === "agent" ? "agent" : "human",
     status: "open",
     dueAt: input.dueAt && !Number.isNaN(new Date(input.dueAt).getTime()) ? new Date(input.dueAt).toISOString() : undefined,
     createdAt: now,
@@ -175,7 +175,7 @@ export function setAssignmentStatus(id: string, next: AssignmentStatus): Assignm
 }
 
 // The human turns in their work: text and/or base64 files. Files are written
-// under .neuroworks/assignment-files/<id>/ with sanitized names; the stored
+// under .naxion/assignment-files/<id>/ with sanitized names; the stored
 // record keeps name + absolute path + size so Reports/exports can pick them up.
 export function addSubmission(id: string, input: {
   byEmail: string;

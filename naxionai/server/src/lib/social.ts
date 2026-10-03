@@ -39,7 +39,7 @@ function normalizePlatforms(input: unknown): string[] {
 
 async function ayr(path: string, method: "GET" | "POST", body?: unknown): Promise<any> {
   const key = (process.env.AYRSHARE_API_KEY ?? "").trim();
-  if (!key) throw new Error("social not configured — set AYRSHARE_API_KEY in clawbot/.env (one key covers X, LinkedIn, Facebook, Instagram, …). Get it from ayrshare.com.");
+  if (!key) throw new Error("social not configured — set AYRSHARE_API_KEY in naxionai/.env (one key covers X, LinkedIn, Facebook, Instagram, …). Get it from ayrshare.com.");
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30_000);
   try {

@@ -1,5 +1,5 @@
 #!/bin/sh
-# NeuroWorks pre-commit secret guard.
+# Naxie pre-commit secret guard.
 # Blocks commits that add a .env / key file or stage anything that looks like a
 # live secret. Install:  cp tools/git-hooks/pre-commit .git/hooks/ && chmod +x .git/hooks/pre-commit
 # Bypass a false positive with:  git commit --no-verify

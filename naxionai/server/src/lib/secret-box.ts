@@ -1,7 +1,7 @@
 // Shared AES-256-GCM "secret box" for encrypting sensitive values at rest
 // (integration tokens, DB connection strings). The key comes from
 // NAXION_SECRET_KEY (hex/base64/passphrase → SHA-256) or, if unset, a random
-// key persisted at .neuroworks/.secret-key (mode 0600, gitignored). So a leaked
+// key persisted at .naxion/.secret-key (mode 0600, gitignored). So a leaked
 // integrations.json / data-sources.json is useless without the separate key.
 //
 // Format: "v1:<iv>:<tag>:<ciphertext>" (all base64). isEncrypted() lets callers
@@ -13,7 +13,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { randomBytes, createCipheriv, createDecipheriv, createHash } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const KEY_PATH = resolve(CONFIG_DIR, ".secret-key");
 
 let cachedKey: Buffer | null = null;

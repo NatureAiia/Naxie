@@ -1,4 +1,4 @@
-// Curation: the primary clawbot's editor pass over a persona-shifter's output.
+// Curation: Naxie's editor pass over a persona-shifter's output.
 //
 // Architecture: persona-shifter (worker) does the planning + execution + draft.
 // Primary (curator) reviews — does this answer pass quality? Is it free of
@@ -159,7 +159,7 @@ export async function curatePeerOutput(args: {
   const md = `---
 title: "Curated: ${args.task.replace(/"/g, "'").slice(0, 120)}"
 created: ${today}
-source: clawbot-curation
+source: naxie-curation
 tags: [curated, agent-output]${personaTag}
 quality_score: ${quality?.score ?? "n/a"}
 factuality_risk: ${quality?.factuality_risk?.toFixed(2) ?? "n/a"}
@@ -174,7 +174,7 @@ ${sourcesBlock}
 
 ---
 
-*Curated by the primary clawbot from a persona-shifter peer's output. Quality score ${quality?.score ?? "n/a"}, ${rooted.vaultCitations} vault refs, ${rooted.webSources} web sources, ${rooted.githubRefs} GitHub refs.*
+*Curated by Naxie from a persona-shifter peer's output. Quality score ${quality?.score ?? "n/a"}, ${rooted.vaultCitations} vault refs, ${rooted.webSources} web sources, ${rooted.githubRefs} GitHub refs.*
 `;
 
   try {

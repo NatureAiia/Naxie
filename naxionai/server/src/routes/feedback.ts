@@ -9,11 +9,11 @@ import { getActivePersona, personaSystemSuffix } from "../lib/personas.js";
 import { findCustomTemplate } from "../lib/custom-templates.js";
 
 // Outcome feedback loop — the operator tells us in one click whether a job's
-// answer was good or bad, optionally why. Writes to `_neuroworks/feedback.jsonl`
+// answer was good or bad, optionally why. Writes to `_naxion/feedback.jsonl`
 // in the vault so the nightly reflection (and a future grader-calibration
 // pass) can use the human signal as the anchor truth, not the LLM scorer.
 
-const FEEDBACK_REL = "_neuroworks/feedback.jsonl";
+const FEEDBACK_REL = "_naxion/feedback.jsonl";
 
 export const feedbackRouter = Router();
 

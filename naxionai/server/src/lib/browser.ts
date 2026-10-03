@@ -5,7 +5,7 @@ import { config } from "../config.js";
 
 // Shared with web-client.ts so fetch + scrape rotate through the same pool.
 // Static UAs get fingerprinted; rotating between a few realistic ones makes
-// the clawbot harder to block by simple anti-bot heuristics.
+// the Naxie harder to block by simple anti-bot heuristics.
 const SCRAPE_UA_POOL = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -128,7 +128,7 @@ export async function interact(opts: { startUrl: string; steps: InteractAction[]
         } else if (step.type === "screenshot") {
           const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
           const slug = (step.name ?? page.url().replace(/^https?:\/\//, "")).replace(/[^a-zA-Z0-9.-]+/g, "-").slice(0, 60);
-          const rel = `_neuroworks/screenshots/${stamp}-${slug}.png`;
+          const rel = `_naxion/screenshots/${stamp}-${slug}.png`;
           const full = resolve(config.vaultPath, rel);
           mkdirSync(join(full, ".."), { recursive: true });
           const buf = await page.screenshot({ fullPage: true, type: "png" });
@@ -155,7 +155,7 @@ export async function interact(opts: { startUrl: string; steps: InteractAction[]
 }
 
 // Render markdown → polished PDF via the existing headless Chromium pool.
-// Powers the `vault.write_pdf` primitive — turns clawbot's markdown output
+// Powers the `vault.write_pdf` primitive — turns Naxie's markdown output
 // into an actual document the operator can email a customer or attach to a
 // board pack, without adding wkhtmltopdf / pandoc as new deps.
 export async function renderMarkdownToPdf(opts: { markdown: string; title?: string; vaultRelPath: string; landscape?: boolean }): Promise<{ path: string; bytes: number }> {
@@ -260,7 +260,7 @@ export async function scrape(opts: ScrapeOptions): Promise<ScrapeResult> {
     if (opts.screenshot) {
       const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
       const slug = opts.url.replace(/^https?:\/\//, "").replace(/[^a-zA-Z0-9.-]+/g, "-").slice(0, 60);
-      const rel = `_neuroworks/screenshots/${stamp}-${slug}.png`;
+      const rel = `_naxion/screenshots/${stamp}-${slug}.png`;
       const full = resolve(config.vaultPath, rel);
       mkdirSync(join(full, ".."), { recursive: true });
       const buf = await page.screenshot({ fullPage: true, type: "png" });

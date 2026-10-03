@@ -7,7 +7,7 @@
 // A restriction denies a CAPABILITY to a SCOPE. Scope is one of:
 //   role:staff | role:admin      — everyone at that access layer
 //   dept:Finance                 — everyone in that department (case-insensitive)
-//   user:alice@rubiem.com        — one specific person
+//   user:alice@example.com        — one specific person
 // Capabilities are coarse task categories, detected from the task text at the
 // chat/template entry point (see detectCapabilities). Enforced in the run
 // routes: a restricted caller asking for a denied capability gets a 403 that
@@ -17,7 +17,7 @@
 // restrictions govern HUMANS using the product, same contract as the access
 // layers. Superadmins are never restricted either (they own the org).
 //
-// Persisted under .neuroworks/task-restrictions.json (gitignored).
+// Persisted under .naxion/task-restrictions.json (gitignored).
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,7 +27,7 @@ import type { PublicUser } from "./users.js";
 import { layerOfRole } from "./access.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const STORE = resolve(CONFIG_DIR, "task-restrictions.json");
 
 // Local-machine access — reading/acting on the SERVER OPERATOR's own PC

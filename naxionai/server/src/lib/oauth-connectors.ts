@@ -12,7 +12,7 @@
 // protection, not an identity carrier.
 //
 // Persistence follows lib/connectors.ts's own convention: a local JSON file
-// under .neuroworks/ (outside the vault, since it carries credentials),
+// under .naxion/ (outside the vault, since it carries credentials),
 // secrets encrypted at rest via secret-box.ts, atomic write via temp+rename.
 
 import { dirname, resolve } from "node:path";
@@ -23,7 +23,7 @@ import { encryptSecret, decryptSecret, isEncrypted } from "./secret-box.js";
 import { config } from "../config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const CONFIG_PATH = resolve(CONFIG_DIR, "platform-connections.json");
 
 export type OauthPlatform = "google" | "microsoft";

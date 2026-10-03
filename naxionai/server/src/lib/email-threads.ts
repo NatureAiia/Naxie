@@ -5,7 +5,7 @@
 // — the inbound handler replays prior turns into /api/chat, exactly like the
 // web chat preserves its message list.
 //
-// Scope: small, bounded, JSON-backed under .neuroworks. Capped per thread and
+// Scope: small, bounded, JSON-backed under .naxion. Capped per thread and
 // in total so a long-running mailbox can't grow it without limit. This is
 // conversational context, not an audit log (jobs + the vault already hold the
 // durable record).
@@ -15,7 +15,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const FILE = join(STATE_DIR, "email-threads.json");
 
 const MAX_TURNS_PER_THREAD = 12;  // keep the last N turns (6 exchanges)

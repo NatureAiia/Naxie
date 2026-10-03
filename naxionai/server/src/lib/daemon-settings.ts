@@ -14,7 +14,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const SETTINGS_FILE = join(STATE_DIR, "daemon-settings.json");
 
 export type DaemonSettings = {

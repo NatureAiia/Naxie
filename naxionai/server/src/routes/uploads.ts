@@ -33,7 +33,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Context uploads live outside the vault — they're scratch space, not
 // permanent knowledge. Cleaned up on a TTL (default 1h) so old context
 // files don't accumulate.
-const CONTEXT_DIR = resolve(__dirname, "../../../.neuroworks/context-uploads");
+const CONTEXT_DIR = resolve(__dirname, "../../../.naxion/context-uploads");
 // Default TTL — overridable per upload via body.ttlSeconds. Clamped to
 // [60s, 7 days] so a runaway value can't park stale uploads indefinitely
 // or evict an upload before it's used.
@@ -46,7 +46,7 @@ const MAX_TTL_MS = 7 * 24 * 3600_000;
 // auto-create any safe user folder, so callers can stash uploads under
 // arbitrary categories ("meetings", "2024-Q3", etc.) — not just the four
 // standard Zettel folders.
-const SYSTEM_PREFIXES = ["_clawbot", "_archive", "_neuroworks", ".git", ".obsidian"];
+const SYSTEM_PREFIXES = ["_naxie", "_archive", "_naxion", ".git", ".obsidian", "_clawbot", "_neuroworks"];
 function isSafeVaultFolder(p: string): boolean {
   if (!p || p.length > 200) return false;
   if (/^[A-Za-z]:|^[/\\]/.test(p)) return false;

@@ -3,7 +3,7 @@
 -- can boost on entity overlap without re-parsing content at query time.
 --
 -- Apply by hand (no migration runner in this repo):
---   psql "$SUPABASE_DB_URL" -f neuroworks/server/migrations/0003_vault_chunks_entities.sql
+--   psql "$SUPABASE_DB_URL" -f naxionai/server/migrations/0003_vault_chunks_entities.sql
 
 alter table if exists vault_chunks
   add column if not exists entities jsonb not null default '{}'::jsonb,

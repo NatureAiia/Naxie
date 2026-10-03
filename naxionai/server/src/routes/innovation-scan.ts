@@ -7,7 +7,7 @@ import { requireLayer } from "../lib/access.js";
 
 export const innovationScanRouter = Router();
 
-const SCAN_DIR_REL = "_neuroworks/innovation-scans";
+const SCAN_DIR_REL = "_naxion/innovation-scans";
 
 // List past scans found in the vault. Mirrors routes/reflection.ts's list
 // endpoint: date + path + a short preview pulled from the body, plus the

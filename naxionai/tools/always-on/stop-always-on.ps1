@@ -3,7 +3,7 @@
 # repo's server (never a Vite dev server or unrelated process).
 
 $root     = "D:\Aiia\Systems\NaxionAI-Powered-by-Neuroworks\naxionai"
-$stateDir = Join-Path $root "server\.neuroworks"
+$stateDir = Join-Path $root "server\.naxion"
 $lockFile = Join-Path $stateDir "always-on.lock"
 $port     = 7470
 

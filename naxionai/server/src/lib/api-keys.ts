@@ -15,7 +15,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const KEYS_PATH = resolve(STATE_DIR, "api-keys.json");
 
 export type ApiKeyScope = "dispatch:write" | "dispatch:read" | "machine:full";

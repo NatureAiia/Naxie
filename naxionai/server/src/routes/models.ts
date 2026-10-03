@@ -71,7 +71,7 @@ modelsRouter.post("/default", async (req, res) => {
   }
   const previous = config.ollamaModel;
   config.ollamaModel = name;
-  res.json({ default: name, previous, ephemeral: true, hint: "Restart resets to OLLAMA_MODEL in clawbot/.env." });
+  res.json({ default: name, previous, ephemeral: true, hint: "Restart resets to OLLAMA_MODEL in naxionai/.env." });
 });
 
 // Curated catalog of pullable Ollama models, with which are already installed.

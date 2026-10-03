@@ -119,7 +119,7 @@ function compactRunResult(result: any, tool?: string): any {
   return result;
 }
 
-// Self-introspection: who am I, what model, how busy. Other clawbots poll this
+// Self-introspection: who am I, what model, how busy. Other Naxies poll this
 // to make delegation decisions, and the UI uses it for the topbar peer roll-call.
 peersRouter.get("/self", (_req, res) => {
   res.json({
@@ -276,7 +276,7 @@ peersRouter.post("/worker/stop", async (_req, res) => {
   }
 });
 
-// Receive a task from another clawbot. Runs it through the same general-task
+// Receive a task from another Naxie. Runs it through the same general-task
 // pipeline a chat message would, and returns the jobId so the caller can poll.
 // Note: any provided persona is applied at the start of the run and reverted
 // after — we do NOT durably mutate the peer's active persona.
@@ -506,7 +506,7 @@ Be terse. "good" = ship it, "needs-work" = fixable issues, "bad" = misleading or
 });
 
 // Judge two candidate answers to the same task head-to-head. Used by chat.ts's
-// Hermes/clawbot cross-check (executor-mode's `crosscheck` flag) instead of
+// Hermes/Naxie cross-check (executor-mode's `crosscheck` flag) instead of
 // unconditionally discarding Hermes's answer on a quality-fail offload.
 // Mirrors /review's request-parsing, local-first-with-OpenRouter-fallback
 // generation, temperature:0, and brace-matched JSON parsing.

@@ -7,43 +7,43 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: neuroworks-primary
-  namespace: neuroworks
+  name: naxion-primary
+  namespace: naxion
   labels:
-    app: neuroworks
+    app: naxion
     role: primary
 spec:
-  serviceName: neuroworks-primary
+  serviceName: naxion-primary
   replicas: 1
   updateStrategy:
     type: RollingUpdate
   selector:
     matchLabels:
-      app: neuroworks
+      app: naxion
       role: primary
   template:
     metadata:
       labels:
-        app: neuroworks
+        app: naxion
         role: primary
     spec:
       securityContext:
         runAsNonRoot: true
       containers:
-        - name: neuroworks
+        - name: naxion
           # CHANGEME — build + push this image to a registry your cluster can
           # pull from, e.g.:
-          #   docker build -t YOUR_REGISTRY/neuroworks:v0.2.0 .
-          #   docker push YOUR_REGISTRY/neuroworks:v0.2.0
+          #   docker build -t YOUR_REGISTRY/naxion:v0.2.0 .
+          #   docker push YOUR_REGISTRY/naxion:v0.2.0
           # Pin an explicit tag in real deployments — ":latest" makes rollouts
           # non-reproducible (you can't tell what's actually running).
-          image: neuroworks:latest
+          image: naxion:latest
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
-                name: neuroworks-config
+                name: naxion-config
             - secretRef:
-                name: neuroworks-secrets
+                name: naxion-secrets
           env:
             - name: SERVE_WEB
               value: "1"
@@ -59,14 +59,14 @@ spec:
             # across pods, by design (see peer-registry.ts), so the two files
             # have to be kept in sync by hand. If you change peer replica
             # count, update both and roll the primary (kubectl rollout
-            # restart statefulset/neuroworks-primary -n neuroworks).
+            # restart statefulset/naxion-primary -n naxion).
             - name: NAXION_PEERS
               value: >-
-                http://neuroworks-peer-0.neuroworks-peer.neuroworks.svc.cluster.local:7471,
-                http://neuroworks-peer-1.neuroworks-peer.neuroworks.svc.cluster.local:7471,
-                http://neuroworks-peer-2.neuroworks-peer.neuroworks.svc.cluster.local:7471,
-                http://neuroworks-peer-3.neuroworks-peer.neuroworks.svc.cluster.local:7471,
-                http://neuroworks-peer-4.neuroworks-peer.neuroworks.svc.cluster.local:7471
+                http://naxion-peer-0.naxion-peer.naxion.svc.cluster.local:7471,
+                http://naxion-peer-1.naxion-peer.naxion.svc.cluster.local:7471,
+                http://naxion-peer-2.naxion-peer.naxion.svc.cluster.local:7471,
+                http://naxion-peer-3.naxion-peer.naxion.svc.cluster.local:7471,
+                http://naxion-peer-4.naxion-peer.naxion.svc.cluster.local:7471
           ports:
             - containerPort: 7471
               name: http
@@ -89,7 +89,7 @@ spec:
             limits: { cpu: "1", memory: "2Gi" }
           volumeMounts:
             - name: state
-              mountPath: /app/.neuroworks
+              mountPath: /app/.naxion
             - name: vault
               mountPath: /data/vault
   volumeClaimTemplates:
@@ -113,14 +113,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: neuroworks-primary
-  namespace: neuroworks
+  name: naxion-primary
+  namespace: naxion
   labels:
-    app: neuroworks
+    app: naxion
     role: primary
 spec:
   selector:
-    app: neuroworks
+    app: naxion
     role: primary
   ports:
     - port: 7471

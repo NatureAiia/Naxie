@@ -20,7 +20,7 @@ import { BrandMark } from "../components/BrandMark";
 // 2026-09-21 alongside personas.ts's own prune (all built-ins had zero
 // recorded activity in 30 days).
 const DEFAULT_COUNCIL = ["researcher", "knowitall", "software-engineer", "accountant", "social-media-manager"];
-const STORAGE_KEY = "neuroworks.board.topic";
+const STORAGE_KEY = "naxie.board.topic";
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 type PersonaLite = { id: string; name: string; role: string; description?: string };

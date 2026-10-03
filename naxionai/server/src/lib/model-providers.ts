@@ -16,7 +16,7 @@ import { config } from "../config.js";
 import { encryptSecret, decryptSecret, isEncrypted } from "./secret-box.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const PATH = resolve(STATE_DIR, "model-providers.json");
 
 export type ProviderKind = "anthropic" | "openai" | "gemini" | "openrouter" | "groq" | "together" | "ollama_cloud" | "custom";

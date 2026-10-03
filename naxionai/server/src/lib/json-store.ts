@@ -1,5 +1,5 @@
 /**
- * Crash-safe reads and writes for the JSON stores under .neuroworks/.
+ * Crash-safe reads and writes for the JSON stores under .naxion/.
  *
  * WHY THIS EXISTS
  *
@@ -22,12 +22,12 @@
  *   2. A store that could not be READ is marked degraded, and the caller must
  *      refuse to persist over it. You do not overwrite a file you failed to read.
  *
- * `.neuroworks/` is gitignored, so a destroyed store has no history to recover
+ * `.naxion/` is gitignored, so a destroyed store has no history to recover
  * from. Hence the `.bak` generation and the `.corrupt-<ts>` quarantine: they are
  * the only copies that will ever exist.
  *
  * Path resolution lives here too. Only 15 of ~53 writers honoured
- * NAXION_STATE_DIR; the rest hardcoded `resolve(__dirname, "../../../.neuroworks")`,
+ * NAXION_STATE_DIR; the rest hardcoded `resolve(__dirname, "../../../.naxion")`,
  * so a test that imported one wrote to the operator's real state (that is how
  * two Postgres connection strings were destroyed — commit e439344). Modules that
  * take their path from `statePath()` cannot have that bug.
@@ -45,7 +45,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export function stateDir(): string {
   return process.env.NAXION_STATE_DIR
     ? resolve(process.env.NAXION_STATE_DIR)
-    : resolve(__dirname, "../../../.neuroworks");
+    : resolve(__dirname, "../../../.naxion");
 }
 
 /**
@@ -248,7 +248,7 @@ function markDegraded(path: string, error: string): void {
  *
  * A rename, not a copy: it costs no additional disk space, which matters when
  * the thing that caused the corruption was a full disk. It is also the only
- * forensic copy anyone will get, since .neuroworks has no git history.
+ * forensic copy anyone will get, since .naxion has no git history.
  */
 function quarantine(path: string, label: string): void {
   try {

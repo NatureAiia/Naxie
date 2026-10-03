@@ -6,7 +6,7 @@ import { evaluateAuthResultsHeader } from "./email-auth.js";
 
 // Dedicated, minimal HTTP listener for Mailjet's inbound Parse API. Runs on its
 // OWN port (NAXION_EMAIL_INBOUND_PORT, default 7475) exposing ONLY this webhook
-// — never the main clawbot API. This is the surface we expose through the public
+// — never the main Naxie API. This is the surface we expose through the public
 // tunnel, so /api/terminal, /api/chat, etc. are NOT reachable from the internet.
 //
 // Security, two gates:
@@ -71,7 +71,7 @@ export function startInboundWebhook(): void {
   app.use(express.json({ limit: "10mb", type: ["application/json", "text/plain"] }));
   app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-  app.get("/health", (_req, res) => res.json({ ok: true, service: "clawbot-inbound", running: true }));
+  app.get("/health", (_req, res) => res.json({ ok: true, service: "naxie-inbound", running: true }));
 
   app.post(["/inbound", "/api/email/inbound"], (req, res) => {
     state.received += 1;

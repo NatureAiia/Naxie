@@ -1,5 +1,5 @@
 #!/bin/sh
-# NeuroWorks installer (macOS / Linux). Gets NeuroWorks running on a fresh
+# Naxie installer (macOS / Linux). Gets Naxie running on a fresh
 # machine with the free local core - no personal keys required.
 #
 #   Usage:  sh tools/install.sh          # set up
@@ -11,8 +11,8 @@ set -e
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
-say()  { echo "[neuroworks] $1"; }
-warn() { echo "[neuroworks] WARNING: $1" >&2; }
+say()  { echo "[naxie] $1"; }
+warn() { echo "[naxie] WARNING: $1" >&2; }
 
 # 1. Node >= 20
 if ! command -v node >/dev/null 2>&1; then
@@ -22,7 +22,7 @@ fi
 NODE_VER="$(node --version | sed 's/^v//')"
 NODE_MAJOR="$(echo "$NODE_VER" | cut -d. -f1)"
 if [ "$NODE_MAJOR" -lt 20 ]; then
-  warn "Node $NODE_VER found, but NeuroWorks needs 20+. Upgrade then re-run."
+  warn "Node $NODE_VER found, but Naxie needs 20+. Upgrade then re-run."
   exit 1
 fi
 say "Node $NODE_VER OK"
@@ -61,7 +61,7 @@ else
 fi
 
 say "Setup complete."
-say "Start NeuroWorks with:  pnpm dev"
+say "Start Naxie with:  pnpm dev"
 say "Then open:              http://127.0.0.1:7470"
 
 if [ "$1" = "--start" ]; then

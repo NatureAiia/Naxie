@@ -32,7 +32,7 @@ import { publishEvent } from "./webhook-delivery.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = process.env.NAXION_STATE_DIR
   ? resolve(process.env.NAXION_STATE_DIR)
-  : resolve(__dirname, "../../../.neuroworks");
+  : resolve(__dirname, "../../../.naxion");
 // Resolved per call, not at import time — see json-store.ts statePath().
 const REGISTRY_PATH = () => statePath("datasets.json");
 

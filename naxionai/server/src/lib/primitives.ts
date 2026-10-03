@@ -454,7 +454,7 @@ export const primitives: Primitive[] = [
       // vault.edit speculatively. The refusal message tells the customer
       // exactly what to do.
       if (process.env.NAXION_VAULT_EDIT !== "1") {
-        throw new Error("vault.edit refused: vault editing isn't authorised. To allow clawbot to edit docs in your vault, set NAXION_VAULT_EDIT=1 in clawbot/.env and restart the server.");
+        throw new Error("vault.edit refused: vault editing isn't authorised. To allow Naxie to edit docs in your vault, set NAXION_VAULT_EDIT=1 in naxionai/.env and restart the server.");
       }
       const path = String(args.path);
       const instruction = String(args.instruction);
@@ -515,7 +515,7 @@ export const primitives: Primitive[] = [
     description: "Get repo overview: README + recent commits + open PRs + open issues. Pass owner and name (split owner/name).",
     readonly: true,
     args: [
-      { name: "owner", type: "string", required: true, description: "GitHub owner (e.g. RUBIEM-DEVELOPERS-REPO)" },
+      { name: "owner", type: "string", required: true, description: "GitHub owner (e.g. NatureAiia)" },
       { name: "name", type: "string", required: true, description: "Repo name" },
     ],
     handler: async (args) => {
@@ -1020,7 +1020,7 @@ export const primitives: Primitive[] = [
   },
   {
     name: "web.scrape",
-    description: "Render a URL in a real headless browser (Playwright + Chromium) and return the page text. Use this instead of web.fetch when the page needs JS to render, sits behind anti-bot, or requires waiting for content. Optional: a CSS `selector` to extract just one section, `waitFor` selector to delay extraction, `scrollToBottom` for lazy-load lists, `screenshot` to also save a PNG into _neuroworks/screenshots/ in the vault.",
+    description: "Render a URL in a real headless browser (Playwright + Chromium) and return the page text. Use this instead of web.fetch when the page needs JS to render, sits behind anti-bot, or requires waiting for content. Optional: a CSS `selector` to extract just one section, `waitFor` selector to delay extraction, `scrollToBottom` for lazy-load lists, `screenshot` to also save a PNG into _naxion/screenshots/ in the vault.",
     readonly: true,
     args: [
       { name: "url", type: "string", required: true, description: "Full URL including protocol" },
@@ -1074,7 +1074,7 @@ export const primitives: Primitive[] = [
     handler: async (args) => {
       const { firecrawlEnabled, firecrawlScrape } = await import("./firecrawl.js");
       if (!firecrawlEnabled()) {
-        throw new Error("web.firecrawl refused: FIRECRAWL_API_KEY isn't set in clawbot/.env — get a key from firecrawl.dev and add it, then this primitive will be available.");
+        throw new Error("web.firecrawl refused: FIRECRAWL_API_KEY isn't set in naxionai/.env — get a key from firecrawl.dev and add it, then this primitive will be available.");
       }
       const r = await firecrawlScrape({
         url: String(args.url),
@@ -1662,7 +1662,7 @@ export const primitives: Primitive[] = [
     readonly: false,
     args: [
       { name: "path", type: "string", required: true, description: "Absolute path to the source file on the user's PC (chain from $step_0.matches.0.path after fs.find_in)" },
-      { name: "vaultFolder", type: "string", required: false, description: "Vault destination folder (default '0-Inbox'). Standard Zettel folders: '0-Inbox' for fleeting captures, '1-Literature' for reference material, '1-projects' for project artifacts, '2-Permanent' for promoted notes. Custom folders (e.g. 'meetings', '2024-Q3/wins', 'team/sales') are auto-created. System folders ('_clawbot', '_archive', '_neuroworks', '.git', '.obsidian') and absolute or traversal paths are rejected — falls back to '0-Inbox' if unsafe." },
+      { name: "vaultFolder", type: "string", required: false, description: "Vault destination folder (default '0-Inbox'). Standard Zettel folders: '0-Inbox' for fleeting captures, '1-Literature' for reference material, '1-projects' for project artifacts, '2-Permanent' for promoted notes. Custom folders (e.g. 'meetings', '2024-Q3/wins', 'team/sales') are auto-created. System folders ('_naxie', '_archive', '_naxion', '.git', '.obsidian') and absolute or traversal paths are rejected — falls back to '0-Inbox' if unsafe." },
       { name: "title", type: "string", required: false, description: "Override the sidecar note title (default: extract from filename)" },
       { name: "removeOriginal", type: "boolean", required: false, description: "Delete the source file after import (default false — copy semantics). Set true when the user literally says 'move and delete' or 'remove from downloads'." },
       { name: "summarise", type: "boolean", required: false, description: "Extract a short auto-summary of the doc's text into the sidecar (default true for binary docs)" },
@@ -1693,7 +1693,7 @@ export const primitives: Primitive[] = [
       // system-managed folder (where NeuroWorks tooling assumes ownership),
       // or look like an absolute path.
       const requested = String(args.vaultFolder ?? "0-Inbox").trim().replace(/^\/+|\/+$/g, "").replace(/\\/g, "/");
-      const SYSTEM_PREFIXES = ["_clawbot", "_archive", "_neuroworks", ".git", ".obsidian"];
+      const SYSTEM_PREFIXES = ["_naxie", "_archive", "_naxion", ".git", ".obsidian", "_clawbot", "_neuroworks"];
       const isSafeUserFolder = (p: string): boolean => {
         if (!p || p.length > 200) return false;
         if (/^[A-Za-z]:|^[/\\]/.test(p)) return false;            // no absolute paths
@@ -1784,7 +1784,7 @@ export const primitives: Primitive[] = [
         wantSummary && extractedExcerpt ? `## Excerpt (first ${Math.min(2000, extractedExcerpt.length)} chars)\n\n${extractedExcerpt}\n` : "",
         `## Source provenance`,
         `- Original path: \`${fullSrc}\``,
-        `- Imported by: clawbot \`fs.import_to_vault\``,
+        `- Imported by: Naxie \`fs.import_to_vault\``,
         `- ${args.removeOriginal === true ? "Original was REMOVED from the PC after import." : "Original preserved on the PC."}`,
         ``,
       ].filter(Boolean).join("\n");
@@ -1865,14 +1865,14 @@ export const primitives: Primitive[] = [
       const [vaultHits, webResults] = await Promise.all([
         Promise.resolve().then(() => {
           try {
-            // Exclude agent-internal job-tracker files (_neuroworks/jobs/*) —
+            // Exclude agent-internal job-tracker files (_naxion/jobs/*) —
             // those are scratch records of past runs, not real user knowledge.
             // Without this filter, research.deep cites its own past outputs as
             // "vault sources", which inflates citation_coverage with
             // self-referential noise and degrades grounding. Chat already
             // applies the same exclusion in agent.ts. Matches the path style
             // searchVault returns (forward-slash).
-            return searchVault(query, 20).filter(h => !/^_neuroworks\/jobs\//i.test(h.path));
+            return searchVault(query, 20).filter(h => !/^_naxion\/jobs\//i.test(h.path));
           }
           catch { return [] as ReturnType<typeof searchVault>; }
         }),
@@ -1942,7 +1942,7 @@ export const primitives: Primitive[] = [
       let govPrefix = "";
       try { const { loadGovernancePrefix } = await import("./governance.js"); govPrefix = loadGovernancePrefix(); } catch { /* governance optional */ }
       const sysSynth = (govPrefix ? govPrefix + "\n\n" : "") +
-        "You are clawbot's research synthesiser. Write a concise, evidence-grounded answer to the user's question using ONLY the supplied evidence. Cite sources inline as [vault:path] or [N] (where N matches the web source). " +
+        "You are Naxie's research synthesiser. Write a concise, evidence-grounded answer to the user's question using ONLY the supplied evidence. Cite sources inline as [vault:path] or [N] (where N matches the web source). " +
         "HARD RULE: obey any GOVERNANCE POLICIES above as the highest priority. If a source describes a different product or entity than the governance defines (same name, wrong product), DROP it entirely — do not quote, summarize, or let it shape the answer. Prefer vault notes over web sources when they conflict. " +
         "If the evidence is thin or contradictory, say so plainly. Keep it under 350 words. Markdown allowed.";
       // Synth in a try/catch so a transient LLM failure doesn't throw away
@@ -1993,7 +1993,7 @@ export const primitives: Primitive[] = [
         const filteredBlock = dropped.length > 0
           ? `\n\n## Filtered sources _(${dropped.length} dropped by validator)_\n` + dropped.map(d => `- ~~[${d.title || d.url}](${d.url})~~ — ${d.verdict.reason}${d.verdict.detail ? ` (${d.verdict.detail})` : ""}`).join("\n")
           : "";
-        const md = `---\ntitle: "Research: ${query.replace(/"/g, "'").slice(0, 120)}"\ncreated: ${today}\nsource: clawbot-research\nvalidator: strict\nsources_kept: ${validSources.length}\nsources_dropped: ${dropped.length}\n---\n\n# Research: ${query}\n\n${synth.trim()}\n\n## Web sources\n${sourcesBlock}${filteredBlock}\n\n## Vault hits at time of research\n${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") || "_(none)_"}\n`;
+        const md = `---\ntitle: "Research: ${query.replace(/"/g, "'").slice(0, 120)}"\ncreated: ${today}\nsource: naxie-research\nvalidator: strict\nsources_kept: ${validSources.length}\nsources_dropped: ${dropped.length}\n---\n\n# Research: ${query}\n\n${synth.trim()}\n\n## Web sources\n${sourcesBlock}${filteredBlock}\n\n## Vault hits at time of research\n${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") || "_(none)_"}\n`;
         try {
           writeVaultFile(path, md);
           captured = { path };
@@ -2179,7 +2179,7 @@ Rules:
         const md = `---
 title: "Multi-perspective: ${topic.replace(/"/g, "'").slice(0, 120)}"
 created: ${today}
-source: clawbot-multiperspective
+source: naxie-multiperspective
 perspectives: [${perspectives.map(p => `"${p}"`).join(", ")}]
 tags: [research, multiperspective]
 ---
@@ -2536,7 +2536,7 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
   },
   {
     name: "peer.delegate",
-    description: "Hand a task off to a peer clawbot (the lightest-loaded one). Returns the peer's final answer once the peer's job completes. Use when the local clawbot is overloaded or when you want a second model's perspective.",
+    description: "Hand a task off to a peer Naxie (the lightest-loaded one). Returns the peer's final answer once the peer's job completes. Use when the local Naxie is overloaded or when you want a second model's perspective.",
     readonly: true,
     args: [
       { name: "task", type: "string", required: true, description: "Plain-English task to delegate" },
@@ -2550,7 +2550,7 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
   },
   {
     name: "peer.review",
-    description: "Send a draft answer to a peer clawbot for quality review. Returns { verdict, issues, revised_answer, confidence }. Use after synthesising a non-trivial answer to catch errors and tighten prose.",
+    description: "Send a draft answer to a peer Naxie for quality review. Returns { verdict, issues, revised_answer, confidence }. Use after synthesising a non-trivial answer to catch errors and tighten prose.",
     readonly: true,
     args: [
       { name: "task", type: "string", required: true, description: "The original task / question" },
@@ -3117,14 +3117,14 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     args: [
       { name: "markdown", type: "string", required: true, description: "Markdown content to render" },
       { name: "title", type: "string", required: false, description: "Document title (used in <title>, no visible heading — your markdown's first H1 owns the on-page heading)" },
-      { name: "filename", type: "string", required: true, description: "Filename WITHOUT directory, e.g. 'board-pack-q3.pdf'. Saved under `_neuroworks/exports/` in the vault. `.pdf` appended if missing." },
+      { name: "filename", type: "string", required: true, description: "Filename WITHOUT directory, e.g. 'board-pack-q3.pdf'. Saved under `_naxion/exports/` in the vault. `.pdf` appended if missing." },
       { name: "landscape", type: "boolean", required: false, description: "Landscape orientation (default false — portrait Letter)" },
     ],
     handler: async (args) => {
       let filename = String(args.filename ?? "document.pdf").replace(/[/\\]/g, "-").replace(/^\.+/, "");
       if (!/\.pdf$/i.test(filename)) filename += ".pdf";
       const stamp = new Date().toISOString().slice(0, 10);
-      const rel = `_neuroworks/exports/${stamp}-${filename}`;
+      const rel = `_naxion/exports/${stamp}-${filename}`;
       return await renderMarkdownToPdf({
         markdown: String(args.markdown ?? ""),
         title: args.title ? String(args.title) : undefined,
@@ -3135,7 +3135,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "calendar.activity",
-    description: "Return the agents' own activity (jobs that ran) grouped by day across [from, to]. Use when the user asks 'what did I do last Tuesday' / 'what shipped this week' / 'summarise the team's output for the month'. Merges the in-memory job table with the persisted `_neuroworks/jobs/` JSONL files. Default window: the last 14 days.",
+    description: "Return the agents' own activity (jobs that ran) grouped by day across [from, to]. Use when the user asks 'what did I do last Tuesday' / 'what shipped this week' / 'summarise the team's output for the month'. Merges the in-memory job table with the persisted `_naxion/jobs/` JSONL files. Default window: the last 14 days.",
     readonly: true,
     args: [
       { name: "from", type: "string", required: false, description: "Window start YYYY-MM-DD (default: 13 days ago)" },
@@ -3176,7 +3176,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "calendar.plan_day",
-    description: "Synthesise a day plan for a date: today's meetings (from NAXION_CALENDAR_ICAL_URL if configured), scheduled clawbot tasks for that day-of-week, dated commitments recalled from long-term memory (memory.note facts anchored to this date), and any open follow-ups carried over from yesterday's activity. Returns the structured pieces; the planner is expected to feed them through the `daily-briefing` skill to produce the prose briefing.",
+    description: "Synthesise a day plan for a date: today's meetings (from NAXION_CALENDAR_ICAL_URL if configured), scheduled Naxie tasks for that day-of-week, dated commitments recalled from long-term memory (memory.note facts anchored to this date), and any open follow-ups carried over from yesterday's activity. Returns the structured pieces; the planner is expected to feed them through the `daily-briefing` skill to produce the prose briefing.",
     readonly: true,
     args: [
       { name: "date", type: "string", required: false, description: "Target date YYYY-MM-DD (default: today)" },
@@ -3265,7 +3265,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     ],
     handler: async (args) => {
       const src = String(args.source ?? process.env.NAXION_CALENDAR_ICAL_URL ?? "").trim();
-      if (!src) return { error: "no source — pass `source` or set NAXION_CALENDAR_ICAL_URL in clawbot/.env (public Google Calendar 'secret iCal' URL or an Outlook publish link)" };
+      if (!src) return { error: "no source — pass `source` or set NAXION_CALENDAR_ICAL_URL in naxionai/.env (public Google Calendar 'secret iCal' URL or an Outlook publish link)" };
       try {
         const { readICalSource, todaysEvents } = await import("./calendar-ical.js");
         const all = await readICalSource(src);
@@ -3287,7 +3287,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     handler: async (args) => {
       const user = process.env.NAXION_EMAIL_USER;
       const pass = (process.env.NAXION_EMAIL_APP_PASSWORD ?? "").replace(/\s/g, "");
-      if (!user || !pass) return { error: "email not configured — set NAXION_EMAIL_USER + NAXION_EMAIL_APP_PASSWORD in clawbot/.env" };
+      if (!user || !pass) return { error: "email not configured — set NAXION_EMAIL_USER + NAXION_EMAIL_APP_PASSWORD in naxionai/.env" };
       const limit = Math.min(50, Math.max(1, Number(args.limit ?? 10)));
       const bodyChars = Math.min(20000, Math.max(240, Number(args.bodyChars ?? 240)));
       const wantBody = bodyChars > 240;
@@ -3495,7 +3495,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "hermes.delegate",
-    description: "Delegate a task to the Hermes Agent CLI (Nous Research) and return its answer. Use when the task needs one of Hermes's bundled skills (Linear / Notion / Slack / Google Workspace / Polymarket / arxiv / OCR / many others) that clawbot doesn't have a native primitive for. Spawns `hermes -z 'task' --yolo` as a subprocess, capped at 240 s. Requires Hermes installed locally and OPENROUTER_API_KEY in the clawbot environment (passed through to Hermes).",
+    description: "Delegate a task to the Hermes Agent CLI (Nous Research) and return its answer. Use when the task needs one of Hermes's bundled skills (Linear / Notion / Slack / Google Workspace / Polymarket / arxiv / OCR / many others) that Naxie doesn't have a native primitive for. Spawns `hermes -z 'task' --yolo` as a subprocess, capped at 240 s. Requires Hermes installed locally and OPENROUTER_API_KEY in the Naxie environment (passed through to Hermes).",
     readonly: false,
     args: [
       { name: "task", type: "string", required: true, description: "The full task to send to Hermes — phrase it as you would to any agent." },
@@ -3552,7 +3552,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "code.exec",
-    description: "Run a short Python or Node.js snippet in a subprocess with a 30 s timeout. Output is captured (stdout + stderr) and returned to the planner. For data shaping, parsing, quick computation — anything you'd otherwise have to make the LLM imagine. GATED: requires NAXION_CODE_EXEC=1 in clawbot/.env (off by default — child gets a trimmed env (PATH/system vars only, no API keys), but there is still no process isolation; treat code as trusted-author).",
+    description: "Run a short Python or Node.js snippet in a subprocess with a 30 s timeout. Output is captured (stdout + stderr) and returned to the planner. For data shaping, parsing, quick computation — anything you'd otherwise have to make the LLM imagine. GATED: requires NAXION_CODE_EXEC=1 in naxionai/.env (off by default — child gets a trimmed env (PATH/system vars only, no API keys), but there is still no process isolation; treat code as trusted-author).",
     readonly: false,
     args: [
       { name: "language", type: "string", required: true, description: "'python' or 'node'" },
@@ -3561,7 +3561,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     ],
     handler: async (args) => {
       if (process.env.NAXION_CODE_EXEC !== "1") {
-        return { error: "code.exec disabled — set NAXION_CODE_EXEC=1 in clawbot/.env and restart to enable. This primitive runs code in the host process; only enable in trusted environments." };
+        return { error: "code.exec disabled — set NAXION_CODE_EXEC=1 in naxionai/.env and restart to enable. This primitive runs code in the host process; only enable in trusted environments." };
       }
       // Trimmed child env — ported by behavior from
       // naxionai/backend/agent/tools/sandbox.py's _SANDBOX_ENV_ALLOWLIST.
@@ -3720,7 +3720,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     ],
     handler: async (args) => {
       if (process.env.NAXION_BROWSER_HARNESS !== "1") {
-        return { error: "browser.harness_exec disabled — set NAXION_BROWSER_HARNESS=1 in clawbot/.env and restart to enable. This primitive runs arbitrary Python with live browser + network access; only enable in trusted environments." };
+        return { error: "browser.harness_exec disabled — set NAXION_BROWSER_HARNESS=1 in naxionai/.env and restart to enable. This primitive runs arbitrary Python with live browser + network access; only enable in trusted environments." };
       }
       const code = String(args.code ?? "");
       if (!code.trim()) return { error: "code is required" };
@@ -3748,7 +3748,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "memory.note",
-    description: "Persist a single fact about a subject (a person, project, or topic) into the agent's long-term memory. Use to remember things like 'Priya prefers async over meetings', 'the auth migration is owned by Sam', 'the customer mentioned X budget'. Pass `date` (YYYY-MM-DD) for time-bound facts (a meeting, deadline, renewal) so they surface on that day's calendar plan. Stored at `_neuroworks/memory/<slug>.jsonl` and available to future sessions via `memory.recall`.",
+    description: "Persist a single fact about a subject (a person, project, or topic) into the agent's long-term memory. Use to remember things like 'Priya prefers async over meetings', 'the auth migration is owned by Sam', 'the customer mentioned X budget'. Pass `date` (YYYY-MM-DD) for time-bound facts (a meeting, deadline, renewal) so they surface on that day's calendar plan. Stored at `_naxion/memory/<slug>.jsonl` and available to future sessions via `memory.recall`.",
     readonly: false,
     args: [
       { name: "subject", type: "string", required: true, description: "Who or what the fact is about — a name, project, or topic. Reused as the file key, so prefer canonical forms." },
@@ -4410,19 +4410,33 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "media.tts",
-    description: "Generate spoken-audio narration of text. NOTE: text-to-speech has no configured provider right now — it returns a friendly 'not available' message, so deliver the finished SCRIPT and note the audio render is pending a provider. (OpenRouter has no TTS; a Kokoro sidecar can be wired to enable it.)",
+    description: "Generate spoken-audio narration of text — voiced by Rachel (Naxie's ElevenLabs voice) unless a voice_id override is given. Returns { path, provider, voice } — a local .mp3 saved in the media folder (attach it with email.send attach_paths, or reference the path).",
     readonly: false,
     args: [
       { name: "text", type: "string", required: true, description: "The text to speak (markdown is stripped automatically before speaking)" },
-      { name: "voice_id", type: "string", required: false, description: "Optional voice id" },
+      { name: "voice_id", type: "string", required: false, description: "Optional ElevenLabs voice id override (default is Rachel, Naxie's voice)" },
       { name: "emotion", type: "string", required: false, description: "Optional emotion: happy, sad, angry, fearful, disgusted, surprised, neutral" },
     ],
     handler: async (args) => {
       const text = String(args.text ?? "").trim().replace(/[#*`_>]/g, "");
       if (!text) return { error: "text is required" };
-      // MiniMax removed; OpenRouter offers no text-to-speech. Honest stub until a
-      // TTS provider (Kokoro sidecar) is wired.
-      return { error: "Text-to-speech isn't available — no audio provider is configured. Deliver the script; the voiceover render is pending a TTS provider." };
+      try {
+        const { synthesizeElevenLabs, elevenLabsAvailable } = await import("./voice.js");
+        const { MEDIA_DIR } = await import("./studio-image.js");
+        const { writeFileSync, existsSync, mkdirSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const voiceId = String(args.voice_id ?? "").trim() || "c3QefzBhE1Cx4Yl23IV3"; // Rachel
+        if (!elevenLabsAvailable()) {
+          return { error: "Text-to-speech isn't available — ELEVENLABS_API_KEY is not set. Deliver the script; the voiceover render is pending the API key." };
+        }
+        const out = await synthesizeElevenLabs(text, voiceId);
+        if (!existsSync(MEDIA_DIR)) mkdirSync(MEDIA_DIR, { recursive: true });
+        const file = `tts-${Date.now()}.mp3`;
+        writeFileSync(join(MEDIA_DIR, file), out.audio);
+        return { path: `/api/media/${file}`, provider: "elevenlabs", voice: voiceId, bytes: out.audio.length };
+      } catch (e: any) {
+        return { error: String(e?.message ?? e).slice(0, 300) };
+      }
     },
   },
   {
@@ -5310,7 +5324,7 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "web.search":         return s("query") ? `Searching the web for "${s("query")}"` : "Searching the web";
     case "research.deep":      return s("query") ? `Researching "${s("query").slice(0, 80)}${s("query").length > 80 ? "…" : ""}" — vault + web` : "Researching";
     case "research.multiperspective": return s("topic") ? `Multi-perspective research: "${s("topic")}"` : "Multi-perspective research";
-    case "peer.delegate":      return s("task") ? `Delegating to a peer clawbot` : "Delegating to a peer";
+    case "peer.delegate":      return s("task") ? `Delegating to a peer Naxie` : "Delegating to a peer";
     case "peer.review":        return "Asking a peer to review the draft";
     case "orchestration.plan": return "Orchestrating parallel sub-agents for this task";
     case "quality.check":      return "Quality-checking the draft";

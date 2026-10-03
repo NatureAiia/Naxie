@@ -86,7 +86,7 @@ export async function pickPeerByRole(role: string): Promise<PeerInfo | null> {
 }
 
 // Decide where a new task should run — peer OR local — based on real-time
-// load on every available executor including this clawbot. Returns the
+// load on every available executor including this Naxie. Returns the
 // picked peer (delegate) or null (run locally because local is at least as
 // idle as the lightest peer). The `preferRole` arg lets the caller bias
 // toward a specific role (e.g. "persona-shifter") while still falling back
@@ -408,7 +408,7 @@ export async function delegateToBestPeer(args: { task: string; persona?: string 
 // Send a task + draft answer to a peer for critique. Returns a structured
 // verdict — the caller can decide whether to surface the revision or stick
 // with the original. Falls back to self-review (calling our own /api/peers/review)
-// when no peer is configured, so single-clawbot setups still get a critique.
+// when no peer is configured, so single-Naxie setups still get a critique.
 // The reviewer field is tagged "self" in that case so the caller can present
 // it honestly.
 export async function reviewWithPeer(args: { task: string; answer: string }): Promise<any> {
@@ -454,7 +454,7 @@ export async function reviewWithPeer(args: { task: string; answer: string }): Pr
 }
 
 // Judge two candidate answers to the SAME task head-to-head and pick a
-// winner — used by chat.ts's Hermes/clawbot cross-check (see executor-mode's
+// winner — used by chat.ts's Hermes/Naxie cross-check (see executor-mode's
 // `crosscheck` flag) instead of always discarding Hermes's answer on a
 // quality-fail offload. Same local-first / peer-routed / capped-wall-time
 // scaffold as reviewWithPeer(): pick the lightest idle peer (or self-review
@@ -465,7 +465,7 @@ export async function reviewWithPeer(args: { task: string; answer: string }): Pr
 // returns { winner: "a", ... }. The caller's convention is that "a" is
 // Hermes's answer — mirroring scoreHermesAnswer's existing philosophy of
 // keeping Hermes's own answer when the scorer/judge itself fails, rather
-// than silently preferring clawbot's just because the judge broke.
+// than silently preferring Naxie's just because the judge broke.
 export async function crosscheckAnswers(args: {
   task: string;
   answerA: string;

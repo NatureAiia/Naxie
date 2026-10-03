@@ -1,6 +1,6 @@
 // Personal to-do list — Microsoft To Do-style, but native and offline (no
 // external account, no OAuth, no paid tier). Persisted at
-// .neuroworks/my-tasks.json, scoped per operator by ownerEmail (routes pass
+// .naxion/my-tasks.json, scoped per operator by ownerEmail (routes pass
 // callerOf(req)?.email ?? "local" so a single-operator shell with no login
 // configured still works out of the box).
 //
@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { nextFireAt, type Cadence, type ScheduleDelivery } from "./schedules.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const CONFIG_PATH = resolve(CONFIG_DIR, "my-tasks.json");
 
 export type TaskStep = { id: string; title: string; done: boolean };

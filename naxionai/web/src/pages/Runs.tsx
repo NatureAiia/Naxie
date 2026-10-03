@@ -670,7 +670,7 @@ export function RunDetail() {
   const isFailed = job.status === "failed" || job.status === "rejected";
   const answer = r.answer ?? r.partialAnswer ?? "";
   const persona = job.inputs?.activePersona ?? r.activePersona;
-  const personaName = (persona && (persona.name ?? persona.id)) ?? "Neuro";
+  const personaName = (persona && (persona.name ?? persona.id)) ?? "Naxie";
   const startedAt = job.startedAt ? new Date(job.startedAt) : null;
   const finishedAt = job.finishedAt ? new Date(job.finishedAt) : null;
   const durationSec = startedAt && finishedAt
@@ -1465,7 +1465,7 @@ function QASummary({ review, quality, security, curation }: { review: any; quali
   );
 }
 
-// The primary clawbot's curation verdict on a persona-shifter peer's draft.
+// The primary worker's curation verdict on a persona-shifter peer's draft.
 // Captured = the answer passed quality + security + context-rooting and was
 // distilled into 0-Inbox/. Not captured = primary refused; the answer still
 // exists but didn't earn a place in the second brain.
@@ -1573,7 +1573,7 @@ function ProcessTrace({ job }: { job: any }) {
   return (
     <section className="mt-10">
       <details>
-        <summary className="cursor-pointer text-sm text-cream-300/70 hover:text-cream-100">How Neuro arrived at this — {steps.length} {steps.length === 1 ? "step" : "steps"}</summary>
+        <summary className="cursor-pointer text-sm text-cream-300/70 hover:text-cream-100">How Naxie arrived at this — {steps.length} {steps.length === 1 ? "step" : "steps"}</summary>
         <div className="mt-3 pl-1">
           <AgentStepFeed steps={feedSteps} />
         </div>

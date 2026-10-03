@@ -1,7 +1,7 @@
 // Persistent agent memory — the single biggest gap between "stateless tool
 // runner" and "the same coworker who talked to you yesterday."
 //
-// File layout: `_neuroworks/memory/<subject-slug>.jsonl`. Each line is a
+// File layout: `_naxion/memory/<subject-slug>.jsonl`. Each line is a
 // fact: { subject, fact, source?, ts }. Subject = anything the agent wants
 // to remember about — a person ("priya"), a project ("rag-pipeline-2026"),
 // or a topic ("vault-cache-bug"). Recall is a linear scan; the files stay
@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { config } from "../config.js";
 import { getPgPool, isPgAvailable } from "./pg-client.js";
 
-const MEMORY_DIR_REL = "_neuroworks/memory";
+const MEMORY_DIR_REL = "_naxion/memory";
 
 export type MemoryFact = {
   subject: string;

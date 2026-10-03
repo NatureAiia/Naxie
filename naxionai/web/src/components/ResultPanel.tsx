@@ -132,7 +132,7 @@ function DownloadAnswerMenu({ job }: { job: any }) {
 }
 
 // Operator outcome feedback. One click writes a JSONL row into the vault at
-// `_neuroworks/feedback.jsonl`; the nightly reflection and any future grader
+// `_naxion/feedback.jsonl`; the nightly reflection and any future grader
 // calibration can use it as the human truth anchor (closes the 0.822 ↔ 0.824
 // run-to-run grader-noise problem we measured — model graders need a fixed
 // point to calibrate against, and that fixed point is human thumbs).
@@ -223,7 +223,7 @@ function FeedbackThumbs({ job }: { job: any }) {
 // task-level "this specific run was wrong, retry with a note" loop).
 // Quality flags feed the Quality Dashboard's trend/category rollups and
 // (with `language` set) the native-speaker review process for Shona/Ndebele
-// output: /api/quality/flag writes to _neuroworks/quality.jsonl, previously
+// output: /api/quality/flag writes to _naxion/quality.jsonl, previously
 // dead code with no caller anywhere in the web app.
 const QUALITY_CATEGORIES = ["accuracy", "relevance", "tone", "completeness", "formatting", "localization", "other"] as const;
 function QualityFlagControl({ job }: { job: any }) {
@@ -342,8 +342,8 @@ function RunDigestResult({ job }: { job: any }) {
       <MetaRow job={job} />
       <div className="space-y-2 text-sm">
         <div>Lookback window: <span className="font-mono text-cream-100">{r.lookbackDays} days</span></div>
-        <div className="text-cream-300/70">Workflow is running on GitHub Actions. Check the digest in <Link to="/library/_clawbot" className="text-violet-400 hover:text-violet-500">Knowledge › _clawbot</Link> after the run finishes.</div>
-        <a href="https://github.com/RUBIEM-DEVELOPERS-REPO/neuroworks/actions" target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-violet-400 hover:text-violet-500 mt-2">View on GitHub Actions →</a>
+        <div className="text-cream-300/70">Workflow is running on GitHub Actions. Check the digest in <Link to="/library/_naxie" className="text-violet-400 hover:text-violet-500">Knowledge › _naxie</Link> after the run finishes.</div>
+        <a href="https://github.com/NatureAiia/NaxionAI-Powered-by-Neuroworks/actions" target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-violet-400 hover:text-violet-500 mt-2">View on GitHub Actions →</a>
       </div>
     </Card>
   );

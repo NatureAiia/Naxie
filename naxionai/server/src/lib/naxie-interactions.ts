@@ -1,5 +1,5 @@
 // Last-interaction persistence for Naxie's proactive cadence.
-// Single-user product — one JSON file under .neuroworks/, same convention as
+// Single-user product — one JSON file under .naxion/, same convention as
 // org-tasks.ts / schedules.ts (atomic temp+rename, no DB).
 // Updated fire-and-forget from voice.ts:/converse, naxie.ts:/ask, chat.ts.
 
@@ -8,7 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DIR = resolve(__dirname, "../../../.neuroworks");
+const DIR = resolve(__dirname, "../../../.naxion");
 const PATH = resolve(DIR, "naxie-interactions.json");
 
 export type NaxieInteractions = {

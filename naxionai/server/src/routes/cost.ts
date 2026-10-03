@@ -28,15 +28,15 @@ costRouter.get("/trend", async (req, res) => {
   const sinceIso = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
   const dayOf = (iso: string) => new Date(iso).toISOString().slice(0, 10);
 
-  const neuroByDay = new Map<string, number>();
+  const agentByDay = new Map<string, number>();
   for (const r of getCostRecords(sinceIso)) {
     const k = dayOf(r.ts);
-    neuroByDay.set(k, (neuroByDay.get(k) ?? 0) + r.costUsd);
+    agentByDay.set(k, (agentByDay.get(k) ?? 0) + r.costUsd);
   }
 
-  const series = [...neuroByDay.keys()].sort().map(date => ({
+  const series = [...agentByDay.keys()].sort().map(date => ({
     date,
-    neuroUsd: Math.round((neuroByDay.get(date) ?? 0) * 10000) / 10000,
+    agentUsd: Math.round((agentByDay.get(date) ?? 0) * 10000) / 10000,
   }));
   res.json({ days, series });
 });

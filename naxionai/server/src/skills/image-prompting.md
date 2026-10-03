@@ -49,7 +49,7 @@ A weak prompt ("a logo for a coffee shop") gives a weak image. Specify:
    green") and a mood ("calm, premium, minimal").
 
 **Typography rule:** put the exact words to render **in quotes** in the prompt,
-e.g. `a bold poster with the headline "AIIA SUMMIT 2026" in a modern sans-serif`.
+e.g. `a bold poster with the headline "AI SUMMIT 2026" in a modern sans-serif`.
 State font feel (serif/sans, weight), placement, and that text must be spelled
 exactly. Use Ideogram for anything text-heavy.
 
@@ -64,7 +64,7 @@ style, try another model). Do NOT paste the raw file path as the whole answer.
 
 ## Worked example
 
-Request: "make us a hero image for the Aiia summit landing page"
+Request: "make us a hero image for the summit landing page"
 
 1. `media.studio_models { kind: "text-to-image" }` → confirm Ideogram is
    available (typography-heavy hero).
@@ -75,7 +75,7 @@ Request: "make us a hero image for the Aiia summit landing page"
      eye-level wide shot with clean negative space on the left for a headline.
      Soft morning light, warm rim light. Palette: deep sapphire, warm cream,
      electric teal. Premium, optimistic, cinematic. Include the headline text
-     "AIIA SUMMIT 2026" in a bold modern sans-serif, top-left, spelled exactly.`
+      "AI SUMMIT 2026" in a bold modern sans-serif, top-left, spelled exactly.`
    - `aspect_ratio`: `16:9`
    - `provider`: `ideogram`
 3. Reply: "Generated the summit hero (16:9, Ideogram) — saved to

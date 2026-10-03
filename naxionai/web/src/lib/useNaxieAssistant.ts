@@ -19,15 +19,15 @@ export type Turn = {
   sourceNoteId?: string | null;
 };
 
-const STORAGE_KEY = "neuroworks.naxie.turns";
-const ALWAYS_LISTENING_KEY = "neuroworks.naxie.alwaysListening";
-const REQUIRE_WAKE_WORD_KEY = "neuroworks.naxie.requireWakeWord";
-const BRIEFING_DISMISSED_KEY = "neuroworks.naxie.briefingDismissedAt";
+const STORAGE_KEY = "naxie.turns";
+const ALWAYS_LISTENING_KEY = "naxie.alwaysListening";
+const REQUIRE_WAKE_WORD_KEY = "naxie.requireWakeWord";
+const BRIEFING_DISMISSED_KEY = "naxie.briefingDismissedAt";
 // Session-scoped, matching BRIEFING_DISMISSED_KEY exactly — quiet for the
 // rest of this tab session once dismissed, but resurfaces next session
 // until onboarding is actually completed (no "generatedAt" to compare
 // against here, so the flag is just a plain boolean rather than a value).
-const ONBOARDING_DISMISSED_KEY = "neuroworks.naxie.onboardingDismissedAt";
+const ONBOARDING_DISMISSED_KEY = "naxie.onboardingDismissedAt";
 // Low-frequency: pendingApprovals/briefing don't need the same cadence a
 // live conversation would — this replaces the widget's old private 10s poll.
 const STATUS_POLL_MS = 30_000;
@@ -317,7 +317,7 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     }
   }
 
-  // TTS: local sidecar first, then Web Speech.
+  // TTS: server (Rachel on ElevenLabs first), then Web Speech.
   async function speak(text: string) {
     try { window.speechSynthesis?.cancel(); } catch { /* not supported */ }
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
@@ -342,7 +342,7 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
         void audio.play().catch(reject);
       });
       return;
-    } catch { /* local sidecar hiccup -> Web Speech fallback */ }
+    } catch { /* server TTS hiccup -> Web Speech fallback */ }
     try {
       const u = new SpeechSynthesisUtterance(text);
       const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith("en"));

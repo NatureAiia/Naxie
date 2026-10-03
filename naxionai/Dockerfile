@@ -1,10 +1,10 @@
-# NeuroWorks server + web console.
+# Naxie server + web console.
 # Builds the SPA, then runs the tsx server with SERVE_WEB=1 so one container
 # serves both the API and the console. Matches the image name referenced by
-# k8s/03-primary.yaml (neuroworks:latest).
+# k8s/03-primary.yaml (naxion:latest).
 #
-# Build:  docker build -t neuroworks:latest .
-# Run:    docker run -p 7471:7471 --env-file .env neuroworks:latest
+# Build:  docker build -t naxion:latest .
+# Run:    docker run -p 7471:7471 --env-file .env naxion:latest
 
 # ── Stage 1: build the web SPA ──────────────────────────────────────────
 FROM node:22-slim AS web-build
@@ -15,7 +15,7 @@ COPY web/package.json web/package.json
 COPY server/package.json server/package.json
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY web/ web/
-RUN pnpm -F neuroworks-web build
+  RUN pnpm -F naxion-web build
 
 # ── Stage 2: runtime ────────────────────────────────────────────────────
 FROM node:22-slim
@@ -50,4 +50,4 @@ EXPOSE 7471
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.NAXION_PORT||7471)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["pnpm", "-F", "neuroworks-server", "start"]
+  CMD ["pnpm", "-F", "naxion-server", "start"]

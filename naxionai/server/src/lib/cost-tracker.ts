@@ -34,8 +34,8 @@ export type CostSummary = {
   recentCalls: CostRecord[];
 };
 
-const COST_REL = "_neuroworks/cost.jsonl";
-const AGGREGATE_REL = "_neuroworks/cost-summary.json";
+const COST_REL = "_naxion/cost.jsonl";
+const AGGREGATE_REL = "_naxion/cost-summary.json";
 
 // Approximate cost per 1K tokens (USD) per backend/model tier.
 // Ollama local is free but we track ~$0 to distinguish from paid.

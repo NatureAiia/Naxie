@@ -9,19 +9,19 @@ type CostSummary = {
   byModel: { model: string; costUsd: number; calls: number; failed: number; failureRate: number }[];
 };
 
-// LLM spend summary + trend — ported from AI-Institute-Africa/neuroworks'
+// LLM spend summary + trend — ported from the earlier prototype'
 // Cost.tsx UI over Naxie's already-built, previously-unused cost.ts backend
 // (cost-tracker.ts already records every LLM call).
 export function Cost() {
   const [summary, setSummary] = useState<CostSummary | null>(null);
-  const [trend, setTrend] = useState<{ date: string; neuroUsd: number }[]>([]);
+  const [trend, setTrend] = useState<{ date: string; agentUsd: number }[]>([]);
 
   useEffect(() => {
     api.getCostSummary().then(setSummary).catch(() => {});
     api.costTrend(14).then(r => setTrend(r.series)).catch(() => {});
   }, []);
 
-  const maxDay = Math.max(0.0001, ...trend.map(d => d.neuroUsd));
+  const maxDay = Math.max(0.0001, ...trend.map(d => d.agentUsd));
 
   return (
     <div className="space-y-6">
@@ -42,8 +42,8 @@ export function Cost() {
         ) : (
           <div className="flex items-end gap-1 h-32">
             {trend.map(d => (
-              <div key={d.date} className="flex-1 flex flex-col items-center gap-1" title={`${d.date}: $${d.neuroUsd.toFixed(4)}`}>
-                <div className="w-full bg-violet-500/40 rounded-t" style={{ height: `${Math.max(2, (d.neuroUsd / maxDay) * 100)}%` }} />
+              <div key={d.date} className="flex-1 flex flex-col items-center gap-1" title={`${d.date}: $${d.agentUsd.toFixed(4)}`}>
+                <div className="w-full bg-violet-500/40 rounded-t" style={{ height: `${Math.max(2, (d.agentUsd / maxDay) * 100)}%` }} />
                 <span className="text-[8px] text-cream-300/40 rotate-45 origin-left">{d.date.slice(5)}</span>
               </div>
             ))}

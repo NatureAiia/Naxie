@@ -3,7 +3,7 @@ import { Link2, Plus, Trash2, ExternalLink } from "lucide-react";
 import { api, type CompanyLink } from "../../lib/api";
 import { Card, Button, showToast } from "../Card";
 
-// Company reference links — ported from AI-Institute-Africa/neuroworks'
+// Company reference links — ported from the earlier prototype'
 // CompanyLinksCard.tsx. A named URL an agent can resolve by name (company.links
 // primitive) and fetch for current content, instead of the operator having to
 // paste it into every task. Lives alongside LibraryConnections (DB sources) —

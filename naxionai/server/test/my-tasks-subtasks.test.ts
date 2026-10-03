@@ -5,7 +5,7 @@
 //
 // my-tasks.ts persists to a real on-disk path computed from __dirname, with
 // no test-time override. A virtual in-memory filesystem (keyed by path) is
-// mocked in so these tests never touch the real .neuroworks/my-tasks.json.
+// mocked in so these tests never touch the real .naxion/my-tasks.json.
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const files = new Map<string, string>();
@@ -46,7 +46,7 @@ beforeEach(() => {
 
 function makeScopedParent() {
   const parent = addItem(OWNER, { title: "Weekly research sweep" });
-  setAutomation(parent.id, { enabled: true, tools: ["web.search", "vault.write"], data: ["_neuroworks/research/"], handler: "planner" });
+  setAutomation(parent.id, { enabled: true, tools: ["web.search", "vault.write"], data: ["_naxion/research/"], handler: "planner" });
   return parent;
 }
 
@@ -67,7 +67,7 @@ describe("spawnSubtask", () => {
     expect("item" in r).toBe(true);
     if ("item" in r) {
       expect(r.item.automation?.tools).toEqual(["web.search", "vault.write"]);
-      expect(r.item.automation?.data).toEqual(["_neuroworks/research/"]);
+      expect(r.item.automation?.data).toEqual(["_naxion/research/"]);
       expect(r.item.parentId).toBe(parent.id);
       expect(r.item.automation?.handler).toBe("planner");
     }
@@ -93,8 +93,8 @@ describe("spawnSubtask", () => {
 
   it("filters data paths to those under the parent's own data scope", () => {
     const parent = makeScopedParent();
-    const r = spawnSubtask(parent.id, { title: "Sub", data: ["_neuroworks/research/sub.md", "_neuroworks/other/"] });
-    if ("item" in r) expect(r.item.automation?.data).toEqual(["_neuroworks/research/sub.md"]);
+    const r = spawnSubtask(parent.id, { title: "Sub", data: ["_naxion/research/sub.md", "_naxion/other/"] });
+    if ("item" in r) expect(r.item.automation?.data).toEqual(["_naxion/research/sub.md"]);
   });
 });
 

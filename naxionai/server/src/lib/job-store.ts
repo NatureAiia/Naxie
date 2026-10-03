@@ -8,13 +8,13 @@
 // section.
 //
 // This store appends a slim record per completed job to
-// .neuroworks/jobs/<YYYY-MM-DD>.jsonl on the local filesystem. Append-
+// .naxion/jobs/<YYYY-MM-DD>.jsonl on the local filesystem. Append-
 // only JSONL because:
 //   - durable across restarts
 //   - cheap (single fs.appendFileSync per job; no DB dep)
 //   - human-readable (jq-able for ad-hoc analysis)
 //   - per-day rotation keeps any single file small
-//   - .neuroworks/ is gitignored — no vault repo noise from machine state
+//   - .naxion/ is gitignored — no vault repo noise from machine state
 //
 // Reflection reads back via loadJobsInWindow(); jobs.ts calls
 // persistJobRecord() at the end of every runJob.
@@ -26,16 +26,16 @@ import { fileURLToPath } from "node:url";
 import type { Job } from "./jobs.js";
 import type { OrgTaskPriority } from "./org-tasks.js";
 
-// Anchor to the SAME stable repo-root .neuroworks that every other config
+// Anchor to the SAME stable repo-root .naxion that every other config
 // module uses (assignments, connectors, personas, …), via __dirname — NOT
 // process.cwd(). cwd drifts with how the server is launched (`pnpm dev` runs
 // from server/, the always-on watchdog from repo-root), which silently split
-// job records across .neuroworks/jobs AND server/.neuroworks/jobs. Consumers
+// job records across .naxion/jobs AND server/.naxion/jobs. Consumers
 // that ran from the other cwd then read an empty directory — the root cause of
 // the "activity log for yesterday is entirely empty" report even though 40+
 // jobs had run. One anchor = one job store every consumer reads.
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const JOBS_DIR = resolve(__dirname, "../../../.neuroworks", "jobs");
+const JOBS_DIR = resolve(__dirname, "../../../.naxion", "jobs");
 
 // Slim job shape we persist. Reflection reads these fields; everything
 // else (full log, raw answer text, large inputs) stays in the in-memory

@@ -1,6 +1,6 @@
 // Read side of the model-call trace. See lib/llm-trace.ts for what is
 // recorded and, more importantly, what deliberately is not (no prompt or
-// response text). Ported from AI-Institute-Africa/neuroworks.
+// response text). Ported from the earlier prototype.
 import { Router } from "express";
 import { readTrace, summariseTrace } from "../lib/llm-trace.js";
 

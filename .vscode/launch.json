@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Server (API :7471)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-F", "neuroworks-server", "dev"],
+      "cwd": "${workspaceFolder}/naxionai",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/naxionai/.env"
+    },
+    {
+      "name": "Web (Vite :7470)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-F", "neuroworks-web", "dev"],
+      "cwd": "${workspaceFolder}/naxionai",
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full stack (server + web)",
+      "configurations": ["Server (API :7471)", "Web (Vite :7470)"],
+      "stopAll": true
+    }
+  ]
+}

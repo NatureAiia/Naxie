@@ -1,5 +1,5 @@
 -- memory_facts: Supabase mirror of the local MAG memory store (lib/memory.ts's
--- noteFact/JSONL files under _neuroworks/memory/). See
+-- noteFact/JSONL files under _naxion/memory/). See
 -- docs/naxie-storage-architecture.md §5 (MAG — memory).
 --
 -- Local JSON stays canonical; this table exists purely for wipe-recovery
@@ -9,7 +9,7 @@
 -- Run this ONCE against the Supabase project's Postgres database (this repo
 -- has no migration runner — apply by hand), matching 0001_vault_chunks.sql's
 -- convention:
---   psql "$SUPABASE_DB_URL" -f neuroworks/server/migrations/0002_memory_facts.sql
+--   psql "$SUPABASE_DB_URL" -f naxionai/server/migrations/0002_memory_facts.sql
 -- or paste it into the Supabase dashboard's SQL editor.
 
 create table if not exists memory_facts (

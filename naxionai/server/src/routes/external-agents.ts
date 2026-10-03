@@ -5,9 +5,9 @@ import { newJob, listJobs } from "../lib/jobs.js";
 import { persistJobRecord } from "../lib/job-store.js";
 
 // Surface external-agent runs (e.g. Hermes Agent) on the same Tasks /
-// Reports / Activity pages as clawbot jobs. The external agent runs in
+// Reports / Activity pages as Naxie jobs. The external agent runs in
 // its own process; this endpoint accepts the post-hoc record and stamps
-// a real Job into the in-memory store + the .neuroworks/jobs/ JSONL so
+// a real Job into the in-memory store + the .naxion/jobs/ JSONL so
 // the reflection picks it up. No execution happens here — the agent has
 // already finished by the time we're called.
 
@@ -29,7 +29,7 @@ function detectHermes(): { installed: boolean; binPath?: string } {
 }
 
 // GET /api/external-agents — workforce snapshot for the Dashboard + Admin
-// pages. Lists external agents the operator has installed alongside clawbot,
+// pages. Lists external agents the operator has installed alongside Naxie,
 // each with install/configured state and recent-job counts pulled from the
 // in-memory journal. Currently only Hermes; the shape supports more.
 externalAgentsRouter.get("/", (_req, res) => {
@@ -89,8 +89,8 @@ externalAgentsRouter.post("/log", (req, res) => {
   const issues = Array.isArray(b.issues) ? b.issues.slice(0, 8).map((x: any) => String(x).slice(0, 200)) : undefined;
   const error = b.error ? String(b.error).slice(0, 400) : undefined;
 
-  // `kind` mirrors the clawbot convention `${role.toLowerCase()}:${templateId}`
-  // so the Tasks page groups external-agent runs alongside clawbot runs.
+  // `kind` mirrors the Naxie convention `${role.toLowerCase()}:${templateId}`
+  // so the Tasks page groups external-agent runs alongside Naxie runs.
   const j = newJob(`${agent}:${templateId}`);
   j.template = templateId;
   j.title = title;
@@ -111,12 +111,12 @@ externalAgentsRouter.post("/log", (req, res) => {
     agent,
     role,
     answer,
-    // Mirror the QA gate shape clawbot jobs use so ResultPanel renders
+    // Mirror the QA gate shape Naxie jobs use so ResultPanel renders
     // the score block without any external-agent special-casing.
     quality: score !== undefined ? { score, pass, deliverableClass, issues } : undefined,
     durationSec,
   };
-  // Persist to .neuroworks/jobs/ so the nightly reflection sees the run
+  // Persist to .naxion/jobs/ so the nightly reflection sees the run
   // even after the in-memory cap evicts it.
   try { persistJobRecord(j); } catch { /* tolerate */ }
 

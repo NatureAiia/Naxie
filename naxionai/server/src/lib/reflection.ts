@@ -1,9 +1,9 @@
-// Nightly self-reflection. Once a day, the primary clawbot looks back at the
+// Nightly self-reflection. Once a day, Naxie looks back at the
 // tasks it ran in the last 24 hours, aggregates raw stats (success rates, slow
 // steps, failure patterns, employee attribution, tool reliability), and asks
 // the LLM to produce a structured reflection: what went well, what went
 // wrong, what to try differently. The output lands in
-// `_neuroworks/reflections/<YYYY-MM-DD>.md` as a daily journal entry the
+// `_naxion/reflections/<YYYY-MM-DD>.md` as a daily journal entry the
 // customer can read in their vault.
 //
 // This is the learning loop: stats + LLM synthesis + persisted insight. We
@@ -20,7 +20,7 @@ import { loadJobsInWindow, asJob, type PersistedJob } from "./job-store.js";
 import { config } from "../config.js";
 import { gradeDecision, type DecisionGrade } from "./decision-grader.js";
 
-const REFLECTION_DIR = "_neuroworks/reflections";
+const REFLECTION_DIR = "_naxion/reflections";
 
 // Pulled stats — what the LLM reflects on. Kept structured so future tooling
 // (charts, trend lines) can read the raw shape without re-parsing prose.
@@ -73,7 +73,7 @@ let inFlight: Promise<ReflectionResult> | null = null;
 // Pull every job that falls inside the window.
 //
 // Sources, in this order of trust:
-//   1. .neuroworks/jobs/<date>.jsonl — local disk, durable.
+//   1. .naxion/jobs/<date>.jsonl — local disk, durable.
 //   2. listJobs() in-memory cap — local jobs not yet flushed.
 //   3. Each peer's /api/peers/jobs?since=&until= — the secondary's work
 //      that a delegation routed there. Without this, the reflection
@@ -336,7 +336,7 @@ async function synthesizeReflection(stats: DailyStats): Promise<{ text: string; 
     };
   }
 
-  const sys = `You are NeuroWorks's daily reflection writer. The customer hired AI employees and the clawbot fleet ran their tasks yesterday. Your job is to look at the raw stats and produce a HONEST, CONCISE reflection in markdown.
+  const sys = `You are Naxie's daily reflection writer. The operator runs AI employees and the agent fleet ran their tasks yesterday. Your job is to look at the raw stats and produce a HONEST, CONCISE reflection in markdown.
 
 Output sections — use these EXACT headings:
 ## What went well
@@ -755,7 +755,7 @@ async function getTomorrowPreview(): Promise<string> {
     const { resolve, dirname } = await import("node:path");
     const { fileURLToPath } = await import("node:url");
     const __dirname = dirname(fileURLToPath(import.meta.url));
-    const storePath = resolve(__dirname, "../../../.neuroworks/my-tasks.json");
+    const storePath = resolve(__dirname, "../../../.naxion/my-tasks.json");
     if (!existsSync(storePath)) return "";
     const parsed = JSON.parse(readFileSync(storePath, "utf8"));
     const items: any[] = Array.isArray(parsed?.items) ? parsed.items : [];

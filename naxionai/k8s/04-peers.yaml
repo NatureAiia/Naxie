@@ -2,7 +2,7 @@
 # No SERVE_WEB, no web UI, never targeted by an Ingress or external Service —
 # reached only by the primary, over the headless Service below. Headless
 # (clusterIP: None) so each pod gets a stable, individually-addressable DNS
-# name (neuroworks-peer-0.neuroworks-peer…, -1, -2…) — the primary's
+# name (naxion-peer-0.naxion-peer…, -1, -2…) — the primary's
 # NAXION_PEERS list in 03-primary.yaml depends on these exact names.
 #
 # Mirrors docker-compose.scale.yml's own warning: extra peer pods only add
@@ -12,15 +12,15 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: neuroworks-peer
-  namespace: neuroworks
+  name: naxion-peer
+  namespace: naxion
   labels:
-    app: neuroworks
+    app: naxion
     role: peer
 spec:
   clusterIP: None
   selector:
-    app: neuroworks
+    app: naxion
     role: peer
   ports:
     - port: 7471
@@ -30,13 +30,13 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: neuroworks-peer
-  namespace: neuroworks
+  name: naxion-peer
+  namespace: naxion
   labels:
-    app: neuroworks
+    app: naxion
     role: peer
 spec:
-  serviceName: neuroworks-peer
+  serviceName: naxion-peer
   # 5 peers + 1 primary = 6 pods (the "3-5 always running, for scale" ask,
   # applied to the part of this app that's actually safe to scale — see the
   # top of 01-configmap.yaml for why the primary stays at 1). Static list,
@@ -49,12 +49,12 @@ spec:
     type: RollingUpdate
   selector:
     matchLabels:
-      app: neuroworks
+      app: naxion
       role: peer
   template:
     metadata:
       labels:
-        app: neuroworks
+        app: naxion
         role: peer
     spec:
       securityContext:
@@ -70,18 +70,18 @@ spec:
               podAffinityTerm:
                 labelSelector:
                   matchLabels:
-                    app: neuroworks
+                    app: naxion
                     role: peer
                 topologyKey: kubernetes.io/hostname
       containers:
-        - name: neuroworks
-          image: neuroworks:latest   # same image as the primary — see 03-primary.yaml
+        - name: naxion
+          image: naxion:latest   # same image as the primary — see 03-primary.yaml
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
-                name: neuroworks-config
+                name: naxion-config
             - secretRef:
-                name: neuroworks-secrets
+                name: naxion-secrets
           env:
             - name: SERVE_WEB
               value: "0"
@@ -113,7 +113,7 @@ spec:
             limits: { cpu: "1", memory: "2Gi" }
           volumeMounts:
             - name: state
-              mountPath: /app/.neuroworks
+              mountPath: /app/.naxion
             - name: vault
               mountPath: /data/vault
   volumeClaimTemplates:
@@ -138,11 +138,11 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: neuroworks-peer
-  namespace: neuroworks
+  name: naxion-peer
+  namespace: naxion
 spec:
   minAvailable: 60%
   selector:
     matchLabels:
-      app: neuroworks
+      app: naxion
       role: peer

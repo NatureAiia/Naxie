@@ -14,7 +14,7 @@ export class ApiError extends Error {
 
 // Session token for the identity layer — stored client-side and sent on every
 // request so the server can attribute activity to the logged-in user.
-const TOKEN_KEY = "neuroworks.token";
+const TOKEN_KEY = "naxie.token";
 export function getToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
@@ -26,13 +26,38 @@ export function setToken(token: string | null): void {
 // (chat cache, session ids) can be namespaced by user and never bleed across
 // accounts sharing a browser. Set at login and refreshed whenever
 // /api/auth/session resolves; cleared on sign-out.
-const USER_ID_KEY = "neuroworks.userId";
+const USER_ID_KEY = "naxie.userId";
 export function getCurrentUserId(): string | null {
   try { return localStorage.getItem(USER_ID_KEY); } catch { return null; }
 }
 export function setCurrentUserId(id: string | null): void {
   try { if (id) localStorage.setItem(USER_ID_KEY, id); else localStorage.removeItem(USER_ID_KEY); } catch { /* ignore */ }
 }
+
+// One-time migration (2026-10-02): localStorage keys moved from the
+// `neuroworks.*` prefix to `naxie.*`. Copy any legacy value forward once so
+// existing logins and preferences survive the rename, then drop the old key.
+const LEGACY_KEY_MAP: Record<string, string> = {
+  "neuroworks.token": "naxie.token",
+  "neuroworks.userId": "naxie.userId",
+  "neuroworks.sidebarCollapsed": "naxie.sidebarCollapsed",
+  "neuroworks.board.topic": "naxie.board.topic",
+  "neuroworks.naxie.turns": "naxie.turns",
+  "neuroworks.naxie.alwaysListening": "naxie.alwaysListening",
+  "neuroworks.naxie.requireWakeWord": "naxie.requireWakeWord",
+  "neuroworks.naxie.briefingDismissedAt": "naxie.briefingDismissedAt",
+  "neuroworks.naxie.onboardingDismissedAt": "naxie.onboardingDismissedAt",
+  "neuroworks.naxieWidget.open": "naxie.widget.open",
+};
+try {
+  for (const [oldKey, newKey] of Object.entries(LEGACY_KEY_MAP)) {
+    if (localStorage.getItem(newKey) === null) {
+      const v = localStorage.getItem(oldKey);
+      if (v !== null) localStorage.setItem(newKey, v);
+    }
+    localStorage.removeItem(oldKey);
+  }
+} catch { /* storage unavailable — nothing to migrate */ }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
@@ -760,7 +785,7 @@ export const api = {
   whatsappStatus: () => req<WhatsAppBridgeStatus>("/api/whatsapp/status"),
   whatsappReconnect: () => req<{ ok: true }>("/api/whatsapp/reconnect", { method: "POST" }),
   getExecutor: () => req<ExecutorStatus>("/api/executor"),
-  setExecutor: (body: { mode?: "clawbot" | "hermes"; hermesModel?: string | null; hermesLocal?: boolean; crosscheck?: boolean }) =>
+  setExecutor: (body: { mode?: "naxie" | "hermes"; hermesModel?: string | null; hermesLocal?: boolean; crosscheck?: boolean }) =>
     req<{ ok: true; mode: string; hermesModelOverride: string | null; hermesLocal: boolean; crosscheck: boolean }>("/api/executor", { method: "POST", body: JSON.stringify(body) }),
   listBrands: () => req<{ brands: Brand[] }>("/api/brands"),
   getBrand: (id: string) => req<{ brand: Brand }>(`/api/brands/${encodeURIComponent(id)}`),
@@ -945,7 +970,7 @@ export type Assignment = {
   assignedToEmail: string;
   assignedByEmail?: string;
   assignedByName: string;
-  assignedByKind: "human" | "neuro";
+  assignedByKind: "human" | "agent";
   status: AssignmentStatus;
   dueAt?: string;
   createdAt: string;
@@ -956,7 +981,7 @@ export type Assignment = {
 };
 export type AssignPerson = { name: string; email: string; title?: string; department?: string; workMode?: WorkMode; eligible: boolean; isSelf: boolean };
 
-export type CostTrend = { days: number; series: { date: string; neuroUsd: number }[] };
+export type CostTrend = { days: number; series: { date: string; agentUsd: number }[] };
 export type SecurityEvent = {
   at: string; ip: string;
   kind: "scanner-probe" | "traversal" | "injection" | "auth-failure-burst" | "flood" | "blocked-request";
@@ -1140,11 +1165,11 @@ export type McpTool = { name: string; description?: string; inputSchema?: any };
 export type McpCallResult = { ok: boolean; content?: any; truncated?: boolean; error?: string };
 
 export type ExecutorStatus = {
-  mode: "clawbot" | "hermes";
+  mode: "naxie" | "hermes";
   hermesModelOverride: string | null;
   hermesLocal: boolean;
   crosscheck: boolean;
-  fallbackToClawbot: boolean;
+  fallbackToNaxie: boolean;
   qualityGate: boolean;
   hermes: { available: boolean; binPath?: string; model: string; provider: string; localModel: string };
 };

@@ -1,5 +1,5 @@
 // Org-chart parser — loads `_governance/people.md`, extracts the JSON block,
-// and exposes lookup / handoff helpers. The graph is what lets clawbot route
+// and exposes lookup / handoff helpers. The graph is what lets Naxie route
 // requests laterally (peer) or up (manager) when a persona doesn't own the
 // task, and what makes "Sarah's weekly digest of her reports" actually
 // possible. Cached 60s like governance.

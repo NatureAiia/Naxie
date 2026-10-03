@@ -45,7 +45,7 @@ it `TBC` in the output so the gap is visible.
 5. **Copy** — the exact words on the artifact, written out. Headline, subhead,
    body, call to action. Word counts matter: a headline over about eight words
    will not survive at poster distance.
-6. **Brand constraints** — the AIIA values below, plus anything in the
+6. **Brand constraints** — the brand values below, plus anything in the
    guidelines: colour, typography, logo placement, clear space, what is
    forbidden.
 7. **Dimensions and medium** — pixel size or print size, aspect ratio, bleed,
@@ -55,7 +55,7 @@ it `TBC` in the output so the gap is visible.
 
 ## Brand is not optional
 
-Every AIIA artifact carries these, and a design that misses them is off-brand
+Every branded artifact carries these, and a design that misses them is off-brand
 even when it is attractive:
 
 - African unity and pride — celebrate African innovation, never import a
@@ -64,9 +64,8 @@ even when it is attractive:
 - Inclusion and accessibility — plain, welcoming language; legible contrast.
 - AI for a better Africa — practical and ethical, not hype.
 
-Read `_company/aiia_brand_guidlines.extracted.md` (note the misspelling in the
-filename; try `aiia_brand_guidelines.extracted.md` too) with `vault.read` before
-writing the brief. If neither exists, say the brief is grounded on the stated
+Read the brand's guidelines doc (see its `guidelinesVaultPath` on the Brands page) with `vault.read` before
+writing the brief. If it doesn't exist, say the brief is grounded on the stated
 values alone.
 
 ## Accessibility, in the brief and not after
@@ -85,8 +84,8 @@ values alone.
 
 **Artifact**    A1 poster, 594×841mm, print, CMYK, 3mm bleed
 **Audience**    Summit delegates, collected at registration
-**The one thing** AIIA trains Zimbabwean teams to build with AI, not just buy it
-**Action**      Visit stand 14 · aiinstituteafrica.com/summit
+**The one thing** We train teams to build with AI, not just buy it
+**Action**      Visit our stand · example.com/summit
 
 **Copy**
   Headline   Build it here.

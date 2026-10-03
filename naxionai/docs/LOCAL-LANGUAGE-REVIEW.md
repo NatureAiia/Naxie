@@ -17,7 +17,7 @@ Any operator viewing a completed task's result (Tasks / Results page) sees a **ð
 3. Language observed: **chiShona** / **isiNdebele** / English â€” what the output was actually in, as seen by the person flagging it. This isn't inferred automatically (an agent's language pin can change after the job ran), so pick what you actually read.
 4. Optional note: what's wrong, in as much or as little detail as you have. Even "felt like a direct translation, not natural Shona" is useful signal.
 
-This writes a record to `_neuroworks/quality.jsonl` via `POST /api/quality/flag` (`server/src/routes/quality.ts`).
+This writes a record to `_naxion/quality.jsonl` via `POST /api/quality/flag` (`server/src/routes/quality.ts`).
 
 ## 2. Where reviewers find flagged items
 

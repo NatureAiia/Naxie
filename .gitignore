@@ -1,5 +1,8 @@
 # ==========================
-# Secrets / environment
+# Secrets / environment — ALWAYS ignored, even in a private repo.
+# Git history is forever and repo access spreads; a leaked .env with live
+# API keys can't be un-pushed. Keep backing these up outside git
+# (password manager / secrets vault), not in commits.
 # ==========================
 .env
 .env.*
@@ -62,10 +65,11 @@ neuroworks/server/vault/*
 !neuroworks/server/vault/README.md
 
 # ==========================
-# IDE / OS
+# IDE / OS — relaxed for private repo: editor settings are tracked so every
+# clone gets the same workspace setup. Uncomment to ignore again.
 # ==========================
-.vscode/
-.idea/
+# .vscode/
+# .idea/
 .DS_Store
 Thumbs.db
 

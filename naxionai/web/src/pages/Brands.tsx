@@ -5,7 +5,7 @@ import {
 import { api, type Brand, type BrandChannel, type BrandSignal } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 
-// Brand registry — one card per marketing identity (Personal / Work=AIIA /
+// Brand registry — one card per marketing identity (Personal / Work /
 // Business=Variety Vault, seeded on server boot). Each brand owns a voice,
 // audience, values block, an optional vault guidelines doc, and one or more
 // channel bindings (which Buffer/social connection speaks for it). This is

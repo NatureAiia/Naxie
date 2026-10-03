@@ -78,7 +78,7 @@ export type GroundingCase = {
    * `_company/`, …).
    *
    * Use this on OPEN-ENDED asks where a term list cannot discriminate. "What can
-   * NeuroWorks do day to day?" has many valid phrasings, and a fluent answer
+   * Naxie do day to day?" has many valid phrasings, and a fluent answer
    * about a "conversational work assistant that helps employees get answers"
    * reads fine while describing no product in particular. Requiring a citation
    * separates "read our document" from "wrote plausible SaaS copy" without
@@ -122,7 +122,7 @@ export type GroundingCase = {
 /**
  * Deflection = the agent conceding it has no grounding and asking the user to
  * supply context it should have retrieved. This is the exact failure the
- * operator reported ("I don't have specific knowledge of NeuroWorks ... Would
+ * operator reported ("I don't have specific knowledge of Naxie ... Would
  * you like me to search your vault?"). Any match is an automatic hard fail —
  * offering to search the vault is proof it did not search the vault.
  */
@@ -213,58 +213,56 @@ export function detectNotFound(answer: string): boolean {
 export const GROUNDING_CASES: GroundingCase[] = [
   // ── vault knowledge ──────────────────────────────────────────────────────
   {
-    id: "vault-what-is-neuroworks",
+    id: "vault-what-is-naxie",
     surface: "vault",
-    ask: "What is NeuroWorks?",
+    ask: "What is Naxie?",
     rationale:
       "The reported regression. The vault holds a canonical explainer at " +
-      "_knowledge/neuroworks-platform.md AND a company proposal at " +
-      "_company/NeuroWorks_AI4I_Proposal.extracted.md. Answering 'I don't have " +
-      "specific knowledge of NeuroWorks' means retrieval was skipped entirely.",
-    expectSources: ["_knowledge/neuroworks-platform", "_company/NeuroWorks_AI4I_Proposal"],
+      "_knowledge/naxie-platform.md. Answering 'I don't have " +
+      "specific knowledge of Naxie' means retrieval was skipped entirely.",
+    expectSources: ["_knowledge/naxie-platform"],
     expectTriageVaultHit: true,
     mustNotAnswerFromWorldKnowledge: true,
-    expectTools: ["vault.search", "vault.read", "company.documents", "research.deep"],
-    mustIncludeAny: ["ai workforce", "rubiem", "clawbot", "agent platform", "intelligent organisation"],
-    // Deliberately NO mustNotInclude for the unrelated Natus/Xltek EEG product
-    // of the same name: the canonical vault note names it explicitly to rule it
+    expectTools: ["vault.search", "vault.read", "research.deep"],
+    mustIncludeAny: ["personal assistant", "naxie", "agent", "vault", "persona"],
+    // Deliberately NO mustNotInclude for unrelated same-name products:
+    // the canonical vault note names them explicitly to rule them
     // out, and a well-grounded answer may repeat that disambiguation or explain
-    // that it discarded web sources about it. Banning the string punished the
+    // that it discarded web sources about them. Banning the string punished the
     // correct behaviour. The positive terms above are what separates "answered
-    // from our vault" from "answered about the medical device".
+    // from our vault" from "answered about something else".
     critical: true,
   },
   {
-    id: "vault-neuroworks-capabilities",
+    id: "vault-naxie-capabilities",
     surface: "vault",
-    ask: "What can NeuroWorks do for an employee day to day?",
+    ask: "What can Naxie do for me day to day?",
     rationale:
       "Longer-form variant of the same entity. Guards against a fix that only " +
-      "special-cases the literal string 'What is NeuroWorks?'.",
-    expectSources: ["_knowledge/neuroworks-platform", "_company/NeuroWorks_AI4I_Proposal"],
+      "special-cases the literal string 'What is Naxie?'.",
+    expectSources: ["_knowledge/naxie-platform"],
     expectTriageVaultHit: true,
     mustNotAnswerFromWorldKnowledge: true,
-    expectTools: ["vault.search", "vault.read", "company.documents", "research.deep"],
-    // Broad, because "what can it do day to day" has many honest phrasings —
-    // the vault note, the AI4I proposal and the product framing each use
-    // different vocabulary for the same capabilities. The citation requirement
-    // below is what actually separates a grounded answer from generic SaaS copy.
+    expectTools: ["vault.search", "vault.read", "research.deep"],
+    // Broad, because "what can it do day to day" has many honest phrasings.
+    // The citation requirement below is what actually separates a grounded
+    // answer from generic assistant copy.
     mustIncludeAny: [
       "persona", "template", "delegate", "approval", "workflow",
-      "job description", "ai workforce", "audit", "governance", "intelligent organisation",
+      "job description", "agent", "audit", "governance", "schedule",
     ],
     mustCite: true,
     critical: true,
   },
   {
-    id: "vault-clawbot-operations",
+    id: "vault-naxie-operations",
     surface: "vault",
-    ask: "How does the clawbot work?",
+    ask: "How does Naxie work?",
     rationale:
-      "_knowledge/clawbot-operations.md is the operational runbook. A second " +
+      "_knowledge/naxie-operations.md is the operational runbook. A second " +
       "internal proper noun the base model cannot know — same failure class, " +
       "different document.",
-    expectSources: ["_knowledge/clawbot-operations", "_knowledge/neuroworks-platform"],
+    expectSources: ["_knowledge/naxie-operations", "_knowledge/naxie-platform"],
     expectTriageVaultHit: true,
     mustNotAnswerFromWorldKnowledge: true,
     expectTools: ["vault.search", "vault.read", "research.deep"],
@@ -284,11 +282,11 @@ export const GROUNDING_CASES: GroundingCase[] = [
     surface: "connection",
     ask: "Which data sources and systems are connected to you right now?",
     rationale:
-      "The registry holds live connectors ('Aiia Website') and databases " +
+      "The registry holds live connectors and databases " +
       "('Website DB', 'Neon Cloud DB'). The agent must read its own registry " +
       "rather than claim it has no integrations.",
     expectTools: ["db.list_sources", "connector.list", "connector.describe"],
-    mustIncludeAny: ["aiia website", "website db", "neon", "postgres", "connector"],
+    mustIncludeAny: ["website db", "neon", "postgres", "connector"],
     mustNotInclude: [],
     critical: true,
   },
@@ -433,8 +431,8 @@ export const GROUNDING_CASES: GroundingCase[] = [
     // No forbidden term for "launch windows". The first version banned it and
     // failed the correct answer — "the records do not contain … any Mars
     // launch-window guidance" has to name the thing it did not find in order to
-    // report the absence at all. Same trap as banning the unrelated EEG product
-    // on the NeuroWorks case. `reports-the-absence` is the real discriminator;
+    // report the absence at all. Same trap as banning the unrelated product
+    // on the Naxie case. `reports-the-absence` is the real discriminator;
     // a term blocklist here only penalises specificity.
     critical: true,
   },

@@ -19,11 +19,11 @@ import { slugify, loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate 
 // called for one of these ids, we use this table INSTEAD of the generic
 // responsibility-derived templates.
 const CURATED: Record<string, (personaId: string) => Omit<CustomTemplate, "id" | "role">[]> = {
-  clawbot: () => [
+  "naxie-agent": () => [
     {
       title: "Daily focus",
       description: "What should I focus on today? Looks at recent jobs in your vault, open threads, and notes flagged for follow-up.",
-      origin: { task: "Look at the last 5 days of journal entries in _neuroworks/jobs/, any pending follow-ups in 0-Inbox/, and surface a short prioritised list of what I should focus on today. Include why each item matters.", createdAt: new Date().toISOString() },
+      origin: { task: "Look at the last 5 days of journal entries in _naxion/jobs/, any pending follow-ups in 0-Inbox/, and surface a short prioritised list of what I should focus on today. Include why each item matters.", createdAt: new Date().toISOString() },
       plan: { steps: [], summary: undefined, waves: [] },
       runCount: 0,
     },
@@ -407,29 +407,6 @@ const CURATED: Record<string, (personaId: string) => Omit<CustomTemplate, "id" |
       title: "Explainer with narration + music",
       description: "An explainer: narrated script over a music bed, optionally with a visual.",
       origin: { task: "Build a short explainer for the following topic. Write a clear spoken script, narrate it with media.tts, and produce a soft instrumental bed with media.music that sits under the voice. Optionally generate a supporting visual with media.video. Return the script, all prompts, all asset paths, and an assembly note on levels (voice over a quiet bed).", createdAt: new Date().toISOString() },
-      plan: { steps: [], summary: undefined, waves: [] },
-      runCount: 0,
-    },
-  ],
-  "aiia-finance": () => [
-    {
-      title: "Aiia financial dashboard (year)",
-      description: "Pull the Aiia yearly dashboard and explain the headline numbers, sourced.",
-      origin: { task: "Read the company's Aiia financial dashboard for the requested year (default to the current year if none is given). Use connector.call on the 'Aiia Finance' connector: GET /api/agent/dashboard?year=YYYY. Then explain the headline figures in plain cash terms — lead with the top number, then the breakdown, then what it means. Cite the endpoint + year for every figure. If the connector errors or returns no data, say so and stop rather than estimating.", createdAt: new Date().toISOString() },
-      plan: { steps: [], summary: undefined, waves: [] },
-      runCount: 0,
-    },
-    {
-      title: "Aiia finance overview",
-      description: "Fetch the Aiia agent/finance overview and summarise the current position.",
-      origin: { task: "Fetch the Aiia finance overview via connector.call on the 'Aiia Finance' connector: GET /api/agent. Summarise the current financial position from what Aiia returns — key balances/metrics first, then notable movements. Ground every number in the Aiia response and cite it. If Aiia is unreachable, report that plainly.", createdAt: new Date().toISOString() },
-      plan: { steps: [], summary: undefined, waves: [] },
-      runCount: 0,
-    },
-    {
-      title: "Year-over-year from Aiia",
-      description: "Compare two years from the Aiia dashboard and explain the variance.",
-      origin: { task: "Compare the company's finances across the two years the customer names (or the current year vs. the prior year). Use connector.call on the 'Aiia Finance' connector twice: GET /api/agent/dashboard?year=YYYY for each year. Present a side-by-side of the key lines with absolute and percentage variance, and a one-line explanation per material change. Cite the endpoint + each year. Do not estimate any figure Aiia can provide.", createdAt: new Date().toISOString() },
       plan: { steps: [], summary: undefined, waves: [] },
       runCount: 0,
     },

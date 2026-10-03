@@ -16,7 +16,7 @@
 //
 // Pairing: first run prints a QR code to the server console/logs. Scan it
 // from WhatsApp > Linked Devices on +263716031399. Session persists under
-// .neuroworks/whatsapp-session/ so subsequent restarts reconnect silently.
+// .naxion/whatsapp-session/ so subsequent restarts reconnect silently.
 //
 // Config (env):
 //   NAXION_WHATSAPP_INBOUND=0   hard-disable the bridge (default on)
@@ -31,7 +31,7 @@ import { config } from "../config.js";
 const BASE = `http://127.0.0.1:${config.port}`;
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-const STATE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.neuroworks");
+const STATE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.naxion");
 const SESSION_DIR = resolve(STATE_DIR, "whatsapp-session");
 const TRIAGE_PATH = resolve(STATE_DIR, "whatsapp-triage.json");
 const LOCK_FILE = resolve(STATE_DIR, "whatsapp-poller.lock");
@@ -374,7 +374,7 @@ export async function startWhatsAppBridge(): Promise<void> {
         const loggedOut = statusCode === DisconnectReason.loggedOut;
         state.lastError = lastDisconnect?.error?.message ?? "connection closed";
         if (loggedOut) {
-          console.warn("[whatsapp] logged out — delete .neuroworks/whatsapp-session/ and restart to re-pair with a fresh QR code.");
+          console.warn("[whatsapp] logged out — delete .naxion/whatsapp-session/ and restart to re-pair with a fresh QR code.");
           state.running = false;
           releaseLock();
         } else if (!abort) {

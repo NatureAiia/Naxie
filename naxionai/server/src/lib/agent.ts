@@ -46,10 +46,10 @@ const LOCAL_FS_HINT_RE = /\b(downloads?|desktop|documents?|music|pictures|photos
 // what counts as a finance-readout task. Without heuristicPlan also
 // checking this, it intercepts finance questions before plan() ever runs,
 // so the LLM-prompt hint never gets a chance — reproduced live 2026-07-10
-// ("Give me the Aiia Finance Summary — pull the latest budgets..." routed
-// to research.deep and returned "no data found" despite the FinanceFlow
+// ("Give me the finance summary — pull the latest budgets..." routed
+// to research.deep and returned "no data found" despite a finance
 // connector being live and correctly configured).
-const FINANCE_READOUT_RE = /\b(aiia\s*finance|finance\s*(summary|dashboard|snapshot|read[\s-]?out)|financial\s+(summary|position|dashboard|snapshot)|how\s+(?:are\s+we|is\s+the\s+business)\s+doing\s+financially|net\s+profit|cash\s+(?:balance|flow)|company'?s?\s+finances|our\s+(?:revenue|financials?)|budgets?|receipts?|purchase\s+requisitions?|expense\s*(?:baselines?|forecasts?|history)|historical\s+(?:cash|expense|financial)|live\s+financial\s+(?:figures?|data|numbers?))\b/i;
+const FINANCE_READOUT_RE = /\b(finance\s*(summary|dashboard|snapshot|read[\s-]?out)|financial\s+(summary|position|dashboard|snapshot)|how\s+(?:are\s+we|is\s+the\s+business)\s+doing\s+financially|net\s+profit|cash\s+(?:balance|flow)|company'?s?\s+finances|our\s+(?:revenue|financials?)|budgets?|receipts?|purchase\s+requisitions?|expense\s*(?:baselines?|forecasts?|history)|historical\s+(?:cash|expense|financial)|live\s+financial\s+(?:figures?|data|numbers?))\b/i;
 
 // Org-structure / workforce-design tasks — job descriptions, team structure,
 // reporting lines, "how are agents integrated", role design, org charts.
@@ -82,7 +82,7 @@ const CONNECTOR_INVENTORY_RE = /\b(?:what|which|list|show|do we (?:have|got)|are
 const VIDEO_GEN_RE = /\b(?:make|generate|create|produce|render|animate|whip\s+up|put\s+together)\b[^.\n]{0,30}\b(?:videos?(?!\s*ads?\b)|clips?|reels?|animations?|short\s+films?|movies?)\b|\btext[\s-]to[\s-]video\b/i;
 
 // Ad/campaign creative — "make an ad for X", "create a social ad", "make a
-// 10/10 ad about neuroworks and give me the downloadable". These need BOTH
+// 10/10 ad about Naxie and give me the downloadable". These need BOTH
 // copy AND a downloadable visual asset: route to media.image for the visual;
 // the synth writes the copy and the media block carries the download link.
 // Caught live 2026-07-19: two ad tasks direct-synthed a text-only "content
@@ -93,7 +93,7 @@ const VIDEO_GEN_RE = /\b(?:make|generate|create|produce|render|animate|whip\s+up
 const AD_CREATIVE_RE = /\b(?:make|create|design|produce|generate|build|craft)\b[^.\n]{0,60}\b(?:(?:an?|the|this|that|10\/10|killer|great|best|new|short|quick)\s+(?:ads?|adds?|advert(?:isement)?s?|commercials?|promos?)|advert(?:isement)?s?)\b|\b(?:social|video|display|digital|marketing|instagram|facebook|tiktok)\s+ads?\b/i;
 
 // "Send/email me the (last N) generated images" — the artifacts live in the
-// studio media folder (.neuroworks/media), which vault.search and fs.find_in
+// studio media folder (.naxion/media), which vault.search and fs.find_in
 // CANNOT see. Caught live 2026-07-19: an agent searched vault + local storage,
 // honestly reported "no such files", and claimed there was "no email
 // transmission mechanism" while email.send was live. Routes to
@@ -459,7 +459,7 @@ const PLAN_TIMEOUT_MS = Number(process.env.NAXION_PLAN_TIMEOUT_MS ?? "18000");
 // Second-brain identity rule — always on, injected into every downstream LLM
 // call alongside the governance prefix (see the plan() call site below).
 // The many per-topic *Context hints in plan() already push the planner
-// toward vault.search for cases NeuroWorks recognizes; this is the general
+// toward vault.search for cases Naxie recognizes; this is the general
 // backstop for everything else, including synth/direct-answer (which those
 // hints don't reach).
 const VAULT_FIRST_RULE = "\n\nIdentity rule: always search the vault (vault.search) before answering from general training data. If the vault, a connected database, or a connector already has the answer, use it and cite it — never answer a business question from memory when the operator's own systems cover it.\n";
@@ -467,7 +467,7 @@ const VAULT_FIRST_RULE = "\n\nIdentity rule: always search the vault (vault.sear
 export async function plan(task: string, _personaSystemSuffix?: string, push?: (msg: string) => void, workMode?: "agent" | "hybrid", learn?: { taskKind?: string; persona?: string }, toolAllowlist?: string[]): Promise<Plan> {
   // Persona deliberately omitted from the TOOL CHOICE prompt: tool selection
   // is mechanical and must not be gated by role. (Head of AI asking about
-  // NeuroWorks is still allowed to search the vault.) The persona colors the
+  // Naxie is still allowed to search the vault.) The persona colors the
   // synthesised answer. We DO however pass vault-hits context — the planner
   // makes much better decisions when it knows whether the vault has notes on
   // the topic ("4 hits → prefer vault.search before web").
@@ -626,7 +626,7 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   // deal", "what's on file about …") or to PERSIST a durable fact ("remember
   // that …", "note that …", "keep in mind …"), route to the memory.* tools.
   // Without this the planner sends recall queries to research.deep / vault.search
-  // (which do NOT read _neuroworks/memory) and drops "remember that …" on the
+  // (which do NOT read _naxion/memory) and drops "remember that …" on the
   // floor — exactly the orphaned-memory failure the angle probe surfaced (the
   // laptop-budget fact on disk was never recalled on either executor).
   let memoryContext = "";
@@ -635,7 +635,7 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   if (rememberRe.test(task)) {
     memoryContext = `\n\nMemory-write context: the task asks you to durably REMEMBER a fact. The plan MUST include a memory.note step with {subject, fact} — subject is the entity the fact is ABOUT (a person, project, or topic, e.g. "Q3 board meeting", "Priya", "acme-deal"), fact is the detail to remember verbatim (dates, amounts, names). Add an optional {date: "YYYY-MM-DD"} when the fact is time-bound (a meeting, deadline, renewal) so it surfaces on the calendar. This persists to long-term memory for future sessions — do NOT use vault.create_zettel; memory.note is the dedicated store memory.recall reads back. If the task also asks to confirm/read it back, chain memory.recall after.\n`;
   } else if (recallRe.test(task)) {
-    memoryContext = `\n\nMemory-recall context: the task asks what the agent REMEMBERS / has on file about something. The FIRST step MUST be memory.search with {query: "<the key terms — the entity/topic the user named>"} (NOT research.deep / vault.search — durable facts live in _neuroworks/memory, which those tools do not read). If the user named an exact subject stored before, memory.recall {subject} is more precise. Synthesise the answer from the returned facts; if none are found, say so plainly rather than inventing.\n`;
+    memoryContext = `\n\nMemory-recall context: the task asks what the agent REMEMBERS / has on file about something. The FIRST step MUST be memory.search with {query: "<the key terms — the entity/topic the user named>"} (NOT research.deep / vault.search — durable facts live in _naxion/memory, which those tools do not read). If the user named an exact subject stored before, memory.recall {subject} is more precise. Synthesise the answer from the returned facts; if none are found, say so plainly rather than inventing.\n`;
   }
   // Aiia Finance hint — same failure shape as activity/memory above: without
   // an explicit steer, the planner has no way to know where finance data
@@ -647,13 +647,13 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   // "missing connector" — reproduced live 2026-07-09.
   //
   // 2026-07-10: the old push-model snapshot (Finance System POSTs to
-  // /api/public/dashboard, NeuroWorks stores one 5-field snapshot) is
+  // /api/public/dashboard, Naxie stores one 5-field snapshot) is
   // retired — its data was stale (last pushed 2026-07-01) and has been
   // deleted from the vault. The real, live source is now the "Aiia
   // FinanceFlow" connector (external app, budgets/receipts/requisitions,
   // read-only, session-cookie auth that expires ~24h from setup).
   const financeContext = FINANCE_READOUT_RE.test(task)
-    ? `\n\nAiia Finance context: the task asks for the company's real financial figures. Real data now lives in the live "Aiia FinanceFlow" connector — NOT finance.snapshot (retired, its pushed data was stale and has been cleared — it will return available:false), NOT vault.search, NOT research.deep. The plan should use connector.call on connector "Aiia FinanceFlow" against whichever endpoint(s) the question needs: list-budgets (/api/budgets), list-receipts (/api/receipts), list-requisitions (/api/requisitions). If unsure what's available, connector.describe {name:"Aiia FinanceFlow"} first. Synthesise the answer strictly from what the connector returns — never invent a figure. If the call fails (e.g. 401 — the connector's session cookie expires ~24h after each manual re-auth), say plainly that the FinanceFlow connection needs to be refreshed and stop; do not fall back to finance.snapshot or a vault note.\n`
+    ? `\n\nFinance context: the task asks for real financial figures. Those live in actual records — a finance connector (connector.list to see what's configured, connector.describe + connector.call to pull budgets/receipts), NOT finance.snapshot (retired — it will return available:false), NOT vault.search, NOT research.deep. If no finance connector is configured, say plainly what's missing and stop; never invent a figure. Ground every number in what the connector actually returned.\n`
     : "";
   // Org-structure grounding hint: the company's own structure is IN the
   // catalog — humans (users.list), AI agents (personas.list), reporting lines
@@ -901,7 +901,7 @@ const STEP_RETRY_BACKOFF_MS = [1500, 4000, 8000];
 
 export async function executePlan(p: Plan, push: (msg: string) => void, onProgress?: (runs: StepRun[]) => void, signal?: AbortSignal, scopeId?: string, callerPersonaId?: string, toolAllowlist?: string[]): Promise<{ runs: StepRun[]; hadWrites: boolean; budgets?: { llm: number; io: number; idlePeers: number }; subagentTimings?: { wave: number; elapsedMs: number; ioCount: number; llmCount: number }[]; cancelled?: boolean; delegatedApproval?: { tools: string[]; plan?: Plan } }> {
   // Per-run offload archive id — see context-offload.ts. Large step-result
-  // fields get archived under .neuroworks/offload/<offloadRunId>/ and
+  // fields get archived under .naxion/offload/<offloadRunId>/ and
   // replaced in the running history with a short preview, so steps 2..N of
   // a long plan don't each carry a full copy of step 1's raw scrape/read
   // through their own LLM calls.
@@ -1164,7 +1164,7 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
 
 // Auto-review is opt-out via env. Skipped automatically when the answer is
 // trivial (under MIN_REVIEW_CHARS) or no peer is reachable. This makes the
-// behavior degrade cleanly on single-clawbot setups.
+// behavior degrade cleanly on single-agent setups.
 const AUTO_REVIEW = process.env.NAXION_AUTO_REVIEW !== "0";
 const MIN_REVIEW_CHARS = 120;
 
@@ -1532,7 +1532,7 @@ export async function planAndExecute(
     // called "hi-everyone.md" shouldn't promote a greeting to vault search.
     //
     // excludeAgentCaptures above already keeps agent-internal captures
-    // (_neuroworks/jobs/* job trackers, reflections, memory, ...) out of
+    // (_naxion/jobs/* job trackers, reflections, memory, ...) out of
     // vaultHits — those are scratch records of past runs ("Research: who
     // is X"), not real user knowledge. Without that filter, the second run
     // of any query would route itself to research.deep because the FIRST
@@ -2576,7 +2576,7 @@ function coerceReview(r: any): PeerReview {
 }
 
 // Pulled-from-task search query: strip filler so the vault search actually
-// hits the right notes. "give me a summary on neuroworks" → "neuroworks".
+// hits the right notes. "give me a summary on Naxie" → "Naxie".
 export function extractTopic(task: string): string {
   const stripped = task
     .replace(/^\s*(?:please\s+)?(?:can\s+you\s+|could\s+you\s+|kindly\s+)?/i, "")
@@ -2588,7 +2588,7 @@ export function extractTopic(task: string): string {
     // "up with"), its OWN mandatory \s+ sits directly against this outer
     // separator with nothing between them, so an outer \s+ would demand TWO
     // real space characters where the input has only one and never match at
-    // all — "What is NeuroWorks?" silently passed through unstripped. \s*
+    // all — "What is Naxie?" silently passed through unstripped. \s*
     // still consumes the separator when one is needed by the other branches.
     .replace(/^(?:summari[sz]e|recap|brief\s+me\s+on|tell\s+me\s+about|what(?:'?s|\s+is)\s+(?:up\s+with\s+|going\s+on\s+with\s+)?|what\s+do\s+(?:we|i|you)\s+know\s+about)\s*/i, "")
     // "what my vault says about X" / "what my notes have on X" /
@@ -2597,8 +2597,8 @@ export function extractTopic(task: string): string {
     // already been stripped above, but the noisy "what (subject)
     // (verb) about/on" stem is still in the way. Strip it so the
     // captured topic is just X. Without this, "summarise what my
-    // vault says about neuroworks" left "what my vault says about
-    // neuroworks" as the topic, which then routed a literal web
+    // vault says about Naxie" left "what my vault says about
+    // Naxie" as the topic, which then routed a literal web
     // search that hit Slovak-language sites matching "my".
     .replace(/^what\s+(?:my\s+(?:vault|notes?|brain|second\s+brain|knowledge|repo|repos?|files?|docs?|inbox)|the\s+(?:vault|repo|inbox)|we|i|you)\s+(?:says?|has|have|knows?|got|contain|contains|covers?|mentions?)\s+(?:about\s+|on\s+|of\s+|regarding\s+)?/i, "")
     // "what does/do/is/are (the rules in) our X (say/cover/mean)?" → "X".
@@ -2616,20 +2616,20 @@ export function extractTopic(task: string): string {
     // "what can X do (for ...)?" → "X" — the subject sits BEFORE "do" here,
     // unlike the "our X (say|cover)" shape above where it follows "our".
     .replace(/^what\s+can\s+(.+?)\s+do\b.*$/i, "$1")
-    // Drafting verbs: "draft an Aiia Reference Letter" → "Aiia Reference
-    // Letter". Without this strip, the triage vault check searches for the
-    // verb-prefixed phrase ("draft aiia reference letter") and gets zero
+    // Drafting verbs: "draft a 2026 reference letter" → "2026 reference
+    // letter". Without this strip, the triage vault check searches for the
+    // verb-prefixed phrase ("draft 2026 reference letter") and gets zero
     // hits — letting the direct-answer path hallucinate the meaning of
     // proper nouns it doesn't know. Article (a/an/the/some/new) optional.
     .replace(/^(?:draft|write|compose|create|prepare|produce|generate|build|put\s+together|make)\s+(?:a\s+|an\s+|the\s+|some\s+|new\s+)?(?:short\s+|quick\s+|brief\s+|long\s+|formal\s+|professional\s+)?/i, "")
     // After the verb strips above run, a leading noise preposition often
-    // remains: "tell me " (stripped) leaves "about neuroworks"; "give me
-    // info " leaves "on neuroworks"; "summary on neuroworks" leaves "on
-    // neuroworks" when the summary strip narrowly misses. Drop the bare
+    // remains: "tell me " (stripped) leaves "about Naxie"; "give me
+    // info " leaves "on Naxie"; "summary on Naxie" leaves "on
+    // Naxie" when the summary strip narrowly misses. Drop the bare
     // preposition so the topic is the actual subject.
     .replace(/^(?:about|regarding|concerning|on|of)\s+/i, "")
     // "how does/do/can/should (the/a/an) X work/function/operate" → "X".
-    // Left whole, "how does the clawbot work" ANDs "how", "does", "work" —
+    // Left whole, "how does Naxie work" ANDs "how", "does", "work" —
     // tokens no vault note contains — against the one word (the proper noun)
     // that would actually hit. Unlike the strips above this one replaces the
     // WHOLE string (prefix AND suffix), not just a leading prefix.
@@ -2652,8 +2652,8 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
   const t = task.trim();
   if (!t) return null;
   // Finance-readout tasks bail out to the real LLM planner, which carries
-  // the financeContext hint steering it to connector.call on "Aiia
-  // FinanceFlow". Without this, the research-signal heuristic below (any
+  // the financeContext hint steering it to a finance connector call.
+  // Without this, the research-signal heuristic below (any
   // recency marker like "latest") intercepts first and routes straight to
   // research.deep — the planner-side hint never gets a chance to run.
   if (FINANCE_READOUT_RE.test(t)) return null;
@@ -2847,7 +2847,7 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
   const hasAttachments = opts.hasAttachments === true;
 
   // Import-to-vault: "move/copy/import/save/file/add X to my vault" /
-  // "save X to my knowledge" / "put X in neuroworks". Chains fs.find_in
+  // "save X to my knowledge" / "put X in Naxie". Chains fs.find_in
   // (to resolve a bare filename across user folders) → fs.import_to_vault
   // (copy the binary + write a markdown sidecar so it shows up in the
   // knowledge view). MUST match before the read-only doc heuristic below,
@@ -2858,14 +2858,14 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
   // "move" stays copy-semantics — the user typically wants a backup, not
   // an evacuation.
   // Matches either:
-  //   <verb> <target> (in)?to my? vault|knowledge|second brain|neuroworks|...
+  //   <verb> <target> (in)?to my? vault|knowledge|second brain|naxie|...
   //   <verb> <target> (in)?to 0-Inbox|1-Literature|1-projects|2-Permanent
   const importMatch =
     // Optional trailing modifier handles "...to my vault and delete the
-    // original" / "...to neuroworks and remove from downloads". The
+    // original" / "...to Naxie and remove from downloads". The
     // removeOriginal flag below detects that modifier on the FULL task,
     // so the regex only needs to TOLERATE the trailing phrase.
-    t.match(/^\s*(?:please\s+|could\s+you\s+|can\s+you\s+)?(?:move|copy|import|save|file|add|put|drop|stash|archive)\s+(.+?)\s+(?:(?:in)?to|into|to|in)\s+(?:my\s+|the\s+)?(?:vault|second\s+brain|knowledge(?:\s+base)?|neuroworks|obsidian|brain|inbox|0-inbox|1-literature|1-projects|2-permanent)(?:\s+(?:and\s+(?:then\s+)?|then\s+)?(?:delete|remove)\s+(?:the\s+)?(?:original|originals|source|copy|file|it)?(?:\s+from\s+\w+)?)?\s*[.?!]?\s*$/i);
+    t.match(/^\s*(?:please\s+|could\s+you\s+|can\s+you\s+)?(?:move|copy|import|save|file|add|put|drop|stash|archive)\s+(.+?)\s+(?:(?:in)?to|into|to|in)\s+(?:my\s+|the\s+)?(?:vault|second\s+brain|knowledge(?:\s+base)?|naxie|obsidian|brain|inbox|0-inbox|1-literature|1-projects|2-permanent)(?:\s+(?:and\s+(?:then\s+)?|then\s+)?(?:delete|remove)\s+(?:the\s+)?(?:original|originals|source|copy|file|it)?(?:\s+from\s+\w+)?)?\s*[.?!]?\s*$/i);
   if (importMatch) {
     // Strip leading articles AND the "and delete/remove" intent suffix so the
     // captured target is just the filename. E.g. "and delete tax-return.pdf"
@@ -2912,7 +2912,7 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
           {
             tool: "fs.import_to_vault",
             args: { path: "$step_0.matches.0.path", vaultFolder: "0-Inbox", removeOriginal },
-            rationale: "copy the top match into the vault and write a markdown sidecar so it shows up in NeuroWorks Knowledge",
+            rationale: "copy the top match into the vault and write a markdown sidecar so it shows up in Naxie Knowledge",
             label: humanStepLabel("fs.import_to_vault", { path: target, vaultFolder: "0-Inbox" }),
           },
         ],
@@ -2941,7 +2941,7 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
 
   // Vault folder listing: "list 5 notes from my vault inbox folder" /
   // "show me the files in my vault" / "list notes in inbox". Maps common
-  // folder words ("inbox", "knowledge", "neuroworks", "jobs", "archive")
+  // folder words ("inbox", "knowledge", "naxie", "jobs", "archive")
   // onto the real vault paths. Without this heuristic the planner falls
   // back to research.deep, which never finds folder listings — round-2
   // harness showed a refusal because research returned nothing relevant.
@@ -2949,11 +2949,12 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
     inbox: "0-Inbox",
     "0-inbox": "0-Inbox",
     knowledge: "_knowledge",
-    neuroworks: "_neuroworks",
-    jobs: "_neuroworks/jobs",
+    naxie: "_naxion",
+    naxion: "_naxion",
+    jobs: "_naxion/jobs",
     archive: "_archive",
-    summaries: "_clawbot/summaries",
-    clawbot: "_clawbot",
+    summaries: "_naxie/summaries",
+    digest: "_naxie",
     decisions: "",
     root: "",
     vault: "",
@@ -2979,7 +2980,7 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
 
   // Vault folder scan (summarise multiple docs): "summarise the docs in
   // 0-Inbox" / "what's in my knowledge folder" / "read all notes in
-  // _clawbot" / "scan my inbox docs". Routes to vault.scan_docs which
+  // _naxie" / "scan my inbox docs". Routes to vault.scan_docs which
   // reads MANY docs in parallel and returns extracted text. Without
   // this heuristic the LLM planner often picks research.deep which
   // misses the user's actual files.
@@ -2990,9 +2991,9 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
     const raw = (vaultScanMatch[1] ?? vaultScanMatch[2] ?? vaultScanMatch[3] ?? "").toLowerCase().trim().replace(/^my\s+|^the\s+|^your\s+/i, "");
     const folderAliases: Record<string, string> = {
       inbox: "0-Inbox", "0-inbox": "0-Inbox",
-      knowledge: "_knowledge", neuroworks: "_neuroworks",
-      jobs: "_neuroworks/jobs", archive: "_archive",
-      summaries: "_clawbot/summaries", clawbot: "_clawbot",
+      knowledge: "_knowledge", naxie: "_naxion", naxion: "_naxion",
+      jobs: "_naxion/jobs", archive: "_archive",
+      summaries: "_naxie/summaries", digest: "_naxie",
     };
     const folder = (raw in folderAliases) ? folderAliases[raw] : raw;
     return {
@@ -3220,7 +3221,7 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
   // "what does <repo>'s README say". Routes to github.read_repo so the
   // README + recent state come back in one call. Without this heuristic,
   // the LLM planner often picks github.get_file with path="README.md"
-  // but forgets to resolve the owner from "the clawbot repo" → the
+  // but forgets to resolve the owner from "the Naxie repo" → the
   // call fails with "no such file" because owner defaults to empty.
   const ghReadmeMatch =
     t.match(/^\s*(?:please\s+|could\s+you\s+|can\s+you\s+)?(?:fetch|read|show(?:\s+me)?|get|grab|pull)\s+(?:the\s+)?(?:readme|read[\s-]?me)\s+(?:of\s+|for\s+|from\s+)?(?:the\s+)?([\w./-]+?)(?:\s+repo(?:sitory)?)?(?:\s+(?:on|from|in)\s+(?:github|gh))?(?:\s+and\s+.+)?\s*[.?!]?\s*$/i) ??
@@ -4040,7 +4041,7 @@ async function synthesize(
   // the synth through the TRIAGE profile (smallest/fastest model —
   // qwen3.5:0.8b on this machine) with a 256-token budget. Measured
   // win on this grade test: ~60s synth → ~15s, taking "summarise
-  // neuroworks" from 174s end-to-end to ~120s. The output quality
+  // Naxie" from 174s end-to-end to ~120s. The output quality
   // stays usable because the answer shape is a one-paragraph
   // definition, not a multi-section report.
   //

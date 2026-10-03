@@ -1,7 +1,7 @@
 // UI-settable overrides for the two secrets the pgvector RAG store needs
 // (SUPABASE_DB_URL, OPENAI_EMBEDDING_API_KEY) — an alternative entry point
 // to only setting them in .env, so a settings page can turn the store on
-// without a restart. Persisted at .neuroworks/rag-config.json, encrypted at
+// without a restart. Persisted at .naxion/rag-config.json, encrypted at
 // rest via secret-box.ts (same pattern as github-accounts.ts/connectors.ts).
 // An override wins over whatever config.ts already picked from the
 // environment once set; there's no "clear" path yet (mirrors
@@ -16,7 +16,7 @@ import { config } from "../config.js";
 import { closePgPool } from "./pg-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const CONFIG_PATH = resolve(CONFIG_DIR, "rag-config.json");
 
 type RagOverrides = { supabaseDbUrl?: string; openaiEmbeddingApiKey?: string };

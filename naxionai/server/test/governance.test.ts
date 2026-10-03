@@ -1,7 +1,7 @@
 // Governance enforcement — the pure decision logic that turns extracted,
 // admin-accepted policy constraints into an actual block, not just an
 // item sitting reviewed in the Governance UI. getConstraints() itself reads
-// real vault + .neuroworks paths (same as the rest of governance.ts), so
+// real vault + .naxion paths (same as the rest of governance.ts), so
 // these tests exercise the disk-free core (filterEnforceable, gateAction,
 // describeStepAction, CONSEQUENTIAL_TOOLS) that checkStepAgainstGovernance /
 // checkContentAgainstGovernance / hasEnforceableConstraints are thin I/O

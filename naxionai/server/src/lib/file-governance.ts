@@ -1,6 +1,6 @@
 // File governance (RIFTS-X records layer port): chain-of-custody log,
 // expiring share tokens, file access log, retention lifecycle scan, and a
-// scanned-document OCR inbox. File-based JSONL under .neuroworks so it
+// scanned-document OCR inbox. File-based JSONL under .naxion so it
 // works with zero DB config — same posture as rag-telemetry.ts.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const CUSTODY_FILE = join(STATE_DIR, "custody-log.jsonl");
 const ACCESS_FILE = join(STATE_DIR, "file-access-log.jsonl");
 const SHARES_FILE = join(STATE_DIR, "file-shares.json");

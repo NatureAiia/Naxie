@@ -1,4 +1,4 @@
-# NeuroWorks / clawbot — Data Migration & Movement
+# Naxie — Data Migration & Movement
 
 _Generated 2026-06-09. Render in Obsidian, VS Code (Markdown Preview Mermaid Support), or GitHub._
 
@@ -13,7 +13,7 @@ flowchart TB
   classDef store fill:#26313a,stroke:#5fa8c7,color:#e9f3f7;
   classDef proc fill:#2b2438,stroke:#a06bd6,color:#f4e9da;
 
-  KEY["🔑 secret key<br/>NAXION_SECRET_KEY (env)<br/>else .neuroworks/.secret-key (mode 0600)"]:::store
+  KEY["🔑 secret key<br/>NAXION_SECRET_KEY (env)<br/>else .naxion/.secret-key (mode 0600)"]:::store
 
   subgraph LOAD["load() — read from disk"]
     F["records on disk"]:::store --> CHK{"isEncrypted()?<br/>value starts with v1:"}
@@ -48,7 +48,7 @@ flowchart LR
   classDef proc fill:#2b2438,stroke:#a06bd6,color:#f4e9da;
 
   RUN["job runs"]:::proc --> MEM["in-memory Map<br/>(RECENT = 200)"]:::proc
-  RUN -->|persistJobRecord| JL["JSONL journal<br/>server/.neuroworks/jobs/YYYY-MM-DD.jsonl"]:::store
+  RUN -->|persistJobRecord| JL["JSONL journal<br/>.naxion/jobs/YYYY-MM-DD.jsonl"]:::store
   REL["server reload / restart<br/>(wipes in-memory)"]:::proc -.-> MEM
 
   GET["GET /api/templates/jobs"]:::proc --> MERGE{"merge"}:::proc
@@ -57,22 +57,22 @@ flowchart LR
   MERGE -->|"dedup by id<br/>(in-memory wins)"| RPT["Reports / Tasks UI<br/>+ nightly reflection"]:::store
 ```
 
-## 3. Vault data sync (local ⇄ main-brain git)
+## 3. Vault data sync (local ⇄ vault git)
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant A as Agent / write
-  participant V as Vault (D:/Main brain)
+  participant V as Vault (local VAULT_PATH)
   participant Q as commit-queue (debounced)
-  participant G as origin (main-brain repo)
+  participant G as origin (vault repo)
   participant P as pull scheduler (~5 min)
   A->>V: writeVaultFile()
   V->>Q: enqueueVaultCommit()
   Q->>G: git commit + push (batched)
   P->>G: git pull (edits from other machines / Obsidian)
   G->>V: merge into local vault
-  Note over V,Q: _neuroworks/ writes skip the search-index invalidation (machine-state)
+  Note over V,Q: _naxion/ writes skip the search-index invalidation (machine-state)
 ```
 
 ## 4. Migrating the workspace to a new machine
@@ -84,14 +84,14 @@ flowchart TB
   classDef rebuild fill:#26313a,stroke:#5fa8c7,color:#e9f3f7;
 
   subgraph PORT["✅ Carry these"]
-    NW[".neuroworks/ (repo root)<br/>users · sessions · connectors · integrations<br/>data-sources · schedules · personas<br/>custom-templates · executor.json · login-events"]:::ok
-    JOBS["server/.neuroworks/jobs/<br/>(job journal — note: cwd-relative path)"]:::ok
-    ENVF[".env (GitHub/LLM/Stripe/Aiia keys, config)"]:::ok
-    VLT["Obsidian vault — or just re-clone the main-brain repo"]:::ok
+    NW[".naxion/ (repo root)<br/>users · sessions · connectors · integrations<br/>data-sources · schedules · personas<br/>custom-templates · executor.json · login-events"]:::ok
+    JOBS[".naxion/jobs/<br/>(job journal)"]:::ok
+    ENVF[".env (GitHub/LLM/Stripe keys, config)"]:::ok
+    VLT["Obsidian vault — or just re-clone the vault repo"]:::ok
   end
 
   subgraph KEYED["⚠️ Decryption-coupled — carry together with secrets"]
-    SK[".neuroworks/.secret-key<br/>REQUIRED to read connector/data-source secrets.<br/>If you use NAXION_SECRET_KEY in .env, carry that instead."]:::warn
+    SK[".naxion/.secret-key<br/>REQUIRED to read connector/data-source secrets.<br/>If you use NAXION_SECRET_KEY in .env, carry that instead."]:::warn
   end
 
   subgraph REBUILD["🔁 Rebuilt automatically — don't copy"]
@@ -107,7 +107,7 @@ flowchart TB
 ## Notes
 
 - **One box, two consumers:** `secret-box.ts` (AES-256-GCM) backs both `data-sources` and `connectors`; integrations encrypt on write from the start. Passwords are scrypt (one-way).
-- **Two git repos move independently:** the clawbot **code** repo and the **main-brain vault** repo. The vault auto-commits via the commit queue; code is committed manually.
-- **Path quirk to remember when migrating:** the job journal lives under `server/.neuroworks/jobs/` (resolved from `process.cwd()`), while the rest of the machine state lives under the repo-root `.neuroworks/`. Carry **both** locations.
+- **Two git repos move independently:** the NaxionAI **code** repo and the **vault** repo. The vault auto-commits via the commit queue; code is committed manually.
+- **Path quirk to remember when migrating:** the job journal lives under `.naxion/jobs/`, while the rest of the machine state lives under the repo-root `.naxion/`. Carry the whole directory.
 - **Safe-by-default migration:** plaintext→encrypted is transparent on next write; a wrong/rotated key leaves the blob untouched and surfaces a clear error rather than corrupting data.
 ```

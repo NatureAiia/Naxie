@@ -12,7 +12,7 @@ import { recallSubject, searchMemory, noteFact, listSubjects, datedFactsInWindow
 import { getOnboardingState } from "./sector-packs.js";
 import { readPersonaProfileSuffix } from "./persona-profile.js";
 
-const IDENTITY_DIR = "_neuroworks/identity";
+const IDENTITY_DIR = "_naxion/identity";
 
 function ensureDir(rel: string) {
   const abs = join(config.vaultPath, rel);
@@ -66,15 +66,15 @@ export function getOperatorIdentity(): OperatorIdentity {
   try {
     const { loadPersonas: _unused } = { loadPersonas: () => {} } as any;
     // direct read without importing users.ts circularly — parse file
-    const raw = readFileSync(join(config.vaultPath, "..", "..", ".neuroworks", "users.json"), "utf8");
-    // Fallback: try server's .neuroworks path
+    const raw = readFileSync(join(config.vaultPath, "..", "..", ".naxion", "users.json"), "utf8");
+    // Fallback: try server's .naxion path
   } catch { /* ignore — try alternate */ }
   try {
     const usersRaw = (() => {
       for (const p of [
-        join(config.vaultPath, "../../.neuroworks/users.json"),
-        join(process.cwd(), ".neuroworks/users.json"),
-        join(config.vaultPath, "..", ".neuroworks/users.json"),
+        join(config.vaultPath, "../../.naxion/users.json"),
+        join(process.cwd(), ".naxion/users.json"),
+        join(config.vaultPath, "..", ".naxion/users.json"),
       ]) {
         try { if (existsSync(p)) return readFileSync(p, "utf8"); } catch { /* ignore */ }
       }

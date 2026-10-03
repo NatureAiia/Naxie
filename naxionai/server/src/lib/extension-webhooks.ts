@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STORE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STORE_DIR = resolve(__dirname, "../../../.naxion");
 const STORE_PATH = resolve(STORE_DIR, "extension-webhooks.json");
 
 export type WebhookEntry = {

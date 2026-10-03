@@ -12,7 +12,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const DEFAULT_FILE = join(STATE_DIR, "rag-telemetry.jsonl");
 const MAX_LINES = 5000;
 // Trim only every N appends — rewriting the file on every call would make

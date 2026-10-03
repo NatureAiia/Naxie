@@ -9,7 +9,7 @@
 // concrete to point at, not because a user ever addresses a role directly.
 //
 // Persistence follows the exact pattern schedules.ts already uses: a JSON
-// file under .neuroworks/, an in-memory cache, and an mtime check on load so
+// file under .naxion/, an in-memory cache, and an mtime check on load so
 // a worker process's write is picked up by the primary without a restart.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
@@ -21,7 +21,7 @@ import { config } from "../config.js";
 import { notifyUrgent } from "./notify.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const FILE = join(STATE_DIR, "org-tasks.json");
 
 // Single-user product (docs/naxie-architecture.md §0) — deliberately no
@@ -251,17 +251,17 @@ function persist(): void {
 }
 
 // Snapshot copy for org-daemon.ts's maybeBackupVault tick-phase. STATE_DIR
-// (above) resolves to <repo>/.neuroworks — OUTSIDE config.vaultPath (see
+// (above) resolves to <repo>/.naxion — OUTSIDE config.vaultPath (see
 // config.ts's vaultPath, e.g. .../server/vault) — so a plain vault commit
 // would never capture the org-task backlog. This copies the current
-// on-disk state file into the vault's _neuroworks/ folder (same convention
+// on-disk state file into the vault's _naxion/ folder (same convention
 // as audit-log.ts's AUDIT_REL, which already lives inside the vault) so the
 // commit-queue's next commit actually includes it. Best-effort: a missing
 // or unwritable vault path shouldn't take down the daemon tick.
 export function snapshotOrgTasksToVault(): boolean {
   try {
     if (!existsSync(FILE)) return false;
-    const destDir = resolve(config.vaultPath, "_neuroworks");
+    const destDir = resolve(config.vaultPath, "_naxion");
     if (!existsSync(destDir)) mkdirSync(destDir, { recursive: true });
     const dest = join(destDir, "org-tasks.snapshot.json");
     writeFileSync(dest, readFileSync(FILE, "utf8"));

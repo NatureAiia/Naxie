@@ -1,21 +1,21 @@
-# NeuroWorks single-instance launcher - run by the "NeuroWorks Server" logon
+# Naxie single-instance launcher - run by the "Naxie Server" logon
 # Scheduled Task. Ends the recurring "127.0.0.1 refused to connect":
 #   - IDEMPOTENT: if the API already answers on :7471, exit (no duplicate
 #     instance fighting for the port - the root cause of the crashes was 2+
 #     `pnpm dev` colliding).
-#   - SELF-CLEANING: kill any half-dead clawbot node procs before starting.
+#   - SELF-CLEANING: kill any half-dead Naxie node procs before starting.
 #   - RESTART-ON-CRASH: when `pnpm dev` exits, this script exits and the
 #     Scheduled Task restart policy relaunches it. No internal spin-loop.
 #
 # NOTE: keep this file ASCII-only. Windows PowerShell 5.1 reads .ps1 as ANSI,
 # so a stray Unicode dash/bullet breaks the parser (learned the hard way).
 #
-# Status -> .neuroworks\launcher.log ; server stdout -> .neuroworks\devstart.log
+# Status -> .naxion\launcher.log ; server stdout -> .naxion\devstart.log
 
 $ErrorActionPreference = "Continue"
 $repo = "D:\Aiia\Systems\NaxionAI-Powered-by-Neuroworks\naxionai"
-$statusLog = Join-Path $repo ".neuroworks\launcher.log"
-$devLog    = Join-Path $repo ".neuroworks\devstart.log"
+$statusLog = Join-Path $repo ".naxion\launcher.log"
+$devLog    = Join-Path $repo ".naxion\devstart.log"
 New-Item -ItemType Directory -Force -Path (Split-Path $statusLog) | Out-Null
 function Log($m) { try { "$(Get-Date -Format s)  $m" | Out-File -Append -Encoding utf8 $statusLog } catch {} }
 Set-Location $repo

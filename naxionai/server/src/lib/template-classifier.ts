@@ -35,11 +35,9 @@ const PERSONA_ID_TO_ROLE: Record<string, TemplateRole> = {
 
   // Insights lane (analysis, strategy, design, finance)
   "designer": "Insights",
-  "aiia-marketing-specialist": "Insights",
-  "aiia-marketing-specialist-v2": "Insights",
 
   // Meta / unattributed
-  "clawbot": "Custom",
+  "naxie-agent": "Custom",
   "knowitall": "Custom",
 };
 

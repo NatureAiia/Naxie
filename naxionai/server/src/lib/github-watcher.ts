@@ -18,7 +18,7 @@ import { recentCommits } from "./github.js";
 import { registerEngine } from "./scheduler-registry.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const EVENTS_FILE = join(STATE_DIR, "github-events.json");
 const MAX_EVENTS = 200;
 

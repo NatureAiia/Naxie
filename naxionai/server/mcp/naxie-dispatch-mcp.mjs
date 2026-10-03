@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// NeuroWorks dispatch MCP server — lets an external MCP host (Claude Desktop,
-// another agent runtime) dispatch agent tasks INTO NeuroWorks and read results.
+// Naxie dispatch MCP server — lets an external MCP host (Claude Desktop,
+// another agent runtime) dispatch agent tasks INTO Naxie and read results.
 // It's a THIN PROXY over the authenticated /api/v1/dispatch REST surface, so
-// the API key is the only credential and NeuroWorks' own auth/tenancy applies.
+// the API key is the only credential and Naxie's own auth/tenancy applies.
 //
 // Transport: MCP stdio = line-delimited JSON-RPC 2.0 (one message per line),
-// hand-rolled to avoid an SDK dependency (mirrors clawbot-mcp.mjs).
+// hand-rolled to avoid an SDK dependency (mirrors naxie-mcp.mjs).
 //
 // Register with an MCP host, e.g. Claude Desktop config:
-//   "neuroworks": {
+//   "naxie": {
 //     "command": "node",
-//     "args": ["<repo>/server/mcp/neuroworks-dispatch-mcp.mjs"],
+//     "args": ["<repo>/server/mcp/naxie-dispatch-mcp.mjs"],
 //     "env": { "NAXION_API_KEY": "nw_...", "NAXION_BASE": "http://127.0.0.1:7471" }
 //   }
 //
@@ -114,7 +114,7 @@ async function handle(msg) {
         return result(id, {
           protocolVersion: params?.protocolVersion ?? PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: "neuroworks-dispatch", version: "1.0.0" },
+          serverInfo: { name: "naxie-dispatch", version: "1.0.0" },
         });
       case "ping": return result(id, {});
       case "tools/list": return result(id, { tools: TOOLS });

@@ -2,7 +2,7 @@ export type Language = "en";
 
 const strings: Record<Language, Record<string, string>> = {
   en: {
-    "app.title": "NeuroWorks",
+    "app.title": "Naxie",
     "app.tagline": "The Intelligent Organization",
     "app.subtitle": "Describe what you want done, delegate, get results.",
     "dashboard.welcome": "Welcome to",
@@ -21,7 +21,7 @@ const strings: Record<Language, Record<string, string>> = {
     "dashboard.zimbabweContext": "Zimbabwe Context",
     "dashboard.zimbabweContextDesc": "Your intelligent organization is tuned for the Zimbabwe market. Here's what you should know about your sector.",
     "onboarding.title": "Configure your Intelligent Organization",
-    "onboarding.subtitle": "Help us tailor NeuroWorks to your needs",
+    "onboarding.subtitle": "Help us tailor Naxie to your needs",
     "onboarding.sector": "What sector do you operate in?",
     "onboarding.sectorDesc": "This helps us pre-configure templates, integrations, and knowledge packs for your industry.",
     "onboarding.orgName": "Organization name",

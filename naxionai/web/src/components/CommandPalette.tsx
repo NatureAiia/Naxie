@@ -83,8 +83,8 @@ export function CommandPalette() {
     { id: "l-integrations", group: "Library", label: "Extensions — Integrations", icon: Plug, onSelect: go("/extensions?tab=integrations"), keywords: "connect slack telegram github notion social oauth api integrations" },
     { id: "l-connectors", group: "Library", label: "Connectors", icon: Plug, onSelect: go("/connectors"), keywords: "connect company api base url auth connectors google microsoft personal accounts email calendar" },
     { id: "l-mcp", group: "Library", label: "MCP Servers", icon: Plug, onSelect: go("/mcp-servers"), keywords: "model context protocol tool server filesystem browser" },
-    { id: "l-hermes", group: "Library", label: "Hermes", icon: Plug, onSelect: go("/hermes"), keywords: "hermes nous research executor launch mcp bridge clawbot" },
-    { id: "l-brands", group: "Library", label: "Brands", icon: Plug, onSelect: go("/brands"), keywords: "brand voice marketing personal work business aiia variety vault social" },
+    { id: "l-hermes", group: "Library", label: "Hermes", icon: Plug, onSelect: go("/hermes"), keywords: "hermes nous research executor launch mcp bridge naxie-agent" },
+    { id: "l-brands", group: "Library", label: "Brands", icon: Plug, onSelect: go("/brands"), keywords: "brand voice marketing personal work business variety vault social" },
   ];
 
   if (!open) return null;

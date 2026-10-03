@@ -20,23 +20,23 @@ signs it's being run or sold as a product for others.
 Two surfaces in one repo:
 
 - **NaxionAI console** — local web console: chat with the agent, browse the vault, run templated tasks, review daily reflections. Multi-worker capable (primary + secondary).
-- **clawbot** — the cloud cron worker (GitHub Actions) inside it that feeds repo activity into the `main-brain` Obsidian vault. Also a historical/internal name still used for env var prefixes (`NAXION_*`) and some file paths.
+- **digest worker** — the cloud cron worker (GitHub Actions) inside it that feeds repo activity into the vault-repo Obsidian vault.
 
 ## What the cron worker does
 
 Three entrypoints:
 
 1. **`pnpm digest`** — runs in GitHub Actions on a daily cron (also `workflow_dispatch`). Scans every repo the user owns/collaborates on, summarizes recent commits, open PRs, and open issues, and writes:
-   - `_clawbot/YYYY-MM-DD.md` — daily digest
-   - `_clawbot/latest.md` — copy of today's digest
-   - `_clawbot/repos/<owner>-<name>.md` — per-repo snapshot
-   - `_clawbot/_meta/last-run.json` — run metadata
+   - `_naxie/YYYY-MM-DD.md` — daily digest
+   - `_naxie/latest.md` — copy of today's digest
+   - `_naxie/repos/<owner>-<name>.md` — per-repo snapshot
+   - `_naxie/_meta/last-run.json` — run metadata
 
 2. **`pnpm publish-folder <path>`** — local utility that takes a local folder, ensures it's a git repo, creates a matching private repo on GitHub, and pushes.
 
-3. **`pnpm dev`** (alias **`pnpm neuroworks`**) — launches the NeuroWorks local console (server + web) at http://127.0.0.1:7470. See below.
+3. **`pnpm dev`** (alias **`pnpm naxie`**) — launches the Naxie local console (server + web) at http://127.0.0.1:7470. See below.
 
-## NeuroWorks — local console
+## Naxie — local console
 
 Local-only browser app. Bind: `127.0.0.1:7470` (web) and `127.0.0.1:7471` (server). Loopback-only and additionally protected by a Host + Origin allow-list against DNS-rebinding / cross-origin POST attacks (see [Security](#security)).
 
@@ -72,7 +72,7 @@ curl -X POST http://127.0.0.1:7471/api/v1/dispatch \
   webhook (`NW_WEBHOOK_SIGNING_SECRET`). Supports `Idempotency-Key`; each key
   reads only its own jobs (tenancy). The `/api/v1/` surface is exempt from the
   origin guard because it authenticates by key, not by Host/Origin.
-- **Four client modes** — REST + webhook, an **SDK** ([sdk/](sdk/) — `new NeuroWorks({baseUrl,apiKey}).run(task)`), a **CLI** ([tools/nw.mjs](tools/nw.mjs) — `nw dispatch "…" --wait`), and an **MCP server** ([server/mcp/neuroworks-dispatch-mcp.mjs](server/mcp/neuroworks-dispatch-mcp.mjs)) exposing `dispatch_task` to any MCP host. All are thin clients over the same REST keystone.
+- **Four client modes** — REST + webhook, an **SDK** ([sdk/](sdk/) — `new Naxie({baseUrl,apiKey}).run(task)`), a **CLI** ([tools/nw.mjs](tools/nw.mjs) — `nw dispatch "…" --wait`), and an **MCP server** ([server/mcp/naxie-dispatch-mcp.mjs](server/mcp/naxie-dispatch-mcp.mjs)) exposing `dispatch_task` to any MCP host. All are thin clients over the same REST keystone.
 
 ### First run
 
@@ -104,8 +104,8 @@ payments are optional add-ons configured in `.env`.
 
 `.env` keys (see `.env.example`):
 - `GITHUB_TOKEN` — fine-grained PAT (same one used for `NAXION_PAT`).
-- `GITHUB_OWNER` — `RUBIEM-DEVELOPERS-REPO`.
-- `VAULT_REPO` — `RUBIEM-DEVELOPERS-REPO/main-brain`.
+- `GITHUB_OWNER` — `NatureAiia`.
+- `VAULT_REPO` — `marknature/NaxionAI_Vault-Repo`.
 - `VAULT_PATH` — local path to vault (`D:\Main brain`).
 - `OLLAMA_HOST` — defaults to `http://127.0.0.1:11434`.
 - `OLLAMA_MODEL` — defaults to `qwen2.5:3b`. Pull a stronger model for better summaries: `ollama pull llama3.1:8b`.
@@ -156,18 +156,18 @@ Path + URL gates on agent primitives:
 `POST /api/repos/:owner/:name/summarize`:
 1. Fetches README + last 90 days of commits + open PRs + open issues from GitHub.
 2. Sends a tight system-prompted Ollama generation (Purpose / Stack / State / Recent direction / Notable open work).
-3. Writes `_clawbot/summaries/<owner>-<name>.md` into the vault.
+3. Writes `_naxie/summaries/<owner>-<name>.md` into the vault.
 4. `git commit && git push` to keep the vault repo in sync.
 
 The Knowledge page lists committed summaries; click "Refresh summary" to regenerate.
 
 ## Persistence + reflection
 
-- Job history persists as append-only JSONL at `.neuroworks/jobs/<YYYY-MM-DD>.jsonl` (gitignored). Survives restarts and the in-memory `RECENT=200` cap.
+- Job history persists as append-only JSONL at `.naxion/jobs/<YYYY-MM-DD>.jsonl` (gitignored). Survives restarts and the in-memory `RECENT=200` cap.
 - Daily reflection at 2 AM local (configurable via `NAXION_REFLECTION_HOUR`) aggregates the last 24h across the local store, in-memory state, and every peer's `/api/peers/jobs` endpoint — so delegations to the secondary are visible.
-- Output lands at `<vault>/_neuroworks/reflections/<YYYY-MM-DD>.md` with sections "What went well / What went wrong / What I notice / What to try next" plus a raw stats snapshot.
+- Output lands at `<vault>/_naxion/reflections/<YYYY-MM-DD>.md` with sections "What went well / What went wrong / What I notice / What to try next" plus a raw stats snapshot.
 
-## Multi-clawbot (primary + secondary)
+## Multi-agent (primary + secondary)
 
 ```sh
 pnpm dev          # primary on :7471, web on :7470
@@ -179,8 +179,8 @@ The secondary acts as a parallel worker for sub-agent fan-out + the curation/rev
 ## Tests
 
 ```sh
-pnpm -F neuroworks-server test         # vitest suite (one-shot)
-pnpm -F neuroworks-server test:watch   # vitest watch mode
+pnpm -F naxion-server test         # vitest suite (one-shot)
+pnpm -F naxion-server test:watch   # vitest watch mode
 ```
 
 Tests cover the cascade contract: heuristic planning, skill picker scoring, direct-answer triage, and the origin guard. Don't refactor `agent.ts` without running the suite — the regexes are easy to drift.

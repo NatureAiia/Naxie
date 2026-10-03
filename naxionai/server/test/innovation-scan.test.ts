@@ -10,7 +10,7 @@ import { join } from "node:path";
 const tmpVault = mkdtempSync(join(tmpdir(), "nw-innovation-scan-test-"));
 process.env.VAULT_PATH = tmpVault;
 
-mkdirSync(join(tmpVault, "_neuroworks"), { recursive: true });
+mkdirSync(join(tmpVault, "_naxion"), { recursive: true });
 mkdirSync(join(tmpVault, "_governance"), { recursive: true });
 
 // Seed a learned quality signal weak enough to surface: 3+ "auto" flags on
@@ -23,7 +23,7 @@ const qualityFlags = [1, 2, 3].map(i => JSON.stringify({
   axes: { citation_coverage: 0.1, factuality_risk: 0.1, persona_fit: 0.9, prompt_alignment: 0.9 },
   ts: new Date(2026, 0, i).toISOString(),
 })).join("\n") + "\n";
-writeFileSync(join(tmpVault, "_neuroworks", "quality.jsonl"), qualityFlags);
+writeFileSync(join(tmpVault, "_naxion", "quality.jsonl"), qualityFlags);
 
 // Seed a reflection bottleneck entry that clears MIN_RUNS/MIN_FAILURE_RATE.
 writeFileSync(join(tmpVault, "_governance", "bottlenecks.json"), JSON.stringify({
@@ -113,9 +113,9 @@ describe("renderMarkdown", () => {
 });
 
 describe("runInnovationScan write path", () => {
-  it("writes to the expected _neuroworks/innovation-scans/<date>.md shape", async () => {
+  it("writes to the expected _naxion/innovation-scans/<date>.md shape", async () => {
     const result = await runInnovationScan({ force: true });
-    expect(result.path).toMatch(/^_neuroworks\/innovation-scans\/\d{4}-\d{2}-\d{2}\.md$/);
+    expect(result.path).toMatch(/^_naxion\/innovation-scans\/\d{4}-\d{2}-\d{2}\.md$/);
     const full = join(tmpVault, result.path);
     expect(existsSync(full)).toBe(true);
     const body = readFileSync(full, "utf8");

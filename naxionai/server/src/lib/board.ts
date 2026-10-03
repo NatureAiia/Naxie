@@ -31,7 +31,7 @@ import { readBoardLessonSuffix, classifyCorrection, recordBoardCorrection, CHAIR
 import { writeBoardMeetingNote } from "./board-notes.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const FILE = join(STATE_DIR, "board-meetings.json");
 const MAX_RUNS = 50;
 

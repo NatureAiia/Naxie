@@ -319,7 +319,7 @@ const MAX_CONCURRENT_JOBS = Math.max(0, Number(process.env.NAXION_MAX_CONCURRENT
 // pure no-op and every job (crown or not) still runs immediately.
 const CROWN_RESERVED_SLOTS = Math.max(0, Number(process.env.NAXION_CROWN_RESERVED_SLOTS ?? "1"));
 // Mirror every job into the Obsidian vault as a markdown note? Default OFF — it
-// littered the user's real vault (D:\Main brain\_neuroworks\jobs\) with a new
+// littered the user's real vault (D:\Main brain\_naxion\jobs\) with a new
 // file per task (incl. delegated sub-tasks + test runs). The durable record the
 // app actually reads (Reports, calendar, reflection) is the slim JSONL journal
 // via persistJobRecord, NOT these notes — so turning the mirror off loses no
@@ -533,7 +533,7 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
           const items: string[] = Array.isArray(hr?.items) ? hr.items.map((it: any) => `- ${it.prompt}`) : [];
           await sendEmail({
             to: operator.email,
-            subject: `Neuro needs your input: ${(j.title ?? j.kind).replace(/[\r\n]+/g, " ").slice(0, 120)}`,
+            subject: `Naxie needs your input: ${(j.title ?? j.kind).replace(/[\r\n]+/g, " ").slice(0, 120)}`,
             body: [
               `A neuro paused **${j.title ?? j.kind}** — it needs the following from a human before it can finish:`,
               "",
@@ -568,7 +568,7 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
     // second brain (daily briefing, recurring digests). Opt everything in with
     // NAXION_JOURNAL_TO_VAULT=1.
     if (JOURNAL_TO_VAULT || j.scheduledBy || isImportantForVault(j)) void journalJob(j);
-    // Append a slim JSONL record to .neuroworks/jobs/ so the nightly
+    // Append a slim JSONL record to .naxion/jobs/ so the nightly
     // reflection still sees this job after the in-memory RECENT=200 cap
     // evicts it or the server restarts. Synchronous + best-effort —
     // appendFileSync is fast, and persistJobRecord swallows errors so a
@@ -583,7 +583,7 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
     try {
       logAudit({
         level: j.status === "failed" ? "error" : "info",
-        actor: j.personaName ?? "neuroworks",
+        actor: j.personaName ?? "naxie",
         action: `job.${j.kind ?? "run"}`,
         target: j.template ?? j.title ?? j.kind ?? "task",
         detail: (j.title ?? j.template ?? j.kind ?? "").slice(0, 200),
@@ -747,7 +747,7 @@ async function journalJob(j: Job) {
     }
     const slug = (j.title ?? j.template ?? j.kind).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60) + "-" + j.id.slice(0, 8);
     // Stamp the active persona on every journal entry so vault searches like
-    // `tags: clawbot` or frontmatter filters can isolate one persona's work.
+    // `tags: naxie` or frontmatter filters can isolate one persona's work.
     const activePersona = getActivePersona();
     await journal({
       kind: "job",

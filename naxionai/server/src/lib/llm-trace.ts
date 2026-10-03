@@ -9,7 +9,7 @@
 // WHAT THIS DELIBERATELY DOES NOT STORE: the prompt and the response. Sizes,
 // timings and outcomes only. The text passing through this layer can be
 // mailbox contents, vault notes and client documents; a plain-text record of
-// it sitting in .neuroworks would be a bigger liability than the debugging
+// it sitting in .naxion would be a bigger liability than the debugging
 // is worth. `promptHash` groups repeats — "this same call ran eleven times"
 // — without keeping a word of it.
 //
@@ -51,7 +51,7 @@ export type TraceRow = {
 
 function stateDir(): string {
   const override = (process.env.NAXION_STATE_DIR ?? "").trim();
-  return override || resolve(dirname(fileURLToPath(import.meta.url)), "../../../.neuroworks");
+  return override || resolve(dirname(fileURLToPath(import.meta.url)), "../../../.naxion");
 }
 function traceFile(): string {
   return join(stateDir(), "llm-trace.jsonl");

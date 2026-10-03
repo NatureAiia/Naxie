@@ -17,7 +17,7 @@ import { config } from "../config.js";
 import { llmGenerate } from "./llm.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONSTRAINT_DIR = resolve(__dirname, "../../../.neuroworks/constraints");
+const CONSTRAINT_DIR = resolve(__dirname, "../../../.naxion/constraints");
 
 const POLICY_DIR_REL = "_governance";
 
@@ -153,7 +153,7 @@ export type ExtractedConstraint = {
   createdAt: string;
 };
 
-// Store constraints per-policy as JSON files in .neuroworks/constraints/
+// Store constraints per-policy as JSON files in .naxion/constraints/
 function constraintPath(policyName: string): string {
   return join(CONSTRAINT_DIR, `${policyName}.json`);
 }

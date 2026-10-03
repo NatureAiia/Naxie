@@ -34,7 +34,7 @@ weeklyImprovementRouter.post("/run", async (_req, res) => {
 weeklyImprovementRouter.get("/:date", (req, res) => {
   const date = String(req.params.date);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "date must be YYYY-MM-DD" });
-  const abs = join(config.vaultPath, "_neuroworks/weekly-improvements", `${date}.md`);
+  const abs = join(config.vaultPath, "_naxion/weekly-improvements", `${date}.md`);
   if (!existsSync(abs)) return res.status(404).json({ error: "no review for that date" });
   res.json({ date, markdown: readFileSync(abs, "utf8") });
 });

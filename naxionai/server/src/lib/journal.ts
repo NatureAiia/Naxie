@@ -11,16 +11,16 @@ export type JournalEntry = {
   daily?: boolean;
 };
 
-const ROOT = "_neuroworks";
+const ROOT = "_naxion";
 
-// Drops a markdown record into the vault under `_neuroworks/<kind>/...` so every
+// Drops a markdown record into the vault under `_naxion/<kind>/...` so every
 // material event from the local NeuroWorks server is searchable from the second
 // brain. Commits are best-effort and never throw — a journal failure must not
 // fail the underlying job.
 export async function journal(entry: JournalEntry): Promise<{ path: string } | { skipped: string }> {
   try {
     const date = new Date().toISOString().slice(0, 10);
-    // Folder naming: pluralise kind so `job` → `jobs/`, matching _neuroworks/README.md.
+    // Folder naming: pluralise kind so `job` → `jobs/`, matching _naxion/README.md.
     // `loop` and `session` stay singular (loop is a stream, session is conceptually scalar).
     const folder = (entry.kind === "loop" || entry.kind === "session") ? entry.kind : `${entry.kind}s`;
     const path = entry.daily

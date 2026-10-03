@@ -32,7 +32,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const SETTINGS_FILE = join(STATE_DIR, "host-tools-settings.json");
 
 // ─── Settings > System Access (docs §2.2/§8.5) ─────────────────────────────

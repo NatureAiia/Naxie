@@ -11,7 +11,7 @@
 // what lets the Cost page price human work next to agent spend, and the
 // time-waste analysis attribute hours to the human side.
 //
-// Persisted append-only at .neuroworks/human-work.jsonl (gitignored, same
+// Persisted append-only at .naxion/human-work.jsonl (gitignored, same
 // pattern as the jobs journal — durable, jq-able, no DB dependency).
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const LEDGER_PATH = resolve(CONFIG_DIR, "human-work.jsonl");
 
 export type HumanWorkSource = "upload" | "connector" | "manual" | "session";

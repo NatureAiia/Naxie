@@ -1,15 +1,15 @@
 import { Router } from "express";
 import { primitives, findPrimitive, type Primitive } from "../lib/primitives.js";
 
-// Primitives bridge — exposes a CURATED subset of clawbot's agent primitives
-// over HTTP so an external agent (Hermes, via the MCP bridge in mcp/clawbot-
-// mcp.mjs) can call clawbot's real tools: vault grounding, connectors (→ Aiia),
+// Primitives bridge — exposes a CURATED subset of Naxie's agent primitives
+// over HTTP so an external agent (Hermes, via the MCP bridge in mcp/naxie-
+// mcp.mjs) can call Naxie's real tools: vault grounding, connectors,
 // integrations, web reads, and read-only payment status. Execution happens here
 // in the LIVE server, so the real vault path + encrypted connector secrets are
 // used. NOT exposed: money-moving (payment.link) or destructive writes
 // (vault.edit/write/append, web.interact) — see ALLOWLIST.
 //
-// Scope is "grounding + connectors + Aiia". Override with NAXION_MCP_TOOLS
+// Scope is "grounding + connectors". Override with NAXION_MCP_TOOLS
 // (comma-separated primitive names) if you need a different set.
 
 export const primitivesRouter = Router();
@@ -26,7 +26,7 @@ const DEFAULT_ALLOWLIST = [
   // Org / users directory (read-only — names, emails, roles; never passwords)
   "users.list", "users.lookup", "org.reports",
   // Long-term memory — recall/persist durable facts. Without these on the
-  // bridge, the Hermes executor (which can't call clawbot primitives natively)
+  // bridge, the Hermes executor (which can't call Naxie primitives natively)
   // can neither remember nor recall, so memory was dead under Hermes-primary.
   "memory.note", "memory.recall", "memory.search",
   // Calendar — today's meetings (iCal), the agents' own activity, a full day

@@ -1,6 +1,9 @@
 // Voice engine — gives employees (personas) a spoken presence over their
-// reports. Three tiers, best-available wins, each independently optional:
+// reports. Four tiers, best-available wins, each independently optional:
 //
+//   elevenlabs — ElevenLabs cloud TTS (Rachel for Naxie by default), used
+//               for narration / read-aloud (the /api/voice/tts endpoint).
+//               Needs ELEVENLABS_API_KEY; voice via ELEVENLABS_VOICE_ID.
 //   realtime  — OpenAI Realtime (WebRTC, full-duplex, interruptible). Uses
 //               the OpenAI provider key already registered in the model
 //               pool; the server only mints a short-lived client secret and
@@ -12,9 +15,9 @@
 //               field to steer delivery style per persona.
 //   localTts  — an OpenAI-compatible speech sidecar (Kokoro-FastAPI, Piper
 //               behind LocalAI, etc.) at NAXION_TTS_URL. Free, offline,
-//               per-employee voices. Falls back here if openaiTts fails.
+//               per-employee voices. Falls back here if cloud TTS fails.
 //   webSpeech — the browser's own speechSynthesis. Always there; the client
-//               falls back to it when this module reports both tiers dark.
+//               falls back to it when this module reports all tiers dark.
 //
 // Voice identity: each persona hashes to a stable voice per tier, so Nova
 // always sounds like Nova without any manual mapping. (A future persona
@@ -48,6 +51,17 @@ function openaiCreds(): { apiKey: string; baseUrl: string } | null {
     return { apiKey: config.openrouterApiKey, baseUrl: "https://api.openai.com/v1" };
   }
   return null;
+}
+
+// ── ElevenLabs (paid, primary narration voice — Rachel for Naxie) ─────────
+// Needs ELEVENLABS_API_KEY. Voice defaults to Rachel (Confident & Friendly,
+// British): c3QefzBhE1Cx4Yl23IV3 — override with ELEVENLABS_VOICE_ID.
+const ELEVENLABS_API_KEY = (process.env.ELEVENLABS_API_KEY ?? "").trim();
+const ELEVENLABS_VOICE_ID = (process.env.ELEVENLABS_VOICE_ID ?? "c3QefzBhE1Cx4Yl23IV3").trim();
+const ELEVENLABS_MODEL = (process.env.ELEVENLABS_MODEL ?? "eleven_multilingual_v2").trim();
+
+export function elevenLabsAvailable(): boolean {
+  return ELEVENLABS_API_KEY.length > 0;
 }
 
 // OpenAI TTS — a DEDICATED key (independent of whichever provider is active
@@ -97,7 +111,7 @@ export async function localTtsAvailable(): Promise<boolean> {
   return ok;
 }
 
-export async function voiceStatus(): Promise<{ realtime: boolean; openaiTts: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean; wakeWord: { available: boolean; modelDir: string | null; phrase: string; variants: string[] } }> {
+export async function voiceStatus(): Promise<{ realtime: boolean; elevenlabs: boolean; openaiTts: boolean; localTts: boolean; realtimeModel: string; ttsUrlConfigured: boolean; wakeWord: { available: boolean; modelDir: string | null; phrase: string; variants: string[] } }> {
   let wakeWord: { available: boolean; modelDir: string | null; phrase: string; variants: string[] };
   try {
     const { wakeWordStatus } = await import("./wake-word.js");
@@ -107,6 +121,7 @@ export async function voiceStatus(): Promise<{ realtime: boolean; openaiTts: boo
   }
   return {
     realtime: openaiCreds() !== null,
+    elevenlabs: elevenLabsAvailable(),
     openaiTts: openaiTtsAvailable(),
     localTts: await localTtsAvailable(),
     realtimeModel: REALTIME_MODEL,
@@ -128,15 +143,17 @@ function hashIdx(s: string, mod: number): number {
   return h % mod;
 }
 
-export function voiceForPersona(personaId: string | undefined): { openaiVoice: string; localVoice: string } {
+export function voiceForPersona(personaId: string | undefined): { openaiVoice: string; localVoice: string; elevenLabsVoice: string } {
   const key = (personaId ?? "default").toLowerCase();
-  const isNaxie = key === "naxie" || key === "neuro" || key === "clawbot";
+  const isNaxie = key === "naxie" || key === "naxie-agent";
   // Naxie is pinned to specific voices rather than the hash — the hash can
   // land anywhere in the list, including a voice that doesn't match her
   // identity (e.g. a male Kokoro voice, or OpenAI's energetic "nova").
+  // ElevenLabs: single licensed voice (Rachel) for everyone for now — a
+  // future persona field can override per-employee.
   const localVoice = isNaxie ? "af_heart" : LOCAL_VOICES[hashIdx(key, LOCAL_VOICES.length)];
   const openaiVoice = isNaxie ? NAXIE_OPENAI_VOICE : OPENAI_VOICES[hashIdx(key, OPENAI_VOICES.length)];
-  return { openaiVoice, localVoice };
+  return { openaiVoice, localVoice, elevenLabsVoice: ELEVENLABS_VOICE_ID };
 }
 
 // ── on-disk TTS cache ────────────────────────────────────────────────────
@@ -148,7 +165,7 @@ export function voiceForPersona(personaId: string | undefined): { openaiVoice: s
 // "engine" dimension (which provider actually produced the audio), since
 // that's what determines the voice namespace here.
 
-export const TTS_CACHE_DIR = resolve(__dirname, "../../../.neuroworks", "tts_cache");
+export const TTS_CACHE_DIR = resolve(__dirname, "../../../.naxion", "tts_cache");
 const TTS_CACHE_EXT_BY_CONTENT_TYPE: Record<string, string> = { "audio/mpeg": "mp3", "audio/wav": "wav" };
 
 export function ttsCacheKey(text: string, voice: string, tier: string): string {
@@ -202,7 +219,7 @@ export function ttsCacheStore(key: string, audio: Buffer, contentType: string): 
   }
 }
 
-// ── tiers B/C: OpenAI cloud TTS, then local sidecar ─────────────
+// ── tiers: ElevenLabs cloud TTS first, then OpenAI, then local sidecar ─────
 
 // `onChunk`, when given, is called with each chunk of audio as it arrives
 // from the provider (or once, with the whole thing, on a cache hit) — this is
@@ -212,9 +229,22 @@ export function ttsCacheStore(key: string, audio: Buffer, contentType: string): 
 export async function synthesizeWithVoice(text: string, personaId: string | undefined, onChunk?: (chunk: Buffer) => void): Promise<{ audio: Buffer; contentType: string }> {
   const v = voiceForPersona(personaId);
   const key = (personaId ?? "").toLowerCase();
-  const isNaxie = key === "naxie" || key === "neuro" || key === "clawbot";
+  const isNaxie = key === "naxie" || key === "naxie-agent";
+  const elevenCacheKey = ttsCacheKey(text, v.elevenLabsVoice, "elevenlabs");
   const openaiCacheKey = ttsCacheKey(text, v.openaiVoice, "openai");
   const localCacheKey = ttsCacheKey(text, v.localVoice, "local");
+
+  if (elevenLabsAvailable()) {
+    const cached = ttsCacheLoad(elevenCacheKey);
+    if (cached) { onChunk?.(cached.audio); return cached; }
+    try {
+      const out = await synthesizeElevenLabs(text, v.elevenLabsVoice, onChunk);
+      ttsCacheStore(elevenCacheKey, out.audio, out.contentType);
+      return out;
+    } catch (e) {
+      console.warn(`[voice] ElevenLabs TTS failed, falling back: ${String((e as any)?.message ?? e).slice(0, 120)}`);
+    }
+  }
 
   if (openaiTtsAvailable()) {
     const cached = ttsCacheLoad(openaiCacheKey);
@@ -251,6 +281,28 @@ async function collectStreamed(r: Response, onChunk?: (chunk: Buffer) => void): 
     onChunk(buf);
   }
   return Buffer.concat(chunks);
+}
+
+export async function synthesizeElevenLabs(text: string, voiceId: string, onChunk?: (chunk: Buffer) => void): Promise<{ audio: Buffer; contentType: string }> {
+  if (!ELEVENLABS_API_KEY) throw new Error("ElevenLabs not configured (ELEVENLABS_API_KEY)");
+  const vid = (voiceId || ELEVENLABS_VOICE_ID).trim() || ELEVENLABS_VOICE_ID;
+  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(vid)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY },
+    body: JSON.stringify({
+      text: text.slice(0, 4000),
+      model_id: ELEVENLABS_MODEL,
+      voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`ElevenLabs TTS ${r.status}: ${t.slice(0, 300)}`);
+  }
+  const audio = await collectStreamed(r, onChunk);
+  if (audio.length === 0) throw new Error("ElevenLabs TTS returned empty audio");
+  return { audio, contentType: r.headers.get("content-type") ?? "audio/mpeg" };
 }
 
 export async function synthesizeOpenAITts(text: string, voice: string, instructions?: string, onChunk?: (chunk: Buffer) => void): Promise<{ audio: Buffer; contentType: string }> {

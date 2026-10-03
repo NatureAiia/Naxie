@@ -99,7 +99,7 @@ describe("grounding corpus", () => {
 
   it("flags the operator's must-never-fail asks as critical", () => {
     const ids = CRITICAL_CASES.map(c => c.id);
-    expect(ids).toContain("vault-what-is-neuroworks");
+    expect(ids).toContain("vault-what-is-naxie");
     expect(CRITICAL_CASES.length).toBeGreaterThanOrEqual(6);
   });
 
@@ -203,7 +203,7 @@ describe("not-found detector", () => {
     // honest refusal.
     const positives = [
       "Our 2026 strategic plan sets out three pillars: capability, partnerships and revenue. " +
-      "[vault:_company/Aiia_2026_Strategic_Plan.extracted.md]",
+      "[vault:_knowledge/naxie-platform.md]",
       "Jordan is the Innovation Planning Lead and reports to amara@example.com.",
       "The Website DB has 14 tables in the public schema, including users and sessions.",
       "The 2027 Mars logistics plan targets launch windows in March and October, with no " +
@@ -236,8 +236,8 @@ describeVault("vault index", () => {
     expect(stats.docs, "index built but empty — every retrieval is running on the fallback path").toBeGreaterThan(0);
   });
 
-  it("has the canonical NeuroWorks explainer on disk", () => {
-    expect(existsSync(resolve(VAULT, "_knowledge/neuroworks-platform.md"))).toBe(true);
+  it("has the canonical Naxie explainer on disk", () => {
+    expect(existsSync(resolve(VAULT, "_knowledge/naxie-platform.md"))).toBe(true);
   });
 
   it("survives a vault write instead of being thrown away", () => {
@@ -259,13 +259,13 @@ describeVault("ranking prefers curated knowledge over machine scratch notes", ()
   beforeAll(async () => { await buildIndex(VAULT); }, 120_000);
 
   it("puts the canonical explainer ahead of job-journal chatter", () => {
-    const hits = searchVault("neuroworks", 20).map(h => h.path);
-    const canonical = hits.findIndex(p => /_knowledge\/neuroworks-platform/i.test(p));
+    const hits = searchVault("what is naxie", 20).map(h => h.path);
+    const canonical = hits.findIndex(p => /_knowledge\/naxie-platform/i.test(p));
     expect(canonical, `canonical explainer absent from top 20:\n  ${hits.join("\n  ")}`).toBeGreaterThanOrEqual(0);
     // It does not have to be #1 — but it must not sit behind a wall of
-    // _neuroworks/jobs scratch records, which is what produced the
+    // _naxion/jobs scratch records, which is what produced the
     // "based on the limited vault notes provided" non-answer.
-    const noiseAhead = hits.slice(0, canonical).filter(p => /^_neuroworks\/(jobs|session)\//i.test(p)).length;
+    const noiseAhead = hits.slice(0, canonical).filter(p => /^_naxion\/(jobs|session)\//i.test(p)).length;
     expect(noiseAhead, `${noiseAhead} agent scratch notes outrank the canonical explainer`).toBeLessThanOrEqual(3);
   });
 });
@@ -323,10 +323,10 @@ describe("topic extraction survives natural question shapes", () => {
   // interrogative frame survives extraction, the query ANDs tokens no note can
   // contain and the vault silently returns nothing.
   const cases: [string, string][] = [
-    ["What is NeuroWorks?", "NeuroWorks"],
-    ["what's NeuroWorks", "NeuroWorks"],
-    ["How does the clawbot work?", "clawbot"],
-    ["What can NeuroWorks do for an employee day to day?", "NeuroWorks"],
+    ["What is Naxie?", "Naxie"],
+    ["what's Naxie", "Naxie"],
+    ["How does Naxie work?", "Naxie"],
+    ["What can Naxie do for me day to day?", "Naxie"],
     ["What does our 2026 strategic plan say?", "2026 strategic plan"],
     ["What are the rules in our GitHub governance policy?", "GitHub governance policy"],
     // The DOCUMENT is the retrieval term; what the asker wants from it is not.
@@ -352,11 +352,11 @@ describeVault("a whole-question query still retrieves", () => {
   beforeAll(async () => { await buildIndex(VAULT); }, 120_000);
 
   it("a loose query still yields real evidence after captures are excluded", () => {
-    // "the clawbot work" matches hundreds of job journals. Filtering captures
+    // "the Naxie work" matches hundreds of job journals. Filtering captures
     // out of a capped result set left NOTHING, so research.deep fell back to
     // the web and described OpenClaw as if it were ours. The exclusion has to
     // happen inside the search, not after it.
-    const hits = searchVault("the clawbot work", 20, { excludeAgentCaptures: true }).map(h => h.path);
+    const hits = searchVault("the Naxie work", 20, { excludeAgentCaptures: true }).map(h => h.path);
     expect(hits.every(p => !isAgentCapture(p))).toBe(true);
     expect(
       hits.length,
@@ -371,15 +371,15 @@ describeVault("a whole-question query still retrieves", () => {
     // window is.
     //
     // Measured at #14 for this ask once the reflection backlog (39KB of
-    // agent-written telemetry mentioning NeuroWorks on nearly every line) landed
-    // in _neuroworks/reflections/, which isAgentCapture did not recognise. The
+    // agent-written telemetry mentioning Naxie on nearly every line) landed
+    // in _naxion/reflections/, which isAgentCapture did not recognise. The
     // evidence pool then held no product description and the agent reported that
     // the vault did not describe NeuroWorks — with a web page about Moveworks in
     // the same pool.
     const READ_WINDOW = 4;
-    const hits = searchVault("What can NeuroWorks do for an employee day to day?", 20, { excludeAgentCaptures: true })
+    const hits = searchVault("What can Naxie do for me day to day?", 20, { excludeAgentCaptures: true })
       .map(h => h.path);
-    const rank = hits.findIndex(p => /_knowledge\/neuroworks-platform/i.test(p));
+    const rank = hits.findIndex(p => /_knowledge\/naxie-platform/i.test(p));
     expect(
       rank >= 0 && rank < READ_WINDOW,
       `canonical explainer ranks #${rank + 1} of ${hits.length}; research.deep reads only the top ${READ_WINDOW} in full.\n` +
@@ -405,19 +405,19 @@ describe("the agent's own output is not evidence", () => {
   // write-up and run 3 in run 2's — the answer stays confident while its
   // evidence drifts from the canonical document to a paraphrase of a paraphrase.
   it("recognises every capture-writer's naming convention", () => {
-    expect(isAgentCapture("0-Inbox/202607291035-research-what-is-neuroworks.md")).toBe(true);
-    expect(isAgentCapture("0-Inbox/202607291035-curated-what-is-neuroworks.md")).toBe(true);
-    expect(isAgentCapture("0-Inbox/202607291035-multiperspective-what-is-neuroworks.md")).toBe(true);
-    expect(isAgentCapture("_neuroworks/jobs/2026-07-27-ad-hoc-something.md")).toBe(true);
-    expect(isAgentCapture("_neuroworks/session/2026-07-29-session-x.md")).toBe(true);
+    expect(isAgentCapture("0-Inbox/202607291035-research-what-is-naxie.md")).toBe(true);
+    expect(isAgentCapture("0-Inbox/202607291035-curated-what-is-naxie.md")).toBe(true);
+    expect(isAgentCapture("0-Inbox/202607291035-multiperspective-what-is-naxie.md")).toBe(true);
+    expect(isAgentCapture("_naxion/jobs/2026-07-27-ad-hoc-something.md")).toBe(true);
+    expect(isAgentCapture("_naxion/session/2026-07-29-session-x.md")).toBe(true);
     // Reflections are the system writing about itself, and the engineering
     // backlog is 39KB of it. Left unfiltered it became the #1 vault hit for a
     // question about the product it reports on.
-    expect(isAgentCapture("_neuroworks/reflections/engineering-backlog.md")).toBe(true);
-    expect(isAgentCapture("_neuroworks/reflections/2026-07-30-reflection.md")).toBe(true);
+    expect(isAgentCapture("_naxion/reflections/engineering-backlog.md")).toBe(true);
+    expect(isAgentCapture("_naxion/reflections/2026-07-30-reflection.md")).toBe(true);
     // Saved custom templates carry the persona preamble, so they match almost
-    // any question about the org — they ranked #2 and #3 for the NeuroWorks ask.
-    expect(isAgentCapture("_neuroworks/templates/2026-07-12-custom-you-are-operating-as-n.md")).toBe(true);
+    // any question about the org — they ranked #2 and #3 for the Naxie ask.
+    expect(isAgentCapture("_naxion/templates/2026-07-12-custom-you-are-operating-as-n.md")).toBe(true);
     // A published dataset's rag.md is every record flattened into one 168KB
     // blob. It mentions almost every common word, so it outranks real notes on
     // unrelated queries — the only vault hit for "which official company
@@ -430,17 +430,16 @@ describe("the agent's own output is not evidence", () => {
     expect(isAgentCapture("_datasets/awesome-curated-software-resource-lists-mrfgp8gq/00-awesome-curated-software-resource-lists.md")).toBe(false);
   });
 
-  it("leaves hand-written docs under _neuroworks/ alone", () => {
-    // _neuroworks/docs/ is written by people, not the fleet.
-    expect(isAgentCapture("_neuroworks/docs/README.md")).toBe(false);
+  it("leaves hand-written docs under _naxion/ alone", () => {
+    // _naxion/docs/ is written by people, not the fleet.
+    expect(isAgentCapture("_naxion/docs/README.md")).toBe(false);
   });
 
   it("leaves human knowledge alone", () => {
     // Curated knowledge, uploaded company documents, and a human's own fleeting
     // note in 0-Inbox are all legitimate evidence. So is a capture the human
     // judged worth promoting — promotion moves it out of 0-Inbox by design.
-    expect(isAgentCapture("_knowledge/neuroworks-platform.md")).toBe(false);
-    expect(isAgentCapture("_company/Aiia_2026_Strategic_Plan.extracted.md")).toBe(false);
+    expect(isAgentCapture("_knowledge/naxie-platform.md")).toBe(false);
     expect(isAgentCapture("0-Inbox/202604251430-a-thought-i-had.md")).toBe(false);
     expect(isAgentCapture("2-Permanent/202607291035-research-promoted-insight.md")).toBe(false);
     expect(isAgentCapture("4-Projects/EasyMobile/roadmap.md")).toBe(false);
@@ -451,13 +450,13 @@ describeVault("self-capture pollution is filtered out of retrieval", () => {
   beforeAll(async () => { await buildIndex(VAULT); }, 120_000);
 
   it("the canonical explainer outranks the agent's 18 prior answers", () => {
-    const all = searchVault("neuroworks", 30).map(h => h.path);
+    const all = searchVault("naxie", 30).map(h => h.path);
     const evidence = all.filter(p => !isAgentCapture(p));
     const dropped = all.length - evidence.length;
     // Sanity: the pollution this guards against is real in this vault.
     expect(dropped, "no agent captures matched — the filter is untested here").toBeGreaterThan(0);
     expect(
-      evidence.some(p => /_knowledge\/neuroworks-platform/i.test(p)),
+      evidence.some(p => /_knowledge\/naxie-platform/i.test(p)),
       `canonical explainer missing from filtered evidence (${dropped} captures dropped):\n  ${evidence.join("\n  ")}`,
     ).toBe(true);
   });

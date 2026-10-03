@@ -108,7 +108,7 @@ export function NaxieMemory() {
                 <div>Org: {ctx.operator.orgName || "—"} · Sector: {ctx.operator.sector || "—"}</div>
                 <div>Lang: {ctx.operator.language}</div>
               </div>
-              <div className="mt-3 text-[10px] text-cream-300/40">Source: vault/_neuroworks/identity/operator.md + users.json + memory subject "operator"</div>
+              <div className="mt-3 text-[10px] text-cream-300/40">Source: vault/_naxion/identity/operator.md + users.json + memory subject "operator"</div>
             </div>
 
             <div className="bg-ink-900 border border-ink-800 rounded-xl p-4">
@@ -134,7 +134,7 @@ export function NaxieMemory() {
             <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1 text-[11px]">
               {ctx.roster.workers.map(w => <div key={w.id} className="flex items-center gap-2 py-0.5"><span className="font-mono text-cream-300/60">{w.id}</span><span className="text-cream-100">{w.name}</span><span className="text-cream-300/50">— {w.role}</span></div>)}
             </div>
-            <div className="mt-2 text-[10px] text-cream-300/40">Source: vault/_neuroworks/identity/subagents.md — rewritten on every new persona.</div>
+            <div className="mt-2 text-[10px] text-cream-300/40">Source: vault/_naxion/identity/subagents.md — rewritten on every new persona.</div>
           </div>
 
           <div className="bg-ink-900 border border-ink-800 rounded-xl p-4">
@@ -207,7 +207,7 @@ export function NaxieMemory() {
               <input value={teach.date} onChange={e => setTeach(s => ({ ...s, date: e.target.value }))} placeholder="date YYYY-MM-DD (opt)" className="bg-ink-950 border border-ink-800 rounded-md px-2 py-1.5 text-xs" />
               <button onClick={remember} disabled={teachBusy || !teach.fact.trim()} className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-xs text-white">Save</button>
             </div>
-            <div className="text-[10px] text-cream-300/40">Writes to _neuroworks/memory/&lt;subject&gt;.jsonl + vault git + busts CAG cache. Query it next via RAG.</div>
+            <div className="text-[10px] text-cream-300/40">Writes to _naxion/memory/&lt;subject&gt;.jsonl + vault git + busts CAG cache. Query it next via RAG.</div>
           </div>
         </>
       )}

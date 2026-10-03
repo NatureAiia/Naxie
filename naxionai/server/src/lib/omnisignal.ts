@@ -30,7 +30,7 @@ import { searchVault } from "./vault.js";
 import { publishDataset, type PublishResult } from "./adrs.js";
 
 // Resolved per call, not at import time. This used to be a module-level
-// `resolve(__dirname, "../../../.neuroworks")`, which is evaluated before a test
+// `resolve(__dirname, "../../../.naxion")`, which is evaluated before a test
 // can redirect NAXION_STATE_DIR and is exactly what state-dir-isolation
 // .test.ts exists to catch — it slipped through only because the constant name
 // matched its regex. Same thunk idiom as adrs.ts REGISTRY_PATH.

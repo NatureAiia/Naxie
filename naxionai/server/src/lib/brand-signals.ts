@@ -19,7 +19,7 @@ import { findPrimitive } from "./primitives.js";
 // 3 gates + the 2 alert rules.
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const STORE = resolve(CONFIG_DIR, "brand-signals.json");
 
 export type BrandSignal = {

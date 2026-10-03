@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
-// Model home: neuroworks/server/media/vosk_model (moved out of the retired
+// Model home: naxionai/server/media/vosk_model (moved out of the retired
 // naxionai/backend — same files, git history preserved via rename).
 const VOSK_MODEL_CANDIDATES = [
   resolve(__dirname, "../../../media/vosk_model"),

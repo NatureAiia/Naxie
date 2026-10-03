@@ -4,7 +4,7 @@
 # to kustomization.yaml or `kubectl apply -f 05-ingress.yaml` directly.
 #
 # Without this: reach the primary via `kubectl port-forward
-# svc/neuroworks-primary -n neuroworks 7471:7471` for testing, or change
+# svc/naxion-primary -n naxion 7471:7471` for testing, or change
 # 03-primary.yaml's Service `type` to LoadBalancer for a quick external IP
 # (fine for a demo; a real Ingress gets you TLS termination + a stable
 # hostname, which NAXION_ALLOWED_HOSTS also needs to match).
@@ -15,8 +15,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: neuroworks
-  namespace: neuroworks
+  name: naxion
+  namespace: naxion
   annotations:
     # CHANGEME — swap for your cluster's actual ingress class / controller.
     kubernetes.io/ingress.class: nginx
@@ -32,16 +32,16 @@ spec:
   tls:
     - hosts:
         # CHANGEME — must match NAXION_ALLOWED_HOSTS in 01-configmap.yaml
-        - neuroworks.CHANGEME.example.com
-      secretName: neuroworks-tls
+        - naxion.CHANGEME.example.com
+      secretName: naxion-tls
   rules:
-    - host: neuroworks.CHANGEME.example.com
+    - host: naxion.CHANGEME.example.com
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: neuroworks-primary
+                name: naxion-primary
                 port:
                   number: 7471

@@ -12,7 +12,7 @@
 // registers the MCP server (disabled), or hands the code change to the
 // architect — whose diff is its own separate approval.
 //
-// Vault: _neuroworks/weekly-improvements/YYYY-MM-DD.md — Telegram + email optional.
+// Vault: _naxion/weekly-improvements/YYYY-MM-DD.md — Telegram + email optional.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -23,7 +23,7 @@ import {
 } from "./org-tasks.js";
 import { readRagTelemetry, summarizeRagTelemetry, type RagTelemetrySummary } from "./rag-telemetry.js";
 
-const REVIEW_DIR = "_neuroworks/weekly-improvements";
+const REVIEW_DIR = "_naxion/weekly-improvements";
 const WINDOW_DAYS = 7;
 const MAX_PROPOSALS = 8;
 const KINDS: readonly ImprovementKind[] = ["schedule", "code", "mcp", "cli", "skill", "retrieval", "other"];
@@ -101,10 +101,10 @@ export async function gatherEvidence(now = new Date()): Promise<ImprovementEvide
   } catch { /* job journal unavailable */ }
 
   if (vaultPath) {
-    const refDir = join(vaultPath, "_neuroworks/reflections");
+    const refDir = join(vaultPath, "_naxion/reflections");
     ev.reflections = datedFilesInWindow(refDir, start, end).slice(-7)
       .map(f => ({ file: f, excerpt: readExcerpt(join(refDir, f), 1200) }));
-    const scanDir = join(vaultPath, "_neuroworks/innovation-scans");
+    const scanDir = join(vaultPath, "_naxion/innovation-scans");
     ev.scans = datedFilesInWindow(scanDir, start, end).slice(-3)
       .map(f => ({ file: f, excerpt: readExcerpt(join(scanDir, f), 1000) }));
     ev.lessons = readExcerpt(join(vaultPath, "_governance/learned-from-reflections.md"), 1500);

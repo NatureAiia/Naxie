@@ -103,7 +103,7 @@ async function fireWebhook(jobId: string, input: DispatchInput): Promise<void> {
     "User-Agent": "NeuroWorks-Dispatch/1",
   };
   if (WEBHOOK_SECRET) {
-    headers["X-NeuroWorks-Signature"] = "sha256=" + createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
+    headers["X-Naxie-Signature"] = "sha256=" + createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
   }
   try {
     const ctrl = new AbortController();

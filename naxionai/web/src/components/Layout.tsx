@@ -142,7 +142,7 @@ export function Layout({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return false;
     // Default to previous user preference, but we'll override on small
     // viewports so the shell becomes compact on tablet/smaller devices.
-    return localStorage.getItem("neuroworks.sidebarCollapsed") === "1";
+    return localStorage.getItem("naxie.sidebarCollapsed") === "1";
   });
 
   // Responsive: keep the sidebar collapsed on tablet and smaller screens by
@@ -157,7 +157,7 @@ export function Layout({ children }: { children: ReactNode }) {
       if (mql.matches) {
         setCollapsed(true);
       } else {
-        setCollapsed(localStorage.getItem("neuroworks.sidebarCollapsed") === "1");
+        setCollapsed(localStorage.getItem("naxie.sidebarCollapsed") === "1");
       }
     };
     apply();
@@ -174,7 +174,7 @@ export function Layout({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("neuroworks.sidebarCollapsed", collapsed ? "1" : "0");
+    localStorage.setItem("naxie.sidebarCollapsed", collapsed ? "1" : "0");
   }, [collapsed]);
 
   async function tick() {
@@ -314,7 +314,7 @@ export function Layout({ children }: { children: ReactNode }) {
               <BrandMark size={26} />
               {!collapsed && (
                 <div className="w-[168px] h-8">
-                  <PixelDriftText text="NeuroWorks" />
+                  <PixelDriftText text="Naxie" />
                 </div>
               )}
             </Link>
@@ -334,7 +334,7 @@ export function Layout({ children }: { children: ReactNode }) {
           {!collapsed && (
             <div className="px-4 pb-4 tablet:px-5">
               <div className="w-full aspect-square rounded-full overflow-hidden border border-ink-700">
-                <img src="/brand/logo.jpg" alt="NeuroWorks" className="w-full h-full object-cover" />
+                <img src="/brand/logo.jpg" alt="Naxie" className="w-full h-full object-cover" />
               </div>
             </div>
           )}

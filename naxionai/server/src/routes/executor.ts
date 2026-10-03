@@ -4,9 +4,9 @@ import { hermesAvailable, detectHermesBin } from "../lib/hermes.js";
 import { config } from "../config.js";
 
 // Executor mode API — flips which agent does the actual task work, LIVE (no
-// server restart). "clawbot" = the built-in pipeline + persona-shifter pool;
+// server restart). "naxie" = the built-in pipeline + persona-shifter pool;
 // "hermes" = the Hermes CLI agent with persona/governance framing, and an
-// automatic OFFLOAD to clawbot for anything Hermes can't do. The optional
+// automatic OFFLOAD to Naxie for anything Hermes can't do. The optional
 // hermesModel overrides the configured model live.
 
 export const executorRouter = Router();
@@ -19,7 +19,7 @@ executorRouter.get("/", (_req, res) => {
     hermesModelOverride: cfg.hermesModel ?? null,
     hermesLocal: local,
     crosscheck: cfg.crosscheck === true,
-    fallbackToClawbot: process.env.NAXION_HERMES_FALLBACK !== "0",
+    fallbackToNaxie: process.env.NAXION_HERMES_FALLBACK !== "0",
     qualityGate: process.env.NAXION_HERMES_QUALITY_GATE !== "0",
     hermes: {
       available: hermesAvailable(),
@@ -31,17 +31,17 @@ executorRouter.get("/", (_req, res) => {
   });
 });
 
-// POST { mode?: "clawbot" | "hermes", hermesModel?: string | null,
+// POST { mode?: "naxie" | "hermes", hermesModel?: string | null,
 //        hermesLocal?: boolean, crosscheck?: boolean }
 // hermesLocal:true points Hermes at the local Ollama daemon running
 // config.hermesLocalModel (default north-mini-code-10) — free + offline.
-// crosscheck:true has a peer judge Hermes's answer against clawbot's on a
-// quality-fail offload instead of always taking clawbot's (see chat.ts).
+// crosscheck:true has a peer judge Hermes's answer against Naxie's on a
+// quality-fail offload instead of always taking Naxie's (see chat.ts).
 executorRouter.post("/", (req, res) => {
   const body = req.body ?? {};
   const mode = body.mode as ExecutorMode | undefined;
-  if (mode !== undefined && mode !== "clawbot" && mode !== "hermes") {
-    return res.status(400).json({ error: 'mode must be "clawbot" or "hermes"' });
+  if (mode !== undefined && mode !== "naxie" && mode !== "hermes") {
+    return res.status(400).json({ error: 'mode must be "naxie" or "hermes"' });
   }
   if (mode === "hermes" && !hermesAvailable()) {
     return res.status(400).json({ error: "Hermes is not installed on this machine — cannot set it as the primary executor." });

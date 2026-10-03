@@ -4,7 +4,7 @@
 // gives "verify project status" a real referent instead of prose.
 //
 // Persistence follows the exact pattern org-tasks.ts uses: a JSON file under
-// .neuroworks/, an in-memory cache, and an mtime check on load. No secrets
+// .naxion/, an in-memory cache, and an mtime check on load. No secrets
 // here (that's github-accounts.ts's job) — plain JSON is fine.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const FILE = join(STATE_DIR, "projects.json");
 
 export type Project = {

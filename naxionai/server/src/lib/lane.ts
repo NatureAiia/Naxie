@@ -111,38 +111,12 @@ const SIGNALS: HeuristicProfile = {
   qaSignal: /\b(?:test plan|test cases?|test strategy|regression (?:suite|test)|exploratory testing|bug repro|reproduction steps?|edge cases? to test|test coverage|smoke test)\b/i,
 };
 
-// Live-company-finance signal — deliberately separate from SIGNALS.financeSignal
-// (which is abstract financial MODELING work). This one is "pull the org's
-// real books via the FinanceFlow connector". Checked for EVERY persona, not
-// just the ones in rulesByPersona below (see the check ahead of that lookup),
-// because it's a company-specific integration a persona-agnostic classifier
-// can't be expected to know about on its own.
-// The dedicated live-finance role (Aria) and modeling role (Fiona) were both
-// pruned 2026-09-21 (zero recorded activity) — Cole (Accountant, who keeps the
-// actual books) is the closest surviving fit for this signal.
-const AIIA_LIVE_FINANCE_SIGNAL = /\b(?:aiia\b[^.\n]{0,20}\bfinance|finance\s*(?:connector|flow)|financeflow|live\s+(?:cash\s*flow|expense|financial)\s*(?:data|figures?|baselines?|numbers?)|historical\s+(?:cash\s*flow|expense)\s*baselines?|live\s+financial\s+(?:data|figures?|numbers?))\b/i;
-const AIIA_FINANCE_CAPABLE = new Set(["accountant"]);
-
 // Map each persona id to:
 //   • inLane(text) - which domain signals are IN their lane (always permit)
 //   • outOfLane(text) - which signals are definitively OUT of their lane
 function heuristicCheck(persona: Persona, task: string): LaneCheck | null {
   const id = persona.id;
   const t = task;
-
-  // Checked BEFORE the rulesByPersona lookup so it applies to every persona —
-  // including custom ones (e.g. a customer-defined research persona) that
-  // aren't in the fixed 17-entry map below and would otherwise fall straight
-  // to the LLM classifier with no company-specific signal to go on. Caught
-  // live 2026-07-20: a custom "Nova" persona ran a live FinanceFlow connector
-  // call (3 successful calls) and only refused AFTER synth, wasting the work.
-  if (!AIIA_FINANCE_CAPABLE.has(id) && AIIA_LIVE_FINANCE_SIGNAL.test(t)) {
-    return {
-      inLane: false,
-      reason: "Heuristic match — this needs the company's real books via the Aiia FinanceFlow connector, which is Cole's lane (the Accountant).",
-      suggestedHire: "Cole (Accountant)",
-    };
-  }
 
   // Per-persona out-of-lane signals + suggested hire.
   // The structure: each entry = { sig: signal regex, hire: who to recommend }.

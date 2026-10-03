@@ -20,7 +20,7 @@
 // self-inflicted denial of service. Loopback probes still LOG (a compromised
 // local process is worth knowing about) — they just never block.
 //
-// Events persist to .neuroworks/security-events.json (ring buffer) and
+// Events persist to .naxion/security-events.json (ring buffer) and
 // critical ones also land in the audit log. Admins read them via
 // GET /api/security/events; unblock via POST /api/security/unblock.
 
@@ -31,7 +31,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { logAudit } from "./audit-log.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const EVENTS_PATH = resolve(STATE_DIR, "security-events.json");
 
 const MAX_EVENTS = 500;

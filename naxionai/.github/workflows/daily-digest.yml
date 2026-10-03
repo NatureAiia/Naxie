@@ -28,9 +28,9 @@ jobs:
 
       - name: Run digest
         env:
-          GITHUB_TOKEN: ${{ secrets.NEUROWORKS_PAT }}
-          VAULT_REPO: RUBIEM-DEVELOPERS-REPO/main-brain
+          GITHUB_TOKEN: ${{ secrets.NAXION_PAT }}
+          VAULT_REPO: marknature/NaxionAI_Vault-Repo
           LOOKBACK_DAYS: ${{ inputs.lookback_days || '7' }}
-          COMMITTER_NAME: neuroworks
-          COMMITTER_EMAIL: neuroworks@users.noreply.github.com
+          COMMITTER_NAME: naxie
+          COMMITTER_EMAIL: naxie@users.noreply.github.com
         run: pnpm digest

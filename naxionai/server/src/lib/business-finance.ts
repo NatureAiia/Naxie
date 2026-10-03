@@ -7,7 +7,7 @@
 // Deliberately separate from lib/personal-finance.ts (the operator's own
 // budget) and lib/finance-snapshot.ts (Aria's market feed) — different
 // store, different file, never merged. Persisted at
-// .neuroworks/business-finance.json, scoped per operator by ownerEmail,
+// .naxion/business-finance.json, scoped per operator by ownerEmail,
 // mirroring lib/my-tasks.ts's pattern (atomic write, "local" fallback).
 //
 // Approval flow: expenses at/above settings.approvalThreshold do NOT post
@@ -25,11 +25,11 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "
 import { randomUUID } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 let CONFIG_PATH = resolve(CONFIG_DIR, "business-finance.json");
 
 // Test seam — points the store at a scratch file so tests never touch the
-// real .neuroworks/ state (matches lib/personal-finance.ts's convention).
+// real .naxion/ state (matches lib/personal-finance.ts's convention).
 export function _setStateFileForTests(path: string): void {
   CONFIG_PATH = path;
 }

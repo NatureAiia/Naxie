@@ -4,15 +4,15 @@ RUN npm install -g pnpm@latest
 
 WORKDIR /app
 
-COPY neuroworks/pnpm-workspace.yaml neuroworks/package.json neuroworks/pnpm-lock.yaml ./
-COPY neuroworks/theia/packages/app/package.json theia/packages/app/
-COPY neuroworks/theia/packages/agent-views/package.json theia/packages/agent-views/
-COPY neuroworks/server/package.json server/
+COPY naxionai/pnpm-workspace.yaml naxionai/package.json naxionai/pnpm-lock.yaml ./
+COPY naxionai/theia/packages/app/package.json theia/packages/app/
+COPY naxionai/theia/packages/agent-views/package.json theia/packages/agent-views/
+COPY naxionai/server/package.json server/
 
 RUN pnpm install --frozen-lockfile || pnpm install
 
-COPY neuroworks/theia theia
-COPY neuroworks/server server
+COPY naxionai/theia theia
+COPY naxionai/server server
 
 RUN cd theia && pnpm -r build
 

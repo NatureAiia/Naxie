@@ -102,7 +102,7 @@ export function noteHealthResult(url: string, ok: boolean) {
   }
 }
 
-// Scan likely local ports for other clawbot instances. Probes /api/peers/self;
+// Scan likely local ports for other Naxie instances. Probes /api/peers/self;
 // any peer responding with `{ name, role }` gets auto-registered.
 //
 // We exclude our own port. The scan is concurrent + bounded — even if every
@@ -128,7 +128,7 @@ export async function autodiscoverLocalPeers(): Promise<{ found: number; tried: 
         registerPeer(url, "discovered", `auto-discovered ${body.role ?? "peer"}${body.name ? ` (${body.name})` : ""}`);
         found++;
       } finally { clearTimeout(t); }
-    } catch { /* port closed or not a clawbot */ }
+    } catch { /* port closed or not Naxie */ }
   }));
   return { found, tried: ports.length };
 }

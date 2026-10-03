@@ -19,11 +19,11 @@ type RunningJob = {
   result?: any;
 };
 
-// Live picture of every clawbot the system knows about and the sub-agents
+// Live picture of every agent the system knows about and the sub-agents
 // they're spinning up to complete the user's tasks. Refreshes every 2s.
 //
 // Visual model:
-//   primary clawbot  ←─ (peer)  secondary clawbot
+//   primary agent  ←─ (peer)  secondary agent
 //        │ wave 1: 3 sub-agents (running)
 //        │ wave 2: 1 sub-agent  (queued)
 //
@@ -59,10 +59,10 @@ export function AgentVisualizer() {
     <div className="bg-ink-900 border border-ink-800 rounded-xl p-5">
       <div className="flex items-baseline justify-between mb-4">
         <div className="text-xs uppercase tracking-[0.25em] text-cream-300/60">Workforce</div>
-        <div className="text-[11px] text-cream-300/50">{allBots.length} {allBots.length === 1 ? "neuro" : "neuros"} · {running.length} active {running.length === 1 ? "task" : "tasks"}</div>
+        <div className="text-[11px] text-cream-300/50">{allBots.length} {allBots.length === 1 ? "agent" : "agents"} · {running.length} active {running.length === 1 ? "task" : "tasks"}</div>
       </div>
 
-      {/* Clawbot row */}
+      {/* Agent row */}
       <div className="flex flex-wrap gap-3 mb-5">
         {allBots.map((b, i) => <BotChip key={i} bot={b} />)}
         {allBots.length === 1 && (
@@ -90,7 +90,7 @@ function BotChip({ bot }: { bot: Peer }) {
   return (
     <div className={`flex items-center gap-3 bg-ink-950 border ${ring} rounded-lg px-3.5 py-2.5`}>
       <div className={`relative ${busy && !dead ? "nw-avatar-active" : ""}`}>
-        {/* Stylized clawbot mark — small triangle stack */}
+        {/* Stylized agent mark — small triangle stack */}
         <svg width="28" height="28" viewBox="0 0 28 28" className="block">
           <polygon points="14,4 24,22 4,22" fill="#c9a227" />
           <polygon points="14,8 22,21 6,21" fill="#7c3aed" opacity="0.85" />
@@ -99,7 +99,7 @@ function BotChip({ bot }: { bot: Peer }) {
         <span className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ${dot} ring-2 ring-ink-950`} />
       </div>
       <div className="leading-tight">
-        <div className="text-sm text-cream-100 font-medium">{bot.name ?? "Neuro"}{bot.role && bot.role !== "primary" ? <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 align-middle">{bot.role}</span> : null}</div>
+        <div className="text-sm text-cream-100 font-medium">{bot.name ?? "Naxie"}{bot.role && bot.role !== "primary" ? <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 align-middle">{bot.role}</span> : null}</div>
         <div className="text-[10px] text-cream-300/60 font-mono">{bot.model ?? "?"} · {dead ? "offline" : busy ? `${bot.inflightJobs} task${bot.inflightJobs === 1 ? "" : "s"}` : "idle"}</div>
       </div>
     </div>

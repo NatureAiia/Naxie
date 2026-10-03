@@ -1,20 +1,20 @@
-# NeuroWorks dispatch SDK
+# Naxie dispatch SDK
 
-A tiny, dependency-free client for dispatching agent tasks into NeuroWorks over
+A tiny, dependency-free client for dispatching agent tasks into Naxie over
 the `/api/v1/dispatch` API. Works in Node 18+ and modern browsers.
 
 ## Install
 
-Copy `neuroworks.mjs` (and `neuroworks.d.ts` for TypeScript) into your project,
+Copy `naxie.mjs` (and `naxie.d.ts` for TypeScript) into your project,
 or import it directly.
 
 ## Usage
 
 ```js
-import { NeuroWorks } from "./neuroworks.mjs";
+import { Naxie } from "./naxie.mjs";
 
-const nw = new NeuroWorks({
-  baseUrl: "http://127.0.0.1:7471",   // your NeuroWorks host
+const nw = new Naxie({
+  baseUrl: "http://127.0.0.1:7471",   // your Naxie host
   apiKey: process.env.NW_API_KEY,     // mint via POST /api/dispatch-keys
 });
 
@@ -33,8 +33,8 @@ console.log(r.answer);
 
 ### Webhook callbacks
 
-Pass `callbackUrl` and NeuroWorks POSTs the result there on completion, signed
-with `X-NeuroWorks-Signature: sha256=<hmac>` (when `NW_WEBHOOK_SIGNING_SECRET`
+Pass `callbackUrl` and Naxie POSTs the result there on completion, signed
+with `X-Naxie-Signature: sha256=<hmac>` (when `NW_WEBHOOK_SIGNING_SECRET`
 is set on the server):
 
 ```js
@@ -44,8 +44,8 @@ await nw.dispatch("Reconcile the June ledger", { callbackUrl: "https://your-app/
 Verify the signature on your side (Node):
 
 ```js
-import { verifyWebhook } from "./neuroworks.mjs";
-const ok = await verifyWebhook(process.env.NW_WEBHOOK_SIGNING_SECRET, rawBody, req.headers["x-neuroworks-signature"]);
+import { verifyWebhook } from "./naxie.mjs";
+const ok = await verifyWebhook(process.env.NW_WEBHOOK_SIGNING_SECRET, rawBody, req.headers["x-naxie-signature"]);
 if (!ok) return res.status(401).end();
 ```
 
@@ -53,7 +53,7 @@ if (!ok) return res.status(401).end();
 
 | Method | Description |
 |---|---|
-| `new NeuroWorks({ baseUrl?, apiKey })` | Create a client. |
+| `new Naxie({ baseUrl?, apiKey })` | Create a client. |
 | `dispatch(task, opts?)` | Start a task → `{ jobId, status }`. |
 | `result(jobId)` | Current status + answer. |
 | `waitFor(jobId, { timeoutMs?, intervalMs? })` | Poll until done. |
@@ -65,7 +65,7 @@ if (!ok) return res.status(401).end();
 ## Other integration modes
 
 - **CLI** — `tools/nw.mjs` (`nw dispatch "…" --wait`).
-- **MCP server** — `server/mcp/neuroworks-dispatch-mcp.mjs` exposes `dispatch_task`
+- **MCP server** — `server/mcp/naxie-dispatch-mcp.mjs` exposes `dispatch_task`
   / `get_dispatch_result` / `wait_for_result` to any MCP host (Claude Desktop, etc.).
 
 See `docs-vault-ready/04-api-reference/` for the full endpoint reference.

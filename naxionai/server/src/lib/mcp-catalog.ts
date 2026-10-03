@@ -75,6 +75,7 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   {
     id: "github",
     label: "GitHub",
+    description: "Repository, issue, and PR operations against the GitHub API.",
     tags: ["github","repo"],
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-github"],
@@ -146,7 +147,7 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     id: "strix-pentest",
     label: "Strix Pentest (this NeuroWorks instance)",
     // Our own thin proxy (server/mcp/pentest-mcp-server.mjs — same shape as
-    // neuroworks-dispatch-mcp.mjs) over the local /api/pentest REST surface,
+    // naxie-dispatch-mcp.mjs) over the local /api/pentest REST surface,
     // NOT a third-party server. Adding it here lets the agent call scans via
     // the generic mcp.call primitive too, on top of the dedicated
     // pentest.scan/check_run/list_runs primitives already registered in
@@ -162,14 +163,13 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
       id: "openclaw",
       label: "OpenClaw",
       description: "Open source AI assistant – will be launched as an MCP stdio server via npm.",
-    tags: ["http","fetch"],
-    command: "npx",
+      command: "npx",
       args: ["-y", "openclaw@latest", "mcp", "serve"],
-    env: [{ name: "OPENCLAW_API_KEY", description: "API key for the LLM provider used by OpenClaw", required: true }],
-    homepage: "https://github.com/openclaw/openclaw",
-    source: "community",
-    tags: ["assistant","cli"]
-  },
+      env: [{ name: "OPENCLAW_API_KEY", description: "API key for the LLM provider used by OpenClaw", required: true }],
+      homepage: "https://github.com/openclaw/openclaw",
+      source: "community",
+      tags: ["http","fetch","assistant","cli"]
+    },
 ];
 
 export function listMcpCatalog(): McpCatalogEntry[] {

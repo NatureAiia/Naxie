@@ -3,13 +3,13 @@
 // norm in Zimbabwe) and get a response in kind.
 //
 // PROVENANCE: the vocabulary and financial-intent phrase list below are
-// adapted from the ZimVoice project (RUBIEM-DEVELOPERS-REPO/ZimVoice,
+// adapted from the ZimVoice project (an open-source Shona voice glossary,
 // vocabulary.json + semantic_engine.py's ANCHORS table) — real domain data
 // covering Zimbabwe mobile-money terms (EcoCash, ZiG, Zesa tokens) and how
 // Zimbabweans actually phrase those requests in Shona/Ndebele/English.
 // ZimVoice's own live audio-transcription API is NOT used here (its
 // server-side ASR is disabled in that deployment) — this module only reuses
-// the static vocabulary data, ported directly into NeuroWorks so no
+// the static vocabulary data, ported directly into Naxie so no
 // external service call is needed.
 //
 // There is no bespoke Shona<->English translation MODEL here — general

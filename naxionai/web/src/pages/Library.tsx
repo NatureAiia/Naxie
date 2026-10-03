@@ -12,7 +12,7 @@ import { LibraryConnections } from "../components/library/LibraryConnections";
 import { CompanyLinksPanel } from "../components/library/CompanyLinksPanel";
 import { DatasetsPanel } from "../components/library/DatasetsPanel";
 
-// The vault path lives in the URL (e.g. /library/NeuroWorks%20Data%20Migration.md)
+// The vault path lives in the URL (e.g. /library/Naxie%20Data%20Migration.md)
 // so spaces arrive percent-encoded. Decode ONCE here — otherwise api.brainFile()
 // re-encodes it and the server tries to open a literal "%20" path → ENOENT.
 function decodePath(p: string): string {
@@ -97,7 +97,7 @@ export function Library() {
   const previewPath = subPath && isPreviewable(subPath) ? subPath : (sel.selectedEntry && isPreviewable(sel.selectedEntry.name) ? sel.selectedEntry.path : "");
   // A deep link naming a folder (not a previewable file) has nowhere else to
   // go — hand it to FileExplorer as its starting position so e.g. an old
-  // /knowledge/_clawbot link lands browsing that vault folder instead of root.
+  // /knowledge/_naxie link lands browsing that vault folder instead of root.
   const initialPath = subPath && !isPreviewable(subPath) ? { backend: "vault" as const, path: subPath } : undefined;
 
   return (

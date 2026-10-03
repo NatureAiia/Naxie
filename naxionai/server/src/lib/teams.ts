@@ -1,21 +1,21 @@
 // Pre-organized teams + reusable team-brief templates.
 //
 // A PRE-ORGANIZED TEAM is a named group of personas the user dispatches as a
-// unit: pick the team + give one objective, and clawbot fans the objective out
+// unit: pick the team + give one objective, and Naxie fans the objective out
 // to each member, framed for their role. Built-in / static.
 //
 // A TEAM TEMPLATE is a saved, reusable brief — a named set of {persona, task}
 // pairs for a recurring multi-persona workflow (e.g. "launch announcement
 // pack"). Tasks may contain the placeholder {{objective}}, substituted at
 // dispatch. A few are seeded per team; users can add/remove their own
-// (persisted to .neuroworks/team-templates.json).
+// (persisted to .naxion/team-templates.json).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const FILE = join(STATE_DIR, "team-templates.json");
 
 export type TeamMember = { personaId: string; role: string };

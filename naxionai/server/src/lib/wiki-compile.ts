@@ -19,7 +19,7 @@ import { readVaultFile, writeWikiFile, ARCHIVE_DIR, WIKI_DIR, getVaultHealth } f
 import { enqueueVaultCommit } from "./commit-queue.js";
 import { llmGenerate } from "./llm.js";
 
-const STATE_DIR = "_neuroworks/wiki-compile";
+const STATE_DIR = "_naxion/wiki-compile";
 const STATE_PATH = `${STATE_DIR}/state.json`;
 
 type CompileState = {

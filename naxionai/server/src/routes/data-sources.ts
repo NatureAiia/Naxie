@@ -1,6 +1,6 @@
 // Company data sources — database connections + company-knowledge folder.
 //
-// Database connections persist in .neuroworks/data-sources.json (outside
+// Database connections persist in .naxion/data-sources.json (outside
 // the vault since the connection string carries credentials). The full
 // connection string never leaves this server — list/get redact the password
 // before sending to the UI. Agents reach a source by id via the db.*

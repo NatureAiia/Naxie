@@ -1,7 +1,7 @@
 // Tool DNA — opt-in usage-preference memory (lib/tool-dna.ts). Ported from
 // KimmyDeku/sebastian's tripDNA: pure frequency counters, gated at ONE write
 // site, viewable/resettable. Points the store at a scratch dir per test
-// (_setStateFilesForTests) so nothing touches the real .neuroworks/ state.
+// (_setStateFilesForTests) so nothing touches the real .naxion/ state.
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync } from "node:fs";

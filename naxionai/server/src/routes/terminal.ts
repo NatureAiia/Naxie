@@ -26,7 +26,7 @@ const MAX_STDOUT = 100_000;
 const MAX_STDERR = 20_000;
 
 // One shared working directory for the terminal "session". Starts at the
-// clawbot repo root (process.cwd()) and moves as the user runs `cd`.
+// Naxie repo root (process.cwd()) and moves as the user runs `cd`.
 let sessionCwd = process.cwd();
 
 function safeCwd(requested?: string): string {
@@ -47,7 +47,7 @@ terminalRouter.get("/status", (_req, res) => {
     cwd: sessionCwd,
     shell: isWin ? "powershell" : "bash",
     platform: process.platform,
-    hint: ENABLED() ? undefined : "set NAXION_TERMINAL=1 in clawbot/.env and restart to enable",
+    hint: ENABLED() ? undefined : "set NAXION_TERMINAL=1 in naxionai/.env and restart to enable",
   });
 });
 
@@ -58,7 +58,7 @@ function isLoopbackReq(req: any): boolean {
 
 terminalRouter.post("/exec", async (req, res) => {
   if (!ENABLED()) {
-    return res.status(400).json({ error: "terminal disabled", hint: "set NAXION_TERMINAL=1 in clawbot/.env and restart to enable. It runs arbitrary shell commands on the host." });
+    return res.status(400).json({ error: "terminal disabled", hint: "set NAXION_TERMINAL=1 in naxionai/.env and restart to enable. It runs arbitrary shell commands on the host." });
   }
   // Non-loopback callers must also have System Control explicitly enabled in
   // Settings > System Access — prevents network-exposed terminal from being

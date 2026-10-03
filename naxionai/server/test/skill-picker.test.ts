@@ -27,7 +27,7 @@ describe("skill picker", () => {
 
   it("routes 'save X to my vault' to pc-doc-handling", () => {
     const picks = suggestSkillsForTask(
-      "save the AIIA reference letter to my vault",
+      "save the 2026 reference letter to my vault",
       undefined,
       1,
     );

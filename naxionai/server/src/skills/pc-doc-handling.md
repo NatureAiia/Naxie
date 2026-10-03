@@ -99,10 +99,10 @@ When you read AND file:
 These all route here:
 
 - "what's in this doc Q3 forecast" — read-only
-- "summarise the Aiia Reference Letter" — read-only
+- "summarise the 2026 reference letter" — read-only
 - "read resume.pdf" — read-only
 - "save this PDF to my vault" — file (with default folder)
-- "move the offer letter into neuroworks" — file (move with delete? — depends on follow-up phrasing)
+- "move the offer letter into Naxie" — file (move with delete? — depends on follow-up phrasing)
 - "copy the contract to my second brain" — file
 - "add this doc to my knowledge base" — file
 - "file Q3-forecast.pdf to 1-Literature" — file (with explicit folder)

@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import net from "node:net";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const SETTINGS_FILE = join(STATE_DIR, "offline-mode.json");
 
 export type OfflineModeState = {

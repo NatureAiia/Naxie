@@ -145,9 +145,9 @@ function renderInventory(
   const lines: string[] = [];
   lines.push("---");
   lines.push(`title: Downloads inventory (${today})`);
-  lines.push("tags: [downloads, inventory, clawbot]");
+  lines.push("tags: [downloads, inventory, naxie]");
   lines.push(`created: ${today}`);
-  lines.push("source: clawbot neuroworks sync-downloads");
+  lines.push("source: naxie sync-downloads");
   lines.push("---");
   lines.push("");
   lines.push("# Downloads inventory");

@@ -7,7 +7,7 @@ applies_to: [direct-answer, draft-other]
 # Skill: Caveman mode
 
 Adapted from the open-source `caveman` skill pattern (JuliusBrussee/caveman,
-MIT) — same mechanic, ported to NeuroWorks' per-task skill system rather
+MIT) — same mechanic, ported to Naxie's per-task skill system rather
 than a persistent session hook: pick this skill once, for one answer, when
 the user explicitly asks for terse/compressed output.
 

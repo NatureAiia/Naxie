@@ -1,9 +1,9 @@
 // Hermes executor adapter — runs a task through the Hermes CLI agent and
-// returns a result shaped like clawbot's plan/execute output (so the chat job,
+// returns a result shaped like Naxie's plan/execute output (so the chat job,
 // curation gate, and Reports all work unchanged).
 //
 // "Persona-shifter features": Hermes runs its OWN tool suite (it cannot use
-// clawbot's vault/connector/primitive tools), but we inject the PROMPT-level
+// Naxie's vault/connector/primitive tools), but we inject the PROMPT-level
 // features the persona-shifter carries — the active persona's lane + voice
 // (personaSystemSuffix), the matched skill playbook, and the governance
 // prefix — as a system preamble so Hermes adopts the hired employee's framing.
@@ -67,7 +67,7 @@ const OPERATING_RULES = [
   "=== OPERATING RULES (NeuroWorks) ===",
   "- To SEND EMAIL, use the `email.send` tool (the NeuroWorks email bridge — Mailjet/SMTP, already configured). Do NOT use Himalaya, `mail`, `sendmail`, `mutt`, or any external email CLI: they are NOT configured on this machine and will fail.",
   "- EMAIL RECIPIENTS: when the user names a recipient by NAME or ROLE (not a literal address), resolve their REAL address from the org directory first via `users.lookup` / `users.list`. NEVER invent or use placeholder/example addresses (name@example.com, '[project lead email]') — email.send rejects them. Only use a literal address when the user gave one.",
-  "- To read company data / financials / connected systems, use the provided clawbot tools (connector.*, vault.*, users.*, integration.*) — not ad-hoc shell commands.",
+  "- To read company data / financials / connected systems, use the provided Naxie tools (connector.*, vault.*, users.*, integration.*) — not ad-hoc shell commands.",
   "- MEMORY: when the user asks what you REMEMBER / have on file about someone or something, call `memory.search` (or `memory.recall` for a known subject) — do NOT guess or say you have no memory. When the user tells you to REMEMBER a fact, call `memory.note` with {subject, fact} (add {date:\"YYYY-MM-DD\"} for a meeting/deadline so it lands on the calendar).",
   "- CALENDAR: for today's meetings use `calendar.read_today`; for a full day plan (meetings + scheduled tasks + dated memory commitments + carryover) use `calendar.plan_day`; for what the agents actually DID over a date range use `calendar.activity`. Do NOT ask the user for calendar access — these tools read the configured feed.",
   "- Prefer the provided tools over the shell whenever a tool exists for the job.",
@@ -113,7 +113,7 @@ export function runHermesAgent(
 
   if (!bin) {
     return Promise.resolve({
-      answer: "The Hermes agent isn't installed on this machine, so I couldn't run this task through it. Install Hermes or switch the primary executor back to clawbot (Admin → Executor).",
+      answer: "The Hermes agent isn't installed on this machine, so I couldn't run this task through it. Install Hermes or switch the primary executor back to Naxie (Admin → Executor).",
       plan: { steps: [] }, runs: [], hermes: true, model, elapsedMs: 0, ok: false, error: "hermes binary not found",
     });
   }
@@ -133,9 +133,9 @@ export function runHermesAgent(
         // (e.g. "API call failed after 3 retries: HTTP 429: Provider returned
         // error" when the free model is rate-limited upstream). That string is
         // NOT a deliverable — if we returned it as ok:true it would leak straight
-        // into the task result and skip the clawbot offload. Detect the CLI's
+        // into the task result and skip the Naxie offload. Detect the CLI's
         // error shapes and treat them as a hard failure so chat.ts offloads to
-        // clawbot (whose LLM path falls back to local on a transient 429).
+        // Naxie (whose LLM path falls back to local on a transient 429).
         // Definitive CLI error markers — these never appear in a legit
         // deliverable, so match them ANYWHERE regardless of length.
         const hardErrMarker =

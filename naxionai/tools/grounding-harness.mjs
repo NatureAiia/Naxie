@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// L2 grounding harness — end-to-end against a RUNNING NeuroWorks console.
+// L2 grounding harness — end-to-end against a RUNNING Naxie console.
 //
 // Question it answers: "did the agent actually answer from our connections,
 // company data and vault knowledge — or from the model's training data?"
@@ -24,7 +24,7 @@
 // Usage:
 //   node tools/grounding-harness.mjs                     # all cases
 //   node tools/grounding-harness.mjs --only vault        # one surface
-//   node tools/grounding-harness.mjs --only vault-what-is-neuroworks
+//   node tools/grounding-harness.mjs --only vault-what-is-naxie
 //   node tools/grounding-harness.mjs --critical          # must-never-fail set
 //   node tools/grounding-harness.mjs --repeat 3          # flakiness check
 //   node tools/grounding-harness.mjs --base http://127.0.0.1:7470
@@ -66,7 +66,7 @@ const CRITICAL_ONLY = flag("critical");
 const VERBOSE = flag("verbose");
 const SAVE_BASELINE = flag("save-baseline");
 const CHECK_BASELINE = flag("baseline") || SAVE_BASELINE;
-// Deliberately NOT under .neuroworks/ — that directory is gitignored, so the
+// Deliberately NOT under .naxion/ — that directory is gitignored, so the
 // bar would vanish on a fresh clone or a `git clean -x` with no signal. The
 // whole point of a ratchet is that it remembers, so it lives in the repo.
 const BASELINE_PATH = resolve(REPO, "tools/grounding-baseline.json");
@@ -282,7 +282,7 @@ function grade(c, out) {
   const check = (name, ok, detail) => out.checks.push({ name, ok, detail });
 
   // 0a. The job has to have finished. A failed or approval-parked job leaves
-  //     the inline chat placeholder ("Hiring Neuro — …, track progress on the
+  //     the inline chat placeholder ("Hiring Naxie — …, track progress on the
   //     Tasks page") sitting in `answer`, and grading THAT reports a vague
   //     "no grounding tool ran" when the real story is that the run died.
   //     Distinguish the two — they need completely different fixes.

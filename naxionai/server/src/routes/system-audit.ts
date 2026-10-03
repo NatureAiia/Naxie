@@ -7,7 +7,7 @@ import { requireLayer } from "../lib/access.js";
 
 export const systemAuditRouter = Router();
 
-const AUDIT_DIR_REL = "_neuroworks/system-audits";
+const AUDIT_DIR_REL = "_naxion/system-audits";
 
 // GET /api/system-audit — list past MD audits
 systemAuditRouter.get("/", (_req, res) => {

@@ -5,6 +5,9 @@ dist/
 # independently via VAULT_REPO — not versioned as part of this repo.
 server/vault/
 *.log
+# Secrets + machine state — ALWAYS ignored, even in a private repo.
+# .env carries live API keys; .naxion/ holds the encryption key and
+# encrypted connection strings. Git history is forever.
 .env
 .env.local
 
@@ -12,11 +15,11 @@ server/vault/
 web/dist/
 .DS_Store
 
-# NeuroWorks runtime state (custom templates, future caches) — per-machine
-.neuroworks/
+# Naxie runtime state (custom templates, future caches) — per-machine
+.naxion/
 
 # User-fetched skill .md files (skill.fetch_remote drops them here, gated by
-# CLAWBOT_REMOTE_SKILLS=1). Per-machine, not shared.
+# NAXION_REMOTE_SKILLS=1). Per-machine, not shared.
 server/src/skills/_user/
 
 # Tunnel binary (downloaded per-machine) + operational logs
@@ -35,14 +38,14 @@ _*.out
 _*.err
 server/_*.json
 server/_desk/
-# Stray experimental static export (not the web/ app). Un-ignore to track it.
-server/neuroworks_site/
 
-# Personal / private content that should stay local and never be published
-personal/
-private/
-personal-uploads/
-my-notes/
+# Personal / private content — relaxed for private repo: tracked so it's
+# backed up with the project. Crypto material + env backups stay ignored
+# (they're credentials, not notes).
+# personal/
+# private/
+# personal-uploads/
+# my-notes/
 *.key
 *.pem
 *.p12

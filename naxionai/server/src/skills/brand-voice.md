@@ -8,13 +8,13 @@ applies_to: [draft-other, draft-brief, announce]
 
 ## Goal
 
-Every brand-facing piece of content sounds like it came from THAT brand, not a generic assistant and not another brand. The operator runs three: **Personal**, **Work (AIIA)**, and **Business (Variety Vault)** — each with its own voice, audience, and values, managed on the Brands page (`GET /api/brands`).
+Every brand-facing piece of content sounds like it came from THAT brand, not a generic assistant and not another brand. The operator runs three: **Personal**, **Work**, and **Business (Variety Vault)** — each with its own voice, audience, and values, managed on the Brands page (`GET /api/brands`).
 
 ## Process
 
-1. **Identify the brand.** If the task names one ("post this for AIIA", "for Variety Vault") or a `brandId` input is present, use it. If it's genuinely ambiguous, ASK — never guess (see `cross-brand-isolation.md`).
+1. **Identify the brand.** If the task names one ("post this for Work", "for Variety Vault") or a `brandId` input is present, use it. If it's genuinely ambiguous, ASK — never guess (see `cross-brand-isolation.md`).
 2. **Pull the brand's context**: `brand.voice`, `brand.audience`, `brand.values`, and — if `brand.guidelinesVaultPath` is set — read that vault doc directly for the full guidelines. `gatherBrandContext()` (routes/templates.ts) already does this for the two scheduled social templates; for anything else, read the `Brand` record via `GET /api/brands/:id` and the vault doc yourself.
-3. **Write in that voice.** Match tone AND substance to the brand — a fact-dense, credible AIIA post should not read like a punchy Variety Vault promo, and vice versa.
+3. **Write in that voice.** Match tone AND substance to the brand — a fact-dense, credible Work post should not read like a punchy Variety Vault promo, and vice versa.
 4. **If voice/audience are empty** (a brand still has its placeholder stub filled in), say so plainly and ask the operator to fill in the Brands page or the vault doc — don't invent a voice for them.
 
 ## Worked example
@@ -22,7 +22,7 @@ Every brand-facing piece of content sounds like it came from THAT brand, not a g
 | Brand | Voice | Audience | Sample line |
 |---|---|---|---|
 | Personal | (operator-defined) | (operator-defined) | — fill in via the Brands page |
-| Work (AIIA) | warm, hopeful, grounded, credible | African innovators, AI practitioners, communities AIIA serves | "This week three Kenyan founders shipped an AI tool for smallholder farmers — here's what made it work." |
+| Work | (operator-defined — fill in via the Brands page) | (operator-defined) | — |
 | Business (Variety Vault) | (operator-defined) | (operator-defined) | — fill in via the Brands page |
 
 ## Rules
@@ -34,4 +34,4 @@ Every brand-facing piece of content sounds like it came from THAT brand, not a g
 ## Pitfalls
 
 - Treating "brand voice" as a cosmetic tone note when the operator's actual ask is about substance (what to say, not just how).
-- Reusing AIIA's specific framing ("AI for a better Africa", Ubuntu, African unity) for a non-AIIA brand — that language belongs to Work only.
+- Reusing one brand's specific framing for another brand — that language belongs to its brand only.

@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadAttachments, normalizeRecipients } from "../src/lib/email.js";
 
-const dir = mkdtempSync(join(tmpdir(), "clawbot-attach-test-"));
+const dir = mkdtempSync(join(tmpdir(), "naxie-attach-test-"));
 afterAll(() => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } });
 
 describe("loadAttachments", () => {

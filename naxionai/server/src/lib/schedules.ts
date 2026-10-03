@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const FILE = join(STATE_DIR, "schedules.json");
 
 // Cadence shape. Friendly time picker compiles to this; cron is computed
@@ -221,8 +221,8 @@ async function fireSchedule(s: Schedule, visited: Set<string> = new Set([s.id]))
       // the fired job for sign-off regardless of the template's own default.
       headers: {
         "Content-Type": "application/json",
-        "x-clawbot-scheduled": s.id,
-        ...(s.requireApproval ? { "x-clawbot-force-approval": "1" } : {}),
+        "x-naxie-scheduled": s.id,
+        ...(s.requireApproval ? { "x-naxie-force-approval": "1" } : {}),
       },
       body: JSON.stringify(s.inputs ?? {}),
     });
@@ -313,7 +313,7 @@ async function deliverScheduleResult(s: Schedule, jobId: string, to: string | un
     await sendEmail({
       to,
       subject: `${s.name} — ${today}`,
-      body: `${answer}\n\n— Neuro`,
+      body: `${answer}\n\n— Naxie`,
     });
     console.log(`[schedules] delivered ${s.id} (${s.name}) result → ${to}`);
   } catch (e: any) {

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// .env lives at clawbot/.env (one level above server/). Try repo root first, then server-local fallback.
+// .env lives at naxionai/.env (one level above server/). Try repo root first, then server-local fallback.
 loadEnv({ path: resolve(__dirname, "../../../.env") });
 loadEnv({ path: resolve(__dirname, "../../.env") });
 
@@ -84,8 +84,8 @@ const openrouterProfiles = pick("OPENROUTER_PROFILES", "")
   .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 // HTTP-Referer / X-Title — OpenRouter wants these to identify the calling app.
 // Defaults reflect a local NeuroWorks instance.
-const openrouterAppUrl = pick("OPENROUTER_APP_URL", "https://neuroworks.local");
-const openrouterAppName = pick("OPENROUTER_APP_NAME", "NeuroWorks Clawbot");
+const openrouterAppUrl = pick("OPENROUTER_APP_URL", "https://naxie.local");
+const openrouterAppName = pick("OPENROUTER_APP_NAME", "Naxie");
 
 // Firecrawl — optional hosted scraping API used when vanilla fetch + local
 // Playwright both fail (Cloudflare challenges, CAPTCHA gates, hard anti-bot).
@@ -161,7 +161,7 @@ const studioImageProvider = pick("STUDIO_IMAGE_PROVIDER", "auto").toLowerCase();
 
 // Hermes executor — when the primary executor is switched to Hermes (runtime
 // toggle, see executor-mode.ts), tasks run through the Hermes CLI instead of
-// clawbot's plan/execute pipeline. Hermes's own configured default model
+// Naxie's plan/execute pipeline. Hermes's own configured default model
 // (claude-opus-4.6) is broken on the bundled key, so we pin a model that works.
 // Override with HERMES_MODEL. Provider is OpenRouter to match.
 const hermesModel = pick("HERMES_MODEL", "openai/gpt-oss-20b:free");
@@ -183,16 +183,16 @@ const whatsappAccessToken = pick("WHATSAPP_ACCESS_TOKEN", "");
 const whatsappVerifyToken = pick("WHATSAPP_VERIFY_TOKEN", "");
 
 const port = Number(pick("NAXION_PORT", "7471"));
-// Comma-separated list of peer clawbot base URLs. Each peer is another running
+// Comma-separated list of peer agent base URLs. Each peer is another running
 // instance of this same server (different port, optionally different model).
-// Empty by default — single-clawbot mode. Example:
+// Empty by default — single-agent mode. Example:
 //   NAXION_PEERS=http://127.0.0.1:7472,http://127.0.0.1:7473
 const peers = pick("NAXION_PEERS", "")
   .split(",").map(s => s.trim()).filter(Boolean);
-// Optional human-readable name for this clawbot — shows up in /api/health and
-// peer roll-call responses so dual-clawbot work can be told apart in logs.
+// Optional human-readable name for this agent — shows up in /api/health and
+// peer roll-call responses so dual-agent work can be told apart in logs.
 const name = pick("NAXION_NAME", "primary");
-// Functional role for this clawbot. The chat router uses it to decide where
+// Functional role for this agent. The chat router uses it to decide where
 // to delegate persona-shifted work (away from "primary" toward "persona-shifter").
 // Free-form, but recommended values are: primary | persona-shifter | general | reviewer.
 const role = pick("NAXION_ROLE", "primary");
@@ -219,7 +219,7 @@ const bindHost = pick("NAXION_BIND_HOST", "127.0.0.1");
 // workers keep working with zero extra config.
 const enterpriseMode = ["1", "true", "yes"].includes(pick("NAXION_ENTERPRISE_MODE", "").toLowerCase());
 const serveWeb = ["1", "true", "yes"].includes(pick("SERVE_WEB", "").toLowerCase());
-// web/dist sits at clawbot/web/dist; __dirname is server/src (tsx) so ../../web/dist.
+// web/dist sits at naxionai/web/dist; __dirname is server/src (tsx) so ../../web/dist.
 const webDistPath = resolve(__dirname, "../../web/dist");
 const nodeEnv = (process.env.NODE_ENV ?? "development").trim().toLowerCase();
 const isProduction = nodeEnv === "production";
@@ -332,7 +332,7 @@ export function validateConfig(): void {
   if (serveWeb) {
     const indexHtml = resolve(webDistPath, "index.html");
     if (!existsSync(indexHtml)) {
-      fatal.push(`SERVE_WEB is on but no built SPA found at ${webDistPath} — run "pnpm -F neuroworks-web build" first.`);
+      fatal.push(`SERVE_WEB is on but no built SPA found at ${webDistPath} — run "pnpm -F naxion-web build" first.`);
     }
   }
 

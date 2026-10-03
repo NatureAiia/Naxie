@@ -10,7 +10,7 @@
 // Token-less machine callers (peers, workers, schedulers) are NOT recorded —
 // this is a human activity ledger, not a job journal (that's lib/jobs.ts).
 //
-// Persisted under .neuroworks/chat-history/<userId>.json, capped per user.
+// Persisted under .naxion/chat-history/<userId>.json, capped per user.
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +18,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const HISTORY_DIR = resolve(__dirname, "../../../.neuroworks/chat-history");
+const HISTORY_DIR = resolve(__dirname, "../../../.naxion/chat-history");
 
 const MAX_ENTRIES_PER_USER = 300;
 const MAX_TEXT_CHARS = 20_000;

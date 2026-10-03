@@ -1,14 +1,16 @@
 // Voice API — the employees' spoken presence over their reports.
 //
-// GET  /api/voice/status            → which tiers are live (realtime / local
-//                                     TTS sidecar); client falls back to the
-//                                     browser's Web Speech when both are dark.
+// GET  /api/voice/status            → which tiers are live (elevenlabs /
+//                                     openai / local TTS sidecar / realtime);
+//                                     client falls back to the browser's Web
+//                                     Speech when all are dark.
 // POST /api/voice/ask               → report-grounded Q&A: {jobId, question,
 //                                     personaId?, history?} → the employee's
 //                                     answer text (client speaks it via its
-//                                     best tier). Used by tiers B and C.
-// POST /api/voice/tts               → {text, personaId?} → audio bytes from
-//                                     the local sidecar (tier B).
+//                                     best tier).
+// POST /api/voice/tts               → {text, personaId?} → audio bytes, Rachel
+//                                     on ElevenLabs first, then OpenAI, then
+//                                     the local sidecar.
 // POST /api/voice/realtime-session  → {jobId, personaId?} → short-lived
 //                                     client secret; the browser opens a
 //                                     WebRTC duplex conversation with the
@@ -123,14 +125,14 @@ async function reportContext(jobId: string, personaId?: string): Promise<{ repor
   return {
     report: report.slice(0, 9000),
     title,
-    personaName: persona?.name ?? "Neuro",
+    personaName: persona?.name ?? "Naxie",
     personaSuffix: personaSystemSuffix(persona ?? null),
     personaKey: persona?.id ?? persona?.name ?? "default",
   };
 }
 
 // POST /api/voice/converse — Naxie (PA master) general conversation.
-// Side effect: touches .neuroworks/naxie-interactions.json so the proactive
+// Side effect: touches .naxion/naxie-interactions.json so the proactive
 // daemon can compute "hours since last chat" without guessing.
 // Unlike /api/chat (task/template/planner for specific neuros/agents/workers),
 // this is Naxie's own conversational channel. The caller does NOT pick a
@@ -294,7 +296,8 @@ voiceRouter.post("/ask", async (req, res) => {
 voiceRouter.post("/tts", async (req, res) => {
   const text = String(req.body?.text ?? "").trim();
   if (!text) return res.status(400).json({ error: "text is required" });
-  // Persona-aware: each persona hashes to a stable local sidecar voice.
+  // Persona-aware: Naxie is voiced by Rachel (ElevenLabs); the server picks
+  // the best live tier per request.
   try {
     const pid = req.body?.personaId ? String(req.body.personaId) : undefined;
     const out = await synthesizeWithVoice(text, pid);

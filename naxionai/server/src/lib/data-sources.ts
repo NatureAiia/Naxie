@@ -1,5 +1,5 @@
 // Company database registry. Persists connection metadata at
-// .neuroworks/data-sources.json (outside the vault, since it carries
+// .naxion/data-sources.json (outside the vault, since it carries
 // credentials). Lazy-imports the engine driver on first query so the server
 // boots without pg/mysql2/better-sqlite3 installed — the missing-driver
 // error tells the operator which `pnpm add` to run.
@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { encryptSecret, decryptSecret, isEncrypted } from "./secret-box.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const CONFIG_PATH = resolve(CONFIG_DIR, "data-sources.json");
 
 export type DataSourceKind = "postgres" | "mysql" | "sqlite" | "mssql" | "mongodb" | "excel" | "csv";

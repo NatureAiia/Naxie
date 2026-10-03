@@ -2,7 +2,7 @@
 //
 // Brave is Chromium-based, so the same CDP that powers `chrome --remote-
 // debugging-port=…` works for Brave. The user launches Brave once with the
-// debug flag, then clawbot can enumerate open tabs and read their content
+// debug flag, then Naxie can enumerate open tabs and read their content
 // without any extension installed. Read-only by design — we never click,
 // type, or navigate. The agent just observes what the user is browsing.
 //

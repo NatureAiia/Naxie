@@ -5,7 +5,7 @@ import { PageHeader } from "../components/PageHeader";
 import { Card, Button, showToast } from "../components/Card";
 
 // "Focus Team" — dispatch a shared brief to several personas in parallel,
-// each polled independently. Ported from AI-Institute-Africa/neuroworks'
+// each polled independently. Ported from the earlier prototype'
 // Team.tsx UI; Naxie's backend (routes/team.ts) already existed unused.
 type DraftTask = { persona: string; content: string };
 type Dispatched = { taskIndex: number; persona: { id: string; name: string; role: string } | null; personaAutoRouted: boolean; jobId: string; route: string };

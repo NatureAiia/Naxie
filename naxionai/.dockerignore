@@ -3,7 +3,7 @@ node_modules
 dist
 **/dist
 web/dist
-.neuroworks
+.naxion
 vault
 .git
 .env

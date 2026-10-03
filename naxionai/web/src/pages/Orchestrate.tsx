@@ -6,7 +6,7 @@ import { Card, Button, showToast } from "../components/Card";
 import { EmptyState } from "../components/States";
 
 // Multi-agent objective decomposition — ported from AI-Institute-Africa/
-// neuroworks' Orchestrate.tsx. The backend (routes/orchestrator.ts,
+// the earlier prototype. The backend (routes/orchestrator.ts,
 // lib/orchestrator.ts) already existed in Naxie with zero frontend; this is
 // pure UI wiring against it. Submit an objective, the server decomposes it
 // into parallel sub-tasks and synthesizes a final report.

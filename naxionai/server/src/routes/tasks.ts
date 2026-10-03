@@ -374,7 +374,7 @@ tasksRouter.post("/digest", async (req, res) => {
   const lookback = String(req.body?.lookbackDays ?? "7");
   const job = newJob("dispatch:daily-digest");
   try {
-    await dispatchWorkflow(config.githubOwner, "clawbot", "daily-digest.yml", "main", { lookback_days: lookback });
+    await dispatchWorkflow(config.githubOwner, "NaxionAI-Powered-by-Neuroworks", "daily-digest.yml", "main", { lookback_days: lookback });
     job.status = "succeeded";
     job.finishedAt = new Date().toISOString();
     job.log.push(`workflow_dispatch sent (lookback=${lookback})`);
@@ -388,7 +388,7 @@ tasksRouter.post("/digest", async (req, res) => {
 
 tasksRouter.get("/workflow/latest", async (_req, res) => {
   try {
-    const run = await latestRun(config.githubOwner, "clawbot", "daily-digest.yml");
+    const run = await latestRun(config.githubOwner, "NaxionAI-Powered-by-Neuroworks", "daily-digest.yml");
     res.json({ run });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });

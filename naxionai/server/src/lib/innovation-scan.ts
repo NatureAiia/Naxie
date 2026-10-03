@@ -11,8 +11,8 @@
 //   2. BROAD — a breadth-only watch of trending AI/ML repos + general tech
 //      news, so the operator sees what's new without having to go looking.
 //
-// The digest is written to `_neuroworks/innovation-scans/<YYYY-MM-DD>.md` —
-// same vault, sibling directory to `_neuroworks/reflections/`.
+// The digest is written to `_naxion/innovation-scans/<YYYY-MM-DD>.md` —
+// same vault, sibling directory to `_naxion/reflections/`.
 
 import { writeVaultFile } from "./vault.js";
 import { enqueueVaultCommit } from "./commit-queue.js";
@@ -39,7 +39,7 @@ import { localSynthBudget } from "./local-budget.js";
 import { llmLaneStatus } from "./llm-lane.js";
 import { config } from "../config.js";
 
-const SCAN_DIR = "_neuroworks/innovation-scans";
+const SCAN_DIR = "_naxion/innovation-scans";
 
 export type Weakness = {
   query: string;

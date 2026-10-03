@@ -89,7 +89,7 @@ import { pentestRouter } from "./routes/pentest.js";
 import { crmRouter } from "./routes/crm.js";
 import { naxieRouter } from "./routes/naxie.js";
 import { onboardingRouter } from "./routes/onboarding.js";
-import { seedAiiAWebsiteConnector, seedPublicApiConnectors } from "./lib/connectors.js";
+import { seedPublicApiConnectors } from "./lib/connectors.js";
 import { executorRouter } from "./routes/executor.js";
 import { primitivesRouter } from "./routes/primitives.js";
 import { hermesBridgeRouter } from "./routes/hermes-bridge.js";
@@ -243,7 +243,7 @@ app.get("/api/health", (_req, res) => res.json({
   version: "0.1.0",
   model: config.ollamaModel,
   // Surface OpenRouter capability so peers and the UI can tell whether this
-  // clawbot has a cloud accelerator wired up. Just the on/off + default model —
+  // Naxie has a cloud accelerator wired up. Just the on/off + default model —
   // health check itself stays at /api/status/llm.
   openrouter: config.openrouterEnabled ? { enabled: true, model: config.openrouterModel } : { enabled: false },
   port: config.port,
@@ -256,7 +256,7 @@ app.get("/api/health", (_req, res) => res.json({
   vault: getVaultHealth(),
 }));
 // Generated media (images/audio/video from media.image, media.tts, …) live in
-// .neuroworks/media. Serve them here so the UI and email can offer a real
+// .naxion/media. Serve them here so the UI and email can offer a real
 // DOWNLOAD, not just an on-disk path. Read-only, single flat directory, with a
 // hard basename check so no "..%2f" or nested path can escape the media dir.
 app.get("/api/media/:file", (req, res) => {
@@ -341,7 +341,7 @@ app.use("/api/pentest", pentestRouter); // Strix-backed security scans; scan sta
 app.use("/api/crm", crmRouter); // contacts/deals/activities — local JSON store, no external CRM required
 app.use("/api/executor", executorRouter); // flips who/what executes tasks (spend implications)
 app.use("/api/primitives", primitivesRouter);
-app.use("/api/hermes-bridge", hermesBridgeRouter); // status/register for the clawbot-mcp.mjs ↔ Hermes bridge
+app.use("/api/hermes-bridge", hermesBridgeRouter); // status/register for the naxie-mcp.mjs ↔ Hermes bridge
 app.use("/api/whatsapp", whatsappBridgeRouter); // status/reconnect for the Baileys WhatsApp bridge
 app.use("/api/brands", brandsRouter); // marketing brand registry (personal/work/business)
 app.use("/api/brand-signals", brandSignalsRouter); // own-brand mention/opportunity monitoring, MAIA-shaped
@@ -439,18 +439,16 @@ process.on("uncaughtException", (err: any) => {
 });
 
 const server = app.listen(config.port, config.bindHost, async () => {
-  console.log(`\n  ▶ neuroworks server: http://${config.bindHost}:${config.port}`);
+  console.log(`\n  ▶ naxie server: http://${config.bindHost}:${config.port}`);
   console.log(`    web ui will open at: http://127.0.0.1:7470`);
   console.log(`    vault:  ${config.vaultPath}`);
     console.log(`    ollama: ${config.ollamaHost} (${config.ollamaModel})\n`);
 
-  // Shell build: the workspace ships with NO connectors — UAT operators add
-  // their own on the Connectors page. The old demo/company connectors only seed
+  // Shell build: the workspace ships with NO demo/company connectors — UAT operators add
+  // their own on the Connectors page. The free keyless public-API backups only seed
   // when explicitly asked for via NAXION_SEED_DEMO_CONNECTORS=1. Idempotent,
   // primary-only (workers share connectors.json and would race on a cold store).
   if (config.role === "primary" && process.env.NAXION_SEED_DEMO_CONNECTORS === "1") {
-    try { const s = seedAiiAWebsiteConnector(); if (s) console.log(`  ✓ seeded connector "${s.label}" (${s.endpoints?.length ?? 0} endpoints)`); }
-    catch (e: any) { console.warn(`  ⚠ connector seeding failed: ${e?.message ?? e}`); }
     try { const seeded = seedPublicApiConnectors(); if (seeded.length) console.log(`  ✓ seeded ${seeded.length} free public-API connector(s): ${seeded.join(", ")}`); }
     catch (e: any) { console.warn(`  ⚠ public-API connector seeding failed: ${e?.message ?? e}`); }
   }
@@ -495,7 +493,7 @@ const server = app.listen(config.port, config.bindHost, async () => {
     }
   }
 
-  // Scan localhost for other clawbot instances. Saves the user from having
+  // Scan localhost for other Naxie instances. Saves the user from having
   // to set NAXION_PEERS just to wire the primary ↔ secondary loop together.
   // Disabled with NAXION_NO_AUTODISCOVER=1.
   if (process.env.NAXION_NO_AUTODISCOVER !== "1") {
@@ -522,7 +520,7 @@ const server = app.listen(config.port, config.bindHost, async () => {
   }
 
   // Seed the operator's 3 brands (personal / work=AIIA / business=Variety
-  // Vault) on first boot — idempotent (no-ops once .neuroworks/brands.json
+  // Vault) on first boot — idempotent (no-ops once .naxion/brands.json
   // exists), unlike the demo connectors above: these are real identities, not
   // sample data, so they always seed rather than requiring an opt-in flag.
   try {
@@ -595,12 +593,12 @@ const server = app.listen(config.port, config.bindHost, async () => {
   }
 
   // Periodic git pull from origin so Obsidian edits made on another machine
-  // (or via Obsidian's git plugin) sync into the local vault that clawbot
+  // (or via Obsidian's git plugin) sync into the local vault that Naxie
   // reads. Default every 5m; opt out with NAXION_VAULT_PULL=0.
   startVaultPullScheduler();
 
   // End-of-day reflection at 8pm (20:00) — the day's report. Only the primary
-  // runs the scheduler — secondary clawbots are workers and the reflection
+  // runs the scheduler — secondary agents are workers and the reflection
   // covers the whole fleet from the primary's job list anyway. Disable with
   // NAXION_REFLECTION=0. Override hour with NAXION_REFLECTION_HOUR.
   if (process.env.NAXION_REFLECTION !== "0" && config.role === "primary") {
@@ -647,8 +645,8 @@ const server = app.listen(config.port, config.bindHost, async () => {
           enabled: true,
           cadence: { daysOfWeek: [], hour: Number(process.env.NAXION_TODO_BRIEF_HOUR ?? "6"), minute: 0 },
           tools: ["vault.write"],
-          data: ["_neuroworks/"],
-          outputPath: "_neuroworks/todo-briefs/{date}.md",
+          data: ["_naxion/"],
+          outputPath: "_naxion/todo-briefs/{date}.md",
           handler: "native:todo-brief",
         },
         "Today's tasks + remaining for the week, with weather and a Top 3. Edit the automation on this task in Planner to change cadence.",
@@ -753,7 +751,7 @@ const server = app.listen(config.port, config.bindHost, async () => {
   }
 
   // Email bridge — inbound IMAP poll + outbound SMTP so users can drive
-  // clawbot over email. Primary-only (one poller for the fleet). No-ops with
+  // Naxie over email. Primary-only (one poller for the fleet). No-ops with
   // a log when NAXION_EMAIL_USER / NAXION_EMAIL_APP_PASSWORD aren't set.
   if (config.role === "primary") {
     void startEmailBridge().catch(e =>

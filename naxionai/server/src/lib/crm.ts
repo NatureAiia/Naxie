@@ -1,5 +1,5 @@
 // Minimal CRM store — contacts, deals/pipeline, and a per-contact activity
-// timeline. JSON-backed under .neuroworks/crm.json, following the same
+// timeline. JSON-backed under .naxion/crm.json, following the same
 // convention as connectors.ts / oauth-connectors.ts / email-threads.ts
 // (atomic temp+rename write, no DB dependency — Postgres/pgvector here is
 // optional and off by default, see config.ts's pgvectorEnabled).
@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { maskSensitiveFields } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const CONFIG_PATH = resolve(CONFIG_DIR, "crm.json");
 
 export type Contact = {

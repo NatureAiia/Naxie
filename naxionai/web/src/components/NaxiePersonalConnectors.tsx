@@ -6,7 +6,7 @@ import { Card, Button, showToast } from "./Card";
 // Naxie's personal-account connectors (Google, Microsoft, local documents).
 // Kept as its own section so it doesn't get visually conflated with the
 // generic company-system Connectors above, even though both now run
-// natively on neuroworks/server (lib/oauth-connectors.ts, routes/local-folder.ts).
+// natively on naxionai/server (lib/oauth-connectors.ts, routes/local-folder.ts).
 
 function readOAuthReturn(): { connected?: string; error?: string } {
   const params = new URLSearchParams(window.location.search);

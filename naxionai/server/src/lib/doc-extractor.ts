@@ -1,5 +1,5 @@
 // Document text extraction for non-plaintext vault files. When the customer
-// drops a PDF, Word doc, or spreadsheet into their vault, clawbot needs to
+// drops a PDF, Word doc, or spreadsheet into their vault, Naxie needs to
 // see what's INSIDE it — not just "Untitled.docx" as a filename. This module
 // is the unified entry point: pass it a path, get back markdown-flavoured
 // text, regardless of source format.

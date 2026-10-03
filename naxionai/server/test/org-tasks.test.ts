@@ -1,6 +1,6 @@
 // Naxie org-tasks — disk-free core only (ROLE_AUTONOMY, forceApprovalForRole,
 // isAutonomousForRole). The CRUD/persistence functions in org-tasks.ts touch
-// .neuroworks/org-tasks.json on disk, same as schedules.ts/handoff.ts do —
+// .naxion/org-tasks.json on disk, same as schedules.ts/handoff.ts do —
 // consistent with this repo's existing convention (see governance.test.ts),
 // those file-store modules aren't unit-tested here, only their pure logic.
 

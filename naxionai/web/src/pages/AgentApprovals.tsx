@@ -223,7 +223,7 @@ export function AgentApprovals({ embedded = false }: { embedded?: boolean }) {
                         </div>
                       ) : (
                       <div className={`mt-3 rounded-md border p-3 text-xs ${effects.severity === "high" ? "bg-flame-500/5 border-flame-500/30" : "bg-ink-950 border-ink-800"}`}>
-                        <div className="text-[10px] uppercase tracking-wider text-cream-300/50 mb-1.5">If you approve, Neuro will:</div>
+                        <div className="text-[10px] uppercase tracking-wider text-cream-300/50 mb-1.5">If you approve, Naxie will:</div>
                         <ul className="space-y-1 text-cream-200">
                           {effects.bullets.map((b, i) => <li key={i}>· {b}</li>)}
                         </ul>
@@ -318,7 +318,7 @@ function describeEffects(job: any): { bullets: string[]; severity: "high" | "med
         severity: "low",
         bullets: [
           `Fetch ${String(inputs.repo ?? "")} from GitHub and summarize via Ollama`,
-          `Write the summary to _clawbot/summaries/ in the vault and push`,
+          `Write the summary to _naxie/summaries/ in the vault and push`,
         ],
       };
     }

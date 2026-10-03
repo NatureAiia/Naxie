@@ -11,7 +11,7 @@ import { useNaxieAssistant, type Turn } from "../lib/useNaxieAssistant";
 import { useMicLevel } from "../lib/useMicLevel";
 import { t } from "../lib/i18n";
 
-const WIDGET_OPEN_KEY = "neuroworks.naxieWidget.open";
+const WIDGET_OPEN_KEY = "naxie.widget.open";
 
 function loadOpen(): boolean {
   try { return sessionStorage.getItem(WIDGET_OPEN_KEY) === "1"; } catch { return false; }

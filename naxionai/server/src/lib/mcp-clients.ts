@@ -39,7 +39,7 @@ import { createInterface, type Interface } from "node:readline";
 import { encryptSecret, decryptSecret, isEncrypted } from "./secret-box.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const CONFIG_PATH = resolve(CONFIG_DIR, "mcp-servers.json");
 
 const PROTOCOL_VERSION = "2024-11-05";

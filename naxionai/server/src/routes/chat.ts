@@ -19,17 +19,17 @@ import { loadJobById } from "../lib/job-store.js";
 import { SENSITIVE_APPROVAL_TOOLS, planSensitiveTools } from "../lib/agent.js";
 
 // Below this answer length (chars), a Hermes result is treated as "couldn't do
-// it" and offloaded to clawbot. Catches empty / no-final-response / stub replies.
+// it" and offloaded to naxie-agent. Catches empty / no-final-response / stub replies.
 const HERMES_MIN_ANSWER = Number(process.env.NAXION_HERMES_MIN_ANSWER ?? "40");
-// Master switch for the Hermes→clawbot offload (default on).
+// Master switch for the Hermes→naxie-agent offload (default on).
 const HERMES_FALLBACK = process.env.NAXION_HERMES_FALLBACK !== "0";
 // Quality gate — also offload a present-but-WEAK Hermes answer (one that runs
-// clawbot's quality.check and doesn't pass), not just hard failures. Default on;
+// naxie-agent's quality.check and doesn't pass), not just hard failures. Default on;
 // time-bounded + fail-safe (a scorer error/timeout keeps the Hermes answer).
 const HERMES_QUALITY_GATE = process.env.NAXION_HERMES_QUALITY_GATE !== "0";
 const HERMES_QUALITY_TIMEOUT_MS = Number(process.env.NAXION_HERMES_QUALITY_TIMEOUT_MS ?? "45000");
 
-// Run clawbot's quality.check on a Hermes answer. Returns { pass, score } or
+// Run naxie-agent's quality.check on a Hermes answer. Returns { pass, score } or
 // null when the gate can't run (no primitive / scorer error / timeout) — in
 // which case the caller KEEPS the Hermes answer rather than offloading blind.
 async function scoreHermesAnswer(task: string, answer: string, personaContext?: string): Promise<{ pass: boolean; score: number } | null> {
@@ -43,7 +43,7 @@ async function scoreHermesAnswer(task: string, answer: string, personaContext?: 
     // it as an ungrounded conversational answer — otherwise the research rubric
     // inflates factuality_risk on every uncited claim and a correct answer
     // fails the gate. If the task DOES want grounding, keep the strict rubric:
-    // Hermes can't ground it, so failing → offload to clawbot is the right call.
+    // Hermes can't ground it, so failing → offload to naxie-agent is the right call.
     const grounded = taskWantsResearch(task);
     const res: any = await Promise.race([
       prim.handler({ task, answer, grounded, ...(personaContext ? { context: personaContext } : {}) }),
@@ -76,13 +76,13 @@ async function pickLeastLoadedWorker(): Promise<PeerInfo | null> {
   return workers[0];
 }
 
-// Local clawbot is "overloaded" when at least this many general-task jobs are
-// already running. Configurable via env so single-clawbot users can crank it up
+// Local naxie-agent is "overloaded" when at least this many general-task jobs are
+// already running. Configurable via env so single-naxie-agent users can crank it up
 // to never delegate. Default 2 — when you've already queued one task and start
 // another, delegation kicks in if a peer is idle.
 const OVERLOAD_THRESHOLD = Number(process.env.NAXION_OVERLOAD_THRESHOLD ?? "2");
 
-// When true (default), the primary clawbot delegates ALL ad-hoc general tasks
+// When true (default), the primary naxie-agent delegates ALL ad-hoc general tasks
 // to the persona-shifter peer when one is reachable, then curates the result —
 // scoring quality, scanning for secrets, and capturing context-rooted answers
 // to the vault. The primary becomes the editor; the persona-shifter is the
@@ -215,7 +215,7 @@ async function handleChat(req: any, res: any) {
     }
   }
 
-  // Continuation support. When clawbot previously responded with
+  // Continuation support. When naxie-agent previously responded with
   // needsContext: true, the client preserves the original task text +
   // optional original job id and sends them back with the next message.
   // We don't stitch into `text` (early routing layers still see the bare
@@ -581,9 +581,9 @@ async function handleChat(req: any, res: any) {
   //   a) If the user (or upstream caller) supplied req.body.persona, honour it.
   //   b) Else use the active persona from the dashboard.
   //   c) Else, if nothing is active OR the active persona is the generalist
-  //      "clawbot", auto-route the task to a specialized built-in persona via
+  //      "naxie-agent", auto-route the task to a specialized built-in persona via
   //      pattern matching. The auto-route only fires when the pattern catalog
-  //      yields a confident single winner; otherwise we stay on clawbot.
+  //      yields a confident single winner; otherwise we stay on naxie-agent.
   let persona = getActivePersona();
   let personaAutoRouted: { matched: string[]; score: number } | null = null;
   const explicitPersonaId = typeof req.body?.persona === "string" ? req.body.persona.trim() : "";
@@ -594,7 +594,7 @@ async function handleChat(req: any, res: any) {
       const found = store.personas.find(p => p.id === explicitPersonaId);
       if (found) persona = found;
     } catch { /* fall back to active */ }
-  } else if (!persona || persona.id === "clawbot") {
+  } else if (!persona || persona.id === "naxie-agent") {
     const routed = autoRoutePersona(text);
     if (routed) {
       persona = routed.persona;
@@ -604,7 +604,7 @@ async function handleChat(req: any, res: any) {
 
   // ─── Lane gate ───
   // BEFORE invoking the planner, check whether the active persona is the
-  // right hire for this task. If a non-clawbot persona is on the clock and
+  // right hire for this task. If a non-naxie-agent persona is on the clock and
   // the task is clearly outside their lane, return an inline refusal + hand-
   // off recommendation. This is the gate the ho1 + ho2 hand-off harnesses
   // exposed as missing: prompt-level lane rules get ignored once the planner
@@ -613,7 +613,7 @@ async function handleChat(req: any, res: any) {
   // plan-execute-synth pipeline when it fires.
   //
   // Skipped for:
-  //   • Clawbot (catch-all generalist by design — no lane to police)
+  //   • Naxie Agent (catch-all generalist by design — no lane to police)
   //   • Very short queries (< 25 chars) that are usually pleasantries or
   //     date/time questions handled upstream
   //   • Continuation turns (useThreadContext + lastAssistantTurn set) — the
@@ -622,7 +622,7 @@ async function handleChat(req: any, res: any) {
   // Handoff note surfaced to the customer when the lane gate REROUTES the
   // task instead of refusing it — set below, read when the job is built.
   let laneHandoff: { fromPersona: string; toPersona: string; reason: string } | null = null;
-  if (persona && persona.id !== "clawbot" && text.length >= 25 && !(useThreadContext && lastAssistantTurn.length > 0)) {
+      if (persona && persona.id !== "naxie-agent" && text.length >= 25 && !(useThreadContext && lastAssistantTurn.length > 0)) {
     try {
       const lane = await checkLaneFit(persona, text);
       if (!lane.inLane) {
@@ -662,7 +662,7 @@ async function handleChat(req: any, res: any) {
   //      task to the persona-shifter peer if one is reachable. The primary
   //      then curates the peer's output — quality + security gates, decides
   //      what gets captured to the vault. Worker/editor split.
-  //   2. Persona-shifted task (active persona ≠ built-in clawbot) → still
+  //   2. Persona-shifted task (active persona ≠ built-in naxie-agent) → still
   //      prefers a peer tagged role=persona-shifter (same as default path —
   //      this is just the legacy code path when DELEGATE_ALL is off).
   //   3. Local overloaded → delegate to the lightest idle peer regardless of
@@ -695,7 +695,7 @@ async function handleChat(req: any, res: any) {
   } else if (DELEGATE_ALL) {
     // Chain of command: naxie triages, the sub-agent org (persona-shifter
     // pool) gets first shot when a worker is reachable, Hermes is the
-    // local-execution arm when no worker is reachable, and clawbot's own
+    // local-execution arm when no worker is reachable, and naxie-agent's own
     // pipeline is the last-resort fallback (see the HERMES block below).
     // Hermes being the configured executor no longer skips this — both run,
     // each catching what the other can't.
@@ -728,7 +728,7 @@ async function handleChat(req: any, res: any) {
       // to the lightest worker directly; only run locally if none is reachable.
       if (workerPeer) {
         delegatedPeer = workerPeer;
-        delegationReason = persona && persona.id !== "clawbot" ? "persona-shifter" : "worker";
+        delegationReason = persona && persona.id !== "naxie-agent" ? "persona-shifter" : "worker";
         bumpPending(workerPeer.url, +1); // reserve a slot so a concurrent request picks a different worker
         const eff = (workerPeer.inflightJobs ?? 0) + (pendingByPeer.get(workerPeer.url) ?? 0);
         routingDecision = {
@@ -750,7 +750,7 @@ async function handleChat(req: any, res: any) {
       console.warn("[chat] delegation pick failed:", e?.message ?? e);
     }
   } else {
-    if (persona && persona.id !== "clawbot") {
+    if (persona && persona.id !== "naxie-agent") {
       try {
         routingDecision = await pickExecutor({ preferRole: "persona-shifter" });
         if (routingDecision.decision === "peer" && routingDecision.peer) {
@@ -1087,19 +1087,19 @@ async function handleChat(req: any, res: any) {
 
       // HERMES PRIMARY (with OFFLOAD) — run the task through Hermes first,
       // injecting the persona-shifter's PROMPT features (lane/voice +
-      // governance). Hermes also has clawbot's grounding tools via the MCP
+      // governance). Hermes also has naxie-agent's grounding tools via the MCP
       // bridge. If Hermes CAN'T do it — errors, "no final response", or a
-      // too-thin answer — we OFFLOAD to clawbot's full pipeline below. Each
-      // agent does what it's best at; clawbot catches the rest.
+      // too-thin answer — we OFFLOAD to naxie-agent's full pipeline below. Each
+      // agent does what it's best at; naxie-agent catches the rest.
       let offloadedFromHermes = false;
       // Captured ONLY on a quality-fail offload (not a hard-fail — a hard-failed
-      // Hermes run has no usable answer to compare). Used below, after clawbot's
+      // Hermes run has no usable answer to compare). Used below, after naxie-agent's
       // runFromChat produces its own answer, to cross-check the two instead of
-      // unconditionally taking clawbot's — see crosscheckAnswers() in peers.ts.
+      // unconditionally taking naxie-agent's — see crosscheckAnswers() in peers.ts.
       let hermesQualityFailAnswer: string | undefined;
       // If OpenRouter's circuit is open (a recent outage), Hermes — which runs
       // on an OpenRouter model — would just burn its full 220s timeout before
-      // failing and offloading anyway. Skip it and go straight to clawbot, which
+      // failing and offloading anyway. Skip it and go straight to naxie-agent, which
       // can plan/synth on the local model. This alone avoids ~220s of dead wait
       // per task during an OpenRouter outage.
       let skipHermesForOutage = false;
@@ -1115,7 +1115,7 @@ async function handleChat(req: any, res: any) {
       }
       // Sensitive tasks skip Hermes entirely: Hermes reaches email.send/db/
       // connectors through the MCP bridge, which is NOT behind the approval
-      // checkpoint. Route them straight to clawbot's gated plan pipeline.
+      // checkpoint. Route them straight to naxie-agent's gated plan pipeline.
       if (isHermesPrimary() && sensitiveLikely) {
         push("This task may send email, query the database, or call a connector — routing it through the gated pipeline so it pauses for your approval first.");
       }
@@ -1124,7 +1124,7 @@ async function handleChat(req: any, res: any) {
         let governance = "";
         try { const { loadGovernancePrefix } = await import("../lib/governance.js"); governance = loadGovernancePrefix(); } catch { /* optional */ }
         // Inject the matched SKILL playbook so Hermes (the primary executor) gets
-        // the same task-shaping guidance clawbot's synth does. Without this the
+        // the same task-shaping guidance naxie-agent's synth does. Without this the
         // skill library was dead weight under Hermes — a reconciliation came back
         // with the adjustment directions wrong because the playbook never loaded.
         let skillText = "";
@@ -1144,8 +1144,8 @@ async function handleChat(req: any, res: any) {
         const answerLen = (hr.answer ?? "").trim().length;
         const hardFail = !hr.ok || answerLen < HERMES_MIN_ANSWER;
 
-        // QUALITY GATE — for a present answer, run clawbot's quality.check; a
-        // non-passing verdict offloads to clawbot too (catches weak-but-not-
+        // QUALITY GATE — for a present answer, run naxie-agent's quality.check; a
+        // non-passing verdict offloads to naxie-agent too (catches weak-but-not-
         // empty answers, e.g. ignored-the-format). Skipped on hard fails (no
         // point scoring an error string) and when the gate is off.
         let qualityFail = false;
@@ -1154,7 +1154,7 @@ async function handleChat(req: any, res: any) {
           const q = await scoreHermesAnswer(text, hr.answer, ctx);
           if (q && q.pass === false) {
             qualityFail = true;
-            push(`Quality gate: Hermes answer didn't pass clawbot's quality.check${Number.isFinite(q.score) ? ` (score ${q.score.toFixed(2)})` : ""} — offloading to clawbot.`);
+            push(`Quality gate: Hermes answer didn't pass naxie-agent's quality.check${Number.isFinite(q.score) ? ` (score ${q.score.toFixed(2)})` : ""} — offloading to naxie-agent.`);
           } else if (q) {
             push(`Quality gate: Hermes answer passed${Number.isFinite(q.score) ? ` (score ${q.score.toFixed(2)})` : ""}.`);
           }
@@ -1168,49 +1168,49 @@ async function handleChat(req: any, res: any) {
           return hr;
         }
         offloadedFromHermes = true;
-        if (hardFail) push(`Hermes couldn't complete this (${hr.error ?? `answer too thin — ${answerLen}c`}) — offloading to clawbot for maximum coverage.`);
+        if (hardFail) push(`Hermes couldn't complete this (${hr.error ?? `answer too thin — ${answerLen}c`}) — offloading to naxie-agent for maximum coverage.`);
         // Only the quality-fail case has a usable Hermes answer worth cross-
         // checking — a hard fail means Hermes errored or came back too thin.
         else if (qualityFail) hermesQualityFailAnswer = hr.answer;
       }
 
       const result = await runFromChat("general-task", { task: enrichedTask, save_as_template: true, _signal: getJobAbortSignal(job.id) }, push, progress);
-      // Tag offloaded results so the UI / tests can see the Hermes→clawbot handoff.
+      // Tag offloaded results so the UI / tests can see the Hermes→naxie-agent handoff.
       if (offloadedFromHermes && result && typeof result === "object") (result as any).offloadedFromHermes = true;
 
       // CROSS-CHECK — quality-fail offload only (a hard fail has no usable
       // Hermes answer to compare), and only when the operator turned it on
       // (executor-mode's `crosscheck` flag). Hard-fail behavior and the
-      // crosscheck-disabled path are UNCHANGED: straight to clawbot's answer,
-      // no added latency. clawbot's pipeline already ran above regardless —
+      // crosscheck-disabled path are UNCHANGED: straight to naxie-agent's answer,
+      // no added latency. naxie-agent's pipeline already ran above regardless —
       // this only changes what happens with its output, not whether it runs.
       if (hermesQualityFailAnswer !== undefined && isCrosscheckEnabled() && result && typeof result === "object") {
-        const clawbotAnswer = (result as any).answer;
-        if (typeof clawbotAnswer === "string" && clawbotAnswer.trim().length > 0) {
+        const workerAnswer = (result as any).answer;
+        if (typeof workerAnswer === "string" && workerAnswer.trim().length > 0) {
           try {
-            push("Cross-checking Hermes's answer against clawbot's before picking a final response.");
+            push("Cross-checking Hermes's answer against naxie-agent's before picking a final response.");
             const verdict = await crosscheckAnswers({
               task: text,
               answerA: hermesQualityFailAnswer,
-              answerB: clawbotAnswer,
+              answerB: workerAnswer,
               labelA: "hermes",
-              labelB: "clawbot",
+              labelB: "naxie-agent",
             });
-            const winnerAgent: "hermes" | "clawbot" | "tie" = verdict.winner === "a" ? "hermes" : verdict.winner === "b" ? "clawbot" : "tie";
+            const winnerAgent: "hermes" | "naxie-agent" | "tie" = verdict.winner === "a" ? "hermes" : verdict.winner === "b" ? "naxie-agent" : "tie";
             (result as any).crosschecked = true;
             (result as any).crosscheckWinner = winnerAgent;
             if (verdict.winner === "a") {
               (result as any).answer = hermesQualityFailAnswer;
-              push(`Cross-check picked Hermes's answer over clawbot's${verdict.reason ? ` (${verdict.reason})` : ""}.`);
+              push(`Cross-check picked Hermes's answer over naxie-agent's${verdict.reason ? ` (${verdict.reason})` : ""}.`);
             } else if (verdict.winner === "tie") {
-              push(`Cross-check called it a tie${verdict.reason ? ` (${verdict.reason})` : ""} — keeping clawbot's answer.`);
+              push(`Cross-check called it a tie${verdict.reason ? ` (${verdict.reason})` : ""} — keeping naxie-agent's answer.`);
             } else {
-              push(`Cross-check confirmed clawbot's answer${verdict.reason ? ` (${verdict.reason})` : ""}.`);
+              push(`Cross-check confirmed naxie-agent's answer${verdict.reason ? ` (${verdict.reason})` : ""}.`);
             }
           } catch (e: any) {
-            // Fail open toward keeping clawbot's already-computed answer —
+            // Fail open toward keeping naxie-agent's already-computed answer —
             // mirrors the quality gate's own fail-safe philosophy.
-            push(`Cross-check failed (${String(e?.message ?? e)}) — keeping clawbot's answer.`);
+            push(`Cross-check failed (${String(e?.message ?? e)}) — keeping naxie-agent's answer.`);
           }
         }
       }
@@ -1733,12 +1733,12 @@ function renderSessionBody(messages: { role: string; content: string; jobId?: st
   lines.push(`*${messages.length} message${messages.length === 1 ? "" : "s"} · saved ${new Date().toLocaleString()}*\n`);
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
-    const who = m.role === "user" ? "🟣 You" : "⌬ Clawbot";
+    const who = m.role === "user" ? "🟣 You" : "⌬ Naxie Agent";
     lines.push(`---`);
     lines.push(`### ${who}`);
     lines.push("");
     lines.push(m.content.trim());
-    if (m.jobId) lines.push(`\n*Linked task:* [[_neuroworks/jobs/${m.jobId.slice(0, 8)}]] (\`${m.jobId}\`)`);
+    if (m.jobId) lines.push(`\n*Linked task:* [[_naxion/jobs/${m.jobId.slice(0, 8)}]] (\`${m.jobId}\`)`);
     lines.push("");
   }
   return lines.join("\n");
@@ -2109,7 +2109,7 @@ chatRouter.post("/team", async (req, res) => {
         if (r.hadWrites) {
           push("Wrote to second brain — committing.");
           try {
-            const c = await commitAndPush(`clawbot team-task: ${content.slice(0, 60)}`);
+            const c = await commitAndPush(`naxie-agent team-task: ${content.slice(0, 60)}`);
             push(`Vault commit: ${(c as any)?.ok === false ? "failed" : "done"}.`);
           } catch (e: any) { push(`Commit didn't go through (non-fatal): ${e?.message ?? e}.`); }
         }

@@ -5,7 +5,7 @@
 // Both surface through the same /api/departments listing so the Departments
 // page and the org's department picker treat them uniformly.
 //
-// Persisted under .neuroworks/custom-departments.json (gitignored).
+// Persisted under .naxion/custom-departments.json (gitignored).
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import type { DepartmentTemplate } from "./department-templates.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const STORE = resolve(CONFIG_DIR, "custom-departments.json");
 
 export type CustomDepartment = {

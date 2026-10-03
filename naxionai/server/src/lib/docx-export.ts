@@ -133,7 +133,7 @@ export async function markdownToDocxBuffer(markdown: string, opts?: { title?: st
   const tokens = marked.lexer(markdown ?? "");
   const blocks = tokensToBlocks(tokens);
   const doc = new Document({
-    creator: "clawbot",
+    creator: "naxie",
     title: opts?.title ?? "Document",
     styles: {
       paragraphStyles: [

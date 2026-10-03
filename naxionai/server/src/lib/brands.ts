@@ -5,20 +5,18 @@ import { addPersona, updatePersona, loadPersonas, type Persona } from "./persona
 import { writeVaultFile, readVaultFile } from "./vault.js";
 
 // Brand registry — the marketing feature's first-class "which voice/audience/
-// channel am I speaking for" concept. NeuroWorks had exactly one hardcoded
-// brand before this (AIIA, via routes/templates.ts's AIIA_VALUES constant);
-// this generalizes that into N brands, seeded with the 3 the operator runs:
-// personal, work (= AIIA, migrated in with its existing content/persona), and
-// business (Variety Vault / Variety & Co., new).
+// channel am I speaking for" concept. Seeded with the 3 brands the operator
+// runs: personal, work, and business — voice/audience/values are filled in
+// on the Brands page.
 //
-// Persisted under .neuroworks/brands.json (gitignored), same pattern as
+// Persisted under .naxion/brands.json (gitignored), same pattern as
 // custom-departments.ts. A brand does NOT require a department — it links to
 // one or more Persona ids directly (see seedDefaultBrands / createBrand),
 // which is lighter than the full department/workflow machinery for "one
 // voice, one calendar, one set of channels."
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const STORE = resolve(CONFIG_DIR, "brands.json");
 
 export type BrandChannel = {
@@ -69,7 +67,7 @@ function save(list: Brand[]): void {
 // buffer-story-post/social-optimize runners' per-brand subfolder) sanitizes
 // it the same way — a brandId is sometimes free-typed (a Schedule's stored
 // inputs, a template run) rather than looked up, so it must never be trusted
-// as a raw path segment (no "../" traversal out of _neuroworks/social/).
+// as a raw path segment (no "../" traversal out of _naxion/social/).
 export const slug = (s: string) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
 
 export function listBrands(): Brand[] {
@@ -141,24 +139,13 @@ export function addBrandChannel(id: string, channel: BrandChannel): Brand | null
   return updateBrand(id, { channels });
 }
 
-// The AIIA values block, verbatim — kept here (not deleted from
-// routes/templates.ts's fallback) so "work" seeds from the SAME text rather
-// than a paraphrase, and so the fallback path there and this seed can never
-// drift apart.
-const AIIA_VALUES_TEXT =
-  `AI Institute Africa (AIIA) brand values — reflect ALL of these in tone and framing:\n` +
-  `• African unity & pride — celebrate African innovation and shared progress.\n` +
-  `• Ubuntu ("I am because we are") — community over individualism; speak WITH people, not down to them.\n` +
-  `• Inclusion & accessibility — bring everyone along, especially the underserved; plain, welcoming language.\n` +
-  `• AI for a better Africa — practical, ethical technology that uplifts Zimbabwean & African communities.\n` +
-  `Voice: warm, hopeful, grounded, credible. Never hype-y, never a colonial/"saviour" framing, no empty buzzwords.`;
-
-const WORK_GUIDELINES_PATH = "_company/aiia_brand_guidlines.extracted.md";
+// Guidelines path for the work brand's voice doc in the vault.
+const WORK_GUIDELINES_PATH = "_brands/work/voice-guidelines.md";
 const SASHA_PERSONA_ID = "social-media-manager";
 
 function ensureBrandPersona(brand: Brand, opts: { reuseSasha?: boolean }): string {
   if (opts.reuseSasha) {
-    // work = AIIA continuity: repoint the EXISTING Sasha persona instead of
+    // work: repoint the EXISTING Sasha persona instead of
     // cloning, so its history/tone/job description isn't duplicated.
     updatePersona(SASHA_PERSONA_ID, { department: `brand-${brand.id}` });
     const existing = loadPersonas().personas.find(p => p.id === SASHA_PERSONA_ID);
@@ -223,23 +210,30 @@ export function seedDefaultBrands(): void {
 
   const work = createBrand({
     id: "work",
-    name: "AIIA",
-    tagline: "AI Institute Africa",
-    voice: "warm, hopeful, grounded, credible",
-    audience: "African innovators, AI practitioners, and communities AIIA serves",
-    values: AIIA_VALUES_TEXT,
+    name: "Work",
+    tagline: "Work / professional",
+    voice: "",
+    audience: "",
+    values: "",
     guidelinesVaultPath: WORK_GUIDELINES_PATH,
     color: "flame",
     icon: "briefcase",
   });
-  // One-time migration: work = AIIA continuity, so its pre-Brands strategy
-  // note (routes/templates.ts's SOCIAL_DIR = "_neuroworks/social") moves into
+  try {
+    if (!readVaultFile("_brands/work/voice-guidelines.md")) throw new Error("empty");
+  } catch {
+    writeVaultFile("_brands/work/voice-guidelines.md",
+      `---\ntype: brand-guidelines\nbrand: work\n---\n\n# Work — brand voice guidelines\n\n` +
+      `_Fill this in — voice, audience, values, do's and don'ts. The Brands page and brand-voice skill read this file._\n`);
+  }
+  // One-time migration: the work brand's pre-Brands strategy
+  // note (routes/templates.ts's SOCIAL_DIR = "_naxion/social") moves into
   // the new brand-scoped subfolder rather than starting the "learning" loop
   // over. Existing drafts/ under the legacy root are left as historical
   // archive — only new drafts land under work/ going forward.
   try {
-    const legacy = readVaultFile("_neuroworks/social/strategy.md");
-    if (legacy && legacy.trim()) writeVaultFile("_neuroworks/social/work/strategy.md", legacy);
+    const legacy = readVaultFile("_naxion/social/strategy.md");
+    if (legacy && legacy.trim()) writeVaultFile("_naxion/social/work/strategy.md", legacy);
   } catch { /* no legacy strategy note — nothing to migrate */ }
 
   const business = createBrand({

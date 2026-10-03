@@ -5,7 +5,7 @@ import {
 } from "three";
 import { geoEquirectangular, geoPath } from "d3-geo";
 
-// Rotating dotted-land globe with a marker per workforce neuro. Adapted from
+// Rotating dotted-land globe with a marker per workforce agent. Adapted from
 // a Framer-marketplace component (Globe — Originkit); adapted, not just
 // trimmed:
 //   - Land data comes from /land-50m.json served by this app (vendored
@@ -19,7 +19,7 @@ import { geoEquirectangular, geoPath } from "d3-geo";
 //     builds on every mount). What's kept — equirectangular land rasterize →
 //     lat/lng dot lattice with cos(lat) longitude spacing → InstancedMesh —
 //     is the original's exact dot pipeline.
-//   - Markers pulse (sin-scaled per frame) so the neuros read as alive.
+//   - Markers pulse (sin-scaled per frame) so the agents read as alive.
 //
 // prefers-reduced-motion: globe renders but does not spin (markers still
 // mark). WebGL context and geometry are disposed on unmount.

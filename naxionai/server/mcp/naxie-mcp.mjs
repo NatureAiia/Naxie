@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-// clawbot MCP bridge — exposes clawbot's curated primitives (vault grounding,
-// connectors → AIIA, integrations, web reads, payment status) to an MCP client
+// Naxie MCP bridge — exposes Naxie's curated primitives (vault grounding,
+// connectors, integrations, web reads, payment status) to an MCP client
 // (Hermes) over stdio. It's a THIN PROXY: tool calls are forwarded to the live
-// clawbot server's /api/primitives endpoints, so the real vault path + the
-// encrypted connector secrets (AIIA token) are used. No clawbot logic is
+// Naxie server's /api/primitives endpoints, so the real vault path + the
+// encrypted connector secrets are used. No Naxie logic is
 // duplicated here.
 //
 // Transport: MCP stdio = line-delimited JSON-RPC 2.0 (one message per line).
 // Implemented by hand to avoid an SDK dependency.
 //
 // Register with Hermes:
-//   hermes mcp add clawbot -- node "<repo>/server/mcp/clawbot-mcp.mjs"
-// Then `hermes mcp configure` to enable the tools, `hermes mcp test clawbot`.
+//   hermes mcp add naxie -- node "<repo>/server/mcp/naxie-mcp.mjs"
+// Then `hermes mcp configure` to enable the tools, `hermes mcp test naxie`.
 //
 // Env: NAXION_BASE (default http://127.0.0.1:7471).
 
@@ -28,7 +28,7 @@ function error(id, code, message) { send({ jsonrpc: "2.0", id, error: { code, me
 
 async function fetchTools() {
   const r = await fetch(`${BASE}/api/primitives`);
-  if (!r.ok) throw new Error(`clawbot /api/primitives ${r.status}`);
+  if (!r.ok) throw new Error(`Naxie /api/primitives ${r.status}`);
   const j = await r.json();
   return (j.tools ?? []).map(t => ({
     name: t.name,
@@ -44,7 +44,7 @@ async function callTool(name, args) {
     body: JSON.stringify({ name, args: args ?? {} }),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j?.error ?? `clawbot call ${r.status}`);
+  if (!r.ok) throw new Error(j?.error ?? `Naxie call ${r.status}`);
   return j.result;
 }
 
@@ -61,7 +61,7 @@ async function handle(msg) {
           // Echo the client's protocol version when offered, else our default.
           protocolVersion: params?.protocolVersion ?? PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: "clawbot", version: "1.0.0" },
+          serverInfo: { name: "Naxie", version: "1.0.0" },
         });
       case "ping":
         return result(id, {});
@@ -92,7 +92,7 @@ async function handle(msg) {
 }
 
 // Track in-flight async handlers so we don't exit on stdin-close while a
-// tools/call is still awaiting clawbot — that would drop its response.
+// tools/call is still awaiting Naxie — that would drop its response.
 let pending = 0;
 let closed = false;
 // Defer the exit a tick so libuv finishes tearing down the stdin handle —

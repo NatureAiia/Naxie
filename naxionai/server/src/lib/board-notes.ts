@@ -3,7 +3,7 @@
 // convention: same 0-Inbox/<stamp>-<kind>-<slug>.md naming, same frontmatter
 // shape, same [[wikilink]] sourcing for whatever was read for grounding).
 //
-// Before this, a board meeting only lived in .neuroworks/board-meetings.json
+// Before this, a board meeting only lived in .naxion/board-meetings.json
 // (capped at 50 runs) — invisible to search/RAG and to vault-graph.ts's
 // wikilink graph. Writing here is what actually feeds that graph
 // board-meeting-sourced links; no changes to vault-graph.ts itself needed.

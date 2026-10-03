@@ -1,6 +1,6 @@
 ---
 name: launch-post
-description: Drafting a single brand-scoped launch/announcement post plus a short video script, outside the automated buffer-story-post pipeline.
+description: Drafting a single brand-scoped launch/announcement post plus a short video script.
 applies_to: [announce, draft-other]
 ---
 
@@ -8,7 +8,7 @@ applies_to: [announce, draft-other]
 
 ## Goal
 
-One accurate, platform-native announcement post (plus an optional short video-narration script) for a SPECIFIC brand — used when a human asks for a one-off launch/announcement post directly, rather than through the scheduled `buffer-story-post` template.
+One accurate, platform-native announcement post (plus an optional short video-narration script) for a SPECIFIC brand — used when a human asks for a one-off launch/announcement post directly.
 
 ## Format
 
@@ -30,13 +30,12 @@ This mirrors the shape the automated pipeline (`draftSocialPost` in `routes/temp
 
 1. Resolve the brand (see `brand-voice.md`) — never draft a launch post without knowing which brand it's for.
 2. Fill CAPTION/SUMMARY factually — never invent details about what's launching.
-3. WHY_IT_MATTERS is where the brand's mission/framing shows up — for Work (AIIA) this is the Africa-relevance angle; for Personal/Business, whatever that brand's own `values`/`audience` imply. Do not import AIIA's specific framing ("AI for a better Africa") into a non-AIIA brand's post.
+3. WHY_IT_MATTERS is where the brand's mission/framing shows up — whatever that brand's own `values`/`audience` imply. Never import another brand's specific framing into a post.
 4. Pick hashtags from the brand's own established set where one exists (check recent drafts) rather than inventing new ones each time.
 
 ## Rules
 
-- This is a DRAFT for human review, same posture as `buffer-story-post` — never claim something is "published"; present it for sign-off.
-- Known limitation: the automated `buffer-story-post` template's internal prompt currently hardcodes AIIA's "why it matters for Africa" framing (`draftSocialPost`, `routes/templates.ts`) — for a non-Work brand running through the automated pipeline today, review the WHY section extra carefully until that prompt is generalized per-brand. A manually-run launch post via this skill doesn't have that limitation since you write WHY_IT_MATTERS yourself.
+- This is a DRAFT for human review — never claim something is "published"; present it for sign-off.
 
 ## Pitfalls
 

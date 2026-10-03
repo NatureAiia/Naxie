@@ -52,7 +52,7 @@ export type QualitySummary = {
   recentFlags: QualityFlag[];
 };
 
-const QUALITY_REL = "_neuroworks/quality.jsonl";
+const QUALITY_REL = "_naxion/quality.jsonl";
 // The thumbs up/down the operator actually clicks on answers (ResultPanel →
 // POST /api/feedback) land in a SEPARATE file, written by routes/feedback.ts.
 // Until 2026-07-12 the Quality page read only quality.jsonl — whose write
@@ -60,8 +60,8 @@ const QUALITY_REL = "_neuroworks/quality.jsonl";
 // showed zeros while 13 real ratings sat in feedback.jsonl. Reads below merge
 // both files; the two stores share a record shape (feedback.jsonl just never
 // carries category/language).
-const FEEDBACK_REL = "_neuroworks/feedback.jsonl";
-const AGGREGATE_REL = "_neuroworks/quality-summary.json";
+const FEEDBACK_REL = "_naxion/feedback.jsonl";
+const AGGREGATE_REL = "_naxion/quality-summary.json";
 
 function qualityPath(): string {
   return resolve(config.vaultPath, QUALITY_REL);

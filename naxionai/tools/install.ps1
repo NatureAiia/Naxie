@@ -1,4 +1,4 @@
-# NeuroWorks installer (Windows). Gets NeuroWorks running on a fresh PC with
+# Naxie installer (Windows). Gets Naxie running on a fresh PC with
 # the free local core - no personal keys required.
 #
 #   Usage:  powershell -ExecutionPolicy Bypass -File tools\install.ps1
@@ -16,8 +16,8 @@ param([switch]$Start)
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
-function Say($m) { Write-Host "[neuroworks] $m" }
-function Warn($m) { Write-Host "[neuroworks] WARNING: $m" -ForegroundColor Yellow }
+function Say($m) { Write-Host "[naxie] $m" }
+function Warn($m) { Write-Host "[naxie] WARNING: $m" -ForegroundColor Yellow }
 
 # 1. Node >= 20
 $node = (Get-Command node -ErrorAction SilentlyContinue)
@@ -28,7 +28,7 @@ if (-not $node) {
 $nodeVer = (& node --version) -replace "v",""
 $nodeMajor = [int]($nodeVer.Split(".")[0])
 if ($nodeMajor -lt 20) {
-  Warn "Node $nodeVer found, but NeuroWorks needs 20+. Upgrade from https://nodejs.org then re-run."
+  Warn "Node $nodeVer found, but Naxie needs 20+. Upgrade from https://nodejs.org then re-run."
   exit 1
 }
 Say "Node $nodeVer OK"
@@ -70,7 +70,7 @@ if (-not $ollama) {
 }
 
 Say "Setup complete."
-Say "Start NeuroWorks with:  pnpm dev"
+Say "Start Naxie with:  pnpm dev"
 Say "Then open:              http://127.0.0.1:7470"
 
 if ($Start) {

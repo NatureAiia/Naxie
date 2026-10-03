@@ -17,10 +17,10 @@ let lastMtimes: Map<string, number> = new Map();
 
 // Files whose mtime changes should bust the CAG cache
 const WATCHED = [
-  "_neuroworks/identity/operator.md",
-  "_neuroworks/identity/naxie.md",
-  "_neuroworks/identity/subagents.md",
-  "_neuroworks/personas/naxie.md",
+  "_naxion/identity/operator.md",
+  "_naxion/identity/naxie.md",
+  "_naxion/identity/subagents.md",
+  "_naxion/personas/naxie.md",
 ];
 
 function mtimesSnapshot(): Map<string, number> {
@@ -35,7 +35,7 @@ function mtimesSnapshot(): Map<string, number> {
   }
   // Also track onboarding state freshness via file mtime
   try {
-    const onboardingPath = join(config.vaultPath, "../../.neuroworks/onboarding.json");
+    const onboardingPath = join(config.vaultPath, "../../.naxion/onboarding.json");
     if (existsSync(onboardingPath)) m.set(onboardingPath, statSync(onboardingPath).mtimeMs);
   } catch { /* ignore */ }
   return m;

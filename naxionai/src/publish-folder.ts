@@ -40,7 +40,7 @@ async function main() {
     const status = await git.status();
     if (status.files.length > 0) {
       await git.add(".");
-      await git.commit("clawbot: snapshot before publish");
+      await git.commit("naxie: snapshot before publish");
     }
   }
 
@@ -50,7 +50,7 @@ async function main() {
     const { data } = await octokit.repos.createForAuthenticatedUser({
       name: repoName,
       private: !isPublic,
-      description: `Auto-published by clawbot from local folder: ${basename(folder)}`,
+      description: `Auto-published by Naxie from local folder: ${basename(folder)}`,
     });
     cloneUrl = data.clone_url;
     console.log(`created repo ${data.full_name}`);

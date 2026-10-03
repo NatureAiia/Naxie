@@ -1,6 +1,6 @@
 export function BrandMark({ size = 28 }: { size?: number }) {
   return (
-    <svg viewBox="0 0 64 64" width={size} height={size} aria-label="NeuroWorks">
+    <svg viewBox="0 0 64 64" width={size} height={size} aria-label="Naxie">
       <defs>
         <linearGradient id="nw-y" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#f6a623" />

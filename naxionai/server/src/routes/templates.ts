@@ -33,7 +33,7 @@ const NEEDS_GITHUB = new Set(["summarize-repo", "run-digest", "publish-folder"])
 
 // ── News config API (per-feed tuning, history, threshold) ───────────────
 // GET /api/templates/news/config — effective config (env + file + defaults)
-// PATCH /api/templates/news/config — admin UI writes .neuroworks/news-config.json
+// PATCH /api/templates/news/config — admin UI writes .naxion/news-config.json
 templatesRouter.get("/news/config", (req, res) => {
   const file = loadNewsFileConfig();
   res.json({
@@ -83,7 +83,7 @@ templatesRouter.patch("/news/config", requireLayer("admin"), (req, res) => {
 templatesRouter.get("/news/metrics", (req, res) => {
   try {
     const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 50)));
-    const metricsPath = resolve(config.vaultPath, "_neuroworks/news/metrics.jsonl");
+    const metricsPath = resolve(config.vaultPath, "_naxion/news/metrics.jsonl");
     if (!_exs(metricsPath)) return res.json({ metrics: [], total: 0 });
     const lines = _rfs(metricsPath, "utf8").trim().split("\n").filter(Boolean).slice(-limit).reverse();
     const metrics = lines.map(l=>{ try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
@@ -109,7 +109,7 @@ templatesRouter.get("/", (req, res) => {
       title: c.title,
       description: c.description,
       icon: "saved",
-      agent: "clawbot",
+      agent: "naxie-agent",
       inputs: [],
       requiresApproval: false,
       estimateSeconds: 30,
@@ -266,7 +266,7 @@ templatesRouter.post("/run/:id", async (req, res) => {
   if (!tpl) {
     custom = findCustomTemplate(req.params.id);
     if (custom) {
-      tpl = { id: custom.id, role: "Insights", title: custom.title, description: custom.description, icon: "saved", agent: "clawbot", inputs: [], requiresApproval: false, estimateSeconds: 30 } as Template;
+      tpl = { id: custom.id, role: "Insights", title: custom.title, description: custom.description, icon: "saved", agent: "naxie-agent", inputs: [], requiresApproval: false, estimateSeconds: 30 } as Template;
     }
   }
   if (!tpl) return res.status(404).json({ error: "template not found" });
@@ -301,7 +301,7 @@ templatesRouter.post("/run/:id", async (req, res) => {
 
   // Preflight: refuse cleanly if a GitHub-touching template is requested without a token
   if (NEEDS_GITHUB.has(tpl.id) && !config.githubToken) {
-    return res.status(412).json({ error: "GitHub token not configured. Set GITHUB_TOKEN in clawbot/.env and restart." });
+    return res.status(412).json({ error: "GitHub token not configured. Set GITHUB_TOKEN in naxionai/.env and restart." });
   }
 
   const job = newJob(`${tpl.role.toLowerCase()}:${tpl.id}`);
@@ -322,18 +322,18 @@ templatesRouter.post("/run/:id", async (req, res) => {
     job.priority = requestedPriority as OrgTaskPriority;
   }
   // A "needs my OK" schedule forces approval on its fired job regardless of
-  // the template's own default — set alongside x-clawbot-scheduled by
+  // the template's own default — set alongside x-naxie-scheduled by
   // schedules.ts's fireSchedule() when Schedule.requireApproval is true.
   // Crown skips the TEMPLATE's own default approval requirement, but never
   // this explicit schedule-level opt-in — a narrower human "review this one
   // recurring schedule" choice always wins over crown's bypass.
-  const forceApproval = req.get("x-clawbot-force-approval") === "1";
+  const forceApproval = req.get("x-naxie-force-approval") === "1";
   job.requiresApproval = (tpl.requiresApproval && job.priority !== "crown") || forceApproval;
   // Attribute to the initiating human (staff feeds show only own tasks).
   job.createdByEmail = callerOf(req)?.email;
   // Schedule-fired runs carry a marker header; the tag routes their results
   // into the vault journal (scheduled progress reports belong in the brain).
-  const scheduledBy = req.get("x-clawbot-scheduled");
+  const scheduledBy = req.get("x-naxie-scheduled");
   if (scheduledBy) job.scheduledBy = scheduledBy;
 
   if (job.requiresApproval) {
@@ -599,18 +599,18 @@ async function summarizeRepoRunner(inputs: Record<string, unknown>, push: (m: st
   );
   const today = new Date().toISOString().slice(0, 10);
   const md = `---\nrepo: ${owner}/${name}\ngenerated: ${today}\nmodel: ${config.ollamaModel}\n---\n\n# ${owner}/${name}\n\n${summary}\n`;
-  const rel = `_clawbot/summaries/${owner}-${name}.md`;
+  const rel = `_naxie/summaries/${owner}-${name}.md`;
   push(`writing ${rel}`);
   writeVaultFile(rel, md);
   push("committing + pushing vault");
-  const r = await commitAndPush(`clawbot: summary ${owner}/${name}`);
+  const r = await commitAndPush(`naxie: summary ${owner}/${name}`);
   return { path: rel, ...r };
 }
 
 async function runDigestRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
   const lookback = String(inputs.lookbackDays ?? 7);
   push(`dispatching daily-digest workflow (lookback=${lookback})`);
-  await dispatchWorkflow(config.githubOwner, "clawbot", "daily-digest.yml", "main", { lookback_days: lookback });
+  await dispatchWorkflow(config.githubOwner, "NaxionAI-Powered-by-Neuroworks", "daily-digest.yml", "main", { lookback_days: lookback });
   push("workflow_dispatch sent — track progress on GitHub Actions");
   return { dispatched: true, lookbackDays: lookback };
 }
@@ -637,7 +637,7 @@ async function publishFolderRunner(inputs: Record<string, unknown>, push: (m: st
     if (status.files.length > 0) {
       push("staging local changes");
       await git.add(".");
-      await git.commit("clawbot: snapshot before publish");
+      await git.commit("naxie: snapshot before publish");
     }
   }
 
@@ -646,7 +646,7 @@ async function publishFolderRunner(inputs: Record<string, unknown>, push: (m: st
     push(`creating repo ${config.githubOwner}/${repoName}`);
     const { data } = await octokit.repos.createForAuthenticatedUser({
       name: repoName, private: !isPublic,
-      description: `Auto-published by clawbot from local folder: ${basename(full)}`,
+      description: `Auto-published by Naxie from local folder: ${basename(full)}`,
     });
     cloneUrl = data.clone_url;
   } catch (err: any) {
@@ -743,7 +743,7 @@ export async function generalTaskRunner(inputs: Record<string, unknown>, push: (
   if (r.hadWrites) {
     push("Wrote to your second brain — committing the changes.");
     try {
-      const c = await commitAndPush(`clawbot: agent task — ${task.slice(0, 60)}`);
+      const c = await commitAndPush(`naxie: agent task — ${task.slice(0, 60)}`);
       push(`Vault commit: ${(c as any)?.ok === false ? "failed" : "done"}${(c as any)?.sha ? ` (${String((c as any).sha).slice(0, 7)})` : ""}.`);
     } catch (e: any) { push(`Commit didn't go through (non-fatal): ${e.message ?? e}.`); }
   }
@@ -815,12 +815,12 @@ function gatherRecentInboxNotes(sinceMs: number, cap = 10): { path: string; mtim
 }
 
 // Recent session transcripts — every chat/email/brief run journals a note under
-// _neuroworks/session/. The innovation scan mines these so its report is
+// _naxion/session/. The innovation scan mines these so its report is
 // grounded in (and can cite) what the org has actually been asking the agents,
 // not just web headlines — and so "summarise the innovation scan" has real
 // session signal to reference instead of timing out on fresh web research.
 function gatherRecentSessionNotes(sinceMs: number, cap = 8): { path: string; mtime: string; text: string }[] {
-  return gatherRecentNotesUnder(["_neuroworks/session", "_neuroworks/sessions", "session", "sessions"], sinceMs, cap);
+  return gatherRecentNotesUnder(["_naxion/session", "_naxion/sessions", "session", "sessions"], sinceMs, cap);
 }
 
 // A real innovation scan is an opportunities / techniques / APIs / repos report.
@@ -953,26 +953,20 @@ async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: s
 //     engagement (insights:read, if the token grants it) → rewrite a strategy note
 //     that the drafter reads next run. That note is the "learning" that closes the
 //     loop.
-const SOCIAL_DIR = "_neuroworks/social";
+const SOCIAL_DIR = "_naxion/social";
 
-// AIIA brand values — the ORIGINAL hardcoded brand, kept verbatim as the
-// fallback buildBrandValues() uses when no brandId resolves (so any caller
-// that hasn't been migrated to pass a brandId keeps working unchanged). The
-// "work" brand (lib/brands.ts) seeds from this exact text on first boot.
-const AIIA_VALUES =
-  `AI Institute Africa (AIIA) brand values — reflect ALL of these in tone and framing:\n` +
-  `• African unity & pride — celebrate African innovation and shared progress.\n` +
-  `• Ubuntu ("I am because we are") — community over individualism; speak WITH people, not down to them.\n` +
-  `• Inclusion & accessibility — bring everyone along, especially the underserved; plain, welcoming language.\n` +
-  `• AI for a better Africa — practical, ethical technology that uplifts Zimbabwean & African communities.\n` +
-  `Voice: warm, hopeful, grounded, credible. Never hype-y, never a colonial/"saviour" framing, no empty buzzwords.`;
+// Neutral brand-values fallback buildBrandValues() uses when no brandId
+// resolves (so any caller that hasn't been migrated to pass a brandId keeps
+// working unchanged).
+const DEFAULT_BRAND_VALUES =
+  `Brand values — no brand selected. Ask the operator which brand this is for, or check the Brands page.`;
 
 // Generalized brand-values block — formats a Brand record's own voice/
-// audience/values into the same shape AIIA_VALUES used, so drafting prompts
-// don't need a special case per brand. Falls back to the literal AIIA text
-// when no brand resolved (back-compat for callers that omit brandId).
+// audience/values into the same shape DEFAULT_BRAND_VALUES used, so drafting
+// prompts don't need a special case per brand. Falls back to the neutral
+// text when no brand resolved (back-compat for callers that omit brandId).
 function buildBrandValues(brand?: Brand): string {
-  if (!brand) return AIIA_VALUES;
+  if (!brand) return DEFAULT_BRAND_VALUES;
   const lines = [`${brand.name} brand values — reflect these in tone and framing:`];
   if (brand.values.trim()) lines.push(brand.values.trim());
   if (brand.audience.trim()) lines.push(`Audience: ${brand.audience.trim()}`);
@@ -981,24 +975,21 @@ function buildBrandValues(brand?: Brand): string {
   return lines.join("\n");
 }
 
-// Pull a brand's guidelines from company knowledge so posts + videos match the
-// real brand. Originally AIIA-only (a PDF's text-extracted companion in
-// `_company/`); now parameterized per-brand via Brand.guidelinesVaultPath.
+// Pull a brand's guidelines from the vault so posts + videos match the
+// real brand. Parameterized per-brand via Brand.guidelinesVaultPath.
 // Falls back to a vault.search sweep if no known path is set/found.
 async function gatherBrandContext(push: (m: string) => void, brandId?: string): Promise<string> {
   const brand = brandId ? getBrand(brandId) : undefined;
 
-  // 1) The brand's own guidelines doc, read directly (most reliable). AIIA's
-  // two historical filename spellings stay as the fallback list when no
-  // brand-specific path is set, for any caller mid-migration.
+  // 1) The brand's own guidelines doc, read directly (most reliable).
   const known = brand?.guidelinesVaultPath
     ? [brand.guidelinesVaultPath]
-    : ["_company/aiia_brand_guidlines.extracted.md", "_company/aiia_brand_guidelines.extracted.md"];
+    : [];
   for (const rel of known) {
     const txt = readVaultText(rel);
     if (txt && txt.trim().length > 100) {
-      push(`Grounded on the ${brand?.name ?? "AIIA"} brand guidelines from company knowledge.`);
-      return `\n\n${(brand?.name ?? "AIIA").toUpperCase()} BRAND GUIDELINES (from company knowledge — honour these exactly):\n${txt.replace(/^---[\s\S]*?---\n/, "").trim().slice(0, 2600)}`;
+      push(`Grounded on the ${brand?.name ?? "brand"} guidelines from the vault.`);
+      return `\n\n${(brand?.name ?? "BRAND").toUpperCase()} GUIDELINES (from the vault — honour these exactly):\n${txt.replace(/^---[\s\S]*?---\n/, "").trim().slice(0, 2600)}`;
     }
   }
   // 2) Fallback: search the vault for a brand/company doc.
@@ -1008,7 +999,7 @@ async function gatherBrandContext(push: (m: string) => void, brandId?: string): 
     const seen = new Set<string>(); const snippets: string[] = [];
     const queries = brand
       ? [`${brand.name} brand guidelines voice values`, `${brand.name} brand tone`, `${brand.name} profile audience`]
-      : ["AIIA brand guidelines voice values", "AI Institute Africa brand tone", "company profile mission"];
+      : ["brand guidelines voice values", "brand tone", "company profile mission"];
     for (const q of queries) {
       const r: any = await prim.handler({ query: q });
       for (const m of (r?.results ?? r?.matches ?? [])) {
@@ -1019,7 +1010,7 @@ async function gatherBrandContext(push: (m: string) => void, brandId?: string): 
       }
       if (snippets.length >= 3) break;
     }
-    if (snippets.length) { push(`Grounded on ${snippets.length} brand/company note(s) from the vault.`); return `\n\n${(brand?.name ?? "AIIA").toUpperCase()} BRAND / COMPANY NOTES from the knowledge base (honour these):\n${snippets.join("\n")}`; }
+    if (snippets.length) { push(`Grounded on ${snippets.length} brand/company note(s) from the vault.`); return `\n\n${(brand?.name ?? "BRAND").toUpperCase()} / COMPANY NOTES from the knowledge base (honour these):\n${snippets.join("\n")}`; }
   } catch { /* non-fatal */ }
   return "";
 }
@@ -1226,13 +1217,13 @@ const SPAM_HINTS = ["seo","content farm","sponsored","clickbait","/tag/","/categ
 //   NEWS_AUTHORITY_DOMAINS="arxiv.org,openai.com,..." (comma or |)
 //   NEWS_BREAKING_THRESHOLD=8
 //   NEWS_HISTORY_DAYS=7
-// File override (admin UI persistence): .neuroworks/news-config.json
+// File override (admin UI persistence): .naxion/news-config.json
 //   { africaQueries:[], worldQueries:[], authorityDomains:[], breakingThreshold:8, historyDays:7 }
 // Effective = file > env > default
 const _rfs = readFileSync; const _wfs = writeFileSync; const _exs = existsSync; const _mks = mkdirSync;
-const NEWS_CONFIG_FILE = resolve(process.cwd(), ".neuroworks/news-config.json");
-// also try server-local .neuroworks when running from server dir
-const NEWS_CONFIG_FILE_ALT = resolve(resolve(config.vaultPath, ".."), ".neuroworks/news-config.json");
+const NEWS_CONFIG_FILE = resolve(process.cwd(), ".naxion/news-config.json");
+// also try server-local .naxion when running from server dir
+const NEWS_CONFIG_FILE_ALT = resolve(resolve(config.vaultPath, ".."), ".naxion/news-config.json");
 function envList(name: string): string[] | null {
   const v = process.env[name]?.trim();
   if (!v) return null;
@@ -1279,13 +1270,6 @@ function effectiveHistoryDays(): number {
 const AFRICA_NEWS_QUERIES = effectiveAfricaQueries();
 const WORLD_NEWS_QUERIES = effectiveWorldQueries();
 const HIGH_AUTHORITY_DOMAINS = effectiveAuthorityDomains();
-
-const AIIA_READ_MORE_BASE = "https://aiinstituteafrica.com/ai-breaking-news";
-const WORLD_READ_MORE_BASE = "https://aiinstituteafrica.com/world-breaking-news";
-const AIIA_WHATSAPP_CHANNEL = "https://whatsapp.com/channel/120363427110783700@newsletter";
-
-function utmContent(): string { return Math.random().toString(36).slice(2, 10); }
-function readMoreUrl(base: string): string { return `${base}?utm_source=aiia-social&utm_medium=social&utm_content=${utmContent()}`; }
 
 function normalizeUrlForDedup(url: string | undefined): string {
   if (!url) return "";
@@ -1393,9 +1377,9 @@ function loadRecentPostedUrls(days: number, push?: (m:string)=>void): Set<string
   const cutoff = Date.now() - days*24*3600_000;
   const urls = new Set<string>();
   const roots = [
-    resolve(config.vaultPath, "_neuroworks/news"),
-    resolve(config.vaultPath, "_neuroworks/social"),
-    resolve(config.vaultPath, "_neuroworks/news/drafts"),
+    resolve(config.vaultPath, "_naxion/news"),
+    resolve(config.vaultPath, "_naxion/social"),
+    resolve(config.vaultPath, "_naxion/news/drafts"),
   ];
   const urlRe = /https?:\/\/[^\s"')\]]+/gi;
   for (const root of roots) {
@@ -1478,9 +1462,9 @@ function logNewsMetrics(feed: "africa"|"world", candidates: StorySource[], picke
   const breakdown = candidates.slice(0, 8).map((c,i)=> ({ idx:i+1, domain: domainOf(c.url), score: c.score, title: c.title.slice(0,60) }));
   const detail = `${feed} candidates=${candidates.length} picked=${picked?.url ?? "none"} score=${picked?.score ?? "?"} domains=${breakdown.map(b=>b.domain).join(",")}`;
   try { logAudit({ level: "info", actor: "news", action: `${feed}.pick`, target: picked?.url ?? "none", detail, result: picked ? "success" : "failure" }); } catch {}
-  // vault metrics line for dashboard (_neuroworks/news/metrics.jsonl)
+  // vault metrics line for dashboard (_naxion/news/metrics.jsonl)
   try {
-    const metricsPath = resolve(config.vaultPath, "_neuroworks/news/metrics.jsonl");
+    const metricsPath = resolve(config.vaultPath, "_naxion/news/metrics.jsonl");
     _mks(resolve(metricsPath, ".."), { recursive: true } as any);
     const rec = JSON.stringify({ ts: new Date().toISOString(), feed, candidates: candidates.length, picked: picked ? { url: picked.url, domain: domainOf(picked.url), score: picked.score, title: picked.title } : null, breakdown }) + "\n";
     _wfs(metricsPath, rec, { flag: "a" } as any);
@@ -1492,7 +1476,7 @@ function writeNewsVault(feed: "africa"|"world", card: { postText: string; story:
   try {
     const date = new Date().toISOString().slice(0, 10);
     const stamp = new Date().toISOString().slice(0, 16).replace(/:/, "");
-    const dir = `_neuroworks/news`;
+    const dir = `_naxion/news`;
     const path = `${dir}/${date}-${feed}.md`;
     const body = `---\nfeed: ${feed}\ndate: ${date}\nurl: ${picked.url ?? ""}\nscore: ${picked.score ?? ""}\ndomain: ${domainOf(picked.url)}\n---\n\n${card.postText}\n`;
     writeVaultFile(path, body);
@@ -1502,7 +1486,7 @@ function writeNewsVault(feed: "africa"|"world", card: { postText: string; story:
 function writeNewsDraft(feed: "africa"|"world", candidates: StorySource[], reason: string) {
   try {
     const stamp = new Date().toISOString().slice(0, 16).replace(/:/, "");
-    const path = `_neuroworks/news/drafts/${stamp}-${feed}-below-threshold.md`;
+    const path = `_naxion/news/drafts/${stamp}-${feed}-below-threshold.md`;
     const body = `---\nfeed: ${feed}\ndraft: true\nreason: ${reason}\n---\n\n# Draft — ${feed} ${stamp} (below threshold)\n\nTop candidates were below BREAKING threshold (${effectiveBreakingThreshold()}).\n\n${candidates.slice(0,5).map((c,i)=>`${i+1}. [${c.score}] ${c.title} — ${c.url} — ${c.reason??""}`).join("\n")}\n`;
     writeVaultFile(path, body);
   } catch {}
@@ -1562,11 +1546,9 @@ async function gatherWorldStories(push: (m: string) => void): Promise<StorySourc
 // assemble the exact user-requested format so the link is always real.
 async function buildBreakingNewsCard(opts: {
   stories: StorySource[];
-  header: string;            // e.g. "🚨 BREAKING NEWS - AI Institute Africa 🚨"
-  readMoreBase: string;
-  whatsappUrl: string;
+  header: string;            // e.g. "🚨 BREAKING NEWS — Africa AI 🚨"
   whyHeader: string;         // e.g. "Why it matters for Africa"
-  defaultHashtags: string;   // e.g. "#AIforAfrica #Aiia #Africa"
+  defaultHashtags: string;   // e.g. "#AI #Africa #AINews"
   sourceLabel: string;       // e.g. "web + innovation leads"
   videoUrl?: string;
   push: (m: string) => void;
@@ -1585,7 +1567,7 @@ async function buildBreakingNewsCard(opts: {
     `SUMMARY: <3-5 sentences, factual, what happened / who / key details / implication - use enriched text>\n` +
     `WHY_IT_MATTERS: <2-3 sentences: why this matters for the audience — grounded, no hype>\n` +
     `HASHTAGS: <4-6 hashtags space-separated, include the defaults plus story-specific ones>\n` +
-    `VIDEO_SCRIPT: <20-35s spoken narration, first person "At Aiia...", no URLs/hashtags, narrates the summary>\n\n` +
+    `VIDEO_SCRIPT: <20-35s spoken narration, first person plural ("we"), no URLs/hashtags, narrates the summary>\n\n` +
     `Defaults to weave in: ${opts.defaultHashtags}\n` +
     `WHY header is "${opts.whyHeader}" — use that framing.\n\n` +
     `CANDIDATES (pre-ranked):\n\n${numbered.slice(0, 6500)}`;
@@ -1602,7 +1584,7 @@ async function buildBreakingNewsCard(opts: {
   let hashtags = grab("HASHTAGS") || opts.defaultHashtags;
   if (hashtags && !hashtags.includes("#")) hashtags = hashtags.split(/\s+/).filter(Boolean).map(h => `#${h.replace(/^#/, "")}`).join(" ");
   const videoScript = grab("VIDEO_SCRIPT") || toVideoScript(summary);
-  const readMore = readMoreUrl(opts.readMoreBase);
+  const readMore = chosen.url ?? "";
   const lines: string[] = [];
   lines.push(opts.header);
   lines.push("");
@@ -1613,9 +1595,7 @@ async function buildBreakingNewsCard(opts: {
   lines.push(opts.whyHeader);
   lines.push(why);
   lines.push("");
-  lines.push(`📰 Read more: https://aiinstituteafrica.com/ai-breaking-news`);
-  lines.push(`💬 Aiia WhatsApp Channel: https://whatsapp.com/channel/0029VbCnGOZ17Emxkedqz52g`);
-  lines.push(`🧐Breaking News Channel: https://whatsapp.com/channel/0029VbCzaXQ2kNFn6dCcdp28`);
+  if (readMore) lines.push(`📰 Read more: ${readMore}`);
   lines.push("");
   lines.push(hashtags);
   if (opts.videoUrl) { lines.push(""); lines.push(`\uD83C\uDFAC Video: ${opts.videoUrl}`); }
@@ -1657,15 +1637,13 @@ async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: str
   push(`Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
   const card = await buildBreakingNewsCard({
     stories,
-    header: "\uD83D\uDEA8 BREAKING NEWS - AI Institute Africa \uD83D\uDEA8",
-    readMoreBase: AIIA_READ_MORE_BASE,
-    whatsappUrl: AIIA_WHATSAPP_CHANNEL,
+    header: "🚨 BREAKING NEWS — Africa AI 🚨",
     whyHeader: "Why it matters for Africa",
-    defaultHashtags: "#AIforAfrica #Aiia #Africa",
+    defaultHashtags: "#AI #Africa #AINews",
     sourceLabel: "web + innovation leads (RSS ≤48h + web + leads)",
     videoUrl,
     push,
-    systemPrompt: "You are the editor for AI Institute Africa. You pick the most newsworthy Africa/AI story and write a factual BREAKING NEWS card. No hype, no invented facts or links, warm and credible.",
+    systemPrompt: "You are the editor for an Africa AI news channel. You pick the most newsworthy Africa/AI story and write a factual BREAKING NEWS card. No hype, no invented facts or links, warm and credible.",
   });
 
   // Resolve picked story for metrics/vault (card.raw picks idx)
@@ -1710,8 +1688,6 @@ async function worldAiNewsRunner(inputs: Record<string, unknown>, push: (m: stri
   const card = await buildBreakingNewsCard({
     stories,
     header: "\uD83D\uDEA8 BREAKING NEWS - World News \uD83D\uDEA8",
-    readMoreBase: WORLD_READ_MORE_BASE,
-    whatsappUrl: AIIA_WHATSAPP_CHANNEL,
     whyHeader: "Why it matters",
     defaultHashtags: "#WorldNews #AI #BreakingNews",
     sourceLabel: "RSS ≤48h + web search",
@@ -1750,7 +1726,7 @@ async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: 
   const brandRecord = getBrand(brandId);
   // Sanitized for the path, not the lookup above — brandId can be free-typed
   // (a Schedule's stored inputs), so it must never be trusted as a raw path
-  // segment (no "../" traversal out of _neuroworks/social/).
+  // segment (no "../" traversal out of _naxion/social/).
   const brandDir = `${SOCIAL_DIR}/${slugBrandId(brandId)}`;
   const connectionLabel = channelFor(brandRecord, "buffer")?.connectionLabel;
 
@@ -1947,7 +1923,7 @@ async function socialOptimizeRunner(inputs: Record<string, unknown>, push: (m: s
   try {
     writeVaultFile(strategyPath, doc);
     push(`Updated the posting strategy note (${strategyPath}).`);
-    try { await commitAndPush("clawbot: update social posting strategy"); } catch { /* non-fatal */ }
+    try { await commitAndPush("naxie: update social posting strategy"); } catch { /* non-fatal */ }
   } catch (e: any) { push(`Strategy write failed: ${String(e?.message ?? e).slice(0, 120)}`); }
 
   const answer =
@@ -2059,7 +2035,7 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
 
   // The briefing gathers its OWN evidence and hands it to the writer as an
   // inline context block, rather than leaning on the LLM planner. Two prior
-  // failures forced this: (1) the "look at _neuroworks/jobs" phrasing routed
+  // failures forced this: (1) the "look at _naxion/jobs" phrasing routed
   // the planner to research.deep, whose web sources were generic sign-in
   // pages, so the briefing reported "vault is quiet" no matter what actually
   // ran; (2) the innovation scan, injected as a bespoke "ATTACHED —" block,
@@ -2071,7 +2047,7 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
   const contextParts: string[] = [];
 
   // Real activity for the window — the agents' own completed jobs, straight
-  // from the job store (in-memory + _neuroworks/jobs JSONL).
+  // from the job store (in-memory + _naxion/jobs JSONL).
   try {
     const prim = findPrimitive("calendar.activity");
     if (prim) {
@@ -2164,7 +2140,7 @@ async function syncDownloadsRunner(inputs: Record<string, unknown>, push: (m: st
   push("running download sync (read-only on sources)");
   const r = syncDownloads({ source }, push);
   push("committing inventory + state to vault");
-  const commit = await commitAndPush(`clawbot: downloads sync (${r.copiedThisRun.length} new)`);
+  const commit = await commitAndPush(`naxie: downloads sync (${r.copiedThisRun.length} new)`);
   return { ...r, commit };
 }
 

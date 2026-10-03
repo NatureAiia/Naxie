@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// nw — NeuroWorks dispatch CLI. A thin client over /api/v1/dispatch + the
+// nw — Naxie dispatch CLI. A thin client over /api/v1/dispatch + the
 // operator key-management endpoints, for scripting and terminal use.
 //
 //   Env:  NW_BASE     (default http://127.0.0.1:7471)
@@ -58,7 +58,7 @@ async function waitFor(jobId, timeoutMs = 120000) {
   }
 }
 
-const HELP = `nw — NeuroWorks dispatch CLI
+const HELP = `nw — Naxie dispatch CLI
 
   nw dispatch "<task>" [--wait] [--json] [--callback <url>] [--idem <key>]
   nw result <jobId>

@@ -224,6 +224,12 @@ const SKILL_KEYWORDS: { skill: string; patterns: RegExp[] }[] = [
   // specific skills like contract-summary or local-doc-summary. tl;dr is fine.
   { skill: "summarization",          patterns: [/\btl;?dr\b/i] },
   { skill: "research-deep",          patterns: [/\bresearch\b/i, /\bdig\s+into\b/i, /\bdeep\s+dive\b/i] },
+  // Browser automation lane: interaction-shaped tasks (click/type/login) go to
+  // browser-use; single crisp ultrafast goals go to jev-ultrafast. Plain
+  // lookups stay on research-deep/web.fetch — these only fire on interaction
+  // or explicit-agent signals.
+  { skill: "browser-use",            patterns: [/\bbrowser[\s-]use\b/i, /\bautomate\s+(?:the\s+)?browser\b/i, /\bclick\s+through\b/i, /\bfill\s+(?:in\s+|out\s+)?.{0,30}\bform\b/i, /\blog\s+in\s+to\s+\S/i, /\binteract\s+with\s+(?:the\s+)?(?:site|website|page)\b/i, /\bscrape\s+(?:the\s+)?(?:site|website|page)\b/i, /\bscreenshot\s+of\s+(?:the\s+)?(?:site|website|page)\b/i] },
+  { skill: "jev-ultrafast",          patterns: [/\bjev\b/i, /\bultrafast\b/i] },
   // 2026-07-09 reflection: bare /\bvault\b/i matched ANY mention of the word
   // (including "what's the vault path", "check my bank vault") and always
   // scored the flat keyword floor (15) — the picker was guessing, not
@@ -281,10 +287,6 @@ const SKILL_KEYWORDS: { skill: string; patterns: RegExp[] }[] = [
   { skill: "video-prompt",           patterns: [/\b(?:make|create|generate|produce|render)\s+(?:a\s+|an\s+|the\s+)?(?:short\s+)?(?:video|clip|reel|teaser|ad)\b/i, /\b(?:video|reel|tiktok|shorts)\s+(?:clip|ad|teaser|prompt)\b/i, /\bimage[\s-]?to[\s-]?video\b/i, /\bstoryboard\b/i, /\bproduct\s+teaser\b/i] },
   { skill: "music-brief",            patterns: [/\b(?:compose|generate|produce|write|make)\s+(?:a\s+|an\s+|some\s+)?(?:jingle|music|track|theme|soundtrack|beat|tune)\b/i, /\b(?:background|hold)\s+music\b/i, /\bjingle\b/i, /\bsoundtrack\b/i, /\b(?:theme|backing)\s+(?:song|track|music)\b/i] },
   { skill: "multimedia-package",     patterns: [/\b(?:content|media|video|ad)\s+package\b/i, /\b(?:script|storyboard)\s+(?:\+|and)\s+(?:voice(?:over)?|video|music|audio)\b/i, /\bexplainer\s+(?:video|with\s+(?:voice|narration|music))\b/i, /\b(?:social|video|content)\s+ad\b.{0,30}\b(?:voice(?:over)?|narration|music|audio)\b/i, /\b(?:voice(?:over)?|narration)\s+(?:\+|and)\s+(?:video|music)\b/i, /\b(?:video|music)\s+(?:\+|and)\s+(?:voice(?:over)?|narration|music)\b/i] },
-  // Aiia must appear NEAR a finance/readout cue — a bare mention (e.g. "save
-  // the Aiia reference letter to my vault") is a doc-handling task, not a
-  // finance readout, so don't let \bAiia\b hijack it (regression guard).
-  { skill: "aiia-finance-readout",   patterns: [/\bAiia\b.{0,40}\b(?:financ|revenue|expenses?|dashboard|figures?|numbers?|position|readout|P&L|balance|cash\s*flow|report)\b/i, /\b(?:financ|revenue|expenses?|dashboard|figures?|numbers?|position|readout|P&L|balance|cash\s*flow)\b.{0,40}\bAiia\b/i, /\bfinancial dashboard\b/i, /\b(?:finance|financial|revenue|expense)\s+(?:dashboard|overview|figures?|numbers?|position)\b/i, /\b(?:pull|fetch|read|show me|get)\s+(?:the\s+|our\s+|my\s+)?(?:live\s+)?(?:financials?|finance|dashboard)\b/i, /\bdashboard\s+for\s+(?:year\s+)?\d{4}\b/i] },
   // ─── 2026-06-10: department task-type skills (cover the 12 new dept personas) ───
   { skill: "brd-writing",                patterns: [/\bBR[DS]\b/i, /\bbusiness requirements?\b/i, /\bbusiness requirements?\s+(?:doc|document|spec|specification)\b/i, /\brequirements?\s+(?:doc|document|specification)\b/i] },
   { skill: "user-stories",               patterns: [/\buser stor(?:y|ies)\b/i, /\bacceptance criteria\b/i, /\bgiven\b.{0,12}\bwhen\b.{0,12}\bthen\b/i, /\bepic\b.{0,20}\bstor(?:y|ies)\b/i] },
@@ -459,7 +461,7 @@ export function skillsCatalog(): string {
 }
 
 // Draft a brand-new skill .md when no built-in or user skill targets the
-// task's intent — the "self-improvement loop": clawbot notices it's
+// task's intent — the "self-improvement loop": Naxie notices it's
 // struggling, asks the LLM to write the playbook it wishes it had, saves
 // it to skills/_user/, and the next run on a similar task loads the new
 // skill automatically (since suggestSkillsForIntent reads from disk).

@@ -93,7 +93,7 @@ statusRouter.post("/vault/clear-lock", (req, res) => {
 // queries; the catch-all keeps the convenience-flavoured "everything"
 // view callers expect.
 statusRouter.get("/", async (_req, res) => {
-  const metaPath = join(config.vaultPath, "_clawbot", "_meta", "last-run.json");
+  const metaPath = join(config.vaultPath, "_naxie", "_meta", "last-run.json");
   let lastDigest: any = null;
   if (existsSync(metaPath)) {
     try { lastDigest = JSON.parse(readFileSync(metaPath, "utf8")); } catch {}
@@ -103,7 +103,7 @@ statusRouter.get("/", async (_req, res) => {
   let lastWorkflow: any = null;
   if (config.ready) {
     try {
-      const run = await latestRun(config.githubOwner, "clawbot", "daily-digest.yml");
+      const run = await latestRun(config.githubOwner, "NaxionAI-Powered-by-Neuroworks", "daily-digest.yml");
       if (run) {
         lastWorkflow = {
           id: run.id,

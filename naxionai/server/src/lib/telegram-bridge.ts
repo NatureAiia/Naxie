@@ -1,4 +1,4 @@
-// Telegram bridge — lets a user (or a group) talk to Neuro over Telegram.
+// Telegram bridge — lets a user (or a group) talk to Naxie over Telegram.
 //
 // Inbound:  long-poll getUpdates for new messages (no public webhook/URL
 //           needed — mirrors the IMAP email bridge), route each allowed message
@@ -40,7 +40,7 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 // to "primary" (config.ts), so a worker spawned without NAXION_ROLE would
 // otherwise start a SECOND bridge. This lock guarantees exactly one poller
 // across all local processes: a heartbeat'd lock file whose owner is a live PID.
-const STATE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.neuroworks");
+const STATE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.naxion");
 const LOCK_FILE = resolve(STATE_DIR, "telegram-poller.lock");
 const LOCK_TTL_MS = 90_000;
 let ownLock = false;
@@ -433,7 +433,7 @@ async function handleTodoCallback(token: string, allow: Set<string>, cb: any): P
       const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
       const { resolve, dirname } = await import("node:path");
       const { fileURLToPath } = await import("node:url");
-      const storePath = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.neuroworks/my-tasks.json");
+      const storePath = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.naxion/my-tasks.json");
       if (!existsSync(storePath)) throw new Error("no store");
       const parsed = JSON.parse(readFileSync(storePath, "utf8"));
       const items: any[] = parsed.items ?? [];
@@ -568,7 +568,7 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
     if (uname) text = text.replace(new RegExp(uname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig"), "").trim();
   }
   if (!text) {
-    await sendReply(token, chatId, "Put a question or task after the mention and I'll get on it. — Neuro", msg.message_id);
+    await sendReply(token, chatId, "Put a question or task after the mention and I'll get on it. — Naxie", msg.message_id);
     return;
   }
 
@@ -590,7 +590,7 @@ async function processUpdate(token: string, allow: Set<string>, update: any): Pr
     const messages = [...history, { role: "user" as const, content: text }];
     // First point of contact is Naxie (your PA) — she triages and delegates.
     // Override with NAXION_TELEGRAM_PERSONA if you want a different
-    // specialist to own Telegram (e.g. "clawbot", "it-support").
+    // specialist to own Telegram (e.g. "naxie-agent", "it-support").
     const persona = (process.env.NAXION_TELEGRAM_PERSONA ?? "naxie").trim() || "naxie";
     const r = await apiPost("/api/chat", { messages, persona });
     let answer = "";

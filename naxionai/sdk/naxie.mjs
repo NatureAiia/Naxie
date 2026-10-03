@@ -1,17 +1,17 @@
-// NeuroWorks dispatch SDK — a tiny, dependency-free client for the external
+// Naxie dispatch SDK — a tiny, dependency-free client for the external
 // agent-dispatch API (/api/v1/dispatch). Works in Node 18+ and modern browsers
 // (uses the global fetch). The webhook-signature helper is Node-only.
 //
-//   import { NeuroWorks } from "./neuroworks.mjs";
-//   const nw = new NeuroWorks({ baseUrl: "http://127.0.0.1:7471", apiKey: "nw_..." });
+//   import { Naxie } from "./naxie.mjs";
+//   const nw = new Naxie({ baseUrl: "http://127.0.0.1:7471", apiKey: "nw_..." });
 //   const { jobId } = await nw.dispatch("Summarise today's sales");
 //   const result = await nw.waitFor(jobId);
 //   console.log(result.answer);
 
-export class NeuroWorks {
+export class Naxie {
   /** @param {{ baseUrl?: string, apiKey: string }} opts */
   constructor({ baseUrl = "http://127.0.0.1:7471", apiKey } = {}) {
-    if (!apiKey) throw new Error("NeuroWorks: apiKey is required (mint one via POST /api/dispatch-keys)");
+    if (!apiKey) throw new Error("Naxie: apiKey is required (mint one via POST /api/dispatch-keys)");
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.apiKey = apiKey;
   }
@@ -69,12 +69,12 @@ export class NeuroWorks {
 }
 
 /**
- * Verify a webhook's HMAC signature (Node only). NeuroWorks signs with the
- * secret set as NW_WEBHOOK_SIGNING_SECRET and sends `X-NeuroWorks-Signature:
+ * Verify a webhook's HMAC signature (Node only). Naxie signs with the
+ * secret set as NW_WEBHOOK_SIGNING_SECRET and sends `X-Naxie-Signature:
  * sha256=<hex>`.
  * @param {string} secret  your NW_WEBHOOK_SIGNING_SECRET
  * @param {string} rawBody the exact request body string
- * @param {string} signatureHeader the value of X-NeuroWorks-Signature
+ * @param {string} signatureHeader the value of X-Naxie-Signature
  * @returns {Promise<boolean>}
  */
 export async function verifyWebhook(secret, rawBody, signatureHeader) {

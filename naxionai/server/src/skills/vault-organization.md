@@ -13,7 +13,7 @@ applies_to: [research, summarize, draft-other]
 1-Active/       — Notes related to currently active projects.
 2-Permanent/    — Atomic, evergreen insights. Promote from 0-Inbox once matured.
 3-Reference/    — External material: papers, articles, snippets, source extracts.
-_neuroworks/    — System-generated content (reflections, screenshots). Don't promote.
+_naxion/    — System-generated content (reflections, screenshots). Don't promote.
 ```
 
 ## Where new content goes
@@ -24,8 +24,8 @@ _neuroworks/    — System-generated content (reflections, screenshots). Don't p
 | Multi-perspective report | `0-Inbox/<YYYYMMDDHHMM>-multiperspective-<slug>.md` |
 | Email / draft snapshot | `0-Inbox/<YYYYMMDDHHMM>-draft-<slug>.md` |
 | Meeting notes | `0-Inbox/<YYYYMMDDHHMM>-meeting-<slug>.md` |
-| Reflection (nightly) | `_neuroworks/reflections/<YYYY-MM-DD>.md` |
-| Screenshot | `_neuroworks/screenshots/<YYYYMMDDHHMM>-<slug>.png` |
+| Reflection (nightly) | `_naxion/reflections/<YYYY-MM-DD>.md` |
+| Screenshot | `_naxion/screenshots/<YYYYMMDDHHMM>-<slug>.png` |
 
 ## Frontmatter
 
@@ -35,7 +35,7 @@ Every captured note starts with:
 ---
 title: "<descriptive title — searchable>"
 created: <YYYY-MM-DD>
-source: clawbot-<tool>   # e.g. clawbot-research, clawbot-multiperspective
+source: naxie-<tool>   # e.g. naxie-research, naxie-multiperspective
 tags: [<topic>, <persona-if-relevant>]
 ---
 ```

@@ -1,4 +1,4 @@
-// Email bridge — lets a user talk to clawbot over email.
+// Email bridge — lets a user talk to Naxie over email.
 //
 // Inbound:  poll a Gmail mailbox over IMAP for unseen messages, route each by
 //           a subject keyword ([team] vs [chat], default chat), and hand it to
@@ -13,7 +13,7 @@
 // addresses on NAXION_EMAIL_ALLOWED_SENDERS. If that list is empty, inbound
 // processing is DISABLED (outbound send still works). Fail-safe: an open
 // inbound bridge would let anyone email-trigger jobs against the user's machine
-// and vault. The allow-list gates WHO may drive clawbot.
+// and vault. The allow-list gates WHO may drive Naxie.
 //
 import nodemailer, { type Transporter } from "nodemailer";
 import { existsSync, readFileSync, statSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
@@ -33,7 +33,7 @@ import { enqueueVaultCommit } from "./commit-queue.js";
 import { isOffline } from "./offline-mode.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 
 type EmailAccount = {
   id: string;
@@ -115,7 +115,7 @@ export function readGlobalConfig(): GlobalEmailConfig {
 // email the bridge and get a reply. Caught live 2026-07-21: 8 real users
 // registered (Users page) and 0 of them were on the allow-list (only two of
 // the operator's own personal test addresses were) — any of them emailing
-// neuro@rubiem.com was silently ignored (skippedUnauthorized), so "users
+// naxie@example.com was silently ignored (skippedUnauthorized), so "users
 // aren't getting emails [back]" traced to this, not to outbound delivery
 // (outbound has no allow-list at all — see sendEmail below).
 //
@@ -409,7 +409,7 @@ export async function fileAttachmentsToVault(attachments: InboundAttachment[] | 
         `## Source provenance`,
         `- From: ${sender}`,
         `- Subject: ${subject || "(no subject)"}`,
-        `- Imported by: clawbot email bridge (inbound attachment)`,
+        `- Imported by: Naxie email bridge (inbound attachment)`,
         ``,
       ].filter(Boolean).join("\n");
 
@@ -677,7 +677,7 @@ function extractNewBody(parsed: ParsedMail): string {
 type Route = "team" | "chat";
 
 // Drop repeated Re:/Fwd:/Fw: (and common non-English AW:/WG:) reply markers so
-// a reply to an email Neuro itself sent is seen as the actual topic — not
+// a reply to an email Naxie itself sent is seen as the actual topic — not
 // "Re: Re: …" — and so the prompt we build isn't polluted with the prefix.
 // Threading is preserved independently via the In-Reply-To / References headers.
 function stripSubjectPrefixes(s: string): string {
@@ -722,7 +722,7 @@ function mdToPlainText(md: string): string {
 // <style> block as progressive enhancement — clients that drop it still get a
 // clean, readable layout from sane element defaults. Renders as: a soft grey
 // canvas, a violet wordmark header, a white content card, and a muted footer
-// that tells the recipient they can just reply to assign Neuro another task.
+// that tells the recipient they can just reply to assign Naxie another task.
 function buildEmailHtml(innerHtml: string): string {
   const accent = "#6d4aff";
   const ink = "#1a1a22";
@@ -756,17 +756,17 @@ function buildEmailHtml(innerHtml: string): string {
     <tr><td align="center" style="padding:28px 16px;">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border:1px solid #ebeaf1;border-radius:14px;overflow:hidden;">
         <tr><td style="padding:20px 28px;border-bottom:1px solid #f0eff5;">
-          <span style="font-family:${font};font-size:18px;font-weight:700;color:${ink};letter-spacing:-.2px;">Neuro</span>
-          <span style="font-family:${font};font-size:12px;color:${muted};margin-left:8px;">· NeuroWorks AI workforce</span>
+          <span style="font-family:${font};font-size:18px;font-weight:700;color:${ink};letter-spacing:-.2px;">Naxie</span>
+          <span style="font-family:${font};font-size:12px;color:${muted};margin-left:8px;">· your AI assistant</span>
         </td></tr>
         <tr><td class="nw-body" style="padding:24px 28px;font-family:${font};font-size:14px;line-height:1.6;color:${ink};">
           ${innerHtml}
         </td></tr>
         <tr><td style="padding:16px 28px 22px;border-top:1px solid #f0eff5;font-family:${font};font-size:12px;line-height:1.5;color:${muted};">
-          Sent by <strong style="color:${ink};">Neuro</strong>, your AI workforce. Just reply to this email to assign another task — add <span style="font-family:monospace;">[team]</span> to the subject to route it to a specialist.
+          Sent by <strong style="color:${ink};">Naxie</strong>, your AI assistant. Just reply to this email to assign another task — add <span style="font-family:monospace;">[team]</span> to the subject to route it to a specialist.
         </td></tr>
       </table>
-      <div style="font-family:${font};font-size:11px;color:#a7a6b3;margin-top:14px;">NeuroWorks by RUBIEM · Aiia</div>
+      <div style="font-family:${font};font-size:11px;color:#a7a6b3;margin-top:14px;">Naxie</div>
     </td></tr>
   </table>
 </body>
@@ -881,7 +881,7 @@ export async function processInboundEmail(account: EmailAccount, global: GlobalE
   const { threadKeyFor, getThreadHistory, appendThreadTurn } = await import("./email-threads.js");
   const threadKey = threadKeyFor({ references: msg.references, inReplyTo: msg.inReplyTo, messageId: msg.messageId, sender, subject });
   if (!prompt) {
-    await sendReply(account, global, { to: sender, subject, body: "I received an empty message — put a question or task in the subject or body and I'll get on it.\n\n— Neuro", inReplyTo: msg.messageId, references: msg.references });
+    await sendReply(account, global, { to: sender, subject, body: "I received an empty message — put a question or task in the subject or body and I'll get on it.\n\n— Naxie", inReplyTo: msg.messageId, references: msg.references });
     return { status: "empty" };
   }
 
@@ -935,12 +935,12 @@ export async function processInboundEmail(account: EmailAccount, global: GlobalE
     } else {
       // Chat session — thread-aware. Replay any prior turns in this mail thread
       // so a reply continues the conversation (the web chat does the same with
-      // its message list). Pin the generalist (clawbot) so an email on any topic
+      // its message list). Pin the generalist (Naxie Agent) so an email on any topic
       // is handled rather than refused by whatever specialist persona happens to
       // be active in the UI (their lane gate would bounce off-topic requests).
       const history = getThreadHistory(threadKey);
       const messages = [...history.map(h => ({ role: h.role, content: h.content })), { role: "user", content: prompt }];
-      const r = await apiPost("/api/chat", { messages, persona: "clawbot" });
+      const r = await apiPost("/api/chat", { messages, persona: "naxie-agent" });
       if (r?.kind === "message") {
         // Direct answer or a clarification question — reply with it as-is.
         answer = String(r.text ?? "").trim() || "I couldn't process that request.";
@@ -966,7 +966,7 @@ export async function processInboundEmail(account: EmailAccount, global: GlobalE
     await sendReply(account, global, {
       to: sender,
       subject: cleanSubject || subject,
-      body: `${answer}\n\n— Neuro`,
+      body: `${answer}\n\n— Naxie`,
       inReplyTo: msg.messageId,
       references: msg.references,
     });
@@ -976,7 +976,7 @@ export async function processInboundEmail(account: EmailAccount, global: GlobalE
   } catch (e: any) {
     console.error(`[email] processInboundEmail failed for ${sender}: ${e?.stack ?? e}`);
     try {
-      await sendReply(account, global, { to: sender, subject: cleanSubject || subject, body: `Sorry — I hit an error handling that: ${String(e?.message ?? e).slice(0, 200)}\n\n— Neuro`, inReplyTo: msg.messageId, references: msg.references });
+      await sendReply(account, global, { to: sender, subject: cleanSubject || subject, body: `Sorry — I hit an error handling that: ${String(e?.message ?? e).slice(0, 200)}\n\n— Naxie`, inReplyTo: msg.messageId, references: msg.references });
     } catch { /* tolerate */ }
     return { status: "error", reason: String(e?.message ?? e) };
   } finally {
@@ -1210,7 +1210,7 @@ export function placeholderAddressReason(addr: string): string | null {
 
 /** Strip NeuroWorks vault-note plumbing from an outbound email body.
  *
- *  When a user asks Neuro to "send me that report/document", the agent reads the
+  *  When a user asks Naxie to "send me that report/document", the agent reads the
  *  vault note and emails it verbatim — but our notes carry metadata the recipient
  *  shouldn't see. Two note shapes leak:
  *
@@ -1450,12 +1450,12 @@ export async function sendTestEmail(to: string): Promise<void> {
   
   const account = accounts[0];
   const useMailjet = !!(global.mailjetApiKey && global.mailjetApiSecret);
-  const testMd = `Your Neuro email bridge is **live**. Transport: ${useMailjet ? "Mailjet HTTPS API" : "SMTP"}.\n\nReply to any message from Neuro to assign a task — for example:\n\n- **\\[chat\\] what's on my plate today?**\n- **\\[team\\] draft our Q3 launch plan**\n\nNeuro will run it and email you back the result.\n\n— Neuro`;
+  const testMd = `Your Naxie email bridge is **live**. Transport: ${useMailjet ? "Mailjet HTTPS API" : "SMTP"}.\n\nReply to any message from Naxie to assign a task — for example:\n\n- **\\[chat\\] what's on my plate today?**\n- **\\[team\\] draft our Q3 launch plan**\n\nNaxie will run it and email you back the result.\n\n— Naxie`;
   let testHtml: string | undefined;
   try { testHtml = await renderHtml(testMd); } catch { testHtml = undefined; }
   await sendOutbound(account, global, {
     to: [to],
-    subject: "Neuro email bridge — test",
+    subject: "Naxie email bridge — test",
     text: mdToPlainText(testMd),
     html: testHtml,
   });

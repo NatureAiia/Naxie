@@ -8,12 +8,12 @@ import { Card, Button, showToast } from "../components/Card";
 // Markdown doc editor with an agent-assist side panel. The user can:
 //   - Hand-edit the source in the textarea (split with a live preview).
 //   - Ask the agent to make a targeted change ("tighten paragraph 3",
-//     "add a TL;DR", "fix every misspelling of NeuroWorks").
+//     "add a TL;DR", "fix every misspelling of Naxie").
 // The agent is instructed to use `vault.edit` (string-replace) so the doc's
 // structure (headings, lists, tables, frontmatter) is preserved — it changes
 // only the spans the operator asked it to change.
 //
-// Saving writes through the same writeVaultFile + commit-queue clawbot uses
+// Saving writes through the same writeVaultFile + commit-queue Naxie uses
 // for agent-side writes, so manual and agent edits share one audit trail.
 
 export function DocEditor() {

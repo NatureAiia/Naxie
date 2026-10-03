@@ -27,7 +27,7 @@ import { listSubjects, recallSubject, type MemoryFact } from "./memory.js";
 import { enqueueVaultCommit } from "./commit-queue.js";
 import type { Persona } from "./personas.js";
 
-const PROFILE_DIR = "_neuroworks/personas";
+const PROFILE_DIR = "_naxion/personas";
 const REGEN_MIN_DAYS = 3;
 const MAX_FACTS = 15;
 

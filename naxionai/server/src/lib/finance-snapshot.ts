@@ -8,15 +8,15 @@
 // figures are always the real numbers the Finance System last sent, and there
 // is no unreachable-host failure.
 //
-// State lives in .neuroworks/finance-snapshot.json (a mounted volume in the
+// State lives in .naxion/finance-snapshot.json (a mounted volume in the
 // container), so a restart or redeploy keeps the last-known figures.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { config } from "../config.js";
 
-const SNAPSHOT_REL = "_neuroworks/finance-snapshot.json";
-const HISTORY_REL = "_neuroworks/finance-sync.jsonl";
+const SNAPSHOT_REL = "_naxion/finance-snapshot.json";
+const HISTORY_REL = "_naxion/finance-sync.jsonl";
 
 // The 5 canonical fields every consumer can rely on. The Finance System may
 // name its keys differently — we alias generously so a reasonable payload maps

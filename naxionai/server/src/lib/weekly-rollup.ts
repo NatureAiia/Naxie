@@ -1,12 +1,12 @@
 // Weekly Rollup — Sundays: combine todos + reflections + innovation scans.
-// Vault: _neuroworks/weekly-rollups/YYYY-MM-DD.md — Telegram + email optional.
+// Vault: _naxion/weekly-rollups/YYYY-MM-DD.md — Telegram + email optional.
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeVaultFile } from "./vault.js";
 
-const ROLLUP_DIR = "_neuroworks/weekly-rollups";
+const ROLLUP_DIR = "_naxion/weekly-rollups";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function localYmd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
@@ -23,7 +23,7 @@ function weekRange(): { start: string; end: string; label: string } {
 
 function collectTodoWeek(start: string, end: string): { open: number; completed: number; overdue: number; } {
   try {
-    const p = resolve(__dirname, "../../../.neuroworks/my-tasks.json");
+    const p = resolve(__dirname, "../../../.naxion/my-tasks.json");
     if (!existsSync(p)) return { open:0, completed:0, overdue:0 };
     const parsed = JSON.parse(readFileSync(p,"utf8"));
     const items: any[] = parsed.items ?? [];
@@ -37,14 +37,14 @@ function collectTodoWeek(start: string, end: string): { open: number; completed:
 
 function collectReflections(start: string, end: string, vaultPath: string): string[] {
   try {
-    const dir = join(vaultPath, "_neuroworks/reflections");
+    const dir = join(vaultPath, "_naxion/reflections");
     if (!existsSync(dir)) return [];
     return readdirSync(dir).filter(f=>f.endsWith(".md") && f.slice(0,10)>=start && f.slice(0,10)<=end).sort();
   } catch { return []; }
 }
 function collectScans(start: string, end: string, vaultPath: string): string[] {
   try {
-    const dir = join(vaultPath, "_neuroworks/innovation-scans");
+    const dir = join(vaultPath, "_naxion/innovation-scans");
     if (!existsSync(dir)) return [];
     return readdirSync(dir).filter(f=>f.endsWith(".md") && f.slice(0,10)>=start && f.slice(0,10)<=end).sort();
   } catch { return []; }
@@ -52,10 +52,10 @@ function collectScans(start: string, end: string, vaultPath: string): string[] {
 
 function latestImprovementReview(vaultPath: string): string | null {
   try {
-    const dir = join(vaultPath, "_neuroworks/weekly-improvements");
+    const dir = join(vaultPath, "_naxion/weekly-improvements");
     if (!existsSync(dir)) return null;
     const files = readdirSync(dir).filter(f => f.endsWith(".md")).sort();
-    return files.length ? `_neuroworks/weekly-improvements/${files[files.length - 1]}` : null;
+    return files.length ? `_naxion/weekly-improvements/${files[files.length - 1]}` : null;
   } catch { return null; }
 }
 

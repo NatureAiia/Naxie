@@ -1,6 +1,6 @@
 // Did the answer claim an action that never ran?
 //
-// Ported from AI-Institute-Africa/neuroworks. Origin incident: a Telegram DM
+// Ported from the earlier prototype. Origin incident: a Telegram DM
 // asked "Send me Natasha's CV from my email" — the plan was research.deep +
 // checkers, no mailbox step, no send step. The answer still read "Files
 // Delivered: natasha_cv.pdf ... successfully delivered via Telegram", every

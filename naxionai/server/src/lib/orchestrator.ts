@@ -34,7 +34,7 @@ export type OrchestrationRun = {
   elapsedMs?: number;
 };
 
-const STATE_DIR = resolve(config.vaultPath, "_neuroworks");
+const STATE_DIR = resolve(config.vaultPath, "_naxion");
 const STATE_FILE = join(STATE_DIR, "orchestrations.json");
 const MAX_RUNS = 50;
 

@@ -38,7 +38,7 @@ exportsRouter.post("/pdf", async (req, res) => {
     // renderMarkdownToPdf writes to vault; for a downloadable file we want
     // the bytes back inline. Use a temp path under exports/, then re-read.
     const stamp = Date.now();
-    const tmpRel = `_neuroworks/exports/.tmp-${stamp}.pdf`;
+    const tmpRel = `_naxion/exports/.tmp-${stamp}.pdf`;
     await renderMarkdownToPdf({ markdown, title, vaultRelPath: tmpRel });
     const buf = readFileSync(resolve(config.vaultPath, tmpRel));
     res.setHeader("Content-Type", "application/pdf");
@@ -82,7 +82,7 @@ exportsRouter.get("/pdf", async (req, res) => {
     const markdown = readVaultMarkdown(path);
     const filename = safeFilename(path.split("/").pop() ?? "document", "pdf");
     const stamp = Date.now();
-    const tmpRel = `_neuroworks/exports/.tmp-${stamp}.pdf`;
+    const tmpRel = `_naxion/exports/.tmp-${stamp}.pdf`;
     await renderMarkdownToPdf({ markdown, vaultRelPath: tmpRel });
     const buf = readFileSync(resolve(config.vaultPath, tmpRel));
     res.setHeader("Content-Type", "application/pdf");

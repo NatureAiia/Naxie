@@ -16,7 +16,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-const STATE_DIR = join(process.cwd(), ".neuroworks");
+const STATE_DIR = join(process.cwd(), ".naxion");
 const SEEN_FILE = join(STATE_DIR, "telegram-news-seen.json");
 const MAX_SEEN = 2000;
 

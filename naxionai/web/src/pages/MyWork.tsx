@@ -12,7 +12,7 @@ import { Runs } from "./Runs";
 import { AgentApprovals } from "./AgentApprovals";
 import { AmbientWatch } from "./AmbientWatch";
 
-// Unified Work page — My Inbox (Naxie approvals + neuro handoffs) +
+// Unified Work page — My Inbox (Naxie approvals + agent handoffs) +
 // Runs (timeline/board) + Ambient (background watcher, stub) + History
 // (prompts). One canonical list route (/my-work); /runs redirects here and
 // /runs/:jobId stays standalone for deep links. Single-operator model: you
@@ -69,7 +69,7 @@ function MyWorkHistory() {
 // My Inbox — the single-operator workbench. Where you:
 //   1. Greenlight APPROVALS from Naxie (agents that want to write to
 //      GitHub or your vault ask here first).
-//   2. Answer HANDOFFS from neuros (agent jobs parked in waiting_on_human —
+//   2. Answer HANDOFFS from agents (agent jobs parked in waiting_on_human —
 //      answering resumes the agent loop with your input).
 function ago(iso?: string): string {
   if (!iso) return "";
@@ -105,7 +105,7 @@ function MyWorkInner() {
         <div>
           <h1 className="font-display text-3xl text-cream-50">My Inbox</h1>
           <p className="text-sm text-cream-300/70 mt-1">
-            Approvals from Naxie and handoffs from neuros — greenlight, answer, done.
+            Approvals from Naxie and handoffs from agents — greenlight, answer, done.
           </p>
         </div>
         {me && <div className="text-xs text-cream-300/50">signed in as <span className="text-cream-100">{me.name}</span></div>}
@@ -233,7 +233,7 @@ function HandoffsSection({ waiting, onDone }: { waiting: WaitingTask[]; onDone: 
     <section>
       <div className="flex items-center gap-2 mb-3 px-1">
         <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-        <div className="text-xs uppercase tracking-[0.25em] text-cream-300/60">Neuro handoffs — waiting on you · {waiting.length}</div>
+        <div className="text-xs uppercase tracking-[0.25em] text-cream-300/60">Naxie handoffs — waiting on you · {waiting.length}</div>
       </div>
       <div className="space-y-3">
         {waiting.map(w => <HandoffCard key={w.id} w={w} onDone={onDone} />)}
@@ -256,7 +256,7 @@ function HandoffCard({ w, onDone }: { w: WaitingTask; onDone: () => void }) {
     setBusy(true);
     try {
       await api.submitHumanInput(w.id, responses, note.trim() || undefined);
-      showToast("Sent — the neuro is continuing the task", "success");
+      showToast("Sent — the agent is continuing the task", "success");
       setOpenForm(false);
       onDone();
     } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
@@ -300,10 +300,10 @@ function HandoffCard({ w, onDone }: { w: WaitingTask; onDone: () => void }) {
           <textarea
             value={note} onChange={e => setNote(e.target.value)} rows={2}
             className="w-full bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-sm text-cream-100 focus:outline-none focus:border-violet-500/60"
-            placeholder="Anything else the neuro should know (optional)…"
+            placeholder="Anything else the agent should know (optional)…"
           />
           <Button onClick={send} disabled={busy}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Send &amp; resume the neuro
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Send &amp; resume the agent
           </Button>
         </div>
       )}
@@ -313,4 +313,4 @@ function HandoffCard({ w, onDone }: { w: WaitingTask; onDone: () => void }) {
 
 // Assignment / delegation panels removed — single-operator system:
 // you're the only human, so there are no colleagues to assign to.
-// What's left: Naxie approvals + neuro handoffs.
+// What's left: Naxie approvals + agent handoffs.

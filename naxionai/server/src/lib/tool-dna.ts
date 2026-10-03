@@ -14,12 +14,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 let FILE = join(STATE_DIR, "tool-dna.json");
 let SETTINGS_FILE = join(STATE_DIR, "tool-dna-settings.json");
 
 // Test seam — points both stores at a scratch dir so tests never touch the
-// real .neuroworks/ state, matching lib/rag-telemetry.ts's own convention.
+// real .naxion/ state, matching lib/rag-telemetry.ts's own convention.
 export function _setStateFilesForTests(dir: string): void {
   FILE = join(dir, "tool-dna.json");
   SETTINGS_FILE = join(dir, "tool-dna-settings.json");

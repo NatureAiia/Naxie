@@ -11,7 +11,7 @@
 //    all time; this is ephemeral, per-task working memory that gets noisy
 //    and is expected to be superseded once the task ends.
 //
-// File layout: `_neuroworks/mission-log/<scopeId>.jsonl`, one JSON line per
+// File layout: `_naxion/mission-log/<scopeId>.jsonl`, one JSON line per
 // entry. scopeId is the Job id for a multi-step plan, or a YYYY-MM-DD daily
 // bucket for ordinary chat turns that never spawn a Job — reusing the
 // existing Job concept instead of inventing a new session-identity system.
@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, rea
 import { join } from "node:path";
 import { config } from "../config.js";
 
-const MISSION_LOG_DIR_REL = "_neuroworks/mission-log";
+const MISSION_LOG_DIR_REL = "_naxion/mission-log";
 const MAX_ENTRIES = 200;
 const MAX_BYTES = 50_000;
 

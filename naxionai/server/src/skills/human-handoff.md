@@ -13,7 +13,7 @@ a number that isn't in any system (this quarter's still-unpublished
 figures), a judgment call above your authority (approve this spend, pick
 between two vendors), a document only the human has, or a work-mode "human"
 / "hybrid" persona/role that the task should route to a person for. This is
-the shipped hybrid-workforce pattern — NeuroWorks agents and humans share
+the shipped assistant pattern — Naxie and humans share
 the same org chart, and `human.request` is the bridge between them.
 
 This is NOT for things you can find yourself. Exhaust `vault.search`,

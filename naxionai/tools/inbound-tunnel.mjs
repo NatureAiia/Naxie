@@ -9,8 +9,8 @@
 //      the user mails never changes,
 //   4. restarts cloudflared if it dies and re-points the route.
 //
-// Run: node tools/inbound-tunnel.mjs   (expects the clawbot webhook on the port
-// in NAXION_EMAIL_INBOUND_PORT, and Mailjet creds + token in clawbot/.env).
+// Run: node tools/inbound-tunnel.mjs   (expects the Naxie webhook on the port
+// in NAXION_EMAIL_INBOUND_PORT, and Mailjet creds + token in naxionai/.env).
 //
 // No secrets are printed; the route Url (which embeds the token) is sent only to
 // Mailjet over HTTPS, never logged.

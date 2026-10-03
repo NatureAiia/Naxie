@@ -28,7 +28,7 @@ export class ObjectStoreKeyEscape extends Error {
 
 const LOCAL_ROOT = process.env.OBJECT_STORE_LOCAL_ROOT
   ? resolve(process.env.OBJECT_STORE_LOCAL_ROOT)
-  : resolve(__dirname, "../../../.neuroworks/object-store");
+  : resolve(__dirname, "../../../.naxion/object-store");
 
 function resolveLocalKey(key: string): string {
   const full = resolve(LOCAL_ROOT, key.replace(/^[/\\]+/, ""));

@@ -67,7 +67,7 @@ export function checkSensitivePath(rawPath: string): SensitivePathCheck {
 
 // Private/loopback IP detection. We block agent-driven fetches to these
 // ranges by default — they're the SSRF attack surface (cloud metadata
-// service, internal services, peer clawbot endpoints). Override via
+// service, internal services, peer agent endpoints). Override via
 // NAXION_WEB_ALLOW_PRIVATE=1 for legitimate use cases like fetching from
 // a local dev server.
 //

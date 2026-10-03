@@ -1,6 +1,6 @@
 // "Business Finance" — price book, txns, pending spends, leakage, forecast
 // (lib/business-finance.ts). Points the store at a scratch file per test so
-// nothing touches the real .neuroworks/ state. Org-task creation is the
+// nothing touches the real .naxion/ state. Org-task creation is the
 // route layer's job, so these tests never touch the org-task store —
 // settlePendingSpend() is pure finance-store movement.
 

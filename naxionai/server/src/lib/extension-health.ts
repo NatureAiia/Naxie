@@ -10,7 +10,7 @@ export type HealthSample = {
   ts: string;
 };
 
-const REL = "_neuroworks/extension-health.jsonl";
+const REL = "_naxion/extension-health.jsonl";
 
 function healthPath(): string {
   return resolve(config.vaultPath, REL);

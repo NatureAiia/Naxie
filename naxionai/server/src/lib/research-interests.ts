@@ -1,6 +1,6 @@
 // Research interests — ordered topic resolver for proactive research.
 // Sources per docs/naxie-wakeword-proactive-spike.md §2.3:
-// 1) vault/_neuroworks/interests.md (explicit), 2) sector contextNote (always additive),
+// 1) vault/_naxion/interests.md (explicit), 2) sector contextNote (always additive),
 // 3) MAG recent subjects (fallback), 4) vault RAG recent edits (optional, low weight).
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -10,7 +10,7 @@ import { getSectorById, getSectorContext } from "./sector-packs.js";
 import { getOnboardingState } from "./sector-packs.js";
 import { listSubjects } from "./memory.js";
 
-export const INTERESTS_REL = "_neuroworks/interests.md";
+export const INTERESTS_REL = "_naxion/interests.md";
 const MAX_TOPICS = 6;
 
 function interestsPath(): string {
@@ -44,7 +44,7 @@ export function readInterests(): string[] {
 
 export function writeInterests(topics: string[]): void {
   const p = interestsPath();
-  try { mkdirSync(join(config.vaultPath, "_neuroworks"), { recursive: true }); } catch { /* ignore */ }
+  try { mkdirSync(join(config.vaultPath, "_naxion"), { recursive: true }); } catch { /* ignore */ }
   const body = topics.map(t => `- ${t.trim()}`).join("\n") + "\n";
   writeFileSync(p, body, "utf8");
 }

@@ -1,5 +1,5 @@
 // Company system connectors — a registry of external HTTP APIs the operator
-// authorizes agents to call. Persisted at .neuroworks/connectors.json (outside
+// authorizes agents to call. Persisted at .naxion/connectors.json (outside
 // the vault, since it carries credentials → encrypted at rest via secret-box).
 //
 // Each connector is a SELF-DESCRIBING handle to one company system:
@@ -25,7 +25,7 @@ import { encryptSecret, decryptSecret, isEncrypted } from "./secret-box.js";
 import { maskSensitiveFields } from "./security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const CONFIG_PATH = resolve(CONFIG_DIR, "connectors.json");
 
 // ─── Types ───
@@ -661,7 +661,7 @@ export async function callConnector(idOrLabel: string, input: CallInput): Promis
     // A 200 that returns an HTML PAGE (directory index, SPA shell, or a login
     // page) is not usable API data — but body:<html> + ok:true looks like a
     // success, so an agent would summarise the page as if it were the answer
-    // (live 2026-07-28: Aiia Website /api/events returned an Apache index,
+    // (live 2026-07-28: a website connector's /api/events returned an Apache index,
     // FinanceFlow /api/budgets returned a login page). Flag it so the agent /
     // operator knows the connector's base URL/path is wrong or the endpoint
     // needs auth, instead of trusting the markup.
@@ -750,74 +750,6 @@ const CONNECTOR_TEMPLATES: ConnectorTemplate[] = [
 
 export function listConnectorTemplates(): ConnectorTemplate[] {
   return CONNECTOR_TEMPLATES;
-}
-
-// ─── Seeding ───
-
-const Aiia_WEBSITE_LABEL = "Aiia Website";
-
-export function seedAiiAWebsiteConnector(): ConnectorPublic | null {
-  const existing = listConnectors().find(c => c.label === Aiia_WEBSITE_LABEL);
-  if (existing) return null;
-
-  return addConnector({
-    label: Aiia_WEBSITE_LABEL,
-    baseUrl: "https://www.aiinstituteafrica.com",
-    description:
-      "Aiia (Africa Institute of Artificial Intelligence) website CMS — events, articles, contact forms, program applications, payments, and admin management. Public endpoints are open; admin endpoints require a bearer token.",
-    writeEnabled: true,
-    endpoints: [
-      // ── Public ──
-      { name: "list-events",                method: "GET",  path: "/api/events",                          description: "List all public events" },
-      { name: "list-articles",              method: "GET",  path: "/api/articles",                       description: "List all published articles" },
-      { name: "list-local-articles",        method: "GET",  path: "/api/local-articles",                 description: "List local/Zimbabwe articles" },
-      { name: "get-local-article",          method: "GET",  path: "/api/local-articles/{id}",            description: "Single local article by ID" },
-      { name: "submit-contact",             method: "POST", path: "/api/contact",                        description: "Submit a general contact/enquiry form", body: "{ name, email, message }" },
-      { name: "submit-conference-contact",  method: "POST", path: "/api/conference/contact",             description: "Conference-specific contact form", body: "{ name, email, phone?, organisation?, message }" },
-      { name: "newsletter-signup",          method: "POST", path: "/api/newsletter",                     description: "Subscribe to newsletter", body: "{ email, name? }" },
-      { name: "submit-student-lead",        method: "POST", path: "/api/student-leads",                  description: "Student lead/intent-to-enrol submission", body: "{ fullName, email, phone?, programme?, country? }" },
-      { name: "submit-program-application", method: "POST", path: "/api/program-applications",           description: "Full program application", body: "{ programmeId, applicant: {...}, documents?: [...], referee?: {...} }" },
-      { name: "submit-summit-registration", method: "POST", path: "/api/summit-applications",            description: "Summit/event registration", body: "{ eventId, attendee: {...}, ticketType?, dietaryRequirements? }" },
-      { name: "initiate-payment",           method: "POST", path: "/api/payments",                       description: "Initiate a payment (e.g. application fee, ticket)", body: "{ amount, currency, reference, callbackUrl? }" },
-      { name: "track-application",          method: "GET",  path: "/api/track/{referenceNumber}",        description: "Track an application by reference number" },
-      { name: "verify-document",            method: "POST", path: "/api/verify-document",                description: "Submit a document for verification", body: "{ documentBase64, documentType, applicantId }" },
-      { name: "get-referee-form",           method: "GET",  path: "/api/referee/{token}",                description: "Fetch referee form by unique token" },
-      { name: "submit-referee-response",    method: "POST", path: "/api/referee/{token}",                description: "Submit referee assessment", body: "{ relationship, competence, comments }" },
-
-      // ── Admin (authenticated — requires bearer token) ──
-      { name: "admin-list-members",         method: "GET",  path: "/api/admin/members",                  description: "Admin: list all members" },
-      { name: "admin-bulk-import-members",  method: "POST", path: "/api/admin/members/bulk",             description: "Admin: bulk import members", body: "{ members: [{...}] }" },
-      { name: "admin-list-payments",        method: "GET",  path: "/api/admin/payments",                 description: "Admin: list all payments with filters" },
-      { name: "admin-list-contacts",        method: "GET",  path: "/api/admin/contacts",                 description: "Admin: list contact form submissions" },
-      { name: "admin-list-summit-regs",     method: "GET",  path: "/api/admin/summit-registrations",     description: "Admin: list summit registrations" },
-      { name: "admin-dashboard-stats",      method: "GET",  path: "/api/admin/dashboard/stats",          description: "Admin: dashboard statistics" },
-      { name: "admin-list-events",          method: "GET",  path: "/api/admin/events",                   description: "Admin: list all events (incl. drafts)" },
-      { name: "admin-create-event",         method: "POST", path: "/api/admin/events",                   description: "Admin: create a new event", body: "{ title, date, description, type, ... }" },
-      { name: "admin-update-event",         method: "PUT",  path: "/api/admin/events/{id}",             description: "Admin: update an event" },
-      { name: "admin-delete-event",         method: "DELETE",path: "/api/admin/events/{id}",             description: "Admin: delete an event" },
-      { name: "admin-list-articles",        method: "GET",  path: "/api/admin/articles",                 description: "Admin: list all articles (incl. drafts)" },
-      { name: "admin-create-article",       method: "POST", path: "/api/admin/articles",                 description: "Admin: create a new article", body: "{ title, content, authorId, tags?, published? }" },
-      { name: "admin-update-article",       method: "PUT",  path: "/api/admin/articles/{id}",           description: "Admin: update an article" },
-      { name: "admin-delete-article",       method: "DELETE",path: "/api/admin/articles/{id}",           description: "Admin: delete an article" },
-      { name: "admin-list-local-articles",  method: "GET",  path: "/api/admin/local-articles",           description: "Admin: list local articles" },
-      { name: "admin-create-local-article", method: "POST", path: "/api/admin/local-articles",           description: "Admin: create local article" },
-      { name: "admin-update-local-article", method: "PUT",  path: "/api/admin/local-articles/{id}",     description: "Admin: update local article" },
-      { name: "admin-delete-local-article", method: "DELETE",path: "/api/admin/local-articles/{id}",     description: "Admin: delete local article" },
-      { name: "admin-get-program-app",      method: "GET",  path: "/api/admin/program-applications/{id}",description: "Admin: get single program application" },
-      { name: "admin-patch-program-app",    method: "PATCH",path: "/api/admin/program-applications/{id}", description: "Admin: update program application status", body: "{ status, notes? }" },
-      { name: "admin-get-program-docs",     method: "GET",  path: "/api/admin/program-applications/{id}/documents", description: "Admin: get application documents" },
-      { name: "admin-send-marketing-email", method: "POST", path: "/api/admin/marketing-email",          description: "Admin: send a marketing email campaign", body: "{ subject, bodyHtml, recipientFilter }" },
-      { name: "admin-upload-event-image",   method: "POST", path: "/api/admin/event-image-upload",       description: "Admin: upload event image", body: "{ imageBase64, eventId }" },
-      { name: "admin-upload-article-image", method: "POST", path: "/api/admin/article-image-upload",     description: "Admin: upload article image", body: "{ imageBase64, articleId }" },
-
-      // ── Utility ──
-      { name: "diag-env",                   method: "GET",  path: "/api/diag-env",                       description: "Server environment diagnostics" },
-      { name: "chat",                       method: "GET",  path: "/api/chat",                           description: "AI chat endpoint", query: ["message", "sessionId?"] },
-      { name: "news-feed",                  method: "GET",  path: "/api/news",                           description: "News feed" },
-      { name: "membership-count",           method: "GET",  path: "/api/membership",                     description: "Current membership count" },
-      { name: "vision-page",                method: "GET",  path: "/api/vision",                         description: "Vision/mission page data" },
-    ],
-  });
 }
 
 // ─── Free public-API backups (curated from github.com/public-apis/public-apis) ───

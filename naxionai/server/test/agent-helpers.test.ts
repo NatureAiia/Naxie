@@ -109,8 +109,8 @@ describe("isTriviallyDirectAnswer", () => {
 
   it.each([
     "what's the hanta virus",
-    "summarise the AIIA Reference Letter",
-    "tell me about neuroworks",
+    "summarise the 2026 reference letter",
+    "tell me about naxie",
     "draft a memo about the Q3 freeze",
     "",
   ])("does NOT mark %j as trivial", (input) => {
@@ -156,18 +156,18 @@ describe("extractTopic", () => {
   });
 
   it("strips 'give me a summary on …'", () => {
-    expect(extractTopic("give me a summary on neuroworks")).toBe("neuroworks");
+    expect(extractTopic("give me a summary on naxie")).toBe("naxie");
   });
 
   it("strips 'tell me about …'", () => {
-    expect(extractTopic("tell me about neuroworks")).toBe("neuroworks");
+    expect(extractTopic("tell me about naxie")).toBe("naxie");
   });
 
   it("strips 'summarise what my vault says about X' (regression — F-grade outcome)", () => {
-    // Previously left "what my vault says about neuroworks" as the
+    // Previously left "what my vault says about naxie" as the
     // topic, which then routed to a literal web search that hit
     // Slovak-language sites matching "my" (Slovak word).
-    expect(extractTopic("summarise what my vault says about neuroworks")).toBe("neuroworks");
+    expect(extractTopic("summarise what my vault says about naxie")).toBe("naxie");
   });
 
   it("strips 'summarise what my notes have on X'", () => {
@@ -175,7 +175,7 @@ describe("extractTopic", () => {
   });
 
   it("strips 'tell me what we know about X'", () => {
-    expect(extractTopic("tell me what we know about neuroworks")).toBe("neuroworks");
+    expect(extractTopic("tell me what we know about naxie")).toBe("naxie");
   });
 });
 
@@ -217,14 +217,14 @@ describe("heuristicPlan", () => {
   });
 
   it("routes 'summarise X' to research.deep (regression — used to fall through to LLM planner)", () => {
-    const p = heuristicPlan("summarise neuroworks");
+    const p = heuristicPlan("summarise naxie");
     expect(p).not.toBeNull();
     expect(p!.steps[0].tool).toBe("research.deep");
   });
 
   it("routes 'recap X' / 'tldr X' / 'brief me on X' to research.deep", () => {
     expect(heuristicPlan("recap the q3 freeze")?.steps[0].tool).toBe("research.deep");
-    expect(heuristicPlan("tldr neuroworks")?.steps[0].tool).toBe("research.deep");
+    expect(heuristicPlan("tldr naxie")?.steps[0].tool).toBe("research.deep");
     expect(heuristicPlan("brief me on the auth migration")?.steps[0].tool).toBe("research.deep");
   });
 
@@ -285,7 +285,7 @@ describe("defaultVaultPlan — attach-and-send", () => {
   // LOCAL_FS_HINT_RE to the same (file|doc|document|pdf|docx?|xlsx?|pptx?)
   // synonym set the needle-stripper already used downstream.
   it("recognises 'the doc called X' as a local-file reference, not a web-research task", () => {
-    const p = defaultVaultPlan("Send an attachment doc called Summit Recon CONSO to all the users emails on Neuroworks");
+    const p = defaultVaultPlan("Send an attachment doc called Summit Recon CONSO to all the users emails on Naxie");
     expect(p.steps[0].tool).toBe("fs.find_in");
     expect(p.steps[0].tool).not.toBe("research.deep");
     // No downloads/desktop/documents mentioned — falls back to folder='all'.

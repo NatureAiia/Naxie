@@ -30,12 +30,12 @@ import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
-// Anchor to the stable repo-root .neuroworks via __dirname (like every other
+// Anchor to the stable repo-root .naxion via __dirname (like every other
 // config module), NOT process.cwd() — a run that offloaded context under one
 // launch cwd must be re-readable from any other, and cwd-relative paths split
 // the store (the same drift that stranded job records across two dirs).
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_ROOT = resolve(__dirname, "../../../.neuroworks");
+const STATE_ROOT = resolve(__dirname, "../../../.naxion");
 const OFFLOAD_ROOT = join(STATE_ROOT, "offload");
 
 // Offloading right at synth's own existing evidence-body cap (4000 chars)

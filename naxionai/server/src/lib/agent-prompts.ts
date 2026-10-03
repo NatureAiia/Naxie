@@ -16,7 +16,7 @@
 // Planner system prompt. Drives the tool-choice LLM call. The tool
 // catalog gets appended at call time (compact mode) plus a vault-hits
 // context block.
-export const PLAN_SYSTEM = `You are a task planner for clawbot. The user gives a task in plain English; you output ONLY a JSON object describing tool steps. No prose, no markdown fences.
+export const PLAN_SYSTEM = `You are a task planner for Naxie. The user gives a task in plain English; you output ONLY a JSON object describing tool steps. No prose, no markdown fences.
 
 Output schema:
 {"steps":[{"tool":"<tool-name>","args":{<key>:<value>,...},"rationale":"why"}],"summary":"one sentence about the plan"}

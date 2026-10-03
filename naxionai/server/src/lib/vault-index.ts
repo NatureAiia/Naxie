@@ -11,7 +11,7 @@
 //
 // Persistence: not on disk for now — rebuilds take ~1-2s for 1500 markdown
 // files, fine for a cold server boot. A future iteration can serialize
-// MiniSearch.toJSON() to .neuroworks/vault-index.json for instant startup.
+// MiniSearch.toJSON() to .naxion/vault-index.json for instant startup.
 //
 // Falls back to a linear walk if MiniSearch fails to load (defence: an
 // extractor crash on one note shouldn't take search down for the rest).
@@ -100,9 +100,9 @@ function newIndex(): MiniSearch<IndexedDoc> {
 
 // Persisted snapshot lives in the state dir (next to executor.json), NOT the
 // vault — it's derived data, and on Docker the state dir is its own volume.
-// __dirname = server/src/lib → ../../../.neuroworks at the repo/app root.
+// __dirname = server/src/lib → ../../../.naxion at the repo/app root.
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PERSIST_PATH = resolve(__dirname, "../../../.neuroworks", "vault-index.json");
+const PERSIST_PATH = resolve(__dirname, "../../../.naxion", "vault-index.json");
 const PERSIST_VERSION = 1;
 
 // Serialize the live index so a cold boot is instant instead of a 1-2s rebuild.

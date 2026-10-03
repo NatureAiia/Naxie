@@ -1,8 +1,8 @@
-# neuroworks-always-on.ps1 - keeps the NeuroWorks server (live chat + agents)
+# naxion-always-on.ps1 - keeps the Naxie server (live chat + agents)
 # running at http://127.0.0.1:7470 at all times.
 #
 # Behaviour:
-#   - Launched hidden at logon by neuroworks-always-on.vbs (Startup folder).
+#   - Launched hidden at logon by a Startup-folder shortcut.
 #   - Restores the D: vault subst mapping first (same logic as mount-vault.bat)
 #     so the server never boots without its vault.
 #   - Runs the server in production single-port mode (SERVE_WEB=1, port 7470):
@@ -18,7 +18,7 @@
 
 $root      = "D:\Aiia\Systems\NaxionAI-Powered-by-Neuroworks\naxionai"
 $serverDir = Join-Path $root "server"
-$stateDir  = Join-Path $serverDir ".neuroworks"
+$stateDir  = Join-Path $serverDir ".naxion"
 $logFile   = Join-Path $stateDir "always-on.log"
 $lockFile  = Join-Path $stateDir "always-on.lock"
 $port      = 7470
@@ -61,7 +61,7 @@ while ($true) {
         continue
     }
 
-    Write-Log "port $port free - starting neuroworks server (SERVE_WEB=1)"
+    Write-Log "port $port free - starting Naxie server (SERVE_WEB=1)"
     try {
         $p = Start-Process -FilePath "C:\Program Files\nodejs\npm.cmd" `
             -ArgumentList "start" `

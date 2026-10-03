@@ -7,7 +7,7 @@
 // persona working a department task has its team's facts on hand without the
 // operator pasting them into every prompt.
 //
-// Persisted at .neuroworks/department-data.json (outside the vault). This is
+// Persisted at .naxion/department-data.json (outside the vault). This is
 // reference knowledge, not credentials, so it's stored as plaintext (mode 0600)
 // — the encryption layer is reserved for connection strings / auth secrets.
 
@@ -17,7 +17,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const CONFIG_PATH = resolve(CONFIG_DIR, "department-data.json");
 
 const MAX_TITLE = 120;

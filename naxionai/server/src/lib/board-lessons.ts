@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { llmGenerateWithMeta } from "./llm.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const LESSONS_DIR = resolve(__dirname, "../../../.neuroworks/board-lessons");
+const LESSONS_DIR = resolve(__dirname, "../../../.naxion/board-lessons");
 
 // Reserved bucket for Naxie's CHAIRMAN hat — deliberately distinct from
 // personas.ts's real "naxie" id, so chairman-only lessons never leak into

@@ -1,7 +1,7 @@
 // Turning a market digest into rows.
 //
 // WHY A MODEL AND NOT A REGEX. As of 2026-09-01 not one Omnis Signal digest had
-// ever reached this box — zero hits for the sender in `.neuroworks/email-threads
+// ever reached this box — zero hits for the sender in `.naxion/email-threads
 // .json`. Writing a parser would have meant guessing a layout, and a guessed
 // layout is a parser that reports zero rows forever without anyone noticing.
 // A declared schema plus a model degrades instead: an unfamiliar layout yields

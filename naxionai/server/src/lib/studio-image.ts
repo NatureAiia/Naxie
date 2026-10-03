@@ -11,7 +11,7 @@
 //     flux, seedream, imagen, …; see lib/studio-models.ts). Async: submit →
 //     poll a request id → download the result.
 //
-// Output lands in .neuroworks/media as a .png and the handler returns
+// Output lands in .naxion/media as a .png and the handler returns
 // { path, bytes, provider, model } — same shape / vault-adjacent location as
 // minimaxTts, so the existing "attach the generated file" plumbing just works.
 
@@ -24,7 +24,7 @@ import { config } from "../config.js";
 import { isOffline, OfflineError } from "./offline-mode.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-export const MEDIA_DIR = resolve(__dirname, "../../../.neuroworks/media");
+export const MEDIA_DIR = resolve(__dirname, "../../../.naxion/media");
 
 function ensureMediaDir(): string {
   if (!existsSync(MEDIA_DIR)) mkdirSync(MEDIA_DIR, { recursive: true });
@@ -67,7 +67,7 @@ function resolveProvider(requested?: ImageProvider): ImageProvider | null {
   return available[0];
 }
 
-// Cap on retained generated images — prevents .neuroworks/media from growing
+// Cap on retained generated images — prevents .naxion/media from growing
 // without bound as agents produce visuals. Oldest are pruned on write.
 const MAX_RETAINED_IMAGES = Number(process.env.NW_MEDIA_MAX_IMAGES ?? "500") || 500;
 
@@ -101,7 +101,7 @@ function pruneOldImages(dir: string): void {
 
 // The studio's own artifact catalog — newest generated images first. This is
 // what "send me the last 3 images we generated" resolves against: generated
-// media lives in .neuroworks/media, NOT the vault and NOT the user's folders,
+// media lives in .naxion/media, NOT the vault and NOT the user's folders,
 // so vault.search / fs.find_in can't find it (an agent searching there
 // honestly reports "no such files" — caught live 2026-07-19).
 export function listGeneratedImages(count = 10): { filename: string; path: string; bytes: number; createdAt: string; downloadUrl: string }[] {

@@ -12,7 +12,7 @@
 // judged worth a human's attention. Newsletters and verification codes are
 // exactly what a search index does not need more of.
 //
-// WHERE, and why it matters: `_neuroworks/email/` is deliberately outside
+// WHERE, and why it matters: `_naxion/email/` is deliberately outside
 // the agent-journal folders vault.ts treats as noise, so these notes are
 // searchable the moment they land. Mail becomes evidence by BEING IN THE
 // VAULT — never by being named in a prompt.
@@ -21,7 +21,7 @@
 // email-notes.ts) — this repo's own inbound-email path only ever filed
 // attachments, never per-message notes.
 
-export const EMAIL_NOTES_DIR = "_neuroworks/email";
+export const EMAIL_NOTES_DIR = "_naxion/email";
 
 /** What the classifier decided about one message. */
 export type MailVerdict = {
@@ -56,7 +56,7 @@ export function shouldKeep(v: MailVerdict): { keep: boolean; why: string } {
   return { keep: false, why: "automated or informational" };
 }
 
-/** `_neuroworks/email/2026-08-18-zimpapers-august-invoice.md` */
+/** `_naxion/email/2026-08-18-zimpapers-august-invoice.md` */
 export function emailNotePath(date: string, subject: string, slugify: (s: string) => string): string {
   const day = /^\d{4}-\d{2}-\d{2}/.test(date) ? date.slice(0, 10) : new Date(date || Date.now()).toISOString().slice(0, 10);
   const stamp = /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : new Date().toISOString().slice(0, 10);

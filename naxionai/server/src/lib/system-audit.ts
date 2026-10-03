@@ -24,16 +24,16 @@ const REPO_ROOT = resolve(__dirname, "../../../..");
 const SERVER_ROOT = resolve(__dirname, "..");
 const WEB_SRC = resolve(REPO_ROOT, "naxionai/web/src");
 
-const AUDIT_DIR = "_neuroworks/system-audits";
+const AUDIT_DIR = "_naxion/system-audits";
 
-// schedules.json lives under neuroworks/.neuroworks (same STATE_DIR as
-// schedules.ts). `<repo-root>/.neuroworks/schedules.json` is a legacy
+// schedules.json lives under neuroworks/.naxion (same STATE_DIR as
+// schedules.ts). `<repo-root>/.naxion/schedules.json` is a legacy
 // location from before that move — it normally doesn't exist, but a stale
 // leftover copy there must never win over the real, current file. Read the
 // real path FIRST; only fall back to the legacy path when the real one is
 // missing/empty (e.g. a truly fresh install with nothing written yet).
 function readSchedulesArray(): any[] {
-  for (const p of [join(REPO_ROOT, "naxionai/.neuroworks/schedules.json"), join(REPO_ROOT, ".neuroworks/schedules.json")]) {
+  for (const p of [join(REPO_ROOT, "naxionai/.naxion/schedules.json"), join(REPO_ROOT, ".naxion/schedules.json")]) {
     try {
       const parsed = JSON.parse(readFileSync(p, "utf8"));
       const arr = Array.isArray(parsed) ? parsed : (parsed.schedules ?? []);
@@ -183,14 +183,14 @@ export function scanInventory(): FileInventory {
   let personas: string[] = [];
   let schedules = 0, connectors = 0, integrations = 0;
   try {
-    const raw = readFileSync(join(REPO_ROOT, ".neuroworks/personas.json"), "utf8");
+    const raw = readFileSync(join(REPO_ROOT, ".naxion/personas.json"), "utf8");
     const parsed = JSON.parse(raw);
     const arr = Array.isArray(parsed) ? parsed : (parsed.personas ?? []);
     personas = arr.map((p: any) => p.name ?? p.id).filter(Boolean);
   } catch { /* ignore */ }
   if (personas.length === 0) {
     try {
-      const raw2 = readFileSync(join(REPO_ROOT, "naxionai/.neuroworks/personas.json"), "utf8");
+      const raw2 = readFileSync(join(REPO_ROOT, "naxionai/.naxion/personas.json"), "utf8");
       personas = (JSON.parse(raw2)?.personas ?? []).map((p: any) => p.name ?? p.id);
     } catch { /* ignore */ }
   }
@@ -198,17 +198,17 @@ export function scanInventory(): FileInventory {
     schedules = readSchedulesArray().length;
   } catch { /* 0 */ }
   try {
-    const cRaw = readFileSync(join(REPO_ROOT, ".neuroworks/connectors.json"), "utf8");
+    const cRaw = readFileSync(join(REPO_ROOT, ".naxion/connectors.json"), "utf8");
     connectors = (JSON.parse(cRaw)?.connectors ?? JSON.parse(cRaw) ?? []).length ?? 0;
     if (typeof connectors !== "number") connectors = 0;
   } catch {
     try {
-      const files = readdirSync(join(REPO_ROOT, ".neuroworks"));
+      const files = readdirSync(join(REPO_ROOT, ".naxion"));
       connectors = files.filter(f => f.includes("connector")).length;
     } catch { /* 0 */ }
   }
   try {
-    const cRaw = readFileSync(join(REPO_ROOT, ".neuroworks/integrations.json"), "utf8");
+    const cRaw = readFileSync(join(REPO_ROOT, ".naxion/integrations.json"), "utf8");
     integrations = (JSON.parse(cRaw)?.connections ?? []).length ?? 0;
   } catch { /* 0 */ }
 
@@ -432,7 +432,7 @@ function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dorman
 
   // — Audit log health —
   if (usage.auditEvents30d === 0) {
-    improvements.push({ area: "Audit", issue: "No audit events in 30d — logging may be broken or system unused", evidence: `auditEvents30d=0`, recommendation: "Verify audit log writes (check _neuroworks/audit.jsonl) and ensure jobs log events.", effort: "S", priority: "medium" });
+    improvements.push({ area: "Audit", issue: "No audit events in 30d — logging may be broken or system unused", evidence: `auditEvents30d=0`, recommendation: "Verify audit log writes (check _naxion/audit.jsonl) and ensure jobs log events.", effort: "S", priority: "medium" });
   }
 
   // — Useless / candidate for removal —
@@ -444,12 +444,12 @@ function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dorman
       useless.push({ name: `${dormant.length} dormant items`, kind: "dormant-surface", reason: `${Math.round(dormantRatio * 100)}% of catalogued features are dormant — system surface may be overgrown`, recommendation: "review" });
     }
   }
-  // Check for empty .neuroworks state files that indicate unused features
+  // Check for empty .naxion state files that indicate unused features
   const emptyStateChecks: { file: string; feature: string }[] = [
-    { file: ".neuroworks/schedules.json", feature: "Schedules" },
-    { file: ".neuroworks/connectors.json", feature: "Connectors" },
-    { file: ".neuroworks/org-tasks.json", feature: "Org Tasks" },
-    { file: ".neuroworks/crm.json", feature: "CRM" },
+    { file: ".naxion/schedules.json", feature: "Schedules" },
+    { file: ".naxion/connectors.json", feature: "Connectors" },
+    { file: ".naxion/org-tasks.json", feature: "Org Tasks" },
+    { file: ".naxion/crm.json", feature: "CRM" },
   ];
   for (const { file, feature } of emptyStateChecks) {
     try {
@@ -521,7 +521,7 @@ export function getCostCorrelation(usage: UsageSignals): CostCorrelation[] {
   try {
     let records: any[] = [];
     try {
-      const p = join(config.vaultPath, "_neuroworks/cost.jsonl");
+      const p = join(config.vaultPath, "_naxion/cost.jsonl");
       if (existsSync(p)) records = readFileSync(p, "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
     } catch { /* ignore */ }
     const byTemplate = new Map<string, { costUsd: number; calls: number }>();
@@ -628,19 +628,19 @@ export function getPersonaMergeCandidates(): PersonaMergeCandidate[] {
   try {
     let personas: any[] = [];
     try {
-      const raw = readFileSync(join(REPO_ROOT, ".neuroworks/personas.json"), "utf8");
+      const raw = readFileSync(join(REPO_ROOT, ".naxion/personas.json"), "utf8");
       personas = (JSON.parse(raw).personas ?? JSON.parse(raw) ?? []) as any[];
       if (!Array.isArray(personas)) personas = [];
     } catch {
       try {
-        const alt = join(REPO_ROOT, "naxionai/.neuroworks/personas.json");
+        const alt = join(REPO_ROOT, "naxionai/.naxion/personas.json");
         if (existsSync(alt)) personas = (JSON.parse(readFileSync(alt, "utf8")).personas ?? []) as any[];
       } catch { /* ignore */ }
     }
     if (personas.length === 0) {
       try {
         // Try vault personas mirror
-        const vRaw = readFileSync(join(config.vaultPath, "_neuroworks/personas.json"), "utf8");
+        const vRaw = readFileSync(join(config.vaultPath, "_naxion/personas.json"), "utf8");
         personas = (JSON.parse(vRaw).personas ?? []) as any[];
       } catch { /* ignore */ }
     }
@@ -1117,7 +1117,7 @@ export async function triggerVoiceBriefing(): Promise<{ ok: boolean; text?: stri
       // Save to vault media for the UI to play — not critical if it fails
       try {
         const { writeFileSync, mkdirSync } = await import("node:fs");
-        const mediaDir = join(config.vaultPath, "_neuroworks/md-briefings");
+        const mediaDir = join(config.vaultPath, "_naxion/md-briefings");
         mkdirSync(mediaDir, { recursive: true });
         writeFileSync(join(mediaDir, `${s.date}.txt`), script, "utf8");
       } catch { /* ignore */ }

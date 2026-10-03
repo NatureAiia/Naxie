@@ -8,7 +8,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeVaultFile } from "./vault.js";
 
-const TODO_DIR = "_neuroworks/todo-briefs";
+const TODO_DIR = "_naxion/todo-briefs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export type TodoBriefResult = {
@@ -118,7 +118,7 @@ function gatherTodos(): { today: any[]; overdue: any[]; week: Map<string, any[]>
   let lists: any[] = [];
   let items: any[] = [];
   try {
-    const storePath = resolve(__dirname, "../../../.neuroworks/my-tasks.json");
+    const storePath = resolve(__dirname, "../../../.naxion/my-tasks.json");
     if (existsSync(storePath)) {
       const parsed = JSON.parse(readFileSync(storePath, "utf8"));
       lists = Array.isArray(parsed?.lists) ? parsed.lists : [];

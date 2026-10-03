@@ -7,7 +7,7 @@
 // (node:crypto, no dependency). The agent reads the directory (name/email/role/
 // org membership) via the users.list / users.lookup primitives.
 //
-// Persisted under .neuroworks/ (gitignored): users.json (incl. password hash),
+// Persisted under .naxion/ (gitignored): users.json (incl. password hash),
 // sessions.json (live tokens), login-events.json (audit trail, capped).
 
 import { dirname, resolve } from "node:path";
@@ -17,7 +17,7 @@ import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypt
 import { recordSessionWork } from "./human-work.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const USERS_PATH = resolve(CONFIG_DIR, "users.json");
 const SESSIONS_PATH = resolve(CONFIG_DIR, "sessions.json");
 const EVENTS_PATH = resolve(CONFIG_DIR, "login-events.json");
@@ -311,7 +311,7 @@ export function login(email: string, password: string, meta: { ip?: string; user
     // No password set yet — claim-on-first-login. This is ONLY safe from a
     // same-machine (loopback) caller: otherwise the first network peer to POST
     // /api/auth/login for a password-less account (including the seeded
-    // superadmin admin@rubiem.com, or any invited user) claims it by setting
+    // superadmin admin@example.com, or any invited user) claims it by setting
     // the password and getting a valid session. The socket address is the OS's
     // report of where the connection came from and cannot be spoofed by a
     // remote attacker (unlike req.ip via X-Forwarded-For).
@@ -454,7 +454,7 @@ export function lookupUser(query: string): { name: string; email: string; role: 
   // Rank by match QUALITY, not store order. A bare "Jordan" must resolve to the
   // person whose name IS "Jordan" (jordan@example.com), not merely the
   // first record that happens to contain the substring "jordan" (e.g. "Jordan
-  // Smith"/admin@rubiem.com). Exact and whole-token matches beat substrings.
+  // Smith"/admin@example.com). Exact and whole-token matches beat substrings.
   const score = (x: StoredUser): number => {
     const email = normEmail(x.email);
     const name = x.name.toLowerCase();

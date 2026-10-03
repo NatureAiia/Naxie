@@ -1,4 +1,4 @@
-// Company data that lives at a URL — ported from AI-Institute-Africa/neuroworks
+// Company data that lives at a URL — ported from the earlier prototype
 // (upstream), trimmed to the core: register/list/remove/find. Upstream's
 // socialLinks()/targets.ts integration is skipped — Naxie has no targets.ts
 // analog to wire it into.

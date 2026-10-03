@@ -9,7 +9,7 @@ import { requireLayer } from "../lib/access.js";
 
 export const reflectionRouter = Router();
 
-const REFLECTION_DIR_REL = "_neuroworks/reflections";
+const REFLECTION_DIR_REL = "_naxion/reflections";
 
 // List past reflections found in the vault. Each entry has the date + path,
 // and we pull the first 240 chars of the body as a preview so the UI can

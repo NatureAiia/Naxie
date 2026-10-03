@@ -166,7 +166,7 @@ export function Extensions() {
 
   async function refresh() {
     try {
-      const r = await fetch("/api/extensions", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } });
+      const r = await fetch("/api/extensions", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("naxie.token") ? { Authorization: `Bearer ${localStorage.getItem("naxie.token")}` } : {}) } });
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       const j = await r.json();
       setData(j);
@@ -177,13 +177,13 @@ export function Extensions() {
   useEffect(() => { void refresh(); }, []);
   useEffect(() => {
     // scheduler status
-    fetch("/api/extensions/scheduler/status", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=> r.json()).then(setScheduler).catch(()=>{});
+    fetch("/api/extensions/scheduler/status", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("naxie.token") ? { Authorization: `Bearer ${localStorage.getItem("naxie.token")}` } : {}) } }).then(r=> r.json()).then(setScheduler).catch(()=>{});
     refreshRagStatus();
   }, []);
 
   async function exportSkill(id: string, kind: "connector"|"integration") {
     try {
-      const r = await fetch(`/api/extensions/export/${encodeURIComponent(id)}`, { method: "POST", headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) }, body: JSON.stringify({ kind }) });
+      const r = await fetch(`/api/extensions/export/${encodeURIComponent(id)}`, { method: "POST", headers: { "Content-Type": "application/json", ...(localStorage.getItem("naxie.token") ? { Authorization: `Bearer ${localStorage.getItem("naxie.token")}` } : {}) }, body: JSON.stringify({ kind }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error + (j.findings ? `: ${j.findings.map((f:any)=>f.type).join(", ")}` : ""));
       showToast(`Exported ${j.filename} v${j.version} — view it on the Skills page`, "success");
@@ -193,7 +193,7 @@ export function Extensions() {
   async function testOne(id: string) {
     setTesting(id);
     try {
-      const r = await fetch(`/api/extensions/test/${encodeURIComponent(id)}`, { method: "POST", headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } });
+      const r = await fetch(`/api/extensions/test/${encodeURIComponent(id)}`, { method: "POST", headers: { "Content-Type": "application/json", ...(localStorage.getItem("naxie.token") ? { Authorization: `Bearer ${localStorage.getItem("naxie.token")}` } : {}) } });
       const j = await r.json();
       showToast(j.ok ? `✓ ${j.detail}` : `Fail: ${j.detail}`, j.ok ? "success" : "error");
       await refresh();
@@ -204,7 +204,7 @@ export function Extensions() {
   async function testAll() {
     setTestingAll(true);
     try {
-      const r = await fetch("/api/extensions/test-all", { method: "POST", headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } });
+      const r = await fetch("/api/extensions/test-all", { method: "POST", headers: { "Content-Type": "application/json", ...(localStorage.getItem("naxie.token") ? { Authorization: `Bearer ${localStorage.getItem("naxie.token")}` } : {}) } });
       const j = await r.json();
       const coreOk = (j.core ?? []).filter((x: any) => x.ok).length;
       const coreTotal = (j.core ?? []).length;
@@ -295,7 +295,7 @@ export function Extensions() {
             <div className="mt-1 text-cream-100">{scheduler ? (scheduler.running ? `Running every ${Math.round((scheduler.intervalMs||3600000)/1000/60)}m` : "Disabled") : "Loading…"}</div>
             <div className="text-[11px] text-cream-300/50 mt-1">{scheduler?.lastRunAt ? `Last: ${new Date(scheduler.lastRunAt).toLocaleString()} · ${scheduler.lastResult?.fails ?? 0} fails` : "No run yet (first in 30s after boot)"}</div>
             <Button variant="subtle" onClick={async () => {
-              try { const r = await fetch("/api/extensions/scheduler/run", { method: "POST", headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }); const j = await r.json(); showToast(`Scheduler ran: ${j.lastResult?.fails ?? 0} fails`, "success"); const s = await fetch("/api/extensions/scheduler/status", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("neuroworks.token") ? { Authorization: `Bearer ${localStorage.getItem("neuroworks.token")}` } : {}) } }).then(r=>r.json()); setScheduler(s); refresh(); } catch (e:any){ showToast(e?.message ?? String(e), "error"); }
+              try { const r = await fetch("/api/extensions/scheduler/run", { method: "POST", headers: { "Content-Type": "application/json", ...(localStorage.getItem("naxie.token") ? { Authorization: `Bearer ${localStorage.getItem("naxie.token")}` } : {}) } }); const j = await r.json(); showToast(`Scheduler ran: ${j.lastResult?.fails ?? 0} fails`, "success"); const s = await fetch("/api/extensions/scheduler/status", { headers: { "Content-Type": "application/json", ...(localStorage.getItem("naxie.token") ? { Authorization: `Bearer ${localStorage.getItem("naxie.token")}` } : {}) } }).then(r=>r.json()); setScheduler(s); refresh(); } catch (e:any){ showToast(e?.message ?? String(e), "error"); }
             }} className="mt-2"><Play size={12} /> Run now</Button>
           </div>
           <div className="rounded-lg bg-ink-950/50 border border-ink-800 p-3">
@@ -479,14 +479,14 @@ export function Extensions() {
             {/* LLM/API spend trend — daily, USD. No chart lib in this app, so each
                 day is a proportion bar scaled to the window's max daily spend. */}
             {costTrendData && costTrendData.series.length > 0 && (() => {
-              const max = Math.max(0.0001, ...costTrendData.series.map(d => d.neuroUsd));
-              const totalNeuro = costTrendData.series.reduce((s, d) => s + d.neuroUsd, 0);
+              const max = Math.max(0.0001, ...costTrendData.series.map(d => d.agentUsd));
+              const totalAgent = costTrendData.series.reduce((s, d) => s + d.agentUsd, 0);
               return (
                 <div className="bg-ink-900 rounded-lg border p-4">
                   <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
                     <h2 className="font-semibold flex items-center gap-2"><TrendingUp className="w-4 h-4" /> Daily spend (last {costTrendData.days} days, USD)</h2>
                     <div className="flex gap-4 text-xs text-cream-300/60">
-                      <span><span className="inline-block w-2 h-2 rounded-full bg-violet-500 mr-1" />total ${totalNeuro.toFixed(2)}</span>
+                      <span><span className="inline-block w-2 h-2 rounded-full bg-violet-500 mr-1" />total ${totalAgent.toFixed(2)}</span>
                     </div>
                   </div>
                   <div className="space-y-1.5">
@@ -494,9 +494,9 @@ export function Extensions() {
                       <div key={d.date} className="flex items-center gap-3 text-[11px]">
                         <span className="w-20 shrink-0 text-cream-300/60 font-mono">{d.date.slice(5)}</span>
                         <div className="flex-1">
-                          <div className="h-2 rounded bg-ink-950 overflow-hidden"><div className="h-full bg-violet-500" style={{ width: `${(d.neuroUsd / max) * 100}%` }} title={`$${d.neuroUsd.toFixed(4)}`} /></div>
+                          <div className="h-2 rounded bg-ink-950 overflow-hidden"><div className="h-full bg-violet-500" style={{ width: `${(d.agentUsd / max) * 100}%` }} title={`$${d.agentUsd.toFixed(4)}`} /></div>
                         </div>
-                        <span className="w-20 shrink-0 text-right text-cream-300/50 tabular-nums">${d.neuroUsd.toFixed(2)}</span>
+                        <span className="w-20 shrink-0 text-right text-cream-300/50 tabular-nums">${d.agentUsd.toFixed(2)}</span>
                       </div>
                     ))}
                   </div>
@@ -615,7 +615,7 @@ export function Extensions() {
             </div>
             <div className="rounded-lg bg-amber-400/10 border border-amber-400/20 px-3 py-2 text-[11px] text-amber-300/90 flex gap-1.5">
               <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-              <span>Keys live in <span className="font-mono">naxionai/.env</span> (gitignored). Never paste a secret into chat. After editing, restart with <span className="font-mono">pnpm -F neuroworks-server dev</span> or your process manager.</span>
+              <span>Keys live in <span className="font-mono">naxionai/.env</span> (gitignored). Never paste a secret into chat. After editing, restart with <span className="font-mono">pnpm -F naxion-server dev</span> or your process manager.</span>
             </div>
             <div className="flex items-center justify-between">
               {hintFor.docsUrl ? <a href={hintFor.docsUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-violet-400 hover:text-violet-300 inline-flex items-center gap-1">Get a key <ExternalLink size={11} /></a> : <span />}

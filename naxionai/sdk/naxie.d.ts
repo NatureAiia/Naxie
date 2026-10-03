@@ -1,6 +1,6 @@
-// Type declarations for the NeuroWorks dispatch SDK.
+// Type declarations for the Naxie dispatch SDK.
 
-export interface NeuroWorksOptions {
+export interface NaxieOptions {
   baseUrl?: string;
   apiKey: string;
 }
@@ -29,8 +29,8 @@ export interface DispatchResult {
   timedOut?: boolean;
 }
 
-export class NeuroWorks {
-  constructor(opts: NeuroWorksOptions);
+export class Naxie {
+  constructor(opts: NaxieOptions);
   baseUrl: string;
   apiKey: string;
   dispatch(task: string, opts?: DispatchOptions): Promise<DispatchAccepted>;

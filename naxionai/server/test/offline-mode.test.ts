@@ -1,6 +1,6 @@
 // Offline mode — host classification, the global fetch/socket guard, and
 // LLM routing staying local. Uses the in-memory test hooks only (no writes
-// to .neuroworks/offline-mode.json).
+// to .naxion/offline-mode.json).
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";

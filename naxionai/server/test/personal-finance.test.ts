@@ -1,7 +1,7 @@
 // "My Finances" — personal savings plans + income/expense tracking
 // (lib/personal-finance.ts), ported from KimmyDeku/sebastian's Money
 // suite. Points the store at a scratch file per test so nothing touches
-// the real .neuroworks/ state.
+// the real .naxion/ state.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync } from "node:fs";

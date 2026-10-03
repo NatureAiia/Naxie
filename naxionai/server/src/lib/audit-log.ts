@@ -14,7 +14,7 @@ export type AuditEvent = {
   result: "success" | "failure" | "pending";
 };
 
-const AUDIT_REL = "_neuroworks/audit.jsonl";
+const AUDIT_REL = "_naxion/audit.jsonl";
 
 function auditPath(): string {
   return resolve(config.vaultPath, AUDIT_REL);

@@ -1,7 +1,7 @@
 // Persona auto-router.
 //
 // When a chat task arrives with no active persona (or with the generic
-// clawbot generalist active), pick the best built-in persona for the
+// Naxie Agent generalist active), pick the best built-in persona for the
 // task and use it for the run. The user can still override via explicit
 // activation; this is the "no one specified — figure it out" path.
 //
@@ -11,7 +11,7 @@
 // "wireframe") carry weight 1. A persona needs an effective score ≥ 2 to
 // win — a single bare keyword like "explain MSA to me" no longer hijacks
 // routing onto contracts-reviewer. Two corroborating signals (or one
-// definitive shape match) are required. The fallback is clawbot.
+// definitive shape match) are required. The fallback is Naxie Agent.
 //
 // Examples:
 //   "Password reset for a new laptop" → it-support (Ivy)
@@ -93,7 +93,7 @@ const PERSONA_PATTERNS: PersonaPattern[] = [
 // Pick the best persona for a given task text. Returns:
 //   { personaId, score, matchedPatterns } — when a clear winner emerges
 //   null — when nothing matched above the confidence floor (caller falls
-//         through to clawbot)
+//         through to Naxie Agent)
 //
 // Confidence floor: at least one pattern must match. Ties (same score)
 // resolved by lower-indexed entry in PERSONA_PATTERNS (rough proxy for
@@ -129,12 +129,12 @@ export function pickPersonaForTask(text: string): { personaId: string; score: nu
       tied.push(entry.personaId);
     }
   }
-  // Below the confidence floor, fall through to clawbot — a single
+  // Below the confidence floor, fall through to Naxie Agent — a single
   // bare-keyword hit ("explain MSA to me", "what is autoscaling")
   // shouldn't drag the user onto a specialist persona by accident.
   if (!best || best.score < CONFIDENCE_FLOOR) return null;
   // If multiple personas tied at the top, we don't have a clear winner —
-  // fall through to clawbot rather than picking one over the others.
+  // fall through to Naxie Agent rather than picking one over the others.
   if (tied.length > 0) return null;
   return best;
 }

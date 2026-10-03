@@ -7,7 +7,7 @@
 //
 // Persistence mirrors org-tasks.ts exactly (org-daemon's OWN task backlog):
 // an in-memory cache, an mtime check on load so a worker process's write is
-// picked up without a restart, and a plain JSON file under .neuroworks/.
+// picked up without a restart, and a plain JSON file under .naxion/.
 // NOT json-store.ts — org-tasks.ts never adopted that atomic-write helper
 // (it hand-rolls cache+mtime+writeFileSync), so this follows the pattern
 // org-daemon.ts's tasks ACTUALLY use rather than the newer helper a couple of
@@ -28,7 +28,7 @@ import { logAudit } from "./audit-log.js";
 import { notifyAttention, notifyUrgent } from "./notify.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const FILE = join(STATE_DIR, "compliance-renewals.json");
 
 export type ComplianceStatus = "active" | "renewed" | "archived";

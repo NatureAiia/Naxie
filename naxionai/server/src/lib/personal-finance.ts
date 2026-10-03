@@ -4,7 +4,7 @@
 // minimal shape. Deliberately unrelated to lib/finance-snapshot.ts /
 // routes/public-finance.ts (the Aria persona's company/market finance feed)
 // — different store, different file, never merged. Persisted at
-// .neuroworks/personal-finance.json, scoped per operator by ownerEmail,
+// .naxion/personal-finance.json, scoped per operator by ownerEmail,
 // mirroring lib/my-tasks.ts's exact pattern (atomic write, "local" fallback
 // for a single-operator shell with no login configured).
 
@@ -14,11 +14,11 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "
 import { randomUUID } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 let CONFIG_PATH = resolve(CONFIG_DIR, "personal-finance.json");
 
 // Test seam — points the store at a scratch file so tests never touch the
-// real .neuroworks/ state (matches lib/tool-dna.ts's own convention).
+// real .naxion/ state (matches lib/tool-dna.ts's own convention).
 export function _setStateFileForTests(path: string): void {
   CONFIG_PATH = path;
 }

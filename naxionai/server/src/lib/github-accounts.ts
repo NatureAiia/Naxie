@@ -2,7 +2,7 @@
 // carry their own fine-grained PAT, so a project's commits get watched under
 // the right identity instead of assuming one global GITHUB_TOKEN (see
 // github.ts, which still owns that single default client for every existing
-// caller). Persisted at .neuroworks/github-accounts.json, encrypted at rest —
+// caller). Persisted at .naxion/github-accounts.json, encrypted at rest —
 // same pattern as connectors.ts (secret-box.ts, atomic write, never returns
 // the raw token to the API/UI, only a tokenSet boolean).
 
@@ -14,7 +14,7 @@ import { Octokit } from "@octokit/rest";
 import { encryptSecret, decryptSecret, isEncrypted } from "./secret-box.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIR = resolve(__dirname, "../../../.neuroworks");
+const CONFIG_DIR = resolve(__dirname, "../../../.naxion");
 const CONFIG_PATH = resolve(CONFIG_DIR, "github-accounts.json");
 
 export type GithubAccount = {

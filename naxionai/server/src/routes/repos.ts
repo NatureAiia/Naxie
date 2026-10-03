@@ -13,7 +13,7 @@ reposRouter.get("/", async (_req, res) => {
   try {
     const repos = await listOwnedRepos();
     const enriched = repos.map(r => {
-      const summaryPath = join(config.vaultPath, "_clawbot", "summaries", `${r.owner}-${r.name}.md`);
+      const summaryPath = join(config.vaultPath, "_naxie", "summaries", `${r.owner}-${r.name}.md`);
       return { ...r, hasSummary: existsSync(summaryPath) };
     });
     res.json({ repos: enriched });
@@ -29,7 +29,7 @@ reposRouter.get("/:owner/:name", async (req, res) => {
       openPRs(owner, name),
       openIssues(owner, name),
     ]);
-    const summaryPath = join(config.vaultPath, "_clawbot", "summaries", `${owner}-${name}.md`);
+    const summaryPath = join(config.vaultPath, "_naxie", "summaries", `${owner}-${name}.md`);
     const summary = existsSync(summaryPath) ? readFileSync(summaryPath, "utf8") : null;
     res.json({ owner, name, commits, prs, issues, summary });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -68,11 +68,11 @@ reposRouter.post("/:owner/:name/summarize", async (req, res) => {
     const summary = await ollamaGenerate(promptParts.join("\n"), system);
     const today = new Date().toISOString().slice(0, 10);
     const md = `---\nrepo: ${owner}/${name}\ngenerated: ${today}\nmodel: ${process.env.OLLAMA_MODEL || "ollama-default"}\n---\n\n# ${owner}/${name}\n\n${summary}\n`;
-    const rel = `_clawbot/summaries/${owner}-${name}.md`;
+    const rel = `_naxie/summaries/${owner}-${name}.md`;
     push(`writing ${rel}`);
     writeVaultFile(rel, md);
     push("committing + pushing vault");
-    const r = await commitAndPush(`clawbot: summary ${owner}/${name}`);
+    const r = await commitAndPush(`naxie: summary ${owner}/${name}`);
     push(`vault: ${JSON.stringify(r)}`);
     return { path: rel, committed: r.committed };
   });

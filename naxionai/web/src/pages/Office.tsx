@@ -23,12 +23,12 @@ import { OfficeDirectory } from "../components/office/OfficeDirectory";
 // job now (personas.manage, primitives.ts), proposed conversationally and
 // approved like any other roster change, not a manual form.
 //
-// Naxie sits at a fixed front desk (not a department room); Neuro (clawbot)
+// Naxie sits at a fixed front desk (not a department room); Naxie Agent
 // is filtered out entirely — it's documented as an internal tool persona the
 // operator doesn't talk to directly, not a hire.
 const JOB_POLL_MS = 5000;
 const STUCK_THRESHOLD_MS = 5 * 60 * 1000; // running > 5 min gets the distinct warning marker
-const HIDDEN_PERSONA_IDS = new Set(["clawbot"]);
+const HIDDEN_PERSONA_IDS = new Set(["naxie-agent"]);
 const GENERAL_ROOM: OfficeRoom = { id: "general", name: "General", color: "slate", members: [] };
 
 type PersonaRow = {

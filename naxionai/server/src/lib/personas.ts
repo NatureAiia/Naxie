@@ -6,7 +6,7 @@ import { personaLanguageDirective } from "./language-prompts.js";
 import { readPersonaProfileSuffix } from "./persona-profile.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_DIR = resolve(__dirname, "../../../.neuroworks");
+const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const FILE = join(STATE_DIR, "personas.json");
 
 export type Persona = {
@@ -48,8 +48,8 @@ export type PersonaStore = {
 };
 
 // The Personal Assistant's own visible identity — the single entity the
-// customer always talks to in chat, distinct from BUILTIN_NAXION_PERSONA
-// ("Neuro"), which remains the internal working-voice persona used for vault
+// customer always talks to in chat, distinct from BUILTIN_WORKER_PERSONA
+// ("Naxie Agent"), which remains the internal working-voice persona used for vault
 // authorship attribution. Hired personas do the work; Naxie is who reports
 // back. Not part of the hireable catalog — this is display identity only.
 export const PA_IDENTITY = { id: "naxie", name: "Naxie" } as const;
@@ -109,7 +109,7 @@ Output discipline — every Naxie reply must look *nice* on every surface (chat,
 - For email: markdown is rendered to a branded HTML card — headings, bullets, and tables all survive, so use them.
 - Stay calm and steady under a busy queue — acknowledge directly, then act. No filler apologies, no over-explaining a simple action.
 
-You are NOT Neuro (clawbot) — Neuro is a tool in your kit for structured-document drafting and vault authorship, not a separate voice the operator talks to. You are the PA who owns the relationship and owns the clock.
+You are NOT Naxie Agent — Naxie Agent is a tool in your kit for structured-document drafting and vault authorship, not a separate voice the operator talks to. You are the PA who owns the relationship and owns the clock.
 
 Self-improvement: you are the ONLY persona with personas.manage (create/update/retire a hire) and system.admin (host-tools access settings). Both are proposal tools, not do-it-yourself ones — every call pauses in Approvals for Nature's sign-off before anything actually changes, no exceptions. The daily MD System Audit turns its high/medium-priority findings (e.g. "N/M personas dormant") into org-tasks automatically; when you see one of those in org.reports, look at the real evidence (personas.list, usage) before proposing the fix — never retire or reconfigure something on the finding's word alone.
 
@@ -123,16 +123,16 @@ let cache: PersonaStore | null = null;
 // so loadPersonas knows to persist the corrected store back to disk.
 let personasSyncDirty = false;
 
-// The built-in Clawbot persona — seeded on first load if missing. Acts as a
-// stable identity for the bot's own working voice so vault writes can be
-// filtered by `persona: clawbot` in their frontmatter. The systemPromptOverride
+// The built-in Naxie Agent persona — seeded on first load if missing. Acts as a
+// stable identity for the agent's own working voice so vault writes can be
+// filtered by `persona: naxie-agent` in their frontmatter. The systemPromptOverride
 // is what drives the structured-output style on the Results page (no markdown
 // bullet noise unless lists are genuinely listy).
-export const BUILTIN_NAXION_PERSONA: Persona = {
-  id: "clawbot",
-  name: "Neuro",
+export const BUILTIN_WORKER_PERSONA: Persona = {
+  id: "naxie-agent",
+  name: "Naxie Agent",
   role: "AI agent operator",
-  description: "The bot's own working voice. Plans, executes, and reports back as a structured document.",
+  description: "Naxie's own working voice. Plans, executes, and reports back as a structured document.",
   jobDescription: "Built-in. Acts as the default identity when no custom persona is active. Outputs are formatted as clean professional documents — heading hierarchy, complete sentences, code blocks where appropriate, lists only when content is genuinely listy.",
   tone: "concise · structured · professional",
   responsibilities: [
@@ -142,7 +142,7 @@ export const BUILTIN_NAXION_PERSONA: Persona = {
     "Capture findings into the vault for future reference",
     "Hand off to a peer when the local model is overloaded",
   ],
-  systemPromptOverride: `You are Clawbot — the user's local AI agent. Frame every response as a brief professional document, not a chat reply.
+  systemPromptOverride: `You are Naxie Agent — the operator's local AI agent. Frame every response as a brief professional document, not a chat reply.
 
 Output style rules:
 - Use Markdown headings (##, ###) to structure when the answer warrants it.
@@ -214,7 +214,7 @@ export const BUILTIN_KNOWITALL_PERSONA: Persona = {
     "Adopt that role's signature output shape and voice for the response",
     "Name the role choice in a one-line header so the customer can see the routing",
     "When the task spans two lanes, split the answer into the two lanes explicitly",
-    "When no expert lane fits, default to generalist Neuro voice",
+    "When no expert lane fits, default to generalist Naxie Agent voice",
   ],
   systemPromptOverride: `You are Kit, the Know-it-all. You are a meta-persona, the chameleon. Your job on every task is to first identify which specialist's lane the work falls in, then operate as that specialist for the answer.
 
@@ -222,7 +222,7 @@ How you operate:
 1. Open the response with ONE LINE: "Working this as: <role>" (e.g. "Working this as: Software Engineer (Sam)", "Working this as: Marketing Manager (Maya)"). This is non-negotiable, it makes routing visible.
 2. Then deliver the answer in that specialist's signature shape and voice. Match the persona you named, not a generic AI tone.
 3. If two lanes apply (e.g. "draft a launch email and a runbook for the rollout"), split into two clearly labelled sections, one per lane.
-4. If no specialist lane fits, say "Working this as: generalist" and answer in the Neuro professional-document style.
+4. If no specialist lane fits, say "Working this as: generalist" and answer in the Naxie Agent professional-document style.
 
 Lane catalog (built-in specialists available to channel):
 - Engineering: Sam (software-engineer), Devon (devops-sre), Quinn (qa-engineer)
@@ -365,14 +365,14 @@ How you operate:
 };
 
 // Pruned to a core 8 on 2026-09-21 per the daily system audit
-// (vault/_neuroworks/system-audits/2026-09-21.md): all built-ins had zero
+// (vault/_naxion/system-audits/2026-09-21.md): all built-ins had zero
 // recorded activity in 30 days; the audit recommended pruning to <10 core
 // roles and merging the 3 near-duplicate social personas into one
 // (see BUILTIN_SOCIALMEDIA_PERSONA below). The ~33 cut personas' const
 // blocks were removed outright rather than left dead in the file.
 export const BUILTIN_PERSONAS: Persona[] = [
   BUILTIN_NAXIE_PERSONA,
-  BUILTIN_NAXION_PERSONA,
+  BUILTIN_WORKER_PERSONA,
   BUILTIN_RESEARCHER_PERSONA,
   BUILTIN_KNOWITALL_PERSONA,
   BUILTIN_ENGINEER_PERSONA,
@@ -393,10 +393,19 @@ const BUILTIN_DEPARTMENTS: Record<string, string> = {
   "software-engineer": "it-devops", "it-support": "it-devops",
   "social-media-manager": "sales-marketing",
   "accountant": "finance-legal",
-  "clawbot": "general",
+  "naxie-agent": "general",
 };
 
 function ensureBuiltinSeeded(s: PersonaStore): PersonaStore {
+  // One-time identity migration (2026-10-02): the internal worker voice was
+  // renamed id "clawbot" → "naxie-agent" (display "Neuro" → "Naxie Agent").
+  // Rename the stored entry in place so operator customisations survive and
+  // no duplicate worker gets seeded below.
+  const legacy = s.personas.find(p => p.id === "clawbot");
+  if (legacy && !s.personas.some(p => p.id === "naxie-agent")) {
+    legacy.id = "naxie-agent";
+    personasSyncDirty = true;
+  }
   // Seed every built-in that isn't already in the store. Preserves user
   // customisations: if a user has edited their own copy of the built-in (same
   // id), we don't overwrite it — we only INSERT when missing.
@@ -432,7 +441,7 @@ function ensureBuiltinSeeded(s: PersonaStore): PersonaStore {
       }
     }
   }
-  // First-ever seed → activate Naxie by default. Clawbot ("Neuro") is an
+  // First-ever seed → activate Naxie by default. Naxie Agent is an
   // internal tool Naxie calls for structured-document drafting/vault
   // authorship now, not a persona the operator talks to directly.
   if (s.activeId === null && s.personas.length > 0) s.activeId = BUILTIN_NAXIE_PERSONA.id;
@@ -506,7 +515,7 @@ export function updatePersona(id: string, patch: Partial<Pick<Persona, "workMode
 }
 
 export function deletePersona(id: string): boolean {
-  // Built-in personas (Clawbot, Researcher) can't be deleted — they're stable
+  // Built-in personas (Naxie Agent, Researcher) can't be deleted — they're stable
   // identities used as default tags on journal entries and referenced by
   // routing logic.
   if (BUILTIN_PERSONAS.some(p => p.id === id)) return false;
@@ -519,13 +528,13 @@ export function deletePersona(id: string): boolean {
   return true;
 }
 
-// Clawbot is an internal tool Naxie calls (see runAsClawbot below), not a
+// Naxie Agent is an internal tool Naxie calls (see runAsWorker below), not a
 // persona the operator activates directly — reject it here so the public
 // /api/personas/:id/activate route can't put it back in the driver's seat.
 export function setActivePersona(id: string | null): Persona | null {
   const s = loadPersonas();
   if (id === null) { s.activeId = null; savePersonaStore(s); return null; }
-  if (id === BUILTIN_NAXION_PERSONA.id) throw new Error("clawbot is an internal tool, not an activatable persona");
+  if (id === BUILTIN_WORKER_PERSONA.id) throw new Error("naxie-agent is an internal tool, not an activatable persona");
   const p = s.personas.find(x => x.id === id);
   if (!p) throw new Error(`persona not found: ${id}`);
   s.activeId = id;
@@ -533,14 +542,14 @@ export function setActivePersona(id: string | null): Persona | null {
   return p;
 }
 
-// Run a one-off completion as Clawbot ("Neuro") without touching the
+// Run a one-off completion as Naxie Agent without touching the
 // operator's active persona — mirrors routes/team.ts's resolvePersona +
 // personaSystemSuffix pattern (a sub-task borrows a persona's voice for one
 // call, the global active persona is untouched). Naxie's own tool-dispatch
 // path calls this for formatting-heavy drafting or vault-authorship
-// sub-tasks where Clawbot's structured-document style is the better fit.
-export async function runAsClawbot(prompt: string): Promise<string> {
-  const suffix = personaSystemSuffix(BUILTIN_NAXION_PERSONA);
+// sub-tasks where Naxie Agent's structured-document style is the better fit.
+export async function runAsWorker(prompt: string): Promise<string> {
+  const suffix = personaSystemSuffix(BUILTIN_WORKER_PERSONA);
   return ollamaGenerate(prompt, suffix);
 }
 
@@ -555,7 +564,7 @@ export function slugifyId(name: string): string {
 }
 
 // Lane discipline preamble — prepended to every persona's system prompt
-// except clawbot (which is the catch-all generalist by design). The
+// except Naxie Agent (which is the catch-all generalist by design). The
 // hand-off rule had been the LAST bullet in each persona's prompt, after a
 // long "how you operate" list — and the model kept ignoring it and faking
 // expertise outside its lane (CSM writing SQL, Recruiter debugging APIs,
@@ -568,7 +577,7 @@ If the task is OUTSIDE your lane — examples: a Customer Success person being a
 
 How to refuse cleanly:
 1. Open with one line acknowledging the mismatch — e.g. "This is outside my lane as a <your role>."
-2. Name who to hire instead. The NeuroWorks roster (use Name + Role): Sam (Software Engineer), Researcher (Investigative Analyst), Sasha (Social Lead — Personal & Variety & Co), Ivy (IT Support Specialist), Cole (Accountant).
+2. Name who to hire instead. The Naxie roster (use Name + Role): Sam (Software Engineer), Researcher (Investigative Analyst), Sasha (Social Lead — Personal & Variety & Co), Ivy (IT Support Specialist), Cole (Accountant).
 3. If a small slice of the task IS in your lane, offer that slice only — never the full out-of-lane deliverable.
 4. Do NOT produce: SQL/code (unless you're Sam), legal redlines or verdicts, financial models, marketing copy or press releases, customer replies, incident runbooks, PRDs, design critiques, test plans, architecture decisions (unless you're Sam).
 
@@ -578,14 +587,14 @@ When the task IS in your lane, do the work confidently as the role below — the
 
 `;
 
-// Returns a system-prompt suffix that frames clawbot's behavior as the active
+// Returns a system-prompt suffix that frames Naxie Agent's behavior as the active
 // persona. This is labor-on-demand: the customer hired this employee for the
 // task, so the framing must be "you ARE this person doing this job" — not
 // "you are an assistant pretending to be ...". A few callsites still use the
 // old "operating as" framing; that's left alone for back-compat but new
 // callsites should use this stronger frame.
 //
-// The lane-discipline preamble is prepended to every persona EXCEPT clawbot
+// The lane-discipline preamble is prepended to every persona EXCEPT Naxie Agent
 // (catch-all default). This is the part that gates "are you doing the work
 // or refusing"; without it, the model defaults to plowing through every
 // request.
@@ -598,8 +607,8 @@ export function personaSystemSuffix(p: Persona | null): string {
   // Absent language = say nothing, inherit the org default untouched.
   const languageBlock = p.language ? "\n\n" + personaLanguageDirective(p.language) : "";
   const profileBlock = readPersonaProfileSuffix(p.id);
-  // Clawbot is the catch-all generalist — no lane to police.
-  if (p.id === "clawbot") return body + languageBlock + profileBlock;
+  // Naxie Agent is the catch-all generalist — no lane to police.
+  if (p.id === "naxie-agent") return body + languageBlock + profileBlock;
   return LANE_DISCIPLINE_PREAMBLE + body + languageBlock + profileBlock;
 }
 

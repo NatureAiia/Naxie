@@ -69,12 +69,12 @@ export async function buildNaxieContext(query: string, opts: { ragLimit?: number
   const { missionLog, crm } = syncSlices;
 
   // MD system audit snapshot — Naxie as managing director of every inch.
-  // Best-effort: read the latest _neuroworks/system-audits/*.md frontmatter +
+  // Best-effort: read the latest _naxion/system-audits/*.md frontmatter +
   // first 800 chars of the Executive Summary so Naxie can answer "what's
   // dormant / useless / needs improving" without a separate tool call.
   let mdAudit = "";
   try {
-    const dir = join(config.vaultPath, "_neuroworks/system-audits");
+    const dir = join(config.vaultPath, "_naxion/system-audits");
     if (existsSync(dir)) {
       const files = readdirSync(dir).filter(f => f.endsWith(".md")).sort().reverse();
       if (files.length > 0) {

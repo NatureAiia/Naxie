@@ -506,12 +506,12 @@ function AutomationModal({ item, onClose, onSaved }: { item: MyTaskItem; onClose
 
         <div>
           <label className="block text-[11px] uppercase tracking-wider text-cream-300/60 mb-1">Vault paths this automation may read (optional, comma-separated)</label>
-          <input value={data} onChange={e => setData(e.target.value)} placeholder="_neuroworks/" className={`${FIELD} font-mono`} />
+          <input value={data} onChange={e => setData(e.target.value)} placeholder="_naxion/" className={`${FIELD} font-mono`} />
         </div>
 
         <div>
           <label className="block text-[11px] uppercase tracking-wider text-cream-300/60 mb-1">Output path (optional)</label>
-          <input value={outputPath} onChange={e => setOutputPath(e.target.value)} placeholder="_neuroworks/reports/{date}.md" className={`${FIELD} font-mono`} />
+          <input value={outputPath} onChange={e => setOutputPath(e.target.value)} placeholder="_naxion/reports/{date}.md" className={`${FIELD} font-mono`} />
         </div>
 
         <div>

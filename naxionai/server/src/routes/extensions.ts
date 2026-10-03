@@ -398,7 +398,7 @@ Audit is at \`GET /api/audit?action=webhook\`.
 
  ## Notes
 - Secrets are encrypted at rest (\`secret-box.ts\`) and never stored in this file.
-- Rotate via **Extensions → Rotate** (updates \`.neuroworks/${kind === "integration" ? "integrations.json" : "connectors.json"}\` + \`lastRotatedAt\` + audit).
+- Rotate via **Extensions → Rotate** (updates \`.naxion/${kind === "integration" ? "integrations.json" : "connectors.json"}\` + \`lastRotatedAt\` + audit).
 - Version: \`${version}\` — bump on each re-export.
 `;
     const fullContent = frontmatter + body;
