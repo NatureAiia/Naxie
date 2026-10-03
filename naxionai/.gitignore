@@ -58,3 +58,6 @@ server/_desk/
 .env.bak*
 .env.*.bak
 .env
+
+# runtime state (TTS cache, generated media, voice samples, daemon data)
+.neuroworks/

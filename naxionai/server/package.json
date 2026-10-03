@@ -27,6 +27,7 @@
     "marked": "^14.1.4",
     "minisearch": "^7.2.0",
     "mongodb": "^7.7.0",
+    "node-edge-tts": "^1.2.10",
     "nodemailer": "^9.0.1",
     "pdf-parse-fork": "^1.2.0",
     "pdfjs-dist": "^6.0.227",

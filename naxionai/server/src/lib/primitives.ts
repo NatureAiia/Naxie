@@ -4410,30 +4410,27 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "media.tts",
-    description: "Generate spoken-audio narration of text — voiced by Rachel (Naxie's ElevenLabs voice) unless a voice_id override is given. Returns { path, provider, voice } — a local .mp3 saved in the media folder (attach it with email.send attach_paths, or reference the path).",
+    description: "Generate spoken-audio narration of text — voiced by Libby (Naxie's free Edge voice) unless a voice_id override is given. Returns { path, provider, voice } — a local .mp3 saved in the media folder (attach it with email.send attach_paths, or reference the path).",
     readonly: false,
     args: [
       { name: "text", type: "string", required: true, description: "The text to speak (markdown is stripped automatically before speaking)" },
-      { name: "voice_id", type: "string", required: false, description: "Optional ElevenLabs voice id override (default is Rachel, Naxie's voice)" },
+      { name: "voice_id", type: "string", required: false, description: "Optional Edge voice id override (default is Libby, Naxie's voice)" },
       { name: "emotion", type: "string", required: false, description: "Optional emotion: happy, sad, angry, fearful, disgusted, surprised, neutral" },
     ],
     handler: async (args) => {
       const text = String(args.text ?? "").trim().replace(/[#*`_>]/g, "");
       if (!text) return { error: "text is required" };
       try {
-        const { synthesizeElevenLabs, elevenLabsAvailable } = await import("./voice.js");
+        const { synthesizeEdgeTts } = await import("./voice.js");
         const { MEDIA_DIR } = await import("./studio-image.js");
         const { writeFileSync, existsSync, mkdirSync } = await import("node:fs");
         const { join } = await import("node:path");
-        const voiceId = String(args.voice_id ?? "").trim() || "c3QefzBhE1Cx4Yl23IV3"; // Rachel
-        if (!elevenLabsAvailable()) {
-          return { error: "Text-to-speech isn't available — ELEVENLABS_API_KEY is not set. Deliver the script; the voiceover render is pending the API key." };
-        }
-        const out = await synthesizeElevenLabs(text, voiceId);
+        const voiceId = String(args.voice_id ?? "").trim() || "en-GB-LibbyNeural"; // Libby
+        const out = await synthesizeEdgeTts(text, voiceId);
         if (!existsSync(MEDIA_DIR)) mkdirSync(MEDIA_DIR, { recursive: true });
         const file = `tts-${Date.now()}.mp3`;
         writeFileSync(join(MEDIA_DIR, file), out.audio);
-        return { path: `/api/media/${file}`, provider: "elevenlabs", voice: voiceId, bytes: out.audio.length };
+        return { path: `/api/media/${file}`, provider: "edge", voice: voiceId, bytes: out.audio.length };
       } catch (e: any) {
         return { error: String(e?.message ?? e).slice(0, 300) };
       }

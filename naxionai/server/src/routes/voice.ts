@@ -1,16 +1,16 @@
 // Voice API — the employees' spoken presence over their reports.
 //
-// GET  /api/voice/status            → which tiers are live (elevenlabs /
-//                                     openai / local TTS sidecar / realtime);
-//                                     client falls back to the browser's Web
-//                                     Speech when all are dark.
+// GET  /api/voice/status            → which tiers are live (edge / openai /
+//                                     local TTS sidecar / realtime); client
+//                                     falls back to the browser's Web Speech
+//                                     when all are dark.
 // POST /api/voice/ask               → report-grounded Q&A: {jobId, question,
 //                                     personaId?, history?} → the employee's
 //                                     answer text (client speaks it via its
 //                                     best tier).
-// POST /api/voice/tts               → {text, personaId?} → audio bytes, Rachel
-//                                     on ElevenLabs first, then OpenAI, then
-//                                     the local sidecar.
+// POST /api/voice/tts               → {text, personaId?} → audio bytes, Edge
+//                                     (Libby) first, then OpenAI, then the
+//                                     local sidecar.
 // POST /api/voice/realtime-session  → {jobId, personaId?} → short-lived
 //                                     client secret; the browser opens a
 //                                     WebRTC duplex conversation with the
@@ -296,8 +296,7 @@ voiceRouter.post("/ask", async (req, res) => {
 voiceRouter.post("/tts", async (req, res) => {
   const text = String(req.body?.text ?? "").trim();
   if (!text) return res.status(400).json({ error: "text is required" });
-  // Persona-aware: Naxie is voiced by Rachel (ElevenLabs); the server picks
-  // the best live tier per request.
+  // Persona-aware: each persona hashes to a stable local sidecar voice.
   try {
     const pid = req.body?.personaId ? String(req.body.personaId) : undefined;
     const out = await synthesizeWithVoice(text, pid);

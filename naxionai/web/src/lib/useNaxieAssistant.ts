@@ -317,7 +317,7 @@ export function useNaxieAssistant(opts?: { autoListen?: boolean }) {
     }
   }
 
-  // TTS: server (Rachel on ElevenLabs first), then Web Speech.
+  // TTS: server (free Edge Libby first), then Web Speech.
   async function speak(text: string) {
     try { window.speechSynthesis?.cancel(); } catch { /* not supported */ }
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }

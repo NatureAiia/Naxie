@@ -8,8 +8,8 @@ import { useRealtimeCall } from "../lib/useRealtimeCall";
 // Talk to the employee about their report. Three tiers, best available wins:
 //   A. Live call — WebRTC full-duplex with the provider (server mints a
 //      short-lived secret; report preloaded as session context).
-//   B. Ask → answer spoken by the server (/api/voice/tts — Rachel on
-//      ElevenLabs first, then OpenAI, then the local sidecar).
+//   B. Ask → answer spoken by the server (/api/voice/tts — free Edge Libby
+//      first, then OpenAI, then the local sidecar).
 //   C. Ask → answer spoken by the browser's own speechSynthesis.
 // Question input is typed or spoken (browser SpeechRecognition, no key) in tiers B/C.
 
@@ -35,7 +35,7 @@ function MicWaveform({ className = "" }: { className?: string }) {
 }
 
 export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: string; personaId?: string; personaName?: string }) {
-  const [status, setStatus] = useState<{ realtime: boolean; elevenlabs?: boolean; openaiTts?: boolean; localTts: boolean } | null>(null);
+  const [status, setStatus] = useState<{ realtime: boolean; edge?: boolean; openaiTts?: boolean; localTts: boolean } | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
@@ -53,7 +53,7 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
   });
 
   useEffect(() => {
-    api.voiceStatus().then(setStatus).catch(() => setStatus({ realtime: false, elevenlabs: false, openaiTts: false, localTts: false }));
+    api.voiceStatus().then(setStatus).catch(() => setStatus({ realtime: false, edge: false, openaiTts: false, localTts: false }));
     return () => { stopSpeaking(); endCall(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
@@ -76,13 +76,13 @@ export function VoiceDiscussion({ jobId, personaId, personaName }: { jobId: stri
     setSpeaking(false);
   }
 
-  // Speak via the server (Rachel on ElevenLabs first) when any server tier
-  // is live — the server itself picks the best tier and 503s when all are
+  // Speak via the server (free Edge Sonia first) when any server tier is
+  // live — the server itself picks the best tier and 503s when all are
   // dark. Browser speechSynthesis is the last resort only.
   async function speak(text: string) {
     stopSpeaking();
     setSpeaking(true);
-    if (status?.elevenlabs || status?.openaiTts || status?.localTts) {
+    if (status?.edge || status?.openaiTts || status?.localTts) {
       try {
         const blob = await api.voiceTts(text, personaId);
         const audio = new Audio(URL.createObjectURL(blob));

@@ -46,9 +46,9 @@ Bad  (written): "**Status:** Revenue +12% QoQ. 2 deals open (see table)."
 
 ## Pitfalls
 
-- `media.tts` returns `{ error }` (ElevenLabs key missing or render failed)
+- `media.tts` returns `{ error }` (Edge render failed)
   → deliver the finished script and say the audio render is pending.
-  Don't fabricate a path. Default voice is Rachel (Naxie's voice) unless the
+  Don't fabricate a path. Default voice is Libby (Naxie's voice) unless the
   brief needs a different `voice_id`.
 - Feeding raw markdown to `media.tts` → the listener hears "asterisk asterisk".
   Strip formatting first.
