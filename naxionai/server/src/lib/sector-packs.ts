@@ -52,6 +52,10 @@ export type OnboardingState = {
   priorities?: string;
   communicationStyle?: string;
   notes?: string;
+  goals?: string;
+  stack?: string;
+  habits?: string;
+  expertise?: string;
 };
 
 export const SECTORS: Sector[] = [

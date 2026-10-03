@@ -57,7 +57,7 @@ naxieRouter.get("/status", async (_req, res) => {
       connectivity: { cached, online: cached ?? (await isCloudReachableCached()) },
       cag: cagStats(),
       briefing: getLatestBriefing(),
-      onboardingNeeded: getOnboardingState().completed !== true,
+      onboardingNeeded: false,
       daemonStatus: { cycleSeconds: DAEMON_CYCLE_SECONDS },
     });
   } catch (e: any) {

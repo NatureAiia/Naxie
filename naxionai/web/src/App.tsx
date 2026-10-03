@@ -9,7 +9,6 @@ import { Skeleton } from "./components/Card";
 
 // Home Base
 const Naxie = lazy(() => import("./pages/Naxie").then(m => ({ default: m.Naxie })));
-const Onboarding = lazy(() => import("./pages/Onboarding").then(m => ({ default: m.Onboarding })));
 const NaxieMemory = lazy(() => import("./pages/NaxieMemory").then(m => ({ default: m.NaxieMemory })));
 const BoardMeeting = lazy(() => import("./pages/BoardMeeting").then(m => ({ default: m.BoardMeeting })));
 const CommandCenter = lazy(() => import("./pages/CommandCenter").then(m => ({ default: m.CommandCenter })));
