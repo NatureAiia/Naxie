@@ -88,7 +88,6 @@ import { extensionsRouter } from "./routes/extensions.js";
 import { pentestRouter } from "./routes/pentest.js";
 import { crmRouter } from "./routes/crm.js";
 import { naxieRouter } from "./routes/naxie.js";
-import { onboardingRouter } from "./routes/onboarding.js";
 import { seedPublicApiConnectors } from "./lib/connectors.js";
 import { executorRouter } from "./routes/executor.js";
 import { primitivesRouter } from "./routes/primitives.js";
@@ -349,7 +348,8 @@ app.use("/api/users", usersRouter); // directory admin (salary redaction inside)
 app.use("/api/assignments", assignmentsRouter); // human-in-the-loop work (My Work page; per-route access checks inside)
 app.use("/api/voice", voiceRouter); // employee voices: report Q&A, local TTS proxy, realtime session mint
 app.use("/api/naxie", naxieRouter); // RAG/MAG/CAG inspector + remember (second-in-command memory)
-app.use("/api/onboarding", onboardingRouter); // wizard: operator identity + sector/org profile; bypasses users.json entirely
+app.use("/api/naxie", naxieRouter);
+app.use("/api/auth", authRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/departments", departmentsRouter);
 app.use("/api/office-notes", officeNotesRouter);
