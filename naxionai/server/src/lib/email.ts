@@ -123,7 +123,7 @@ export function readGlobalConfig(): GlobalEmailConfig {
 // registered user's email, resolved live (not baked into env) — so adding a
 // user on the Users page immediately lets them use the email bridge with no
 // .env edit, and disabling/removing one removes them just as immediately.
-// The env list stays for addresses that aren't NeuroWorks users (personal
+// The env list stays for addresses that aren't Naxie users (personal
 // test inboxes, an external ops contact, etc).
 async function resolveAllowedSenders(envList: string[]): Promise<string[]> {
   const merged = new Set(envList);
@@ -403,7 +403,7 @@ export async function fileAttachmentsToVault(attachments: InboundAttachment[] | 
         ``,
         `Imported from email \`${sender}\` on ${dateStamp}${subject ? ` (subject: "${subject.slice(0, 160)}")` : ""}. Original size ${sizeKB} KB${pages != null ? `, ${pages} page${pages === 1 ? "" : "s"}` : ""}.`,
         ``,
-        `The full file is filed in your vault at [[${binaryRel}]] — click through to open it in Obsidian, or browse it under NeuroWorks Knowledge.`,
+        `The full file is filed in your vault at [[${binaryRel}]] — click through to open it in Obsidian, or browse it under Naxie Knowledge.`,
         ``,
         excerpt ? `## Excerpt (first ${Math.min(2000, excerpt.length)} chars)\n\n${excerpt}\n` : "",
         `## Source provenance`,
@@ -1208,7 +1208,7 @@ export function placeholderAddressReason(addr: string): string | null {
   return null;
 }
 
-/** Strip NeuroWorks vault-note plumbing from an outbound email body.
+/** Strip Naxie vault-note plumbing from an outbound email body.
  *
   *  When a user asks Naxie to "send me that report/document", the agent reads the
  *  vault note and emails it verbatim — but our notes carry metadata the recipient

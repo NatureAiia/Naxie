@@ -382,7 +382,7 @@ Via integration primitives, e.g. for Slack/Telegram:
 
 \`\`\`js
 await integration.list() // shows ${label}
-await slack.post({ text: "hello from NeuroWorks" }) // if Slack
+    await slack.post({ text: "hello from Naxie" }) // if Slack
 \`\`\`
 `}
 

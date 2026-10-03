@@ -1,5 +1,5 @@
 // Inbound agent dispatch — the orchestration-layer entrypoint other systems
-// call to run a task inside NeuroWorks.
+// call to run a task inside Naxie.
 //
 // A dispatch wraps the same agent pipeline the local UI uses (generalTaskRunner
 // → plan → execute → synthesise), as an async job. The caller gets a jobId
@@ -100,7 +100,7 @@ async function fireWebhook(jobId: string, input: DispatchInput): Promise<void> {
   }
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "User-Agent": "NeuroWorks-Dispatch/1",
+    "User-Agent": "Naxie-Dispatch/1",
   };
   if (WEBHOOK_SECRET) {
     headers["X-Naxie-Signature"] = "sha256=" + createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");

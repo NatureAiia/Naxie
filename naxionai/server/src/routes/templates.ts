@@ -21,7 +21,6 @@ import { loadPersonas, getActivePersona, personaSystemSuffix } from "../lib/pers
 import { classifyCustomTemplate, type TemplateRole } from "../lib/template-classifier.js";
 import { findPrimitive } from "../lib/primitives.js";
 import { createBoardRun, executeBoardRun, failBoardRun, MIN_MEMBERS } from "../lib/board.js";
-import { getBrand, channelFor, slug as slugBrandId, type Brand } from "../lib/brands.js";
 import { runBrandSignalScan } from "../lib/brand-signals.js";
 import { logAudit } from "../lib/audit-log.js";
 import { listRecentEmails, readEmail } from "../lib/email.js";
@@ -547,10 +546,8 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
     case "daily-briefing": return dailyBriefingRunner(inputs, push, progress);
     case "email-to-vault": return emailToVaultRunner(inputs, push);
     case "innovation-scan": return innovationScanRunner(inputs, push, progress);
-    case "buffer-story-post": return bufferStoryPostRunner(inputs, push, progress);
     case "africa-ai-news":   return africaAiNewsRunner(inputs, push);
     case "world-ai-news":    return worldAiNewsRunner(inputs, push);
-    case "social-optimize": return socialOptimizeRunner(inputs, push, progress);
     case "brand-signal-scan": return brandSignalScanRunner(inputs, push);
     case "general-task":   return generalTaskRunner(inputs, push, progress);
     case "board-meeting":  return boardMeetingRunner(inputs, push, progress, meta);
@@ -800,7 +797,7 @@ export async function generalTaskRunner(inputs: Record<string, unknown>, push: (
 }
 
 // Innovation scan — the org's R&D employee on a schedule. A researched,
-// sourced report on ways to improve NeuroWorks: agent-AI techniques, AI
+// sourced report on ways to improve Naxie: agent-AI techniques, AI
 // innovations, useful APIs, and GitHub repos worth adopting. The next daily
 // briefing attaches the latest scan (see dailyBriefingRunner below +
 // calendar.plan_day's `innovation` field). `_personaId` pins the run to the
@@ -945,75 +942,9 @@ async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: s
 }
 
 // ─── Social content loop (email → Buffer draft) + self-improving optimiser ───
-// Two scheduled templates that form a feedback loop:
-//   buffer-story-post: read a source mailbox → pick the strongest story → draft a
-//     platform-native post → put it on Buffer (as a DRAFT for human review by
-//     default; auto-queue is an explicit opt-in).
-//   social-optimize:  read what's actually been posted (Buffer posts:read) + any
-//     engagement (insights:read, if the token grants it) → rewrite a strategy note
-//     that the drafter reads next run. That note is the "learning" that closes the
-//     loop.
 const SOCIAL_DIR = "_naxion/social";
 
-// Neutral brand-values fallback buildBrandValues() uses when no brandId
-// resolves (so any caller that hasn't been migrated to pass a brandId keeps
-// working unchanged).
-const DEFAULT_BRAND_VALUES =
-  `Brand values — no brand selected. Ask the operator which brand this is for, or check the Brands page.`;
 
-// Generalized brand-values block — formats a Brand record's own voice/
-// audience/values into the same shape DEFAULT_BRAND_VALUES used, so drafting
-// prompts don't need a special case per brand. Falls back to the neutral
-// text when no brand resolved (back-compat for callers that omit brandId).
-function buildBrandValues(brand?: Brand): string {
-  if (!brand) return DEFAULT_BRAND_VALUES;
-  const lines = [`${brand.name} brand values — reflect these in tone and framing:`];
-  if (brand.values.trim()) lines.push(brand.values.trim());
-  if (brand.audience.trim()) lines.push(`Audience: ${brand.audience.trim()}`);
-  if (brand.voice.trim()) lines.push(`Voice: ${brand.voice.trim()}`);
-  if (lines.length === 1) lines.push("(no voice/audience/values set yet for this brand — ask the operator before assuming one, or check the Brands page.)");
-  return lines.join("\n");
-}
-
-// Pull a brand's guidelines from the vault so posts + videos match the
-// real brand. Parameterized per-brand via Brand.guidelinesVaultPath.
-// Falls back to a vault.search sweep if no known path is set/found.
-async function gatherBrandContext(push: (m: string) => void, brandId?: string): Promise<string> {
-  const brand = brandId ? getBrand(brandId) : undefined;
-
-  // 1) The brand's own guidelines doc, read directly (most reliable).
-  const known = brand?.guidelinesVaultPath
-    ? [brand.guidelinesVaultPath]
-    : [];
-  for (const rel of known) {
-    const txt = readVaultText(rel);
-    if (txt && txt.trim().length > 100) {
-      push(`Grounded on the ${brand?.name ?? "brand"} guidelines from the vault.`);
-      return `\n\n${(brand?.name ?? "BRAND").toUpperCase()} GUIDELINES (from the vault — honour these exactly):\n${txt.replace(/^---[\s\S]*?---\n/, "").trim().slice(0, 2600)}`;
-    }
-  }
-  // 2) Fallback: search the vault for a brand/company doc.
-  try {
-    const prim = findPrimitive("vault.search");
-    if (!prim) return "";
-    const seen = new Set<string>(); const snippets: string[] = [];
-    const queries = brand
-      ? [`${brand.name} brand guidelines voice values`, `${brand.name} brand tone`, `${brand.name} profile audience`]
-      : ["brand guidelines voice values", "brand tone", "company profile mission"];
-    for (const q of queries) {
-      const r: any = await prim.handler({ query: q });
-      for (const m of (r?.results ?? r?.matches ?? [])) {
-        const path = m.path ?? m.file ?? ""; if (!path || seen.has(path)) continue; seen.add(path);
-        const text = String(m.snippet ?? m.excerpt ?? m.text ?? "").replace(/\s+/g, " ").trim();
-        if (text) snippets.push(`[${path}] ${text.slice(0, 300)}`);
-        if (snippets.length >= 3) break;
-      }
-      if (snippets.length >= 3) break;
-    }
-    if (snippets.length) { push(`Grounded on ${snippets.length} brand/company note(s) from the vault.`); return `\n\n${(brand?.name ?? "BRAND").toUpperCase()} / COMPANY NOTES from the knowledge base (honour these):\n${snippets.join("\n")}`; }
-  } catch { /* non-fatal */ }
-  return "";
-}
 
 function readVaultText(rel: string): string | null {
   try {
@@ -1023,52 +954,6 @@ function readVaultText(rel: string): string | null {
   } catch { return null; }
 }
 
-// Pull recent emails from a specific sender. Tries the IMAP mailbox first
-// (NAXION_EMAIL_* — the org inbox), then a Gmail connection if present.
-// Filters client-side by sender substring so a display-name or +alias still
-// matches. Returns newest-first, deduped by subject+date.
-type SenderEmail = { from: string; subject: string; date: string; body: string; links: string[] };
-async function gatherSenderEmails(sender: string, days: number, push: (m: string) => void): Promise<SenderEmail[]> {
-  const want = sender.toLowerCase();
-  const out: SenderEmail[] = [];
-  const seen = new Set<string>();
-  const add = (from: string, subject: string, date: string, body: string, links: string[] = []) => {
-    const key = `${subject}|${date}`.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push({ from, subject, date, body, links });
-  };
-  // IMAP mailbox — read recent (not just unread) so we don't miss stories the
-  // operator already opened. bodyChars>240 pulls the FULL body + extracted story
-  // links so we can summarise the actual story, not a 240-char preview (the old
-  // truncation is why drafts drifted onto Aiia's own events instead of the story).
-  try {
-    const prim = findPrimitive("inbox.read_unread");
-    if (prim) {
-      const r: any = await prim.handler({ limit: 50, unreadOnly: false, bodyChars: 9000 });
-      for (const m of (r?.messages ?? [])) {
-        if (String(m.from ?? "").toLowerCase().includes(want)) add(m.from ?? "", m.subject ?? "", m.date ?? "", m.body || m.preview || "", Array.isArray(m.links) ? m.links : []);
-      }
-    }
-  } catch (e: any) { push(`IMAP read skipped (non-fatal): ${String(e?.message ?? e).slice(0, 80)}`); }
-  // Gmail connection — server-side sender+recency filter via search query.
-  try {
-    const prim = findPrimitive("integration.gmail.read");
-    if (prim) {
-      const r: any = await prim.handler({ query: `from:${sender} newer_than:${Math.max(1, days)}d`, maxResults: 25 });
-      for (const m of (r?.messages ?? [])) {
-        const snip = String(m.snippet ?? "");
-        add(m.from ?? "", m.subject ?? "", m.date ?? "", snip, (snip.match(/https?:\/\/[^\s)>\]]+/g) ?? []).map((u: string) => u.replace(/[.,]$/, "")));
-      }
-    }
-  } catch { /* no gmail connection — fine, IMAP is the primary path */ }
-  // Recency filter (best-effort — some providers give unparseable dates; keep those).
-  const cutoff = Date.now() - Math.max(1, days) * 86400_000;
-  const recent = out.filter(m => { const t = Date.parse(m.date); return Number.isNaN(t) ? true : t >= cutoff; });
-  return recent
-    .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))
-    .slice(0, 20);
-}
 
 // Strip hashtags, links and surrounding quotes → a clean spoken script for the
 // avatar video. Keeps the sentences, drops the social furniture.
@@ -1084,97 +969,6 @@ function toVideoScript(postText: string): string {
 }
 
 type StorySource = { title: string; url?: string; text: string; links?: string[]; score?: number; reason?: string; publishedAt?: string };
-
-// Draft ONE polished post + AIIA-values video script from a NUMBERED list of
-// real stories (emails carry the full body + a pool of real links). The model
-// PICKS a story, summarises ONLY that story (~10 lines), and names WHICH real
-// link (by number) belongs to it — we then validate that link against the
-// source's real link pool, so a hallucinated URL is impossible and the summary
-// is grounded in the source, never in Aiia's own background events.
-async function draftSocialPost(system: string, o: {
-  strategy: string | null; targetsLabel: string; slot: string;
-  sources: StorySource[]; recentBlock: string; allowNoFresh: boolean;
-  // Brand-parameterized — defaults preserve AIIA's exact original wording so
-  // any caller that hasn't migrated to pass these still behaves identically.
-  brandName?: string; brandMission?: string; whyHeader?: string;
-}): Promise<{ postText: string; videoScript: string; story: string; nofresh: boolean; error?: string }> {
-  const brandName = o.brandName ?? "Aiia";
-  const brandMission = o.brandMission ?? `${brandName}'s mission of "AI for a better Africa"`;
-  const whyHeader = o.whyHeader ?? "Why it impacts Africa";
-  if (!o.sources.length) return { postText: "", videoScript: "", story: "", nofresh: true };
-  // Build a flat, numbered pool of the real links available across all sources,
-  // so the model can reference a link by index and we resolve the real URL.
-  const linkPool: string[] = [];
-  const numbered = o.sources.map((s, i) => {
-    const srcLinks = Array.from(new Set([...(s.links ?? []), ...(s.url ? [s.url] : [])]));
-    const linkLines = srcLinks.map(u => { linkPool.push(u); return `   L${linkPool.length}: ${u}`; }).join("\n");
-    return `[${i + 1}] ${s.title}\n${s.text.replace(/\s+/g, " ").slice(0, 1400)}${linkLines ? `\n  links:\n${linkLines}` : "\n  (no link)"}`;
-  }).join("\n\n---\n\n");
-  const prompt =
-    `You are drafting ONE social post from the NUMBERED sources below${o.slot ? ` (the ${o.slot} post)` : ""}, for ${o.targetsLabel}, plus an avatar-video script.\n\n` +
-    `STEP 1 — pick the SINGLE most newsworthy, shareable STORY that appears in the sources (a newsletter/briefing source may contain several stories — pick the best ONE inside it).\n` +
-    `STEP 2 — summarise THAT story in about 10 lines using ONLY facts from the source text.\n\n` +
-    `HARD RULES:\n` +
-    `- Summarise ONLY the chosen story. Do NOT write about ${brandName}'s own events, summits, or programmes from background knowledge — ${brandName} appears ONLY in the "${whyHeader}" section as commentary.\n` +
-    `- Never invent facts, names, statistics, or URLs. The link MUST be one of the numbered links (Ln) listed under the source; give its number, not a URL you typed.\n\n` +
-    `Output EXACTLY these lines, in order, as PLAIN TEXT (no markdown, no angle brackets, do not echo these instructions or label words):\n` +
-    `PICK: <source number>\n` +
-    `LINKREF: <the Ln number of the story's link, or "none" if the source has no link>\n` +
-    `CAPTION: <one engaging line, max ~120 chars, hooking the story itself — no "Incredible!/must-read" hype>\n` +
-    `SUMMARY: <about 10 lines summarising the chosen story's substance — what happened, who, the details, the implication. ${brandName}'s brand VOICE, but factual and about the STORY, not about ${brandName}.>\n` +
-    `WHY_IT_MATTERS: <2-4 sentences: why this story matters and how it connects to ${brandMission} — THIS is the only place ${brandName} is mentioned.>\n` +
-    `HASHTAGS: <3-5 ${brandName} hashtags on one line, space-separated>\n` +
-    `VIDEO_SCRIPT: <20-35s of spoken narration that NARRATES THE SAME SUMMARY, first person "At ${brandName}…", in ${brandName}'s voice. No URLs, no hashtags, no stage directions.>\n\n` +
-    (o.allowNoFresh
-      ? `Prefer a story NOT in the ALREADY POSTED list. If all are already posted, still PICK the best unused one. Reply exactly "NOFRESH" ONLY if the sources contain no usable story at all.\n\n`
-      : `You MUST pick a story — do NOT reply "NOFRESH".\n\n`) +
-    (o.strategy ? `POSTING STRATEGY (learned from past performance — follow it):\n${o.strategy.slice(0, 1500)}\n\n` : "") +
-    o.recentBlock +
-    `\n\nSOURCES:\n\n${numbered}`;
-  let raw = "";
-  try { raw = (await llmGenerate(prompt, system, { maxTokens: 1100 })).trim(); }
-  catch (e: any) { return { postText: "", videoScript: "", story: "", nofresh: false, error: String(e?.message ?? e).slice(0, 160) }; }
-  if (/^\s*NOFRESH\b/i.test(raw)) return { postText: "", videoScript: "", story: "", nofresh: true };
-
-  const LABELS = "PICK|LINKREF|CAPTION|SUMMARY|WHY[_ ]?(?:IT[_ ]?MATTERS|AFRICA)|HASHTAGS?|VIDEO[_ ]?SCRIPT|STORY|LINK";
-  const grab = (label: string) => {
-    // Tolerate the model writing "WHY AFRICA"/"VIDEO SCRIPT" (space) where we
-    // asked for underscores — otherwise that section silently drops out.
-    const flexLabel = label.replace(/_/g, "[_ ]?");
-    const m = raw.match(new RegExp(`^[\\s>*#-]*${flexLabel}\\s*:?\\s*([\\s\\S]*?)(?=\\n[\\s>*#-]*(?:${LABELS})\\s*:|$)`, "im"));
-    return (m?.[1] ?? "")
-      .replace(/```[a-z]*\n?/gi, "").replace(/\*\*/g, "").replace(/<\/?[^>]+>/g, "")
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$2")
-      .trim().replace(/^["']|["']$/g, "").trim();
-  };
-  const pickN = parseInt((grab("PICK").match(/\d+/) ?? ["1"])[0], 10);
-  const chosen = o.sources[Math.min(Math.max(1, pickN), o.sources.length) - 1] ?? o.sources[0];
-  // Resolve the link: the model gives an Ln index into the real link pool -> we
-  // use the actual URL. Fall back to the chosen source's own url. Never a typed URL.
-  const linkRef = parseInt((grab("LINKREF").match(/\d+/) ?? [""])[0], 10);
-  const chosenLink = (Number.isInteger(linkRef) && linkPool[linkRef - 1]) ? linkPool[linkRef - 1] : (chosen.url ?? "");
-  const demeta = (s: string) => s.replace(new RegExp(`^\\s*(${brandName}'?s?\\s+)?(angle|caption|summary|hook|story)\\s*(on|:|-)?\\s*`, "i"), "").trim();
-  const caption = demeta(grab("CAPTION").split("\n")[0]).replace(/^["']|["']$/g, "").trim();
-  const summary = grab("SUMMARY").replace(/\n{3,}/g, "\n\n").trim();
-  // WHY_IT_MATTERS is the current label; WHY_AFRICA tolerated for a model that
-  // drifts back to the older wording (both are matched by LABELS above).
-  const whyItMatters = (grab("WHY_IT_MATTERS") || grab("WHY_AFRICA")).replace(/\n{2,}/g, " ").trim();
-  let hashtags = grab("HASHTAGS").split("\n")[0].replace(/[,;]/g, " ").replace(/\s+/g, " ").trim();
-  if (hashtags && !/#/.test(hashtags)) hashtags = hashtags.split(/\s+/).filter(Boolean).map(h => `#${h.replace(/^#/, "")}`).join(" ");
-  const videoScript = grab("VIDEO_SCRIPT").replace(/https?:\/\/\S+/g, "").replace(/#[\w-]+/g, "").trim();
-  if (!caption && !summary) return { postText: "", videoScript: "", story: "", nofresh: false, error: "unparseable draft" };
-  // Assemble: caption -> ~10-line summary -> real link -> the brand-mission
-  // section (whyHeader) -> hashtags. The video narrates the same summary.
-  const postText = [
-    caption,
-    summary,
-    chosenLink || "",
-    whyItMatters ? `${whyHeader}\n${whyItMatters}` : "",
-    hashtags,
-  ].filter(Boolean).join("\n\n").trim();
-  const story = `${chosen.title}${chosenLink ? ` — ${chosenLink}` : ""}`.replace(/\s+/g, " ").slice(0, 220);
-  return { postText, videoScript, story, nofresh: false };
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // News scraping config — QUALITY-FIRST pipeline for daily AI/Tech news
@@ -1706,229 +1500,6 @@ async function worldAiNewsRunner(inputs: Record<string, unknown>, push: (m: stri
   const sent = await tg.handler({ text: card.postText, chatId });
   push(sent?.ok ? `Posted World BREAKING NEWS to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
   return { kind: "world-ai-news", posted: !!sent?.ok, chatId, answer: card.postText, story: card.story, videoScript: card.videoScript, topScore, threshold, error: sent?.ok ? undefined : sent?.error };
-}
-
-async function bufferStoryPostRunner(inputs: Record<string, unknown>, push: (m: string) => void, _progress?: (p: Record<string, unknown>) => void) {
-  const sender = String(inputs.sender ?? "").trim();
-  const days = Number(inputs.days ?? 3);
-  const channels = String(inputs.channels ?? "").trim(); // csv services/ids; blank = all
-  const autoQueue = inputs.autoQueue === true; // default false → save as Buffer DRAFT for review
-  const reviewTelegram = inputs.reviewTelegram !== false; // default true → post to the Telegram group
-  const reviewEmail = String(inputs.reviewEmail ?? "").trim();
-  const slot = String(inputs.slot ?? "").trim(); // "morning" | "midday" | "evening" — for 3×/day variety
-  const stamp = new Date().toISOString().slice(0, 16).replace(":", "");
-
-  // Brand scoping — default "work" (AIIA) since that's the brand with existing
-  // schedules/history. brandDir is the isolation boundary: drafts, dedupe
-  // history, and the strategy note all live under a brand-specific subfolder
-  // of SOCIAL_DIR so one brand's content/history can never leak into another's.
-  const brandId = String(inputs.brandId ?? "work").trim() || "work";
-  const brandRecord = getBrand(brandId);
-  // Sanitized for the path, not the lookup above — brandId can be free-typed
-  // (a Schedule's stored inputs), so it must never be trusted as a raw path
-  // segment (no "../" traversal out of _naxion/social/).
-  const brandDir = `${SOCIAL_DIR}/${slugBrandId(brandId)}`;
-  const connectionLabel = channelFor(brandRecord, "buffer")?.connectionLabel;
-
-  push(`Scanning email from ${sender} (last ${days}d) for stories to post${slot ? ` (${slot} slot)` : ""}.`);
-  const emails = await gatherSenderEmails(sender, days, push);
-  if (emails.length) push(`Found ${emails.length} message${emails.length === 1 ? "" : "s"} from ${sender} — picking the strongest story.`);
-  else push(`No emails from ${sender} in the last ${days} days — will fall back to story leads + web search.`);
-
-  // Dedup: this schedule runs 3×/day, so read the recent draft journals and tell
-  // the model NOT to repeat a story already turned into a post. Without this the
-  // "strongest story" would win every slot and we'd post the same thing thrice.
-  // ignoreRecent bypasses this (manual "post anyway" / testing).
-  let recentBlock = "";
-  if (inputs.ignoreRecent !== true) try {
-    const recent = gatherRecentNotesUnder([`${brandDir}/drafts`], Date.now() - 3 * 86400_000, 12);
-    const priorPosts = recent
-      .map(n => { const m = n.text.match(/##\s*Post\s*\n+([\s\S]*?)\n+##/i); return (m?.[1] ?? "").trim().replace(/\s+/g, " ").slice(0, 160); })
-      .filter(Boolean);
-    if (priorPosts.length) recentBlock = `\n\nALREADY POSTED in the last 3 days — do NOT repeat any of these stories; choose a DIFFERENT one:\n` + priorPosts.map((p, i) => `${i + 1}. ${p}`).join("\n");
-  } catch { /* non-fatal */ }
-
-  const strategy = readVaultText(`${brandDir}/strategy.md`);
-  const brandContext = await gatherBrandContext(push, brandId);
-  const targetsLabel = channels || "all connected channels (twitter, linkedin, tiktok)";
-  const isAiia = brandId === "work";
-  const brandName = brandRecord && !isAiia ? brandRecord.name : "Aiia";
-  // AIIA keeps its exact original framing verbatim; any other brand gets a
-  // generic mission line built from its own audience/values instead of the
-  // hardcoded "AI for a better Africa" — that framing belongs to AIIA only
-  // (see the cross-brand-isolation skill).
-  const brandMission = isAiia
-    ? `Aiia's mission of "AI for a better Africa"`
-    : `${brandName}'s mission${brandRecord?.audience ? ` of serving ${brandRecord.audience}` : ""}`;
-  const whyHeader = isAiia ? "Why it impacts Africa" : "Why it matters";
-  const editorIntro = brandRecord && !isAiia
-    ? `You are the social-media editor for ${brandRecord.name}${brandRecord.tagline ? ` (${brandRecord.tagline})` : ""}.`
-    : "You are the social-media editor for Aiia — Artificial Intelligence Institute Africa, an NGO whose vision is \"AI for a better Africa\".";
-  const system =
-    `${editorIntro} You turn source material into ONE accurate, platform-native social post PLUS a short avatar-video script. You summarise the actual substance of a story (what happened, who, why it matters) — never clickbait, never hype, never invented facts. Warm, credible, grounded; British English.\n\n` +
-    buildBrandValues(brandRecord) + brandContext;
-
-  // Draft source priority: (1) a fresh email story; (2) any unused email story;
-  // (3) innovation-scan leads + a live web sweep — so there is ALWAYS a story.
-  let d: { postText: string; videoScript: string; story: string; nofresh: boolean; error?: string } | null = null;
-  let sourceUsed = sender;
-  if (emails.length) {
-    const emailSources: StorySource[] = emails.map(e => ({
-      title: e.subject || "(no subject)",
-      text: e.body,
-      links: e.links ?? [],
-    }));
-    push("Drafting the post + video script from email.");
-    d = await draftSocialPost(system, { strategy, targetsLabel, slot, sources: emailSources, recentBlock, allowNoFresh: true, brandName, brandMission, whyHeader });
-  }
-  if (!d || d.nofresh || !d.postText) {
-    push("No fresh email story — pulling web search + innovation-scan leads as fallback.");
-    const fb = await gatherFallbackStories(push);
-    if (fb.length) {
-      sourceUsed = "web + innovation leads";
-      push("Drafting the post + video script from fallback stories.");
-      d = await draftSocialPost(system, { strategy, targetsLabel, slot, sources: fb, recentBlock, allowNoFresh: false, brandName, brandMission, whyHeader });
-    }
-  }
-  if (!d || !d.postText) {
-    const msg = d?.error ? `Drafting failed: ${d.error}` : `No story to post — ${sender} had nothing fresh and the fallback (innovation leads + web search) returned nothing.`;
-    push(msg); return { answer: msg, drafted: false, source: sender };
-  }
-  const { postText, story } = d;
-
-  // Put it on Buffer. Default = DRAFT (human reviews & schedules inside Buffer);
-  // autoQueue opt-in adds it to Buffer's auto-queue (which WILL publish at the
-  // channel's next slot — outward-facing, so it's off by default). Nothing goes
-  // live here regardless — the review below is the human gate before posting.
-  push(autoQueue ? "Adding to the Buffer queue." : "Saving as a Buffer draft for review.");
-  const bufferPrim = findPrimitive("buffer.post");
-  let buffer: any = { error: "buffer.post primitive missing" };
-  if (bufferPrim) buffer = await bufferPrim.handler({
-    text: postText,
-    ...(channels ? { channels } : {}), // blank = ALL connected channels (same post everywhere)
-    ...(connectionLabel ? { connectionLabel } : {}), // brand-scoped Buffer connection, when the brand has one bound
-    draft: !autoQueue,
-  });
-  const posted = (buffer?.posted ?? []) as any[];
-
-  // ── Review gate: Telegram group + email BEFORE anything is published ──
-  const dispositionShort = autoQueue ? "queued on Buffer" : "saved as a Buffer draft";
-  const reviewText =
-    `📝 New social post for review (${dispositionShort} — NOT yet published)\n\n` +
-    `${postText}\n\n` +
-    `Source: ${sourceUsed}\n` +
-    (story ? `Story: ${story.replace(/\s+/g, " ").slice(0, 200)}\n` : "") +
-    (posted.length ? `Channels drafted: ${posted.map(p => p.service).join(", ")}\n` : "") +
-    (buffer?.errors ? `⚠️ ${buffer.errors.map((e: any) => `${e.service}: ${e.error}`).join(" | ")}\n` : "") +
-    `\nReview in Buffer, then publish/schedule it there. Reply here with changes.`;
-
-  const review: { telegram?: any; email?: any } = {};
-  if (reviewTelegram) {
-    try {
-      const tg = findPrimitive("telegram.send");
-      const reviewChatId = (process.env.NAXION_TELEGRAM_GROUP_CHAT ?? "").trim() || undefined;
-      if (tg) { review.telegram = await tg.handler({ text: reviewText, ...(reviewChatId ? { chatId: reviewChatId } : {}) }); push(review.telegram?.ok ? "Sent the post to the Telegram group for review." : `Telegram review skipped: ${review.telegram?.error ?? "unknown"}`); }
-    } catch (e: any) { review.telegram = { error: String(e?.message ?? e).slice(0, 120) }; push(`Telegram review failed: ${review.telegram.error}`); }
-  }
-  if (reviewEmail) {
-    try {
-      const em = findPrimitive("email.send");
-      if (em) {
-        const body = `A new social post was drafted from **${sourceUsed}** and ${dispositionShort} (nothing is published yet).\n\n---\n\n${postText}\n\n${story ? `_Story: ${story}_\n\n` : ""}Review and schedule it in Buffer — nothing goes live until you do.`;
-        review.email = await em.handler({ to: reviewEmail, subject: `Social post for review — ${stamp}`, body });
-        push(review.email?.ok ? `Emailed the post to ${reviewEmail} for review.` : `Email review skipped: ${review.email?.error ?? "unknown"}`);
-      }
-    } catch (e: any) { review.email = { error: String(e?.message ?? e).slice(0, 120) }; push(`Email review failed: ${review.email.error}`); }
-  }
-
-  // Journal the draft so the optimiser can see what we produced + the Buffer ids.
-  const journal =
-    `---\ntype: social-draft\ngenerated: ${new Date().toISOString()}\nsource: ${sourceUsed}\ndisposition: ${buffer?.scheduled ?? "unknown"}\nchannels: ${(posted.map(p => p.service).join(", ")) || targetsLabel}\nbufferPostIds: ${posted.map(p => p.postId).filter(Boolean).join(", ")}\n---\n\n` +
-    `# Social draft — ${stamp}\n\n## Post\n\n${postText}\n\n## Story chosen\n\n${story || "(not stated)"}\n\n## Buffer result\n\n\`\`\`json\n${JSON.stringify(buffer, null, 2)}\n\`\`\`\n\n## Review\n\ntelegram: ${review.telegram?.ok ? "sent" : (review.telegram?.error ?? "skipped")} · email: ${review.email?.ok ? `sent → ${reviewEmail}` : (review.email?.error ?? "skipped")}\n`;
-  try { writeVaultFile(`${brandDir}/drafts/${stamp}.md`, journal); } catch (e: any) { push(`Draft journal write skipped: ${String(e?.message ?? e).slice(0, 80)}`); }
-
-  const okCount = posted.length;
-  const disposition = autoQueue ? "added to the Buffer queue" : "saved as a Buffer draft (review & schedule it in Buffer)";
-  const answer =
-    `Drafted a post from ${sourceUsed} and sent it to ${[reviewTelegram && review.telegram?.ok ? "the Telegram group" : null, reviewEmail && review.email?.ok ? reviewEmail : null].filter(Boolean).join(" + ") || "no review channel"} for review. ${okCount ? `Also ${disposition} on ${okCount} channel${okCount === 1 ? "" : "s"}` : "Buffer draft hit an error"} — nothing is published yet.\n\n` +
-    `**Post**\n\n${postText}\n\n` +
-    (story ? `_Story: ${story}_\n\n` : "") +
-    (buffer?.errors ? `⚠️ Buffer errors: ${JSON.stringify(buffer.errors)}\n\n` : "") +
-    `Review in Buffer, then publish/schedule it there.`;
-  return { answer, drafted: okCount > 0, postText, story, buffer, review, source: sourceUsed };
-}
-
-async function socialOptimizeRunner(inputs: Record<string, unknown>, push: (m: string) => void, _progress?: (p: Record<string, unknown>) => void) {
-  const days = Number(inputs.days ?? 30);
-  const brandId = String(inputs.brandId ?? "work").trim() || "work";
-  const brandRecord = getBrand(brandId);
-  const brandDir = `${SOCIAL_DIR}/${slugBrandId(brandId)}`;
-  const strategyPath = `${brandDir}/strategy.md`;
-  const connectionLabel = channelFor(brandRecord, "buffer")?.connectionLabel;
-  push(`Reviewing ${brandRecord?.name ?? brandId} social performance over the last ${days} days.`);
-
-  // Real post record (Buffer posts:read).
-  let posts: any[] = []; let byStatus: Record<string, number> = {};
-  try {
-    const prim = findPrimitive("buffer.history");
-    if (prim) { const r: any = await prim.handler({ limit: 100, ...(connectionLabel ? { connectionLabel } : {}) }); posts = r?.posts ?? []; byStatus = r?.byStatus ?? {}; }
-  } catch (e: any) { push(`Buffer history read failed: ${String(e?.message ?? e).slice(0, 100)}`); }
-
-  // Engagement (Buffer insights:read — may be scope-gated).
-  let analytics: any = null;
-  try {
-    const prim = findPrimitive("buffer.analytics");
-    if (prim) analytics = await prim.handler({ days, ...(connectionLabel ? { connectionLabel } : {}) });
-  } catch (e: any) { push(`Buffer analytics read failed: ${String(e?.message ?? e).slice(0, 100)}`); }
-  const engagementAvailable = analytics && analytics.ok === true;
-  if (!engagementAvailable && analytics?.needsScope) {
-    push(`Engagement metrics need the '${analytics.needsScope}' Buffer scope — optimising on the post record + cadence instead.`);
-  }
-
-  const strategy = readVaultText(strategyPath) ?? "(no strategy note yet — this run creates the first one.)";
-  const sentOrScheduled = posts.filter(p => p.status === "sent" || p.status === "scheduled");
-  const channelMix = sentOrScheduled.reduce((acc: Record<string, number>, p) => { acc[p.service] = (acc[p.service] ?? 0) + 1; return acc; }, {});
-  const recentTexts = sentOrScheduled.slice(0, 20).map((p: any) => `- [${p.status}·${p.service}] ${(p.text ?? "").slice(0, 140)}`).join("\n");
-
-  const evidence =
-    `POST RECORD (last ${posts.length} posts on Buffer):\n` +
-    `- status breakdown: ${JSON.stringify(byStatus)}\n` +
-    `- channel mix (sent+scheduled): ${JSON.stringify(channelMix)}\n` +
-    `- recent post texts:\n${recentTexts || "(none)"}\n\n` +
-    `ENGAGEMENT: ${engagementAvailable
-      ? JSON.stringify(analytics.metrics)
-      : `NOT AVAILABLE — Buffer '${analytics?.needsScope ?? "insights:read"}' scope not granted on the connected token. Optimise on structure/cadence/mix, and recommend reconnecting Buffer with Analytics access to unlock engagement-based tuning.`}\n\n` +
-    `CURRENT STRATEGY NOTE:\n${strategy.slice(0, 3000)}`;
-
-  const system =
-    `You are a social-media strategist for ${brandRecord?.name ?? "AI Institute Africa"}. You turn a post record (and engagement when available) into a concrete, actionable posting strategy that another agent will follow verbatim when drafting posts. Be specific and directive, not generic. No fluff.`;
-  const prompt =
-    `Using the evidence below, REWRITE our posting strategy note. Output a clean markdown document with these sections:\n` +
-    `## Summary — 2-3 sentences: the single biggest adjustment to make now.\n` +
-    `## What's working / what's not — grounded in the post record (and engagement if present). If engagement is unavailable, say so plainly in one line and proceed on structural signals.\n` +
-    `## Drafting guidance — concrete rules the drafter must follow next: topics to lean into, tone, format, hook style, hashtag policy, length per platform.\n` +
-    `## Cadence & timing — how often and roughly when to post per channel.\n` +
-    `## Channel mix — how to rebalance across ${Object.keys(channelMix).join(", ") || "twitter, linkedin, tiktok"}.\n` +
-    `## Experiments to run — 2-3 concrete A/B ideas for next period.\n` +
-    (engagementAvailable ? "" : `## Unlock engagement metrics — one line: reconnect Buffer granting the insights:read scope so future runs tune on real impressions/likes/shares.\n`) +
-    `\nDirective and specific. This note is READ AND OBEYED by the drafting agent, so write it as instructions, not analysis.\n\nEVIDENCE:\n\n${evidence}`;
-
-  push("Synthesising the updated strategy.");
-  let strategyDoc = "";
-  try { strategyDoc = (await llmGenerate(prompt, system, { maxTokens: 1400 })).trim(); }
-  catch (e: any) { const msg = `Strategy synthesis failed: ${String(e?.message ?? e).slice(0, 160)}`; push(msg); return { answer: msg, updated: false }; }
-  if (!strategyDoc) { const msg = "Strategy synthesis returned empty — keeping the previous note."; push(msg); return { answer: msg, updated: false }; }
-
-  const doc = `---\ntype: social-strategy\nupdated: ${new Date().toISOString()}\nwindowDays: ${days}\npostsReviewed: ${posts.length}\nengagementAvailable: ${engagementAvailable}\n---\n\n# Social posting strategy\n\n${strategyDoc}\n`;
-  try {
-    writeVaultFile(strategyPath, doc);
-    push(`Updated the posting strategy note (${strategyPath}).`);
-    try { await commitAndPush("naxie: update social posting strategy"); } catch { /* non-fatal */ }
-  } catch (e: any) { push(`Strategy write failed: ${String(e?.message ?? e).slice(0, 120)}`); }
-
-  const answer =
-    `Reviewed ${posts.length} Buffer post${posts.length === 1 ? "" : "s"} (${JSON.stringify(byStatus)}) and ${engagementAvailable ? "their engagement metrics" : "their record (engagement not yet available — Buffer insights:read scope needed)"}, then updated the posting strategy the drafter follows.\n\n${strategyDoc}`;
-  return { answer, updated: true, postsReviewed: posts.length, engagementAvailable };
 }
 
 // Thin wrapper so brand-signal scanning (lib/brand-signals.ts) is reachable

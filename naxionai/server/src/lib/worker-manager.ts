@@ -157,7 +157,7 @@ export async function ensureWorker(opts: { waitForReady?: boolean } = {}): Promi
 // model in the same instant and spike the box. Best-effort: a worker that fails
 // to come up is logged and skipped; the ones that did start still serve.
 // Count managed workers whose HTTP port is actually SERVING right now — the
-// honest "reachable neuro" number. managedWorkerCount() counts live child
+// honest "reachable agent" number. managedWorkerCount() counts live child
 // processes, but a child can be up while its port isn't accepting yet (still
 // warming its model) or has silently wedged. The pool target must be measured
 // against reachability, not process liveness, or a flaky worker leaves the

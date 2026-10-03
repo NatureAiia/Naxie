@@ -82,7 +82,7 @@ flowchart TB
   TV --- VAULTFS
   RA --- DU
 
-  TC -->|Bearer, read-only, SSRF-guarded| Aiia["Aiia finance system"]:::ext
+  TC -->|Bearer, read-only, SSRF-guarded| FIN["Finance system"]:::ext
   TP -->|REST + signed webhook| STRIPE["Stripe"]:::ext
   TI --> SAAS["Slack · Notion · Jira · …"]:::ext
   EMAIL["Mailjet API / IMAP+SMTP"]:::ext --- RG

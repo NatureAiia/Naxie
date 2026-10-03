@@ -83,7 +83,7 @@ const openrouterLargeModel = pick("OPENROUTER_LARGE_MODEL", "openai/gpt-4o");
 const openrouterProfiles = pick("OPENROUTER_PROFILES", "")
   .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 // HTTP-Referer / X-Title — OpenRouter wants these to identify the calling app.
-// Defaults reflect a local NeuroWorks instance.
+// Defaults reflect a local Naxie instance.
 const openrouterAppUrl = pick("OPENROUTER_APP_URL", "https://naxie.local");
 const openrouterAppName = pick("OPENROUTER_APP_NAME", "Naxie");
 
@@ -308,7 +308,7 @@ export const config = {
 };
 
 if (missing.length > 0) {
-  console.warn(`\n⚠  NeuroWorks server starting with degraded mode — missing: ${missing.join(", ")}`);
+    console.warn(`\n⚠  Naxie server starting with degraded mode — missing: ${missing.join(", ")}`);
   console.warn(`   Copy .env.example -> .env and fill in to unlock GitHub/vault features.\n`);
 }
 
@@ -360,7 +360,7 @@ export function validateConfig(): void {
   for (const w of warn) console.warn(`⚠  [config] ${w}`);
 
   if (fatal.length > 0) {
-    console.error(`\n✖  NeuroWorks refused to start — fatal configuration ${fatal.length === 1 ? "error" : "errors"}:`);
+      console.error(`\n✖  Naxie refused to start — fatal configuration ${fatal.length === 1 ? "error" : "errors"}:`);
     for (const f of fatal) console.error(`   • ${f}`);
     console.error(`\n   (strict validation is ${strictEnv ? "ON" : "OFF"}; set NAXION_STRICT_ENV=0 to downgrade to warnings for local dev.)\n`);
     process.exit(1);

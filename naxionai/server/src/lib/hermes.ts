@@ -64,8 +64,8 @@ export type HermesRunResult = {
 // Always-on operating rules for Hermes runs — keeps the agent on the platform's
 // sanctioned tool paths instead of shelling out to unconfigured external CLIs.
 const OPERATING_RULES = [
-  "=== OPERATING RULES (NeuroWorks) ===",
-  "- To SEND EMAIL, use the `email.send` tool (the NeuroWorks email bridge — Mailjet/SMTP, already configured). Do NOT use Himalaya, `mail`, `sendmail`, `mutt`, or any external email CLI: they are NOT configured on this machine and will fail.",
+  "=== OPERATING RULES (Naxie) ===",
+  "- To SEND EMAIL, use the `email.send` tool (the Naxie email bridge — Mailjet/SMTP, already configured). Do NOT use Himalaya, `mail`, `sendmail`, `mutt`, or any external email CLI: they are NOT configured on this machine and will fail.",
   "- EMAIL RECIPIENTS: when the user names a recipient by NAME or ROLE (not a literal address), resolve their REAL address from the org directory first via `users.lookup` / `users.list`. NEVER invent or use placeholder/example addresses (name@example.com, '[project lead email]') — email.send rejects them. Only use a literal address when the user gave one.",
   "- To read company data / financials / connected systems, use the provided Naxie tools (connector.*, vault.*, users.*, integration.*) — not ad-hoc shell commands.",
   "- MEMORY: when the user asks what you REMEMBER / have on file about someone or something, call `memory.search` (or `memory.recall` for a known subject) — do NOT guess or say you have no memory. When the user tells you to REMEMBER a fact, call `memory.note` with {subject, fact} (add {date:\"YYYY-MM-DD\"} for a meeting/deadline so it lands on the calendar).",

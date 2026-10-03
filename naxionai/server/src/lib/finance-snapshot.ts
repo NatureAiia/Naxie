@@ -1,9 +1,9 @@
 // Finance snapshot store — the ingest side of the company Finance System link.
 //
-// The external Finance System PUSHES its dashboard figures to NeuroWorks
+// The external Finance System PUSHES its dashboard figures to Naxie
 // (POST /api/public/dashboard or its /sync alias); we normalise them to a
-// stable 5-field shape and persist the latest snapshot. Aria (the Aiia Finance
-// Officer persona) and the "Aiia Finance" connector then READ this snapshot
+// stable 5-field shape and persist the latest snapshot. A finance connector
+// then READs this snapshot
 // (GET /api/public/dashboard) instead of reaching out to a live host — so the
 // figures are always the real numbers the Finance System last sent, and there
 // is no unreachable-host failure.

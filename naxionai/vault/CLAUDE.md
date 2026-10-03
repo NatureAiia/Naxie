@@ -2,17 +2,17 @@
 
 This vault is my **second brain**. It runs two coexisting layers:
 
-1. **Operational-state layer** — what's actually maintained day to day: `_progress/` (dated engineering/session logs, one file per day of real work) and `_neuroworks/reflections/` (automated nightly reflection on agent activity). This replaced an earlier hand-maintained `active-context.md`/`decisions.md`/`progress.md`/`_tasks/*` protocol that was retired 2026-07-10 after being found frozen since 2026-04-25 — it was never actually wired into clawbot's autonomous agent loop, so it just stopped updating while the vault kept evolving. Don't recreate those files; use `_progress/` instead.
+1. **Operational-state layer** — what's actually maintained day to day: `_progress/` (dated engineering/session logs, one file per day of real work) and `_naxion/reflections/` (automated nightly reflection on agent activity). This replaced an earlier hand-maintained `active-context.md`/`decisions.md`/`progress.md`/`_tasks/*` protocol that was retired 2026-07-10 after being found frozen since 2026-04-25 — it was never actually wired into Naxie's autonomous agent loop, so it just stopped updating while the vault kept evolving. Don't recreate those files; use `_progress/` instead.
 2. **Zettelkasten layer** — atomic, durable knowledge notes with stable IDs and dense linking. The actual "thinking" lives here.
 
-The clawbot also writes into `_clawbot/` from the cloud — treat those as raw input, not finished knowledge.
+The Naxie also writes into `_naxie/` from the cloud — treat those as raw input, not finished knowledge.
 
 ## Session protocol
 
 ### On session START
 1. Read `CLAUDE.md` (this file).
 2. Skim the most recent file in `_progress/` for current state.
-3. Skim `_clawbot/latest.md` if it exists — fresh cloud info.
+3. Skim `_naxie/latest.md` if it exists — fresh cloud info.
 4. Silently load this. Do not summarize back unless asked.
 
 ### During the session
@@ -54,6 +54,6 @@ The clawbot also writes into `_clawbot/` from the cloud — treat those as raw i
 
 - Never rewrite a past `_progress/` entry to look like it knew things it didn't — append a new dated entry instead.
 - Always use ISO dates (`YYYY-MM-DD`) in filenames and logs.
-- Never edit anything inside `_clawbot/` by hand — the cloud bot owns it. Promote insights from there into `0-Inbox/` or `2-Permanent/` instead.
+- Never edit anything inside `_naxie/` by hand — the cloud bot owns it. Promote insights from there into `0-Inbox/` or `2-Permanent/` instead.
 - If a folder in this scaffold is missing, create it; don't ask.
 

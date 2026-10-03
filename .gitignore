@@ -54,15 +54,12 @@ logs/
 # ==========================
 # Local app data / vault
 # ==========================
-neuroworks-ts/.neuroworks/
-neuroworks-ts/vault/*
-!neuroworks-ts/vault/README.md
-.neuroworks/
-neuroworks/.neuroworks/
-neuroworks/vault/*
-!neuroworks/vault/README.md
-neuroworks/server/vault/*
-!neuroworks/server/vault/README.md
+.naxion/
+naxionai/.naxion/
+naxionai/vault/*
+!naxionai/vault/README.md
+naxionai/server/vault/*
+!naxionai/server/vault/README.md
 
 # ==========================
 # IDE / OS — relaxed for private repo: editor settings are tracked so every

@@ -4,7 +4,7 @@
 //   POST /api/public/sync        — exact alias of the above (same handler)
 //   GET  /api/public/dashboard   — return the live snapshot with all 5 mapped fields
 //
-// These are the endpoints the company Finance System calls to keep NeuroWorks'
+// These are the endpoints the company Finance System calls to keep Naxie's
 // figures current. They're mounted under /api/public and exempted from the
 // browser origin-guard (server-to-server, no cross-origin browser model) — see
 // origin-guard.ts. Writes are optionally protected by a shared secret:

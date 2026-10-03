@@ -1,4 +1,4 @@
-// Machine identity for external systems that dispatch agents into NeuroWorks.
+// Machine identity for external systems that dispatch agents into Naxie.
 //
 // Human users authenticate with sessions (auth.ts). Integrating SYSTEMS
 // authenticate with API keys: a long random bearer token, stored only as a

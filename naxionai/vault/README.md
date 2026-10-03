@@ -1,1 +1,1 @@
-# Local knowledge vault (empty in the shell). NeuroWorks reads/writes notes here.
+# Local knowledge vault (empty in the shell). Naxie reads/writes notes here.

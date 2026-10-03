@@ -184,7 +184,7 @@ export function getConnectorPublic(idOrLabel: string): ConnectorPublic | undefin
 // Internal — returns the connector with secrets DECRYPTED. Never expose directly.
 // Resolution order: exact id, exact label, then FUZZY — substring either way,
 // then token overlap. Users refer to a connector by a loose name ("finance
-// flow" for "Aiia FinanceFlow") and the strict exact-label match returned
+// flow" for a finance connector) and the strict exact-label match returned
 // "not found" (live 2026-07-13), so the agent reported a non-existent failure.
 function findConnector(idOrLabel: string): Connector | undefined {
   const list = load();

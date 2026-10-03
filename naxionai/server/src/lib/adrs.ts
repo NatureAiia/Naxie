@@ -1,6 +1,6 @@
 // ADRS — AI Data Readiness System pipeline.
 //
-// This is NeuroWorks' main data pipeline. It takes raw records (from a company
+// This is Naxie's main data pipeline. It takes raw records (from a company
 // data source, an upload, a scrape, or inline JSON) and runs them through the
 // ADRS stages, then PUBLISHES a versioned dataset into the vault as three
 // machine-ready artifacts (ML CSV, knowledge-graph JSONL, RAG chunks) plus a

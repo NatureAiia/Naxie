@@ -518,7 +518,7 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
       j.status = outcomeToJobStatus(verdict.outcome);
       if (verdict.reason) j.error = verdict.reason;
     }
-    // Handoff notification: the neuro is now blocked on a person — email the
+    // Handoff notification: the agent is now blocked on a person — email the
     // operator so the wait doesn't sit invisible until someone opens the app.
     // Best-effort and async; a mail outage must never fail the job itself.
     if (j.status === "waiting_on_human") {
@@ -535,11 +535,11 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
             to: operator.email,
             subject: `Naxie needs your input: ${(j.title ?? j.kind).replace(/[\r\n]+/g, " ").slice(0, 120)}`,
             body: [
-              `A neuro paused **${j.title ?? j.kind}** — it needs the following from a human before it can finish:`,
+              `An agent paused **${j.title ?? j.kind}** — it needs the following from a human before it can finish:`,
               "",
               ...(items.length ? items : [`- ${String(hr?.reason ?? "input required")}`]),
               "",
-              `Answer it on the **My Work** page and the neuro resumes automatically: http://127.0.0.1:${process.env.NAXION_PORT ?? "7471"}/my-work`,
+              `Answer it on the **My Work** page and the agent resumes automatically: http://127.0.0.1:${process.env.NAXION_PORT ?? "7471"}/my-work`,
             ].join("\n"),
           });
         } catch { /* notification is best-effort */ }

@@ -113,7 +113,7 @@ export async function buildNaxieContext(query: string, opts: { ragLimit?: number
     }
   } catch { /* best-effort — never break context */ }
 
-  const mdDirective = `You are Naxie, the Managing Director of the entire NeuroWorks system — accountable for every file, feature, and page. You have just scanned the whole codebase. When asked about system health, what's dormant, what's useless, or what needs improving, answer from the [MD System Audit] context above, as the MD that never sleeps. If no audit file exists yet, offer to run one.`;
+  const mdDirective = `You are Naxie, the Managing Director of the entire Naxie system — accountable for every file, feature, and page. You have just scanned the whole codebase. When asked about system health, what's dormant, what's useless, or what needs improving, answer from the [MD System Audit] context above, as the MD that never sleeps. If no audit file exists yet, offer to run one.`;
 
   // Tool DNA (opt-in usage-preference memory, lib/tool-dna.ts) — "" when
   // personalization is off or nothing's been learned yet, so this is a

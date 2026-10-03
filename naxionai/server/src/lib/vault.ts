@@ -684,7 +684,7 @@ function invalidateSearchCache() {
 }
 
 // External-edit detection. The cache is invalidated whenever
-// writeVaultFile runs, which covers every NeuroWorks-side write — but
+// writeVaultFile runs, which covers every Naxie-side write — but
 // the user editing a note directly in Obsidian (or any other tool) is
 // invisible to that path. fs.watch recursively notices those edits and
 // busts the cache so the next searchVault picks up the change.
@@ -889,7 +889,7 @@ export function searchVaultFilenames(query: string, limit = 5, opts?: { excludeA
 // filtering a capped set that happens to be dominated by captures can leave
 // the caller with zero real evidence even though plenty exists just past the
 // cutoff (caught live: a reflection backlog of agent telemetry mentioning
-// "NeuroWorks" on nearly every line crowded the one real product-description
+// "Naxie" on nearly every line crowded the one real product-description
 // note out of the top results research.deep actually reads).
 export function searchVault(query: string, limit = 50, opts?: { excludeAgentCaptures?: boolean }): SearchHit[] {
   assertVaultExists();

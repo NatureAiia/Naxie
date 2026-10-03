@@ -41,7 +41,7 @@ if (!haveVault) {
   console.warn(
     `[grounding] VAULT_PATH ${VAULT ? `"${VAULT}" does not exist` : "is unset"} — ` +
     `skipping vault-grounded assertions. These are the tests that catch the ` +
-    `"I don't have specific knowledge of NeuroWorks" regression.`,
+    `"I don't have specific knowledge of Naxie" regression.`,
   );
 }
 
@@ -131,11 +131,11 @@ describe("grounding corpus", () => {
 describe("deflection detector", () => {
   it("catches the exact reported failure verbatim", () => {
     const reported =
-      "I don't have specific knowledge of \"NeuroWorks\" in this context. Could you " +
-      "clarify whether NeuroWorks refers to a company, a software platform, a research " +
+      "I don't have specific knowledge of \"Naxie\" in this context. Could you " +
+      "clarify whether Naxie refers to a company, a software platform, a research " +
       "initiative, or something else? What context are you asking about (e.g., industry, " +
       "product features, goals)? Would you like me to search your vault or local files " +
-      "for any mention of NeuroWorks?";
+      "for any mention of Naxie?";
     const hits = detectDeflection(reported);
     expect(hits.length).toBeGreaterThan(0);
     // Every distinct tell in that answer should be recognised, not just one.
@@ -148,10 +148,10 @@ describe("deflection detector", () => {
 
   it("does not fire on a legitimately grounded answer", () => {
     const good =
-      "NeuroWorks is RUBIEM's private, local AI-agent platform — \"The AI Workforce\" — " +
-      "powered by clawbot. It runs on your own machine bound to 127.0.0.1 rather than as " +
-      "a cloud SaaS. Employees delegate tasks in natural language and governance " +
-      "(approvals + audit trail) keeps execution safe. [vault:_knowledge/neuroworks-platform.md]";
+      "Naxie is Mark's private, local AI assistant — " +
+      "powered by the NaxionAI engine. It runs on your own machine bound to 127.0.0.1 rather than as " +
+      "a cloud SaaS. You delegate tasks in natural language and governance " +
+      "(approvals + audit trail) keeps execution safe. [vault:_knowledge/naxie-platform.md]";
     expect(detectDeflection(good)).toEqual([]);
   });
 
@@ -374,8 +374,8 @@ describeVault("a whole-question query still retrieves", () => {
     // agent-written telemetry mentioning Naxie on nearly every line) landed
     // in _naxion/reflections/, which isAgentCapture did not recognise. The
     // evidence pool then held no product description and the agent reported that
-    // the vault did not describe NeuroWorks — with a web page about Moveworks in
-    // the same pool.
+    // the vault did not describe Naxie — with a web page about a same-named
+    // product in the same pool.
     const READ_WINDOW = 4;
     const hits = searchVault("What can Naxie do for me day to day?", 20, { excludeAgentCaptures: true })
       .map(h => h.path);

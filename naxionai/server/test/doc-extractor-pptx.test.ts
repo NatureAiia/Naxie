@@ -82,7 +82,7 @@ function makePptx(dir: string, slides: string[], notes: string[] = []): string {
 describe("doc-extractor pptx", () => {
   it("extracts slide text + speaker notes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pptx-"));
-    const p = makePptx(dir, ["Agentic systems overview\nAutomation to agents", "NeuroWorks architecture"], ["Remember the demo"]);
+    const p = makePptx(dir, ["Agentic systems overview\nAutomation to agents", "Naxie architecture"], ["Remember the demo"]);
     const ex = await extractDocText(p);
     expect(ex.kind).toBe("pptx");
     expect(ex.text).toMatch(/Agentic systems overview/);

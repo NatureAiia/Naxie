@@ -93,7 +93,7 @@ values alone.
   Body       Two-day practitioner programme, Harare, March 2026
   CTA        Stand 14
 
-**Brand**       AIIA values + guidelines: <what they require here>
+**Brand**       Work values + guidelines: <what they require here>
 **Avoid**       Stock "robot brain" imagery, cool blue palettes, saviour framing
 **Reference**   <or a plain description>
 

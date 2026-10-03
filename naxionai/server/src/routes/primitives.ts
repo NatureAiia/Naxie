@@ -17,8 +17,8 @@ export const primitivesRouter = Router();
 const DEFAULT_ALLOWLIST = [
   // Vault grounding (read-only)
   "vault.search", "vault.read", "vault.scan_docs", "vault.list", "vault.find_by_tag",
-  // Connectors → company systems incl. Aiia. connector.call still respects each
-  // connector's own writeEnabled gate (Aiia is read-only), so this can't write
+  // Connectors → company systems. connector.call still respects each
+  // connector's own writeEnabled gate (read-only stays read-only), so this can't write
   // unless the operator explicitly enabled writes on that connector.
   "connector.list", "connector.describe", "connector.call",
   // Integrations directory (read-only — never returns secrets)

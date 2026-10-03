@@ -14,7 +14,7 @@ export type JournalEntry = {
 const ROOT = "_naxion";
 
 // Drops a markdown record into the vault under `_naxion/<kind>/...` so every
-// material event from the local NeuroWorks server is searchable from the second
+// material event from the local Naxie server is searchable from the second
 // brain. Commits are best-effort and never throw — a journal failure must not
 // fail the underlying job.
 export async function journal(entry: JournalEntry): Promise<{ path: string } | { skipped: string }> {

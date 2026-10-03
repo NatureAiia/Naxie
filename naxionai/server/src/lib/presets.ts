@@ -1,5 +1,5 @@
 // Role Presets — one-click "hire a worker" bundles, the jarvis `init --preset`
-// idea applied to NeuroWorks. Each preset wires up a complete role in a single
+// idea applied to Naxie. Each preset wires up a complete role in a single
 // action: it activates the matching built-in persona, makes sure that persona's
 // starter templates exist, optionally stands up a recurring schedule (e.g. a
 // morning briefing emailed to the user), and surfaces which integrations + skills

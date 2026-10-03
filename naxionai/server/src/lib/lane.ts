@@ -44,7 +44,7 @@ const ROSTER_BLURB =
   "Sam (Software Engineer), Researcher (Investigative Analyst), " +
   "Sasha (Social Lead — Personal & Variety & Co), Ivy (IT Support Specialist), Cole (Accountant)";
 
-// Resolve a hire suggestion like "Aria (Aiia Finance Officer)" or bare "Aria"
+// Resolve a hire suggestion like "Aria (Finance Officer)" or bare "Aria"
 // back to the actual registered persona (built-in or custom) so a lane-gate
 // hit can AUTO-HANDOFF the task instead of just telling the human to switch
 // and resend. Matches on the name before " (" — every persona in the roster
@@ -211,7 +211,7 @@ export function buildOutOfLaneRefusal(persona: Persona, check: LaneCheck): strin
   if (check.suggestedHire) {
     lines.push(`For this kind of work, hire **${check.suggestedHire}**. Switch to that employee in the dashboard and re-send the task — they'll handle it properly.`);
   } else {
-    lines.push(`Pick the right employee from the NeuroWorks roster and re-send. The full lineup: ${ROSTER_BLURB}.`);
+    lines.push(`Pick the right employee from the Naxie roster and re-send. The full lineup: ${ROSTER_BLURB}.`);
   }
   lines.push("");
   lines.push(`If part of the task IS in ${persona.role} territory, tell me which part and I'll scope it.`);

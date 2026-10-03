@@ -11,7 +11,7 @@ are optional add-ons you can configure later in `.env`.
 - **Ollama** (recommended, for fully-local AI) — https://ollama.com
   After installing: `ollama pull qwen2.5:3b`
 
-> Without Ollama, NeuroWorks still boots; it just can't run the local model
+> Without Ollama, Naxie still boots; it just can't run the local model
 > until you either install Ollama or add a cloud key (e.g. OpenRouter) in `.env`.
 
 ## 1. Get the code
@@ -52,7 +52,7 @@ Then open **http://127.0.0.1:7470** in your browser. The API runs on
 
 ## What works out of the box (free core)
 
-- The full NeuroWorks UI, agents, tasks, skills, and personas
+- The full Naxie UI, agents, tasks, skills, and personas
 - Local model inference via Ollama
 - The local vault browser and dataset publishing
 
@@ -68,9 +68,9 @@ Then open **http://127.0.0.1:7470** in your browser. The API runs on
 
 Every value in `.env.example` is a placeholder — fill in only what you need.
 
-## Let other systems dispatch agents into NeuroWorks
+## Let other systems dispatch agents into Naxie
 
-NeuroWorks can act as an orchestration layer. Mint an API key (Settings, or
+Naxie can act as an orchestration layer. Mint an API key (Settings, or
 `POST /api/dispatch-keys`), then call:
 
 ```bash

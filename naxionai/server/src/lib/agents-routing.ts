@@ -1,7 +1,7 @@
 // agents.md — a user-editable routing table at the vault root, read into
 // planning context. This is the declarative counterpart to the many hardcoded
 // regex "hint" blocks in agent.ts (company data, GitHub, email, memory, …):
-// those cover cases NeuroWorks already knows about; agents.md lets the
+// those cover cases Naxie already knows about; agents.md lets the
 // operator add their OWN routing rules (custom folders, custom skills) without
 // touching code — same idea as the "second brain" agents.md + routing table
 // pattern (task type → folder/skill, token-efficient because the planner

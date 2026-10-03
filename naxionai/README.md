@@ -7,9 +7,9 @@ Obsidian second-brain. The running system's nickname is **Naxie**.
 > **Naming & inspiration:** NaxionAI is the engine and the product name here.
 > **NeuroWorks** and **Jarvis** were *inspiration only* — the "local-first AI
 > workforce + second-brain" and "build your own AI assistant" ideas that shaped
-> early design — not dependencies or a base this is forked from. The name
-> `NeuroWorks` survives in some internal identifiers (env-var prefixes
-> `NAXION_*`, a few file paths) for backward compatibility only.
+> early design — not dependencies or a base this is forked from. All
+> NeuroWorks/Clawbot/Neuro naming was retired 2026-10-02: the engine is
+> NaxionAI, the assistant is Naxie, the worker voice is Naxie Agent.
 
 **This particular instance is Mark's own personal, non-commercial deployment**
 (see the [root README](../README.md)) — not a hosted product or a
@@ -57,7 +57,7 @@ Local-only browser app. Bind: `127.0.0.1:7470` (web) and `127.0.0.1:7471` (serve
 
 ### External agent dispatch (orchestration layer)
 
-Other systems dispatch agents into NeuroWorks over an authenticated API:
+Other systems dispatch agents into Naxie over an authenticated API:
 
 ```sh
 curl -X POST http://127.0.0.1:7471/api/v1/dispatch \
@@ -96,7 +96,7 @@ ollama serve &             # start Ollama if not already running (free local mod
 pnpm dev                   # starts server + web concurrently
 ```
 
-Open http://127.0.0.1:7470. NeuroWorks runs on a **free local core** — no
+Open http://127.0.0.1:7470. Naxie runs on a **free local core** — no
 personal keys are required to start; cloud models, a synced vault, email, and
 payments are optional add-ons configured in `.env`.
 
@@ -124,7 +124,7 @@ The reflection loop reports per-skill success rate + avg picker score in the dai
 
 ## Security
 
-NeuroWorks binds loopback-only, but loopback alone doesn't defeat two real browser-side attacks:
+Naxie binds loopback-only, but loopback alone doesn't defeat two real browser-side attacks:
 
 - **DNS rebinding** — a malicious page resolves `evil.com:7471` to `127.0.0.1`. The Host header (`evil.com:7471`) is the giveaway.
 - **Cross-origin POST** — `text/plain` JSON skips the CORS preflight. The Origin header reveals the source page.

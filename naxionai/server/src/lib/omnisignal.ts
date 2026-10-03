@@ -8,7 +8,7 @@
 // dataset agents learn from.
 //
 // Mirrors the omnis-signal "Scraper Hub" concepts (Source → scrape →
-// normalized Record → publish) but is NeuroWorks-native: it reuses the
+// normalized Record → publish) but is Naxie-native: it reuses the
 // existing web client, company data sources, document extractor, and vault
 // index instead of standing up Playwright/Postgres/Redis.
 //

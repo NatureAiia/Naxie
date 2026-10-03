@@ -262,7 +262,7 @@ export const api = {
   submitHumanInput: (id: string, responses: { prompt: string; response: string }[], note?: string) =>
     req<{ jobId: string; continuesJobId: string }>(`/api/tasks/jobs/${encodeURIComponent(id)}/human-input`, { method: "POST", body: JSON.stringify({ responses, note }) }),
   timeAnalysis: (days = 30) => req<TimeAnalysis>(`/api/tasks/time-analysis?days=${days}`),
-  // My Work — human-in-the-loop assignments (neuro/boss → human, work uploads).
+  // My Work — human-in-the-loop assignments (agent/boss → human, work uploads).
   listAssignments: () => req<{ mine: Assignment[]; delegated: Assignment[]; all?: Assignment[] }>("/api/assignments"),
   assignmentsDirectory: () => req<{ people: AssignPerson[] }>("/api/assignments/directory"),
   createAssignment: (body: { title: string; details?: string; assignedToEmail: string; dueAt?: string; files?: { name: string; contentBase64: string }[] }) =>
@@ -961,7 +961,7 @@ export type TimeAnalysis = {
   jobCount: number;
 };
 
-// My Work — a unit of work handed to a human (by a neuro or a colleague/boss).
+// My Work — a unit of work handed to a human (by an agent or a colleague/boss).
 export type AssignmentStatus = "open" | "in_progress" | "submitted" | "done" | "declined";
 export type Assignment = {
   id: string;

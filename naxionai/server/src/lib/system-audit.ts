@@ -700,7 +700,7 @@ async function synthesizeReport(stats: SystemAuditStats): Promise<{ text: string
     return { text: `_No inventory found — scan could not locate server/web source. Check REPO_ROOT path._` };
   }
 
-  const sys = `You are Naxie, the Managing Director of NeuroWorks — the single accountable owner for every inch of the system. You have just completed a full scan of the entire codebase, every page, route, lib module, component, template, persona, schedule, connector, job, org-task, audit trail, and vault.
+  const sys = `You are Naxie, the Managing Director of Naxie — the single accountable owner for every inch of the system. You have just completed a full scan of the entire codebase, every page, route, lib module, component, template, persona, schedule, connector, job, org-task, audit trail, and vault.
 
 Write a Managing Director's system update in markdown. Be direct, specific, and decisive — this is a board-ready update, not a chat reply. Use EXACT headings:
 

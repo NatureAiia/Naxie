@@ -1,6 +1,6 @@
 ---
 name: pc-doc-handling
-description: Read, summarise, and file documents from the user's PC into their NeuroWorks vault — find the file, extract its text, decide whether to capture, and surface what's notable.
+description: Read, summarise, and file documents from the user's PC into their Naxie vault — find the file, extract its text, decide whether to capture, and surface what's notable.
 applies_to: [summarize, read-doc, draft-other]
 ---
 
@@ -75,7 +75,7 @@ When you read AND file:
 - <…>
 
 **Where this lives now:**
-- 📁 Filed to your second brain at `0-Inbox/<filename>` — searchable via NeuroWorks Knowledge.
+- 📁 Filed to your second brain at `0-Inbox/<filename>` — searchable via Naxie Knowledge.
 - 📄 Sidecar note: `0-Inbox/<date>-<slug>.md` with the excerpt + frontmatter tags `[imported, neuroworks]`.
 - 💻 Original preserved on your PC at `<absolute path>` _(or "removed" if the user asked for that)_.
 ```
@@ -119,13 +119,13 @@ These all route here:
 - Reading binary as text — `fs.read_external` handles PDF/DOCX/XLSX extraction automatically; don't try to open them with anything else.
 - Routing to web research when the doc is local — if the request names a file the user has, never default to web. The [[local-doc-summary]] skill goes further on this.
 
-## How the NeuroWorks knowledge view picks this up
+## How the Naxie knowledge view picks this up
 
 Once `fs.import_to_vault` runs:
 1. The binary lands at `<vault>/0-Inbox/<filename>`
 2. A markdown sidecar lands at `<vault>/0-Inbox/<date>-<slug>.md` with frontmatter + excerpt + wikilink to the binary
 3. The vault commit queue auto-commits + pushes to the `main-brain` repo
-4. The NeuroWorks Knowledge page reads from `/api/brain/tree` and `/api/brain/file` — both the binary AND the sidecar appear in the tree on the next load
+4. The Naxie Knowledge page reads from `/api/brain/tree` and `/api/brain/file` — both the binary AND the sidecar appear in the tree on the next load
 5. The sidecar's `[[wikilink]]` to the binary is clickable from the Knowledge view
 
-The user doesn't need to refresh manually; the next time they open NeuroWorks Knowledge, the imported file is there.
+The user doesn't need to refresh manually; the next time they open Naxie Knowledge, the imported file is there.

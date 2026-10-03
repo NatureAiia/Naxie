@@ -227,7 +227,7 @@ function parseSelfContainedEmail(t: string): { to: string; subject: string; body
 // notes"), so "make a note" / "my notes app" don't false-trigger.
 const NOTEPAD_RE = /\bnote\s?pad\b/i;
 
-const ORG_STRUCTURE_RE = /\b(job\s+descriptions?|org(?:ani[sz]ational?)?\s+(?:structure|chart|outline|design)|reporting\s+lines?|team\s+structure|company\s+structure|agents?\s+(?:integrated|incorporated|in\s+the\s+org)|(?:role|position)\s+(?:profiles?|specs?)|staffing\s+(?:plan|structure)|workforce\s+(?:structure|design)|who\s+(?:does|do)\s+\S+(?:\s+\S+){0,3}\s+reports?\s+to|who\s+reports\s+to|(?:our|the\s+company'?s?|aiia'?s?)\s+(?:org(?:ani[sz]ation)?|departments?|teams?|structure|workforce|agents?|personas?|neuros?|staff|people|employees|hires?)\b|what\s+departments?\b|departments?\s+(?:exist|do\s+we\s+have)|(?:list|show|name)\s+(?:all\s+)?(?:the\s+|our\s+)?(?:departments?|teams?|agents?|personas?|neuros?|employees|staff)\b|who\s+(?:works|is)\s+(?:in|on)\s+(?:the\s+)?\w+\s+(?:department|team)\b|how\s+many\s+(?:agents?|personas?|neuros?|employees|people|staff|departments?|teams?)\b|\brole\b[\s\S]{0,60}\bdepartment\b|\bdepartment\b[\s\S]{0,60}\brole\b)/i;
+const ORG_STRUCTURE_RE = /\b(job\s+descriptions?|org(?:ani[sz]ational?)?\s+(?:structure|chart|outline|design)|reporting\s+lines?|team\s+structure|company\s+structure|agents?\s+(?:integrated|incorporated|in\s+the\s+org)|(?:role|position)\s+(?:profiles?|specs?)|staffing\s+(?:plan|structure)|workforce\s+(?:structure|design)|who\s+(?:does|do)\s+\S+(?:\s+\S+){0,3}\s+reports?\s+to|who\s+reports\s+to|(?:our|the\s+company'?s?)\s+(?:org(?:ani[sz]ation)?|departments?|teams?|structure|workforce|agents?|personas?|staff|people|employees|hires?)\b|what\s+departments?\b|departments?\s+(?:exist|do\s+we\s+have)|(?:list|show|name)\s+(?:all\s+)?(?:the\s+|our\s+)?(?:departments?|teams?|agents?|personas?|neuros?|employees|staff)\b|who\s+(?:works|is)\s+(?:in|on)\s+(?:the\s+)?\w+\s+(?:department|team)\b|how\s+many\s+(?:agents?|personas?|neuros?|employees|people|staff|departments?|teams?)\b|\brole\b[\s\S]{0,60}\bdepartment\b|\bdepartment\b[\s\S]{0,60}\brole\b)/i;
 
 // Questions about a specific uploaded company document (strategic plan,
 // governance policy, brand guidelines, a priced schedule, a summit deck, …).
@@ -637,21 +637,21 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   } else if (recallRe.test(task)) {
     memoryContext = `\n\nMemory-recall context: the task asks what the agent REMEMBERS / has on file about something. The FIRST step MUST be memory.search with {query: "<the key terms — the entity/topic the user named>"} (NOT research.deep / vault.search — durable facts live in _naxion/memory, which those tools do not read). If the user named an exact subject stored before, memory.recall {subject} is more precise. Synthesise the answer from the returned facts; if none are found, say so plainly rather than inventing.\n`;
   }
-  // Aiia Finance hint — same failure shape as activity/memory above: without
+  // Finance hint — same failure shape as activity/memory above: without
   // an explicit steer, the planner has no way to know where finance data
   // lives (persona system prompts and skill playbooks are injected at
   // synth/direct time, NOT into planning — see the plan-phase sys prompt
-  // built below, which never includes personaSystemSuffix). A "Aiia Finance
-  // Summary" task silently fell through to vault.search + vault.read (found
+  // built below, which never includes personaSystemSuffix). A finance
+  // summary task silently fell through to vault.search + vault.read (found
   // nothing) before this hint existed, and the synth apologised for a
   // "missing connector" — reproduced live 2026-07-09.
   //
   // 2026-07-10: the old push-model snapshot (Finance System POSTs to
   // /api/public/dashboard, Naxie stores one 5-field snapshot) is
   // retired — its data was stale (last pushed 2026-07-01) and has been
-  // deleted from the vault. The real, live source is now the "Aiia
-  // FinanceFlow" connector (external app, budgets/receipts/requisitions,
-  // read-only, session-cookie auth that expires ~24h from setup).
+  // deleted from the vault. The real, live source is now a finance
+  // connector (external app, budgets/receipts/requisitions,
+  // read-only, session auth that expires ~24h from setup).
   const financeContext = FINANCE_READOUT_RE.test(task)
     ? `\n\nFinance context: the task asks for real financial figures. Those live in actual records — a finance connector (connector.list to see what's configured, connector.describe + connector.call to pull budgets/receipts), NOT finance.snapshot (retired — it will return available:false), NOT vault.search, NOT research.deep. If no finance connector is configured, say plainly what's missing and stop; never invent a figure. Ground every number in what the connector actually returned.\n`
     : "";
@@ -1310,8 +1310,8 @@ async function llmTriage(task: string): Promise<boolean> {
   // Company-internal questions can NEVER be answered from world knowledge —
   // the answer lives in the org's own records (users directory, persona
   // roster, org chart, department data). The small triage model reliably
-  // misclassifies these as DIRECT ("What departments exist in our
-  // organization?" → confident refusal about not knowing 'Aiia'), so veto
+// misclassifies these as DIRECT ("What departments exist in our
+// organization?" → confident refusal about not knowing the org), so veto
   // before it gets a vote. Same guard class as TOOL_CUES, kept here because
   // the persona preamble pushes these tasks past looksLikeDirectAnswer's
   // length cap and into this LLM path.
@@ -1926,22 +1926,13 @@ export async function planAndExecute(
   // Attachments + a LIVE-data ask are NOT mutually exclusive. The pure
   // short-circuit silently dropped the live half: "integrate live cash flow
   // baselines into the attached plan" direct-synthed with ZERO tool calls and
-  // the synth fabricated "the Aiia Finance connector is not set up" while
+  // the synth fabricated a connector excuse while
   // three connectors sat registered (caught live 2026-07-19). When the task
-  // asks for real financial figures, pull the FinanceFlow endpoints FIRST —
+  // asks for real figures plus attachments, normal planning runs with the
+  // financeContext hint (see above) so live sources are pulled first —
   // the synth then combines the connector results with the attached context.
-  const financeWithAttachments: Plan | null = taskHasAttachments && FINANCE_READOUT_RE.test(bareTask)
-    ? {
-        steps: [
-          { tool: "connector.call", args: { connector: "Aiia FinanceFlow", path: "/api/budgets" }, rationale: "live budgets from the finance connector", label: humanStepLabel("connector.call", { connector: "Aiia FinanceFlow" }) },
-          { tool: "connector.call", args: { connector: "Aiia FinanceFlow", path: "/api/receipts" }, rationale: "live receipts/cash-flow history", label: humanStepLabel("connector.call", { connector: "Aiia FinanceFlow" }) },
-        ],
-        summary: "Live finance pull (FinanceFlow connector) + synth with the attached context.",
-        waves: [[0, 1]],
-      }
-    : null;
   let p = taskHasAttachments
-    ? (financeWithAttachments ?? { steps: [], summary: "Direct synth from attached context", waves: [] })
+    ? { steps: [], summary: "Direct synth from attached context", waves: [] }
     : buildSocialPlan() ?? buildEmailReadPlan() ?? buildMemoryPlan() ?? buildBriefingPlan() ?? buildDbWritePlan() ?? (ORG_STRUCTURE_RE.test(bareTask) ? null : buildDbPlan()) ?? heuristicPlan(bareTask, { hasAttachments: false }) ?? { steps: [], summary: undefined, waves: [] };
   if (p.steps.length > 0) {
     // Customer-facing context-tier badge based on what the plan touches.
@@ -3053,7 +3044,7 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
   }
 
   // Local-file lookup WITH an explicit folder hint: "check/look/find/search in
-  // my downloads for X" / "look in my desktop for X" / "open the Aiia letter
+  // my downloads for X" / "look in my desktop for X" / "open the 2026 letter
   // in my documents" — etc.
   // Routes to fs.find_in + fs.read_external so PDFs/DOCXs run through the
   // doc-extractor cleanly. Chained via $step_0 reference so a single match
@@ -3062,7 +3053,7 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
   //
   // CRITICAL: matches BEFORE the URL/research patterns so the LLM planner
   // never sees this shape (the previous behaviour was a 3-minute web research
-  // run for "check my downloads for Aiia Reference Letter").
+  // run for "check my downloads for the 2026 reference letter").
   // TWO shapes supported:
   //   (A) folder-first: "find in my downloads for X" / "look in my desktop X"
   //   (B) name-first:   "find X in my downloads" / "look for X in my desktop"
@@ -3397,8 +3388,8 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
 
   // "draft / write / compose / create a [doc type] for/about X" — grounded
   // synthesis. Was previously a bare ollama.generate which let the model
-  // fabricate meanings for proper nouns / acronyms (e.g. "draft an Aiia
-  // Reference Letter" → hallucinated "Association of International Investors").
+  // fabricate meanings for proper nouns / acronyms (e.g. "draft a 2026
+  // reference letter" → hallucinated an expansion of the acronym).
   // Now we preflight: vault.search (the user's second brain) AND fs.find_in
   // (Downloads + Desktop + Documents + Inbox) in parallel. The synth then
   // has REAL evidence — prior notes on the topic, prior versions of the
@@ -3408,8 +3399,8 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
   if (draftMatch && draftMatch[1].length >= 3 && draftMatch[1].length <= 200) {
     const body = draftMatch[1].trim();
     // Search topic: strip generic doc-type suffix so we hunt the SUBJECT,
-    // not the type. "an Aiia Reference Letter" → search for "Aiia Reference",
-    // which finds your existing vault notes about Aiia AND any Aiia-named
+    // not the type. "a 2026 reference letter" → search for "2026 reference",
+    // which finds your existing vault notes about it AND any matching
     // file in Downloads. Keep the full body for the synth so it knows the
     // deliverable shape (reference letter, memo, brief, etc.).
     const searchTopic = body
@@ -3441,7 +3432,7 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
 
 // Pull the tightest plausible topic from a free-form task. Used to seed
 // fs.find_in's needle when the task is "look through my downloads and
-// summarize what you see about Aiia" — the raw noise-strip pipeline leaves
+// summarize what you see about Atlas" — the raw noise-strip pipeline leaves
 // too many tokens, every one of which must match a filename for fs.find_in
 // to hit. Returns the first hit from a priority ladder, or null if nothing
 // strong stands out (caller falls back to the noise-strip pipeline).
@@ -3454,13 +3445,13 @@ function extractAnchorTopic(taskHead: string): string | null {
   }
   // 2) "about / regarding / concerning / related to / on the topic of X".
   //    We stop the capture at conjunctions ("and what they do") and
-  //    punctuation so "about Aiia and what they do" gives just "Aiia".
+  //    punctuation so "about Atlas and what they do" gives just "Atlas".
   const aboutMatch = taskHead.match(
     /\b(?:about|regarding|concerning|related\s+to|on\s+the\s+(?:topic|subject)\s+of)\s+(?:an?\s+|the\s+)?([A-Za-z0-9][A-Za-z0-9 _\-]{1,60}?)(?=\s+(?:and|or|then|to|in|on|for|so|but|with|that|which|who|whose)\b|[.,;:?!]|$)/i,
   );
   if (aboutMatch) {
     let candidate = aboutMatch[1].trim().replace(/\s*[\/|]\s*/g, " ");
-    // Dedupe ("Aiia Aiia" → "Aiia") and drop pure-noise tokens.
+    // Dedupe ("Atlas Atlas" → "Atlas") and drop pure-noise tokens.
     const STOP = new Set(["a", "an", "the", "what", "they", "do", "does", "is", "are", "was", "were"]);
     const seen = new Set<string>();
     const tokens = candidate.split(/\s+/).filter(t => {
@@ -3482,7 +3473,7 @@ function extractAnchorTopic(taskHead: string): string | null {
     if (c.length >= 2) return c;
   }
   // 4) ALL-CAPS acronyms (2–6 chars). Common topic shape in this corpus
-  //    (Aiia, ZB, AFC, ADRS, POSB…). Skip generic tech acronyms.
+  //    (ZB, AFC, ADRS, POSB…). Skip generic tech acronyms.
   const GENERIC = new Set([
     "I", "PC", "AI", "ID", "URL", "API", "PDF", "DOC", "DOCX", "OK", "TL", "DR",
     "FYI", "ASAP", "EOD", "EOM", "USA", "UK", "EU",
@@ -3536,10 +3527,10 @@ export function defaultVaultPlan(task: string, opts: { hasAttachments?: boolean 
     // Tightest topic first: prefer a quoted phrase, an "about/regarding X"
     // anchor, a "called/named X" anchor, or an ALL-CAPS acronym. Without this,
     // open-ended asks like "look through my downloads and summarize what you
-    // see about Aiia" leave the noise-strip pipeline below with a needle like
-    // "look through and what you see about aiia Aiia and what they do" — every
+    // see about Atlas" leave the noise-strip pipeline below with a needle like
+    // "look through and what you see about Atlas and what they do" — every
     // token must appear in the filename for fs.find_in to hit, so 0 matches.
-    // Using just "Aiia" recovers the obvious match set.
+    // Using just "Atlas" recovers the obvious match set.
     const anchorTopic = extractAnchorTopic(taskHead);
     // Pull a likely filename phrase from the head. Common shapes:
     //   "find X in my downloads", "the doc called X", "search for X on my PC".
@@ -3863,7 +3854,7 @@ async function synthesize(
           ? `${injectLanguagePrompt(POLISHED_DIRECT, "direct")}\n\n${personaSystemSuffix}`
           : injectLanguagePrompt(POLISHED_DIRECT, "direct");
         const effectiveTask = financeConnectorFailed
-          ? `${task}\n\nNOTE: the live Aiia FinanceFlow connector call FAILED just now (${String(failed[0]?.error ?? "connector error").slice(0, 200)}). State this plainly and briefly (the connector needs re-authentication — its session cookie expires ~24h after each manual setup, see the Connectors page). Do NOT claim the connector "is not set up" — it IS registered, the call just failed. Do NOT invent or estimate financial figures to fill the gap — proceed with the rest of the deliverable using only the attached context, and mark any finance-figure section as pending real data.`
+          ? `${task}\n\nNOTE: the live finance connector call FAILED just now (${String(failed[0]?.error ?? "connector error").slice(0, 200)}). State this plainly and briefly (the connector needs re-authentication — its session typically expires ~24h after each manual setup, see the Connectors page). Do NOT claim no finance connector exists — one IS registered, the call just failed. Do NOT invent or estimate financial figures to fill the gap — proceed with the rest of the deliverable using only the attached context, and mark any finance-figure section as pending real data.`
           : task;
         const answer = await ollamaGenerate(effectiveTask, system, { profile: "synthesis", complexity: "high", maxTokens: 1024 } as any);
         onPartial?.(answer.trim());

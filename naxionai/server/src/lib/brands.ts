@@ -183,7 +183,7 @@ function ensureBrandPersona(brand: Brand, opts: { reuseSasha?: boolean }): strin
   return id;
 }
 
-// Idempotent — creates the 3 confirmed brands (personal / work=AIIA /
+// Idempotent — creates the 3 confirmed brands (personal / work /
 // business=Variety Vault) on first boot if brands.json doesn't exist yet.
 // Safe to call on every server start (no-ops once brands.json exists).
 export function seedDefaultBrands(): void {

@@ -16,7 +16,7 @@ export async function summarizeConversation(messages: { role: string; content: s
   try {
     const res = await llmGenerate(
       excerpt.slice(0, 6000),
-      `Summarize this NeuroWorks conversation in 2-3 sentences for future context. Keep names, decisions, and open asks. No preamble, just the summary.`,
+      `Summarize this Naxie conversation in 2-3 sentences for future context. Keep names, decisions, and open asks. No preamble, just the summary.`,
       { profile: "triage", maxTokens: 120, temperature: 0.2 },
     );
     return res.trim().slice(0, 600) || null;

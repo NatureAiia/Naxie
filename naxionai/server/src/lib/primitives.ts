@@ -1310,7 +1310,7 @@ export const primitives: Primitive[] = [
     readonly: true,
     args: [
       { name: "folder", type: "string", required: true, description: "Folder shortcut: 'downloads' | 'desktop' | 'documents' | 'music' | 'pictures' | 'videos' | 'vault' | 'inbox' | 'home' | 'all' — or an absolute path. Use 'music' for a song/track/audio-file request, 'pictures' for a photo/image. 'all' searches Downloads + Desktop + Documents + Music + Pictures + Videos + Inbox in parallel." },
-      { name: "name", type: "string", required: true, description: "Filename substring to match (case-insensitive). E.g. 'Aiia Reference Letter' matches 'Aiia-Reference-Letter.pdf'." },
+      { name: "name", type: "string", required: true, description: "Filename substring to match (case-insensitive). E.g. '2026 Reference Letter' matches '2026-Reference-Letter.pdf'." },
       { name: "limit", type: "number", required: false, description: "Max matches to return (default 10, cap 50)" },
       { name: "depth", type: "number", required: false, description: "Subfolder recursion depth (default 2, cap 4)" },
     ],
@@ -1349,7 +1349,7 @@ export const primitives: Primitive[] = [
       }
       const needle = asciifyForSearch(nameArg).toLowerCase();
       // Allow simple wildcard support: spaces or hyphens are interchangeable
-      // ("Aiia Reference Letter" matches "Aiia-Reference-Letter.pdf"), and
+      // ("2026 Reference Letter" matches "2026-Reference-Letter.pdf"), and
       // multiple needle tokens all need to be present somewhere in the name.
       // Strip common noise words so a planner-generated needle like "the
       // CUT student offer letter" still finds "CUT_student_offer_letter.docx"
@@ -1377,7 +1377,7 @@ export const primitives: Primitive[] = [
         // documents that refer to Nueroworks" as the needle, leaving
         // tokens [all, refer, nueroworks] that no filename could ever
         // contain together. NOTE: "reference" is deliberately NOT here —
-        // it's a real filename word ("Aiia Reference Letter.pdf").
+        // it's a real filename word ("2026 Reference Letter.pdf").
         "all", "every", "everything", "which",
         "refer", "refers", "referring", "mention", "mentions", "mentioning",
         "regarding", "related", "relating", "contain", "contains", "containing",
@@ -1484,7 +1484,7 @@ export const primitives: Primitive[] = [
         hits = fuzzyHits(allFiles, minMatch);
       }
       // Typo-tolerant last resort. Voice-dictated tasks misspell brand and
-      // proper names ("Nueroworks" for files named "NeuroWorks" — live
+      // proper names ("Naxei" for files named "Naxie" — live
       // 2026-07-12, 4 identical failures), and substring matching can never
       // recover from a transposition. When everything above found nothing
       // and the needle is short (≤3 content tokens), accept filenames whose
@@ -1658,7 +1658,7 @@ export const primitives: Primitive[] = [
   },
   {
     name: "fs.import_to_vault",
-    description: "Copy a file from the user's PC into their Obsidian vault and write a markdown sidecar so it shows up in NeuroWorks's knowledge view. Use for any 'move/copy/save/import/file this doc into my vault/knowledge/neuroworks' request. Preserves the original on disk by default — the user gets a SEARCHABLE copy in their second brain while the source stays where they had it. Chain with fs.find_in to resolve a partial filename first (e.g. find then import 'Aiia Reference Letter'). Returns the vault-relative paths of both the imported binary and the sidecar so the synth can render a link.",
+      description: "Copy a file from the user's PC into their Obsidian vault and write a markdown sidecar so it shows up in Naxie's knowledge view. Use for any 'move/copy/save/import/file this doc into my vault/knowledge' request. Preserves the original on disk by default — the user gets a SEARCHABLE copy in their second brain while the source stays where they had it. Chain with fs.find_in to resolve a partial filename first (e.g. find then import '2026 Reference Letter'). Returns the vault-relative paths of both the imported binary and the sidecar so the synth can render a link.",
     readonly: false,
     args: [
       { name: "path", type: "string", required: true, description: "Absolute path to the source file on the user's PC (chain from $step_0.matches.0.path after fs.find_in)" },
@@ -1690,7 +1690,7 @@ export const primitives: Primitive[] = [
       // 0-Inbox, which surprised users who asked to file uploads under their
       // own categories.
       // Guard rails — reject anything that could escape the vault, hit a
-      // system-managed folder (where NeuroWorks tooling assumes ownership),
+      // system-managed folder (where Naxie tooling assumes ownership),
       // or look like an absolute path.
       const requested = String(args.vaultFolder ?? "0-Inbox").trim().replace(/^\/+|\/+$/g, "").replace(/\\/g, "/");
       const SYSTEM_PREFIXES = ["_naxie", "_archive", "_naxion", ".git", ".obsidian", "_clawbot", "_neuroworks"];
@@ -1779,7 +1779,7 @@ export const primitives: Primitive[] = [
         ``,
         `Imported from \`${fullSrc}\` on ${today}. Original size ${sizeKB} KB${pages != null ? `, ${pages} page${pages === 1 ? "" : "s"}` : ""}.`,
         ``,
-        `The full file is filed in your vault at [[${binaryRel}]] — click through to open it in Obsidian, or browse it under NeuroWorks Knowledge.`,
+        `The full file is filed in your vault at [[${binaryRel}]] — click through to open it in Obsidian, or browse it under Naxie Knowledge.`,
         ``,
         wantSummary && extractedExcerpt ? `## Excerpt (first ${Math.min(2000, extractedExcerpt.length)} chars)\n\n${extractedExcerpt}\n` : "",
         `## Source provenance`,
@@ -1936,8 +1936,8 @@ export const primitives: Primitive[] = [
       // Governance-aware synthesis. A single research.deep step's answer is
       // passed straight through by the outer synth (passthrough), so THIS is
       // the prompt that actually produces the answer — it must carry the
-      // governance guardrails or wrong-entity web content (e.g. the Natus EEG
-      // "NeuroWorks") slips through. Load the prefix and make obeying it a hard
+      // governance guardrails or wrong-entity web content (e.g. another
+      // "Naxie" product) slips through. Load the prefix and make obeying it a hard
       // rule, with an explicit instruction to drop wrong-entity sources.
       let govPrefix = "";
       try { const { loadGovernancePrefix } = await import("./governance.js"); govPrefix = loadGovernancePrefix(); } catch { /* governance optional */ }
@@ -2375,7 +2375,7 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
   },
   {
     name: "finance.biz_sale",
-    description: "Record a Variety & Co sale (income) in this server's own Business Finance books — NOT the Aiia FinanceFlow connector (that's the company's separate finance system; this is the repair-shop till). Optionally links to a price-book product by name for margin tracking. APPROVAL-GATED like all finance.* tools.",
+    description: "Record a Variety & Co sale (income) in this server's own Business Finance books — NOT an external finance connector (that's the company's separate finance system; this is the repair-shop till). Optionally links to a price-book product by name for margin tracking. APPROVAL-GATED like all finance.* tools.",
     readonly: false,
     args: [
       { name: "label", type: "string", required: true, description: "What was sold, e.g. 'Screen replacement — Tecno Spark'" },
@@ -2404,7 +2404,7 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
   },
   {
     name: "finance.biz_expense",
-    description: "Record a Variety & Co business expense in this server's own Business Finance books — NOT the Aiia FinanceFlow connector. Expenses at/above the configured approval threshold do NOT post: they park as pending + file an OrgTask, and this returns { parked:true, taskId } — tell the operator it's awaiting approval instead of treating it as recorded. APPROVAL-GATED like all finance.* tools.",
+    description: "Record a Variety & Co business expense in this server's own Business Finance books — NOT an external finance connector. Expenses at/above the configured approval threshold do NOT post: they park as pending + file an OrgTask, and this returns { parked:true, taskId } — tell the operator it's awaiting approval instead of treating it as recorded. APPROVAL-GATED like all finance.* tools.",
     readonly: false,
     args: [
       { name: "label", type: "string", required: true, description: "What was spent on, e.g. 'Bulk phone screens'" },
@@ -2446,7 +2446,7 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
   },
   {
     name: "finance.biz_price",
-    description: "Look up Variety & Co price-book entries by name (cost, sell, margin) — answers 'what do we charge for X?' / 'what's our margin on Y?'. Read-only. This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    description: "Look up Variety & Co price-book entries by name (cost, sell, margin) — answers 'what do we charge for X?' / 'what's our margin on Y?'. Read-only. This server's own Business Finance books, NOT an external finance connector. APPROVAL-GATED like all finance.* tools.",
     readonly: true,
     args: [
       { name: "query", type: "string", required: true, description: "Product name (or fragment) to look up" },
@@ -2469,7 +2469,7 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
   },
   {
     name: "finance.biz_product_add",
-    description: "Add a product to the Variety & Co price book (cost + sell price, margin computed). This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    description: "Add a product to the Variety & Co price book (cost + sell price, margin computed). This server's own Business Finance books, NOT an external finance connector. APPROVAL-GATED like all finance.* tools.",
     readonly: false,
     args: [
       { name: "name", type: "string", required: true, description: "Product name, e.g. 'Screen replacement — Samsung A12'" },
@@ -2497,7 +2497,7 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
   },
   {
     name: "finance.biz_leaks",
-    description: "Scan Variety & Co books for money leaks: recurring drains (same charge across 3+ months) and category spikes (this month ≥2× recent average). Deterministic arithmetic, no LLM judgment. This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    description: "Scan Variety & Co books for money leaks: recurring drains (same charge across 3+ months) and category spikes (this month ≥2× recent average). Deterministic arithmetic, no LLM judgment. This server's own Business Finance books, NOT an external finance connector. APPROVAL-GATED like all finance.* tools.",
     readonly: true,
     args: [],
     handler: async () => {
@@ -2509,7 +2509,7 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
   },
   {
     name: "finance.biz_forecast",
-    description: "Cash runway + 3-month projection for Variety & Co from recorded books (avg income/burn, net, cash on hand, top products by revenue). Deterministic arithmetic. This server's own Business Finance books, NOT the Aiia FinanceFlow connector. APPROVAL-GATED like all finance.* tools.",
+    description: "Cash runway + 3-month projection for Variety & Co from recorded books (avg income/burn, net, cash on hand, top products by revenue). Deterministic arithmetic. This server's own Business Finance books, NOT an external finance connector. APPROVAL-GATED like all finance.* tools.",
     readonly: true,
     args: [],
     handler: async () => {
@@ -2521,14 +2521,14 @@ ${vaultHits.slice(0, 8).map(h => `- [[${h.path}]] (line ${h.line})`).join("\n") 
   },
   {
     name: "finance.snapshot",
-    description: "RETIRED (2026-07-10) legacy push-model snapshot — the Finance System used to POST its dashboard to /api/public/dashboard and this read it back. That pushed data was stale and has been cleared; this now always returns available:false. For real financial figures, use connector.call on the live \"Aiia FinanceFlow\" connector instead (list-budgets, list-receipts, list-requisitions endpoints). Kept only in case the old push mechanism is ever revived.",
+      description: "RETIRED (2026-07-10) legacy push-model snapshot — the Finance System used to POST its dashboard to /api/public/dashboard and this read it back. That pushed data was stale and has been cleared; this now always returns available:false. For real financial figures, use connector.call on a configured finance connector instead (list-budgets, list-receipts, list-requisitions endpoints). Kept only in case the old push mechanism is ever revived.",
     readonly: true,
     args: [],
     handler: async () => {
       const { getFinanceSnapshot } = await import("./finance-snapshot.js");
       const snap = getFinanceSnapshot();
       if (!snap) {
-        return { available: false, message: "No finance data has been pushed yet (this push-model mechanism is retired). Use connector.call on the live \"Aiia FinanceFlow\" connector instead — list-budgets, list-receipts, list-requisitions." };
+        return { available: false, message: "No finance data has been pushed yet (this push-model mechanism is retired). Use connector.call on a configured finance connector instead — list-budgets, list-receipts, list-requisitions." };
       }
       const staleDays = Math.floor((Date.now() - new Date(snap.receivedAt).getTime()) / 86_400_000);
       return { available: true, mapped: snap.mapped, currency: snap.currency, period: snap.period, receivedAt: snap.receivedAt, staleDays };
@@ -3277,7 +3277,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "inbox.read_unread",
-    description: "Read messages from the NeuroWorks mailbox over IMAP. Returns [{ from, subject, date, preview, body?, links? }]. Uses the existing NAXION_EMAIL_USER / NAXION_EMAIL_APP_PASSWORD credentials. By default returns only UNSEEN messages (what needs attention); pass unreadOnly=false to return the most recent messages regardless of read state. Pass bodyChars>240 to also get the fuller body text + extracted links (for summarising a story out of a newsletter/briefing). Does NOT mark messages as seen — read-only.",
+          description: "Read messages from the Naxie mailbox over IMAP. Returns [{ from, subject, date, preview, body?, links? }]. Uses the existing NAXION_EMAIL_USER / NAXION_EMAIL_APP_PASSWORD credentials. By default returns only UNSEEN messages (what needs attention); pass unreadOnly=false to return the most recent messages regardless of read state. Pass bodyChars>240 to also get the fuller body text + extracted links (for summarising a story out of a newsletter/briefing). Does NOT mark messages as seen — read-only.",
     readonly: true,
     args: [
       { name: "limit", type: "number", required: false, description: "Max messages to return (default 10, max 50)" },
@@ -4507,7 +4507,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     readonly: false,
     args: [
       { name: "date", type: "string", required: true, description: "Event date, YYYY-MM-DD (local)" },
-      { name: "title", type: "string", required: true, description: "What the event is — e.g. 'Demo day with Aiia leadership, 14:00'. Include the time in the text if one was given." },
+      { name: "title", type: "string", required: true, description: "What the event is — e.g. 'Demo day, 14:00'. Include the time in the text if one was given." },
       { name: "subject", type: "string", required: false, description: "Optional grouping subject (defaults to 'calendar')" },
     ],
     handler: async (args) => {
@@ -5331,7 +5331,7 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "security.scan":      return s("kind") ? `Security-scanning the ${s("kind")}` : "Security-scanning the content";
     case "pentest.scan":       return s("target") ? `Running a pentest scan against ${s("target")}` : "Running a pentest scan";
     case "governance.check":   return "Checking against governance policies";
-    case "finance.snapshot":   return "Reading the latest Aiia Finance figures";
+      case "finance.snapshot":   return "Reading the latest finance figures";
     case "finance.biz_sale":     return s("label") ? `Recording sale "${s("label")}" (needs your approval)` : "Recording a sale (needs your approval)";
     case "finance.biz_expense":  return s("label") ? `Recording expense "${s("label")}" (needs your approval)` : "Recording an expense (needs your approval)";
     case "finance.biz_price":    return s("query") ? `Checking the price book for "${s("query")}" (needs your approval)` : "Checking the price book (needs your approval)";

@@ -409,7 +409,7 @@ async function draftDigestSection(
   return { heading, text: "", ok: false, gap: String(lastErr?.message ?? lastErr).slice(0, 160) };
 }
 
-const DIGEST_VOICE = `You are NeuroWorks's Innovation Scan writer — and Naxie, the operator's PA, is delivering this. The operator is NOT deeply technical — plain language, no jargon dump, no wall of acronyms. Warm, concise, skimmable — short paragraphs or bullets. Use emoji sparingly but do use a few tasteful ones (e.g. 🚀 💡 🔭 🛠️ 📦) — no emoji spam. No filler ("In today's fast-moving AI landscape..."). Numbers/names/sources beat vague claims. Write the section body only — no heading, it's added separately.`;
+const DIGEST_VOICE = `You are Naxie's Innovation Scan writer — and Naxie, the operator's PA, is delivering this. The operator is NOT deeply technical — plain language, no jargon dump, no wall of acronyms. Warm, concise, skimmable — short paragraphs or bullets. Use emoji sparingly but do use a few tasteful ones (e.g. 🚀 💡 🔭 🛠️ 📦) — no emoji spam. No filler ("In today's fast-moving AI landscape..."). Numbers/names/sources beat vague claims. Write the section body only — no heading, it's added separately.`;
 
 export async function synthesizeDigest(targeted: TargetedFinding[], broad: BroadWatch, modelHealth: ModelHealthFinding[] = []): Promise<{ text: string; modelUsed?: string }> {
   if (targeted.length === 0 && broad.repos.length === 0 && broad.news.length === 0 && broad.curated.length === 0 && modelHealth.length === 0) {

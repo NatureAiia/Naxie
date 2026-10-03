@@ -145,7 +145,7 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
   },
   {
     id: "strix-pentest",
-    label: "Strix Pentest (this NeuroWorks instance)",
+    label: "Strix Pentest (this Naxie instance)",
     // Our own thin proxy (server/mcp/pentest-mcp-server.mjs — same shape as
     // naxie-dispatch-mcp.mjs) over the local /api/pentest REST surface,
     // NOT a third-party server. Adding it here lets the agent call scans via
@@ -153,7 +153,7 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     // pentest.scan/check_run/list_runs primitives already registered in
     // primitives.ts. The same file is also meant for EXTERNAL MCP hosts
     // (Claude Desktop, etc.) to register directly — see the file's own header.
-    description: "Trigger and read Strix-backed security scans (real exploit attempts, not static analysis) — proxies this NeuroWorks instance's own /api/pentest routes, no separate credentials needed.",
+    description: "Trigger and read Strix-backed security scans (real exploit attempts, not static analysis) — proxies this Naxie instance's own /api/pentest routes, no separate credentials needed.",
     command: "node",
     args: [resolve(dirname(fileURLToPath(import.meta.url)), "../../mcp/pentest-mcp-server.mjs")],
     homepage: "https://github.com/usestrix/strix",

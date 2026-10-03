@@ -181,7 +181,7 @@ export async function getWeather(location = "auto"): Promise<string> {
     let lat = 51.5074, lon = -0.1278, locName = "London";
     if (location && location.toLowerCase() !== "auto") {
       const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`;
-      const geoRes = await fetch(geoUrl, { headers: { "User-Agent": "NeuroWorks/1.0" }, signal: AbortSignal.timeout(5000) });
+      const geoRes = await fetch(geoUrl, { headers: { "User-Agent": "Naxie/1.0" }, signal: AbortSignal.timeout(5000) });
       const geo: any = await geoRes.json();
       const first = geo?.results?.[0];
       if (first) {
@@ -201,7 +201,7 @@ export async function getWeather(location = "auto"): Promise<string> {
       descOverride = google.current.conditionText;
     } else {
       const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=temperature_2m,relativehumidity_2m,windspeed_10m,daily=temperature_2m_max,temperature_2m_min&timezone=auto`;
-      const wRes = await fetch(weatherUrl, { headers: { "User-Agent": "NeuroWorks/1.0" }, signal: AbortSignal.timeout(5000) });
+      const wRes = await fetch(weatherUrl, { headers: { "User-Agent": "Naxie/1.0" }, signal: AbortSignal.timeout(5000) });
       const wData: any = await wRes.json();
       current = wData?.current_weather ?? {};
       hourly = wData?.hourly ?? {};

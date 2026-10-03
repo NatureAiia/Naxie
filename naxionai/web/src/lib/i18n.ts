@@ -25,7 +25,7 @@ const strings: Record<Language, Record<string, string>> = {
     "onboarding.sector": "What sector do you operate in?",
     "onboarding.sectorDesc": "This helps us pre-configure templates, integrations, and knowledge packs for your industry.",
     "onboarding.orgName": "Organization name",
-    "onboarding.orgNamePlaceholder": "e.g., Rubiem Developers",
+    "onboarding.orgNamePlaceholder": "e.g., Your Company",
     "onboarding.finish": "Get started",
     "onboarding.next": "Next",
     "onboarding.back": "Back",

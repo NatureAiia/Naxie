@@ -519,7 +519,7 @@ const server = app.listen(config.port, config.bindHost, async () => {
     console.warn(`  ⚠ persona template backfill failed: ${e?.message ?? e}`);
   }
 
-  // Seed the operator's 3 brands (personal / work=AIIA / business=Variety
+  // Seed the operator's 3 brands (personal / work / business=Variety
   // Vault) on first boot — idempotent (no-ops once .naxion/brands.json
   // exists), unlike the demo connectors above: these are real identities, not
   // sample data, so they always seed rather than requiring an opt-in flag.

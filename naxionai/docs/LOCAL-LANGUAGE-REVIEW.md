@@ -2,7 +2,7 @@
 
 _Written 2026-07-09._
 
-NeuroWorks agents can be pinned to chiShona or isiNdebele — org-wide (Settings → Language), per department (Departments → apply → set a department's default), or per individual agent (Personas page → language selector on any hire). This document defines how flagged local-language output gets reviewed by a native speaker and corrected.
+Naxie agents can be pinned to chiShona or isiNdebele — org-wide (Settings → Language), per department (Departments → apply → set a department's default), or per individual agent (Personas page → language selector on any hire). This document defines how flagged local-language output gets reviewed by a native speaker and corrected.
 
 ## Why this exists
 
