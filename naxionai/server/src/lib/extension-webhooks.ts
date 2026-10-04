@@ -45,7 +45,7 @@ function save(list: WebhookEntry[]) {
 export function listWebhooks(): WebhookEntry[] { return load(); }
 export function getWebhook(id: string): WebhookEntry | undefined { return load().find(w => w.id === id); }
 
-export function createWebhook(targetId: string, targetKind: "connector" | "integration" | "extension"): WebhookEntry {
+export function createWebhook(targetId: string, targetKind: "connector" | "integration" | "extension" | "task"): WebhookEntry {
   const list = load();
   const existing = list.find(w => w.targetId === targetId && w.targetKind === targetKind);
   if (existing) return existing;

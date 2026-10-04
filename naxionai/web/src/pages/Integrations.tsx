@@ -96,15 +96,24 @@ export function Integrations() {
         </p>
       </div>
 
-      {connections.length > 0 && (
-        <Card
-          title={`Connected (${connections.length})`}
-          action={
-            <Button variant="subtle" onClick={testAll} disabled={testingAll}>
-              {testingAll ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Test all
-            </Button>
-          }
-        >
+       {connections.length > 0 && (
+         <Card
+           title={`Connected (${connections.length})`}
+           action={
+             <div className="flex gap-2">
+               <Button variant="subtle" onClick={() => {
+                 if (providers.length > 0) {
+                   setConnecting(providers[0]);
+                 }
+               }} disabled={connecting !== null || providers.length === 0}>
+                 {connecting === null ? <Plus size={14} /> Add Integration : <Loader2 size={14} className="animate-spin" />}
+               </Button>
+               <Button variant="subtle" onClick={testAll} disabled={testingAll}>
+                 {testingAll ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+               </Button>
+             </div>
+           }
+         >
           <div className="space-y-2">
             {connections.map(c => (
               <div key={c.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-ink-950/50 border border-ink-800">

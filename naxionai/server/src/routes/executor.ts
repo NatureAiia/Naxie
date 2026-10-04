@@ -11,9 +11,31 @@ import { config } from "../config.js";
 
 export const executorRouter = Router();
 
-executorRouter.get("/", (_req, res) => {
+async function checkLocalHermesModel(): Promise<{ available: boolean | null; detail?: string }> {
+  if (config.hermesLocalProvider !== "ollama") return { available: null, detail: `Local provider check not implemented for ${config.hermesLocalProvider}` };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1800);
+  try {
+    const response = await fetch(`${config.ollamaHost}/api/tags`, { signal: controller.signal });
+    if (!response.ok) return { available: false, detail: `Ollama returned HTTP ${response.status}` };
+    const body = await response.json() as { models?: { name?: string }[] };
+    const models = (body.models ?? []).map(model => model.name ?? "");
+    const available = models.some(name => name === config.hermesLocalModel || name.startsWith(`${config.hermesLocalModel}:`));
+    return { available, detail: available ? "Model is installed" : `Pull ${config.hermesLocalModel} in Ollama` };
+  } catch (error) {
+    return { available: false, detail: error instanceof Error ? error.message : String(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+executorRouter.get("/", async (_req, res) => {
   const cfg = getExecutorConfig();
   const local = cfg.hermesLocal === true;
+  const installed = hermesAvailable();
+  const localModel = local ? await checkLocalHermesModel() : null;
+  const cloudProviderConfigured = config.hermesProvider === "openrouter" ? config.openrouterEnabled : null;
+  const modelReady = local ? localModel?.available === true : cloudProviderConfigured !== false;
   res.json({
     mode: cfg.mode,
     hermesModelOverride: cfg.hermesModel ?? null,
@@ -22,11 +44,15 @@ executorRouter.get("/", (_req, res) => {
     fallbackToNaxie: process.env.NAXION_HERMES_FALLBACK !== "0",
     qualityGate: process.env.NAXION_HERMES_QUALITY_GATE !== "0",
     hermes: {
-      available: hermesAvailable(),
+      available: installed,
       binPath: detectHermesBin() ?? undefined,
       model: cfg.hermesModel ?? (local ? config.hermesLocalModel : config.hermesModel),
       provider: local ? config.hermesLocalProvider : config.hermesProvider,
       localModel: config.hermesLocalModel,
+      localModelAvailable: localModel?.available ?? null,
+      localModelDetail: localModel?.detail,
+      providerConfigured: local ? true : cloudProviderConfigured,
+      readiness: installed && modelReady ? "ready" : !installed ? "install" : "configure-model",
     },
   });
 });

@@ -4,8 +4,10 @@ import { respond } from "../lib/respond.js";
 import {
   listTargets, getTarget, addTarget, removeTarget, setTargetEnabled, rotateTargetSecret,
   listDeliveries, getDelivery, replayDelivery, publishEvent,
+  toPublicTarget, WEBHOOK_EVENT_CATALOG,
   type WebhookDeliveryStatus,
 } from "../lib/webhook-delivery.js";
+import { assertSafePublicUrlAsync } from "../lib/security-gates.js";
 
 // Outbound webhook management — mounted at /api/webhooks. Same admin gate as
 // workflow-tree.ts and org-tasks.ts: this is standing integration
@@ -26,18 +28,23 @@ function requireAdmin(req: any, res: any): boolean {
 
 const VALID_STATUSES: WebhookDeliveryStatus[] = ["pending", "success", "failed", "dead_letter"];
 
-webhooksRouter.get("/targets", (_req, res) => {
-  respond.ok(res, { targets: listTargets() });
+webhooksRouter.get("/catalog", (_req, res) => {
+  respond.ok(res, { events: WEBHOOK_EVENT_CATALOG });
 });
 
-webhooksRouter.post("/targets", (req, res) => {
+webhooksRouter.get("/targets", (_req, res) => {
+  respond.ok(res, { targets: listTargets().map(toPublicTarget) });
+});
+
+webhooksRouter.post("/targets", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   const { label, url, events } = req.body ?? {};
   if (!label || typeof label !== "string") return respond.error(res, 400, "invalid_input", "label is required");
   if (!url || typeof url !== "string") return respond.error(res, 400, "invalid_input", "url is required");
   try {
+    await assertSafePublicUrlAsync(url);
     const target = addTarget({ label, url, events: Array.isArray(events) ? events.map(String) : [] });
-    respond.ok(res, { target }, 201);
+    respond.ok(res, { target: toPublicTarget(target), secret: target.secret }, 201);
   } catch (e: any) {
     respond.error(res, 400, "invalid_input", e?.message ?? String(e));
   }
@@ -49,14 +56,14 @@ webhooksRouter.patch("/targets/:id", (req, res) => {
   if (typeof enabled !== "boolean") return respond.error(res, 400, "invalid_input", "body.enabled (boolean) is required");
   const target = setTargetEnabled(req.params.id, enabled);
   if (!target) return respond.empty(res, "webhook target not found");
-  respond.ok(res, { target });
+  respond.ok(res, { target: toPublicTarget(target) });
 });
 
 webhooksRouter.post("/targets/:id/rotate-secret", (req, res) => {
   if (!requireAdmin(req, res)) return;
   const target = rotateTargetSecret(req.params.id);
   if (!target) return respond.empty(res, "webhook target not found");
-  respond.ok(res, { target });
+  respond.ok(res, { target: toPublicTarget(target), secret: target.secret });
 });
 
 webhooksRouter.delete("/targets/:id", (req, res) => {
@@ -77,7 +84,7 @@ webhooksRouter.post("/test", async (req, res) => {
   const out = await publishEvent("webhook.test", {
     message: "This is a test event from Naxie's Webhooks page.",
     sentAt: new Date().toISOString(),
-  });
+  }, { targetId, ignoreEventFilter: true });
   respond.ok(res, out);
 });
 

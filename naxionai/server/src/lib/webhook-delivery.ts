@@ -35,6 +35,17 @@ export type WebhookTarget = {
   enabled: boolean;
   createdAt: string;
 };
+export type PublicWebhookTarget = Omit<WebhookTarget, "secret"> & { secretConfigured: boolean };
+
+export const WEBHOOK_EVENT_CATALOG = [
+  { name: "dataset.published", description: "A dataset finished publishing through the ADRS pipeline." },
+  { name: "webhook.test", description: "A connection test sent from the Automation page." },
+] as const;
+
+export function toPublicTarget(target: WebhookTarget): PublicWebhookTarget {
+  const { secret, ...publicTarget } = target;
+  return { ...publicTarget, secretConfigured: !!secret };
+}
 
 export type WebhookDeliveryStatus = "pending" | "success" | "failed" | "dead_letter";
 
@@ -46,6 +57,7 @@ export type WebhookDelivery = {
   status: WebhookDeliveryStatus;
   attempts: number;
   lastAttemptAt?: string;
+  nextAttemptAt?: string;
   lastError?: string;
   createdAt: string;
 };
@@ -208,6 +220,7 @@ async function attemptDelivery(target: WebhookTarget, delivery: WebhookDelivery)
     }
     if (res.status >= 200 && res.status < 300) {
       delivery.status = "success";
+      delivery.nextAttemptAt = undefined;
       delivery.lastError = undefined;
       return;
     }
@@ -215,14 +228,16 @@ async function attemptDelivery(target: WebhookTarget, delivery: WebhookDelivery)
   } catch (e: any) {
     delivery.lastError = String(e?.message ?? e).slice(0, 2000);
     delivery.status = delivery.attempts >= MAX_ATTEMPTS ? "dead_letter" : "failed";
+    const backoffMs = Math.min(60 * 60_000, 60_000 * 2 ** Math.max(0, delivery.attempts - 1));
+    delivery.nextAttemptAt = delivery.status === "failed" ? new Date(Date.now() + backoffMs).toISOString() : undefined;
   }
 }
 
 // Publish an event to every enabled target subscribed to it (or every
 // enabled target, if a target declares no event filter). Best-effort per
 // target — one target's failure never blocks another's delivery.
-export async function publishEvent(event: string, payload: unknown): Promise<{ dispatched: number; deliveryIds: string[] }> {
-  const targets = listTargets().filter(t => t.enabled && (t.events.length === 0 || t.events.includes(event)));
+export async function publishEvent(event: string, payload: unknown, opts: { targetId?: string; ignoreEventFilter?: boolean } = {}): Promise<{ dispatched: number; deliveryIds: string[] }> {
+  const targets = listTargets().filter(t => t.enabled && (!opts.targetId || t.id === opts.targetId) && (opts.ignoreEventFilter || t.events.length === 0 || t.events.includes(event)));
   const deliveryIds: string[] = [];
   if (targets.length === 0) return { dispatched: 0, deliveryIds };
 
@@ -253,6 +268,7 @@ export async function retryFailedDeliveries(): Promise<{ retried: number }> {
   let retried = 0;
   for (const d of list) {
     if (d.status !== "failed") continue;
+    if (d.nextAttemptAt && Date.parse(d.nextAttemptAt) > Date.now()) continue;
     const target = getTarget(d.targetId);
     if (!target || !target.enabled) continue;
     await attemptDelivery(target, d);
@@ -273,6 +289,7 @@ export async function replayDelivery(id: string): Promise<WebhookDelivery | null
   if (!target) throw new Error("target no longer exists");
   delivery.attempts = 0;
   delivery.status = "pending";
+  delivery.nextAttemptAt = undefined;
   await attemptDelivery(target, delivery);
   saveDeliveries(list);
   return delivery;

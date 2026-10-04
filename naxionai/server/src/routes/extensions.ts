@@ -18,8 +18,18 @@ import { fileURLToPath } from "node:url";
 import { scanForSecurityRisks } from "../lib/security.js";
 import { nextSkillVersion } from "../lib/skill-version.js";
 import { listSkills } from "../lib/skills.js";
+import { callerLayer } from "../lib/access.js";
 
 export const extensionsRouter = Router();
+
+function requireWebhookAdmin(req: any, res: any): boolean {
+  const layer = callerLayer(req);
+  if (layer !== null && layer !== "superadmin" && layer !== "admin") {
+    res.status(403).json({ error: "Managing incoming task triggers requires admin access." });
+    return false;
+  }
+  return true;
+}
 
 // GET /api/extensions — aggregated monitor snapshot for the Extensions page
 extensionsRouter.get("/", async (req, res) => {
@@ -181,6 +191,7 @@ extensionsRouter.get("/webhooks", (_req, res) => {
   res.json({ webhooks: listWebhooks().map(toPublicWebhook) });
 });
 extensionsRouter.post("/webhooks", (req, res) => {
+  if (!requireWebhookAdmin(req, res)) return;
   const targetId = String(req.body?.targetId ?? "").trim();
   const targetKind = String(req.body?.targetKind ?? "connector").trim() as "connector" | "integration" | "extension" | "task";
   if (!targetId) return res.status(400).json({ error: "targetId required" });
@@ -191,12 +202,14 @@ extensionsRouter.post("/webhooks", (req, res) => {
   res.json({ webhook: toPublicWebhook(wh), ...(existed ? { alreadyExists: true } : { secret: wh.secret }) });
 });
 extensionsRouter.post("/webhooks/:id/rotate", (req, res) => {
+  if (!requireWebhookAdmin(req, res)) return;
   const wh = rotateWebhookSecret(String(req.params.id));
   if (!wh) return res.status(404).json({ error: "webhook not found" });
   logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "webhook.rotate", target: wh.id, detail: wh.targetId, result: "success" });
   res.json({ webhook: toPublicWebhook(wh), secret: wh.secret });
 });
 extensionsRouter.delete("/webhooks/:id", (req, res) => {
+  if (!requireWebhookAdmin(req, res)) return;
   const ok = removeWebhook(String(req.params.id));
   if (!ok) return res.status(404).json({ error: "webhook not found" });
   logAudit({ level: "warn", actor: (req as any).user?.email ?? "system", action: "webhook.remove", target: String(req.params.id), detail: "removed", result: "success" });
@@ -215,6 +228,8 @@ extensionsRouter.post("/webhook/:id", async (req, res) => {
   const wh = getWebhook(id);
   recordHit(id);
   const payload = req.body ?? {};
+  const payloadBytes = Buffer.byteLength(JSON.stringify(payload));
+  if (payloadBytes > 256 * 1024) return res.status(413).json({ error: "webhook payload exceeds the 256 KB limit" });
   const idempotencyKey = String(req.headers["idempotency-key"] ?? "").trim();
   if (idempotencyKey.length > 128 || /[^\x21-\x7e]/.test(idempotencyKey)) {
     return res.status(400).json({ error: "Idempotency-Key must be printable ASCII and at most 128 characters" });
@@ -232,7 +247,8 @@ extensionsRouter.post("/webhook/:id", async (req, res) => {
   logAudit({ level: "info", actor: "webhook", action: "webhook.hit", target: `${wh?.targetKind ?? "unknown"}:${wh?.targetId ?? id}`, detail: preview, result: "success" });
 
   // Webhook → Job: if payload carries a task/text/objective, auto-create a PA job
-  const taskText = String(payload.task ?? payload.text ?? payload.objective ?? payload.prompt ?? "").trim();
+  const rawTask = payload.task ?? payload.text ?? payload.objective ?? payload.prompt;
+  const taskText = typeof rawTask === "string" ? rawTask.trim() : "";
   if (taskText.length > 12_000) return res.status(413).json({ error: "task text exceeds the 12000 character limit" });
   let jobId: string | undefined;
   if (taskText) {
