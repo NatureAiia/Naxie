@@ -91,17 +91,7 @@ const workNav: NavItem[] = [
   { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
   { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
   { to: "/models", label: "Models", icon: Cpu },
-  { to: "/cost", label: "Cost", icon: Wallet },
-];
-  { to: "/my-work", label: "My Inbox", icon: Inbox, badgeKey: "approvals" },
-  { to: "/brands", label: "Brands", icon: Megaphone },
-  { to: "/planner", label: "Planner", icon: CalendarDays },
-  { to: "/my-finances", label: "My Finances", icon: PiggyBank },
-  { to: "/business-finance", label: "Business Finance", icon: Building2 },
-  { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
-  { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
-  { to: "/models", label: "Models", icon: Cpu },
-  { to: "/cost", label: "Cost", icon: Wallet },
+   { to: "/cost", label: "Cost", icon: Wallet },
 ];
 
 const memoryNav: NavItem[] = [
