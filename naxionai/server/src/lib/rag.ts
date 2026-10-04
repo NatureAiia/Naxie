@@ -64,7 +64,7 @@ function withRelatedNotes(hits: RagHit[]): RagHit[] {
 // (Postgres unreachable, embeddings unavailable, table missing, etc.) — this
 // is an additive retrieval path, never a hard dependency for chat.
 async function pgvectorSearch(query: string, limit: number): Promise<RagHit[]> {
-  if (!config.pgvectorEnabled || !config.openaiEmbeddingEnabled) return [];
+  if (isOffline() || !config.pgvectorEnabled || !config.openaiEmbeddingEnabled) return [];
   try {
     const available = await isPgAvailable();
     if (!available) return [];
@@ -102,6 +102,71 @@ async function pgvectorSearch(query: string, limit: number): Promise<RagHit[]> {
     });
   } catch (e: any) {
     console.debug(`[rag] pgvectorSearch skipped: ${e?.message ?? e}`);
+    return [];
+  }
+}
+
+// Semantic (MongoDB Atlas Vector Search) search over vault_chunks.
+// Embeds the query, then nearest-neighbour searches via Atlas Vector Search.
+// Returns [] on ANY failure — additive retrieval path, never a hard dependency.
+async function mongodbVectorSearch(query: string, limit: number): Promise<RagHit[]> {
+  if (isOffline() || !config.mongodbVectorEnabled || !config.openaiEmbeddingEnabled) return [];
+  try {
+    const [vec] = await embedText([query]);
+    if (!vec) return [];
+    let mongodb: any;
+    try { mongodb = await import("mongodb"); }
+    catch { throw new Error("mongodb driver not installed — run `pnpm -C server add mongodb`"); }
+    const { MongoClient } = mongodb.default ?? mongodb;
+    const client = new MongoClient(config.mongodbVectorUrl);
+    try {
+      await client.connect();
+      const db = client.db(config.mongodbVectorDb);
+      const coll = db.collection(config.mongodbVectorCollection);
+      const results = await coll.aggregate([
+        {
+          $vectorSearch: {
+            index: config.mongodbVectorIndex,
+            path: "embedding",
+            queryVector: vec,
+            numCandidates: Math.max(100, limit * 10),
+            limit: limit,
+          }
+        },
+        {
+          $project: {
+            path: 1,
+            heading: 1,
+            title: 1,
+            content: 1,
+            entities: 1,
+            keywords: 1,
+            source_kind: 1,
+            score: { $meta: "vectorSearchScore" }
+          }
+        }
+      ]).toArray();
+      return results.map((r: any): RagHit => {
+        const chunkEnts = {
+          emails: r.entities?.emails ?? [],
+          phones: r.entities?.phones ?? [],
+          amounts: r.entities?.amounts ?? [],
+          dates: r.entities?.dates ?? [],
+        };
+        // Atlas score is 0..1 (higher = better), convert to 7..0 scale like pgvector
+        const base = Math.max(0, 7 - (1 - Number(r.score)) * 7);
+        return {
+          source: "vault-semantic",
+          path: r.path,
+          preview: String(r.content).slice(0, 200),
+          score: base + entityOverlapBoost(query, { ...chunkEnts, keywords: r.keywords ?? [] } as any) * 0.5,
+        };
+      });
+    } finally {
+      try { await client.close(); } catch { /* ignore */ }
+    }
+  } catch (e: any) {
+    console.debug(`[rag] mongodbVectorSearch skipped: ${e?.message ?? e}`);
     return [];
   }
 }
@@ -223,9 +288,29 @@ export async function ragSearch(query: string, limit = 8, opts: { sessionId?: st
   const strategy = intentStrategy(intents);
   const effLimit = Math.max(limit, strategy.limit);
   const ck = ragCacheKey(q, effLimit);
-  const cached = ragCache.get(ck);
-  if (cached && Date.now() - cached.at < RAG_CACHE_TTL_MS) return cached.hits.slice(0, limit);
   const t0 = Date.now();
+  const cached = ragCache.get(ck);
+  if (cached && Date.now() - cached.at < RAG_CACHE_TTL_MS) {
+    const reused = cached.hits.slice(0, limit);
+    // Cache hits still belong to this session's retrieval history; without
+    // this, a follow-up can refer to an older query or have no context.
+    rememberRagQuery(opts.sessionId, rawQ, reused);
+    recordRagQuery({
+      query: rawQ,
+      hitCount: reused.length,
+      sources: {
+        index: reused.filter(h => h.source === "vault").length,
+        memory: reused.filter(h => h.source === "memory").length,
+        vaultScan: 0,
+        vector: reused.filter(h => h.source === "vault-semantic").length,
+        structured: reused.filter(h => h.source === "structured").length,
+      },
+      topScore: reused[0]?.score ?? 0,
+      ms: Date.now() - t0,
+      vectorEnabled: (config.pgvectorEnabled || config.mongodbVectorEnabled) && config.openaiEmbeddingEnabled && !isOffline(),
+    });
+    return reused;
+  }
   const hits: RagHit[] = [];
   const seen = new Set<string>();
   let scanCount = 0;
@@ -288,7 +373,7 @@ export async function ragSearch(query: string, limit = 8, opts: { sessionId?: st
     } catch { /* ignore */ }
   }
 
-  // 4) pgvector semantic search — runs ALONGSIDE the steps above (never
+  // 4) pgvector semantic search (Supabase) — runs ALONGSIDE the steps above (never
   // replaces them), only when Supabase + embeddings are both configured.
   // Skips silently (debug log only) on any Postgres/embedding unavailability.
   try {
@@ -300,6 +385,19 @@ export async function ragSearch(query: string, limit = 8, opts: { sessionId?: st
       hits.push(h);
     }
   } catch { /* ignore — pgvectorSearch already catches internally */ }
+
+  // 5) MongoDB Atlas Vector Search — runs ALONGSIDE the steps above (never
+  // replaces them), only when MongoDB Atlas + embeddings are both configured.
+  // Skips silently (debug log only) on any Atlas/embedding unavailability.
+  try {
+    const semantic = await mongodbVectorSearch(q, effLimit);
+    for (const h of semantic) {
+      const key = `vault-semantic:${h.path}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      hits.push(h);
+    }
+  } catch { /* ignore — mongodbVectorSearch already catches internally */ }
 
   // Sort vault hits by score desc, memory after
   hits.sort((a, b) => b.score - a.score);
@@ -320,7 +418,7 @@ export async function ragSearch(query: string, limit = 8, opts: { sessionId?: st
     },
     topScore: noted[0]?.score ?? 0,
     ms: Date.now() - t0,
-    vectorEnabled: config.pgvectorEnabled && config.openaiEmbeddingEnabled && !isOffline(),
+    vectorEnabled: (config.pgvectorEnabled || config.mongodbVectorEnabled) && config.openaiEmbeddingEnabled && !isOffline(),
   });
   ragCache.set(ck, { at: Date.now(), hits: noted });
   // Bound cache size (avoid unbounded growth on long uptime)

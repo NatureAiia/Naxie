@@ -104,6 +104,14 @@ const jevApiKey = pick("TYPESAFE_API_KEY", "");
 const jevBaseUrl = pick("TYPESAFE_BASE_URL", "https://api.typesafe.ai/v1/systemone");
 const jevModel = pick("TYPESAFE_MODEL", "jev-latest");
 
+// MongoDB Atlas Vector Search (alternative to Supabase pgvector)
+// Uses MongoDB Atlas Vector Search (requires M10+ cluster with Vector Search enabled).
+// Blank = MongoDB vector search skipped entirely.
+const mongodbVectorUrl = pick("MONGODB_VECTOR_URL", "");
+const mongodbVectorDb = pick("MONGODB_VECTOR_DB", "naxionai");
+const mongodbVectorCollection = pick("MONGODB_VECTOR_COLLECTION", "vault_chunks");
+const mongodbVectorIndex = pick("MONGODB_VECTOR_INDEX", "vector_index");
+
 // Supabase — credentials only for now (docs/naxie-storage-architecture.md
 // Phase 2: pgvector RAG store + MAG memory table). No integration code reads
 // these yet; storage.ts's status route uses them for a live reachability
@@ -260,6 +268,11 @@ export const config = {
   jevBaseUrl,
   jevModel,
   jevEnabled: jevApiKey.length > 0,
+  mongodbVectorUrl,
+  mongodbVectorDb,
+  mongodbVectorCollection,
+  mongodbVectorIndex,
+  mongodbVectorEnabled: mongodbVectorUrl.length > 0,
   supabaseUrl,
   supabasePublishableKey,
   supabaseSecretKey,

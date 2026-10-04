@@ -120,10 +120,10 @@ function OverviewTab({ onGoOrg }: { onGoOrg: () => void }) {
   const connectivityValue = health?.ready ? "Ready" : "Degraded";
   const connectivityTone: "ok" | "warn" = health?.ready ? "ok" : "warn";
   const vectorValue = ragStatus
-    ? (ragStatus.pgvectorEnabled && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "Active" : "Unreachable") : "Not configured")
+    ? ((ragStatus.pgvectorEnabled || ragStatus.mongodbVectorEnabled) && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "Active" : "Unreachable") : "Not configured")
     : "—";
   const vectorTone = ragStatus
-    ? (ragStatus.pgvectorEnabled && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "ok" : "warn") : undefined)
+    ? ((ragStatus.pgvectorEnabled || ragStatus.mongodbVectorEnabled) && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "ok" : "warn") : undefined)
     : undefined;
   const blockedCount = security?.blocked?.length ?? 0;
 

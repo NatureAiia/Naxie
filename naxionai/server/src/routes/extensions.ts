@@ -268,16 +268,17 @@ extensionsRouter.post("/scheduler/run", async (_req, res) => {
   } catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
 });
 
-// ── Vector store (pgvector RAG) — already-running re-embed pipeline,      ──
+// ── Vector store (pgvector RAG + MongoDB Atlas Vector Search) — already-running re-embed pipeline,      ──
 // ── surfaced here with a status check + a settings-page config/run path.  ──
 extensionsRouter.get("/rag/status", async (_req, res) => {
   try {
-    const connected = config.pgvectorEnabled ? await isPgAvailable() : false;
+    const pgConnected = config.pgvectorEnabled ? await isPgAvailable() : false;
     const stats = reembedStats();
     res.json({
       pgvectorEnabled: config.pgvectorEnabled,
+      mongodbVectorEnabled: config.mongodbVectorEnabled,
       openaiEmbeddingEnabled: config.openaiEmbeddingEnabled,
-      connected,
+      connected: pgConnected,
       lastRun: stats.lastRun,
       pending: stats.pending,
       running: stats.running,
@@ -290,13 +291,17 @@ extensionsRouter.post("/rag/config", async (req, res) => {
   try {
     const supabaseDbUrl = req.body?.supabaseDbUrl !== undefined ? String(req.body.supabaseDbUrl) : undefined;
     const openaiEmbeddingApiKey = req.body?.openaiEmbeddingApiKey !== undefined ? String(req.body.openaiEmbeddingApiKey) : undefined;
-    if (supabaseDbUrl === undefined && openaiEmbeddingApiKey === undefined) {
-      return res.status(400).json({ error: "supabaseDbUrl or openaiEmbeddingApiKey required" });
+    const mongodbVectorUrl = req.body?.mongodbVectorUrl !== undefined ? String(req.body.mongodbVectorUrl) : undefined;
+    const mongodbVectorDb = req.body?.mongodbVectorDb !== undefined ? String(req.body.mongodbVectorDb) : undefined;
+    const mongodbVectorCollection = req.body?.mongodbVectorCollection !== undefined ? String(req.body.mongodbVectorCollection) : undefined;
+    const mongodbVectorIndex = req.body?.mongodbVectorIndex !== undefined ? String(req.body.mongodbVectorIndex) : undefined;
+    if (supabaseDbUrl === undefined && openaiEmbeddingApiKey === undefined && mongodbVectorUrl === undefined && mongodbVectorDb === undefined && mongodbVectorCollection === undefined && mongodbVectorIndex === undefined) {
+      return res.status(400).json({ error: "supabaseDbUrl, openaiEmbeddingApiKey, or mongodbVector settings required" });
     }
-    await setRagOverrides({ supabaseDbUrl, openaiEmbeddingApiKey });
+    await setRagOverrides({ supabaseDbUrl, openaiEmbeddingApiKey, mongodbVectorUrl, mongodbVectorDb, mongodbVectorCollection, mongodbVectorIndex });
     logAudit({ level: "info", actor: "operator", action: "rag.config", target: "vector-store", detail: "updated vector store credentials", result: "success" });
     const connected = config.pgvectorEnabled ? await isPgAvailable() : false;
-    res.json({ ok: true, pgvectorEnabled: config.pgvectorEnabled, openaiEmbeddingEnabled: config.openaiEmbeddingEnabled, connected, overrides: getRagOverridesStatus() });
+    res.json({ ok: true, pgvectorEnabled: config.pgvectorEnabled, mongodbVectorEnabled: config.mongodbVectorEnabled, openaiEmbeddingEnabled: config.openaiEmbeddingEnabled, connected, overrides: getRagOverridesStatus() });
   } catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
 });
 

@@ -552,7 +552,7 @@ export const api = {
   deleteModel: (name: string) => req<{ ok: true; removed: string }>(`/api/models/installed/${encodeURIComponent(name)}`, { method: "DELETE" }),
   // Bring-your-own model providers (cloud APIs the user already uses).
   listModelProviders: () => req<{
-    providers: { id: string; label: string; kind: string; baseUrl: string; model: string; active: boolean; keyPrefix: string; createdAt: string }[];
+    providers: { id: string; label: string; kind: string; baseUrl: string; model: string; active: boolean; keyPrefix: string; createdAt: string; position: number }[];
     kinds: Record<string, { label: string; baseUrl: string; modelHint: string }>;
     active: { model: string; baseUrl: string } | null;
   }>("/api/models/providers"),
@@ -560,6 +560,7 @@ export const api = {
     req<{ provider: any }>("/api/models/providers", { method: "POST", body: JSON.stringify(body) }),
   activateModelProvider: (id: string) => req<{ provider: any }>(`/api/models/providers/${encodeURIComponent(id)}/activate`, { method: "POST" }),
   removeModelProvider: (id: string) => req<{ ok: true }>(`/api/models/providers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  reorderModelProviders: (ids: string[]) => req<{ providers: any[] }>("/api/models/providers/reorder", { method: "POST", body: JSON.stringify({ ids }) }),
   // Model spend policy — free-tier models are used by default; paid models
   // stay off until explicitly approved here.
   getModelPolicy: () => req<{ policy: { allowPaidModels: boolean } }>("/api/models/policy"),
@@ -763,11 +764,11 @@ export const api = {
   githubEvents: () => req<{ events: GithubEvent[] }>("/api/projects/events"),
   schedulerStatus: () => req<{ engines: SchedulerEngine[] }>("/api/scheduler/status"),
 
-  // Vector store (pgvector RAG) — already-running re-embed pipeline; this
-  // just surfaces status and lets Supabase DB URL / OpenAI embedding key be
+  // Vector store (pgvector RAG + MongoDB Atlas Vector Search) — already-running re-embed pipeline; this
+  // just surfaces status and lets Supabase DB URL / OpenAI embedding key / MongoDB Atlas settings be
   // set from the UI instead of only .env.
   ragStatus: () => req<RagStatus>("/api/extensions/rag/status"),
-  ragSetConfig: (patch: { supabaseDbUrl?: string; openaiEmbeddingApiKey?: string }) =>
+  ragSetConfig: (patch: { supabaseDbUrl?: string; openaiEmbeddingApiKey?: string; mongodbVectorUrl?: string; mongodbVectorDb?: string; mongodbVectorCollection?: string; mongodbVectorIndex?: string }) =>
     req<RagStatus & { ok: true }>("/api/extensions/rag/config", { method: "POST", body: JSON.stringify(patch) }),
   ragReembedNow: () => req<{ ok: boolean; error?: string; lastRun: RagStatus["lastRun"] }>("/api/extensions/rag/reembed", { method: "POST" }),
 
@@ -997,12 +998,13 @@ export type SchedulerEngine = { name: string; intervalSeconds: number; lastRunAt
 
 export type RagStatus = {
   pgvectorEnabled: boolean;
+  mongodbVectorEnabled: boolean;
   openaiEmbeddingEnabled: boolean;
   connected: boolean;
   lastRun: { at: number; chunks: number; ok: boolean; error?: string } | null;
   pending: boolean;
   running: boolean;
-  overrides: { supabaseDbUrlOverridden: boolean; openaiEmbeddingApiKeyOverridden: boolean };
+  overrides: { supabaseDbUrlOverridden: boolean; openaiEmbeddingApiKeyOverridden: boolean; mongodbVectorUrlOverridden: boolean };
 };
 
 export type ConnectorAuthType = "none" | "apiKey" | "bearer" | "basic" | "header" | "oauth2";

@@ -109,6 +109,10 @@ export function Extensions() {
   const [ragStatus, setRagStatus] = useState<RagStatus | null>(null);
   const [ragDbUrl, setRagDbUrl] = useState("");
   const [ragEmbedKey, setRagEmbedKey] = useState("");
+  const [ragMongoUrl, setRagMongoUrl] = useState("");
+  const [ragMongoDb, setRagMongoDb] = useState("naxionai");
+  const [ragMongoCollection, setRagMongoCollection] = useState("vault_chunks");
+  const [ragMongoIndex, setRagMongoIndex] = useState("vector_index");
   const [ragSaving, setRagSaving] = useState(false);
   const [ragReembedding, setRagReembedding] = useState(false);
 
@@ -141,15 +145,19 @@ export function Extensions() {
     api.ragStatus().then(setRagStatus).catch(() => {});
   }
   async function saveRagConfig() {
-    if (!ragDbUrl.trim() && !ragEmbedKey.trim()) return;
+    if (!ragDbUrl.trim() && !ragEmbedKey.trim() && !ragMongoUrl.trim()) return;
     setRagSaving(true);
     try {
-      const patch: { supabaseDbUrl?: string; openaiEmbeddingApiKey?: string } = {};
+      const patch: { supabaseDbUrl?: string; openaiEmbeddingApiKey?: string; mongodbVectorUrl?: string; mongodbVectorDb?: string; mongodbVectorCollection?: string; mongodbVectorIndex?: string } = {};
       if (ragDbUrl.trim()) patch.supabaseDbUrl = ragDbUrl.trim();
       if (ragEmbedKey.trim()) patch.openaiEmbeddingApiKey = ragEmbedKey.trim();
+      if (ragMongoUrl.trim()) patch.mongodbVectorUrl = ragMongoUrl.trim();
+      if (ragMongoDb.trim()) patch.mongodbVectorDb = ragMongoDb.trim();
+      if (ragMongoCollection.trim()) patch.mongodbVectorCollection = ragMongoCollection.trim();
+      if (ragMongoIndex.trim()) patch.mongodbVectorIndex = ragMongoIndex.trim();
       const r = await api.ragSetConfig(patch);
       setRagStatus(r);
-      setRagDbUrl(""); setRagEmbedKey("");
+      setRagDbUrl(""); setRagEmbedKey(""); setRagMongoUrl(""); setRagMongoDb("naxionai"); setRagMongoCollection("vault_chunks"); setRagMongoIndex("vector_index");
       showToast("Vector store credentials saved", "success");
     } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
     finally { setRagSaving(false); }
@@ -401,16 +409,16 @@ export function Extensions() {
       {tab === "platform" && ragStatus && (
       <Card
         title="Vector store"
-        action={<Button variant="subtle" onClick={reembedNow} disabled={ragReembedding || !ragStatus.pgvectorEnabled || !ragStatus.openaiEmbeddingEnabled}>{ragReembedding ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Re-embed now</Button>}
+        action={<Button variant="subtle" onClick={reembedNow} disabled={ragReembedding || (!ragStatus.pgvectorEnabled && !ragStatus.mongodbVectorEnabled) || !ragStatus.openaiEmbeddingEnabled}>{ragReembedding ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Re-embed now</Button>}
       >
         <p className="text-xs text-cream-300/60 mb-3">
-          Naxie's vault gets re-embedded into a pgvector store (Supabase Postgres) on every write, powering semantic search over your notes.
-          Already running once both values below are set — no restart needed, no code change either way.
+          Naxie's vault gets re-embedded into a pgvector store (Supabase Postgres) and/or MongoDB Atlas Vector Search on every write, powering semantic search over your notes.
+          Already running once values below are set — no restart needed, no code change either way.
         </p>
         <div className="flex items-center gap-3 flex-wrap mb-3">
-          <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full ${ragStatus.pgvectorEnabled && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "bg-leaf-500/10 text-leaf-400" : "bg-amber-500/10 text-amber-300") : "bg-ink-800 text-cream-300/50"}`}>
-            <HealthDot ok={ragStatus.connected} missing={!ragStatus.pgvectorEnabled || !ragStatus.openaiEmbeddingEnabled} />
-            {ragStatus.pgvectorEnabled && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "Active" : "Configured, unreachable") : "Not configured"}
+          <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full ${(ragStatus.pgvectorEnabled || ragStatus.mongodbVectorEnabled) && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "bg-leaf-500/10 text-leaf-400" : "bg-amber-500/10 text-amber-300") : "bg-ink-800 text-cream-300/50"}`}>
+            <HealthDot ok={ragStatus.connected} missing={!ragStatus.pgvectorEnabled && !ragStatus.mongodbVectorEnabled || !ragStatus.openaiEmbeddingEnabled} />
+            {(ragStatus.pgvectorEnabled || ragStatus.mongodbVectorEnabled) && ragStatus.openaiEmbeddingEnabled ? (ragStatus.connected ? "Active" : "Configured, unreachable") : "Not configured"}
           </div>
           {ragStatus.lastRun && (
             <span className="text-[11px] text-cream-300/50">
@@ -431,8 +439,32 @@ export function Extensions() {
               className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-xs text-cream-100 focus:outline-none focus:border-violet-500/60" />
           </div>
         </div>
+        {ragStatus.mongodbVectorEnabled && (
+          <div className="mt-3 grid grid-cols-2 gap-3 border-t border-ink-800 pt-3">
+            <div>
+              <label className="text-[11px] text-cream-300/50">MongoDB Atlas URL {ragStatus.overrides.mongodbVectorUrlOverridden && <span className="text-leaf-400">(set via settings)</span>}</label>
+              <input type="password" value={ragMongoUrl} onChange={e => setRagMongoUrl(e.target.value)} placeholder={ragStatus.mongodbVectorEnabled ? "•••••••••••••••• (leave blank to keep)" : "mongodb+srv://..."}
+                className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-xs text-cream-100 focus:outline-none focus:border-violet-500/60" />
+            </div>
+            <div>
+              <label className="text-[11px] text-cream-300/50">MongoDB Database</label>
+              <input type="text" value={ragMongoDb} onChange={e => setRagMongoDb(e.target.value)} placeholder="naxionai"
+                className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-xs text-cream-100 focus:outline-none focus:border-violet-500/60" />
+            </div>
+            <div>
+              <label className="text-[11px] text-cream-300/50">MongoDB Collection</label>
+              <input type="text" value={ragMongoCollection} onChange={e => setRagMongoCollection(e.target.value)} placeholder="vault_chunks"
+                className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-xs text-cream-100 focus:outline-none focus:border-violet-500/60" />
+            </div>
+            <div>
+              <label className="text-[11px] text-cream-300/50">MongoDB Vector Index</label>
+              <input type="text" value={ragMongoIndex} onChange={e => setRagMongoIndex(e.target.value)} placeholder="vector_index"
+                className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-xs text-cream-100 focus:outline-none focus:border-violet-500/60" />
+            </div>
+          </div>
+        )}
         <div className="mt-3">
-          <Button onClick={saveRagConfig} disabled={ragSaving || (!ragDbUrl.trim() && !ragEmbedKey.trim())}>
+          <Button onClick={saveRagConfig} disabled={ragSaving || (!ragDbUrl.trim() && !ragEmbedKey.trim() && !ragMongoUrl.trim())}>
             {ragSaving ? <Loader2 size={13} className="animate-spin" /> : <KeyRound size={13} />} Save
           </Button>
         </div>
