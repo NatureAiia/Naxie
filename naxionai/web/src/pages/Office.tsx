@@ -207,7 +207,7 @@ export function Office() {
           pendingApprovalCounts={pendingApprovalCounts}
           highlightPersonaId={highlightPersonaId}
           onSelectPersona={id => { setPanelPersonaId(id); setSelectedDepartmentId(null); }}
-          onSelectMeetingTable={() => navigate("/chat")}
+          onSelectMeetingTable={() => navigate("/council?tab=board")}
           onSelectDepartment={id => { setSelectedDepartmentId(id); setPanelPersonaId(null); }}
           height="min(70vh, 640px)"
         />

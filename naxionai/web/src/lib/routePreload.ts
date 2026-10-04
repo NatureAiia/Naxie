@@ -17,7 +17,9 @@ const preloaders: Record<string, Thunk> = {
   "/naxie": () => import("../pages/Naxie"),
   "/naxie/memory": () => import("../pages/NaxieMemory"),
   "/my-finances": () => import("../pages/MyFinances"),
-  "/chat": () => import("../pages/BoardMeeting"),
+  "/council": () => import("../pages/Council"),
+  "/chat": () => import("../pages/Council"),
+  "/orchestrate": () => import("../pages/Council"),
   "/runs": () => import("../pages/MyWork"),
   "/approvals": () => import("../pages/MyWork"),
   "/planner": () => import("../pages/Planner"),
@@ -64,7 +66,7 @@ export function preloadRoute(path: string): void {
 
 /** After first paint, prefetch the routes a user almost always visits next. */
 export function preloadLikelyRoutes(): void {
-  const run = () => { preloadRoute("/chat"); preloadRoute("/my-work"); };
+  const run = () => { preloadRoute("/council"); preloadRoute("/my-work"); };
   if (typeof (window as any).requestIdleCallback === "function") {
     (window as any).requestIdleCallback(run, { timeout: 2500 });
   } else {

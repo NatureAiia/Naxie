@@ -10,11 +10,16 @@
 // inspect underneath.
 
 import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { marked } from "marked";
-import { RefreshCw, Users2, History, MessageSquareWarning, Clock, X } from "lucide-react";
+import { RefreshCw, Users2, History, MessageSquareWarning, Clock, X, Copy, Download, FileText, Send, Waypoints } from "lucide-react";
 import { api, type BoardRun, type Cadence } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { BrandMark } from "../components/BrandMark";
+import {
+  buildBoardMarkdown, copyText, downloadMarkdown, downloadPdfFromMarkdown,
+  downloadVaultFile, sendToNaxie,
+} from "../lib/resultActions";
 
 // Kept in sync with server/src/lib/board.ts's DEFAULT_COUNCIL — pruned
 // 2026-09-21 alongside personas.ts's own prune (all built-ins had zero
@@ -29,7 +34,11 @@ function md(text: string): string {
   try { return marked.parse(text) as string; } catch { return text; }
 }
 
-export function BoardMeeting() {
+export function BoardMeeting(props: {
+  initialTopic?: string;
+  onSendToOrchestrate?: (objective: string) => void;
+} = {}) {
+  const navigate = useNavigate();
   const [personas, setPersonas] = useState<PersonaLite[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set(DEFAULT_COUNCIL));
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -69,6 +78,12 @@ export function BoardMeeting() {
     }).catch(() => {});
     refreshHistory();
   }, []);
+
+  // Council-tab handoff — Orchestrate "Send to Board" pre-fills the topic.
+  useEffect(() => {
+    if (props.initialTopic?.trim()) setTopic(props.initialTopic.trim().slice(0, 500));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.initialTopic]);
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, topic); } catch { /* ignore */ }
@@ -365,6 +380,70 @@ export function BoardMeeting() {
                 submit={submitCorrection}
                 submitting={correcting}
               />
+              {/* After-done: continue / reuse / download. Correction above revises
+                  in place; these let the finished synthesis leave the page. */}
+              <div className="mt-3 pt-3 border-t border-ink-800 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void copyText(run.chairmanSynthesis, "Synthesis copied")}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                >
+                  <Copy size={11} /> Copy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadMarkdown(buildBoardMarkdown(run), `board-${run.topic}`)}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                >
+                  <Download size={11} /> .md
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Fast path: export the auto-saved vault note; fallback
+                    // renders the current run (covers pre-note / failed-note runs).
+                    if (run.notePath) downloadVaultFile("pdf", run.notePath);
+                    else void downloadPdfFromMarkdown(buildBoardMarkdown(run), `board-${run.topic}`, `Board Meeting: ${run.topic}`);
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                >
+                  <FileText size={11} /> PDF
+                </button>
+                {run.notePath && (
+                  <Link
+                    to={`/edit/${run.notePath}`}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                  >
+                    <FileText size={11} /> Open note
+                  </Link>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTopic(`Follow-up on "${run.topic}": `);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                >
+                  <RefreshCw size={11} /> Follow-up
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sendToNaxie(navigate, `Continue this board meeting outcome with me:\n\nTopic: ${run.topic}\n\nSynthesis:\n${run.chairmanSynthesis}`)}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                >
+                  <Send size={11} /> Naxie
+                </button>
+                {props.onSendToOrchestrate && (
+                  <button
+                    type="button"
+                    onClick={() => props.onSendToOrchestrate!(`Carry out this board decision: ${run.topic}\n\nAgreed outcome:\n${run.chairmanSynthesis}`)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                  >
+                    <Waypoints size={11} /> Orchestrate
+                  </button>
+                )}
+              </div>
             </Card>
           )}
 

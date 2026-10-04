@@ -147,7 +147,7 @@ export function NaxieWidget() {
             )}
 
             {turns.length === 0 && (
-              <div className="text-[11px] text-cream-300/60 text-center py-4"><Link to="/chat" className="text-violet-400 hover:text-violet-300">Chat</Link> is for direct worker talk.</div>
+              <div className="text-[11px] text-cream-300/60 text-center py-4"><Link to="/council?tab=board" className="text-violet-400 hover:text-violet-300">Council</Link> is for direct worker talk.</div>
             )}
 
             <div className="pt-1.5 mt-1 border-t border-ink-800/60 flex flex-col gap-1.5">

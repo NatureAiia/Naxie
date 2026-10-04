@@ -78,6 +78,18 @@ export function Naxie() {
     activeJobId, workbenchSteps, workbenchPhase,
   } = useNaxieAssistant();
   const [input, setInput] = useState("");
+  // Council handoff — Board Meeting / Orchestrate "Continue in Naxie" stashes
+  // the result prompt in localStorage before navigating here. Prefill (don't
+  // auto-send) so the operator reviews before any agent work starts.
+  useEffect(() => {
+    try {
+      const h = localStorage.getItem("naxie.handoffPrompt");
+      if (h?.trim()) {
+        setInput(h.slice(0, 4000));
+        localStorage.removeItem("naxie.handoffPrompt");
+      }
+    } catch { /* ignore */ }
+  }, []);
   // §8.2 layout — chat is the visual center by default; the knowledge graph
   // ("the brain") and the Workbench (live tool-call feed) move into on-demand
   // views instead of always filling half the screen. Toggled, not routed, so

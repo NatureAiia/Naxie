@@ -10,7 +10,7 @@ import { Skeleton } from "./components/Card";
 // Home Base
 const Naxie = lazy(() => import("./pages/Naxie").then(m => ({ default: m.Naxie })));
 const NaxieMemory = lazy(() => import("./pages/NaxieMemory").then(m => ({ default: m.NaxieMemory })));
-const BoardMeeting = lazy(() => import("./pages/BoardMeeting").then(m => ({ default: m.BoardMeeting })));
+const Council = lazy(() => import("./pages/Council").then(m => ({ default: m.Council })));
 const CommandCenter = lazy(() => import("./pages/CommandCenter").then(m => ({ default: m.CommandCenter })));
 
 // Agents & Subagents
@@ -22,7 +22,6 @@ const Planner = lazy(() => import("./pages/Planner").then(m => ({ default: m.Pla
 const MyFinances = lazy(() => import("./pages/MyFinances").then(m => ({ default: m.MyFinances })));
 const BusinessFinance = lazy(() => import("./pages/BusinessFinance").then(m => ({ default: m.BusinessFinance })));
 const Webhooks = lazy(() => import("./pages/Webhooks").then(m => ({ default: m.Webhooks })));
-const Orchestrate = lazy(() => import("./pages/Orchestrate").then(m => ({ default: m.Orchestrate })));
 const Team = lazy(() => import("./pages/Team").then(m => ({ default: m.Team })));
 const Presets = lazy(() => import("./pages/Presets").then(m => ({ default: m.Presets })));
 const Models = lazy(() => import("./pages/Models").then(m => ({ default: m.Models })));
@@ -97,7 +96,9 @@ function AppShell() {
         {/* Home Base */}
         <Route path="/naxie" element={<Naxie />} />
         <Route path="/naxie/memory" element={<NaxieMemory />} />
-        <Route path="/chat" element={<BoardMeeting />} />
+        <Route path="/council" element={<Council />} />
+        {/* Legacy: Board Meeting lived at /chat, Orchestrate at /orchestrate */}
+        <Route path="/chat" element={<Navigate to="/council?tab=board" replace />} />
         <Route path="/command" element={<CommandCenter />} />
 
         {/* Agents & Subagents */}
@@ -114,7 +115,7 @@ function AppShell() {
         <Route path="/my-finances" element={<MyFinances />} />
         <Route path="/business-finance" element={<BusinessFinance />} />
         <Route path="/webhooks" element={<Webhooks />} />
-        <Route path="/orchestrate" element={<Orchestrate />} />
+        <Route path="/orchestrate" element={<Navigate to="/council?tab=orchestrate" replace />} />
         <Route path="/team" element={<Team />} />
         <Route path="/presets" element={<Presets />} />
         <Route path="/models" element={<Models />} />
@@ -172,7 +173,6 @@ function AppShell() {
         <Route path="/personas" element={<Navigate to="/office" replace />} />
         <Route path="/departments" element={<Navigate to="/office" replace />} />
         <Route path="/squads" element={<Navigate to="/office" replace />} />
-        <Route path="/orchestrate" element={<Navigate to="/office" replace />} />
         <Route path="/spin-up" element={<Navigate to="/office" replace />} />
         <Route path="/skill-forge" element={<Navigate to="/skills?tab=forge" replace />} />
         <Route path="/governance" element={<Navigate to="/connectors?tab=policies" replace />} />

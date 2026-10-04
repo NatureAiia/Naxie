@@ -80,7 +80,7 @@ const primaryNav: NavItem[] = [
 ];
 
 const agentsNav: NavItem[] = [
-  { to: "/orchestrate", label: "Orchestrate", icon: Waypoints },
+  { to: "/council", label: "Council", icon: Waypoints },
   { to: "/team", label: "Focus Team", icon: Users },
   { to: "/presets", label: "Hire a Worker", icon: UserPlus },
 ];

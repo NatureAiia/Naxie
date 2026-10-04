@@ -58,7 +58,9 @@ export function CommandPalette() {
 
   const items: Item[] = [
     { id: "n-naxie", group: "Navigate", label: "Naxie", icon: Sparkles, onSelect: go("/naxie"), keywords: "home overview voice assistant mic talk speak naxie jarvis" },
-    { id: "n-chat", group: "Navigate", label: "Board Meeting", icon: MessageSquare, onSelect: go("/chat"), keywords: "talk message council" },
+    { id: "n-council", group: "Navigate", label: "Council", icon: MessageSquare, onSelect: go("/council"), keywords: "talk message council board meeting orchestrate debate" },
+    { id: "n-board", group: "Navigate", label: "Board Meeting", icon: MessageSquare, onSelect: go("/council?tab=board"), keywords: "talk message council board" },
+    { id: "n-orchestrate", group: "Navigate", label: "Orchestrate", icon: MessageSquare, onSelect: go("/council?tab=orchestrate"), keywords: "orchestrate decompose parallel tasks" },
     { id: "n-agents", group: "Navigate", label: "Office", icon: UserCircle, onSelect: go("/office"), keywords: "agents personas roles employees workforce roster office desk" },
     { id: "n-terminal", group: "Navigate", label: "IDE", icon: Terminal, onSelect: go("/ide"), keywords: "shell console command exec code editor" },
     { id: "n-runs", group: "Navigate", label: "Runs", icon: ListChecks, onSelect: go("/runs"), keywords: "jobs queue tasks results outputs activity" },
@@ -71,7 +73,7 @@ export function CommandPalette() {
     { id: "n-command", group: "Navigate", label: "Command Center", icon: LayoutDashboard, onSelect: go("/command"), keywords: "org dashboard command center roles" },
     { id: "n-daily", group: "Navigate", label: "Daily Reports", icon: ChangelogIcon, onSelect: go("/daily-reports"), keywords: "daily reports digest rollup" },
 
-    { id: "a-new-chat", group: "Actions", label: "New board meeting", icon: PlusCircle, onSelect: go("/chat"), keywords: "start fresh session council" },
+    { id: "a-new-chat", group: "Actions", label: "New board meeting", icon: PlusCircle, onSelect: go("/council?tab=board"), keywords: "start fresh session council" },
     { id: "a-search-vault", group: "Actions", label: "Search the vault", icon: SearchIcon, onSelect: go("/library") },
     { id: "a-new-schedule", group: "Actions", label: "Create a schedule", icon: Calendar, onSelect: go("/schedules"), keywords: "recurring template fire" },
     { id: "a-export-cal", group: "Actions", label: "Download agenda (.ics)", icon: Calendar, onSelect: () => { window.open("/api/calendar/export.ics", "_blank"); setOpen(false); }, keywords: "calendar export ics google agenda daily rhythm" },

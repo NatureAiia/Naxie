@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
-import { Waypoints, Play, Clock, ChevronDown, ChevronRight } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Waypoints, Play, Clock, ChevronDown, ChevronRight, Copy, Download, FileText, Save, Send, Users2, RefreshCw } from "lucide-react";
 import { api, type OrchestrationRun } from "../lib/api";
 import { PageHeader } from "../components/PageHeader";
 import { Card, Button, showToast } from "../components/Card";
 import { EmptyState } from "../components/States";
+import {
+  buildOrchestrationMarkdown, copyText, downloadMarkdown, downloadPdfFromMarkdown,
+  saveMarkdownToVault, sendToNaxie,
+} from "../lib/resultActions";
 
 // Multi-agent objective decomposition — ported from AI-Institute-Africa/
 // the earlier prototype. The backend (routes/orchestrator.ts,
@@ -30,12 +35,22 @@ function relTime(iso?: string): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
-export function Orchestrate() {
+export function Orchestrate(props: {
+  initialObjective?: string;
+  onSendToBoard?: (topic: string) => void;
+} = {}) {
+  const navigate = useNavigate();
   const [objective, setObjective] = useState("");
   const [running, setRunning] = useState(false);
   const [runs, setRuns] = useState<RunListItem[] | null>(null);
   const [expanded, setExpanded] = useState<OrchestrationRun | null>(null);
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
+
+  // Council-tab handoff — Board "Send to Orchestrate" pre-fills the objective.
+  useEffect(() => {
+    if (props.initialObjective?.trim()) setObjective(props.initialObjective.trim().slice(0, 2000));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.initialObjective]);
 
   async function load() {
     try { const r = await api.listOrchestrations(); setRuns(r.runs); } catch { /* ignore */ }
@@ -129,6 +144,60 @@ export function Orchestrate() {
                       <div className="text-xs rounded-md bg-violet-500/5 border border-violet-500/20 px-2.5 py-2">
                         <div className="text-violet-300 font-medium mb-1">Final report</div>
                         <div className="text-cream-100 whitespace-pre-wrap">{expanded.finalReport}</div>
+                        {/* After-done: continue / reuse / download. */}
+                        <div className="mt-2 pt-2 border-t border-violet-500/20 flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => void copyText(expanded.finalReport, "Report copied")}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                          >
+                            <Copy size={11} /> Copy
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void downloadMarkdown(buildOrchestrationMarkdown(expanded), `orchestration-${expanded.label}`)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                          >
+                            <Download size={11} /> .md
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void downloadPdfFromMarkdown(buildOrchestrationMarkdown(expanded), `orchestration-${expanded.label}`, `Orchestration: ${expanded.label}`)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                          >
+                            <FileText size={11} /> PDF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void saveMarkdownToVault(buildOrchestrationMarkdown(expanded), `orchestration-${expanded.label}`)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                          >
+                            <Save size={11} /> Vault
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setObjective(expanded.objective); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                          >
+                            <RefreshCw size={11} /> Re-run
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => sendToNaxie(navigate, `Continue this orchestration outcome with me:\n\nObjective: ${expanded.objective}\n\nFinal report:\n${expanded.finalReport}`)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                          >
+                            <Send size={11} /> Naxie
+                          </button>
+                          {props.onSendToBoard && (
+                            <button
+                              type="button"
+                              onClick={() => props.onSendToBoard!(`Review this orchestration outcome: ${expanded.label}\n\nKey findings:\n${expanded.finalReport.slice(0, 800)}`)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border border-ink-800 text-cream-300/70 hover:text-cream-100 hover:border-violet-500/40"
+                            >
+                              <Users2 size={11} /> Board
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
