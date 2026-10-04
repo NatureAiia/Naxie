@@ -114,7 +114,10 @@ export async function sendTelegramMessage(text: string, chatId?: string, keyboar
   const conn = getConnectionByProvider("telegram");
   if (!conn?.secrets?.botToken) return { ok: false, error: "no Telegram connection — add one on the Integrations page" };
   const botToken = stripToken(conn.secrets.botToken);
-  const chat = String(chatId ?? conn.config?.chatId ?? "").trim();
+  // Explicit call targets win (for replies/approvals). Otherwise, route
+  // scheduled/system broadcasts to the configured group before falling back
+  // to the Telegram integration's default one-to-one chat.
+  const chat = String(chatId ?? process.env.NAXION_TELEGRAM_GROUP_CHAT ?? conn.config?.chatId ?? "").trim();
   if (!chat) return { ok: false, error: "no chatId (set a default on the Integrations page or pass chatId)" };
   if (/bot$/i.test(chat) && !/^-?\d+$/.test(chat) && !chat.startsWith("@")) {
     return { ok: false, error: `chatId "${chat}" looks like a bot username, not a chat — a bot can't message itself. Use a numeric chat id (DM the bot, then read it from getUpdates) or @channelusername.` };

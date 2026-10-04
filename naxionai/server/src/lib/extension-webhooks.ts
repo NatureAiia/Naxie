@@ -11,7 +11,7 @@ const STORE_PATH = resolve(STORE_DIR, "extension-webhooks.json");
 export type WebhookEntry = {
   id: string;
   targetId: string; // connector/integration id or core extension id
-  targetKind: "connector" | "integration" | "extension";
+  targetKind: "connector" | "integration" | "extension" | "task";
   secret: string;
   urlPath: string; // e.g. /api/extensions/webhook/<id>
   createdAt: string;
@@ -24,10 +24,10 @@ export type WebhookEntry = {
 const IDEMPOTENCY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_RECENT_JOBS = 100;
 
-export type PublicWebhookEntry = Omit<WebhookEntry, "secret" | "recentJobs"> & { secretConfigured: boolean };
+export type PublicWebhookEntry = Omit<WebhookEntry, "secret" | "recentJobs"> & { secretConfigured: boolean; recentJobIds: string[] };
 export function toPublicWebhook(w: WebhookEntry): PublicWebhookEntry {
   const { secret, recentJobs: _recentJobs, ...publicEntry } = w;
-  return { ...publicEntry, secretConfigured: !!secret };
+  return { ...publicEntry, secretConfigured: !!secret, recentJobIds: (w.recentJobs ?? []).slice(-5).reverse().map(item => item.jobId) };
 }
 
 function load(): WebhookEntry[] {

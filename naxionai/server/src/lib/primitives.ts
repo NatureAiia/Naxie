@@ -4519,7 +4519,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
   {
     name: "schedule.create",
-    description: "Create a RECURRING schedule that runs a task automatically (e.g. 'every weekday at 8am run the daily briefing', 'every Monday summarize last week's tasks'). The task runs through the normal agent pipeline at the given local time; optionally emails the result when done. For a ONE-OFF dated commitment use calendar.add_event instead. Days: 0=Sunday..6=Saturday; empty/omitted = every day. Returns the created schedule { id, name, cadence, enabled }.",
+    description: "Create a RECURRING schedule that runs a task automatically (e.g. 'every weekday at 8am run the daily briefing', 'every Monday summarize last week's tasks'). The task runs through the normal agent pipeline at the given local time; every result is sent to the configured Telegram group/default chat, with optional per-schedule Telegram destination and email overrides. For a ONE-OFF dated commitment use calendar.add_event instead. Days: 0=Sunday..6=Saturday; empty/omitted = every day. Returns the created schedule { id, name, cadence, enabled }.",
     readonly: false,
     args: [
       { name: "name", type: "string", required: true, description: "Human label for the schedule, e.g. 'Morning ops digest'" },
@@ -4528,6 +4528,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "minute", type: "number", required: false, description: "Local minute 0-59 (default 0)" },
       { name: "days_of_week", type: "string", required: false, description: "Days to fire, comma-separated 0-6 (0=Sun) or JSON array — e.g. '1,2,3,4,5' for weekdays. Omit for every day." },
       { name: "deliver_email", type: "string", required: false, description: "Optional REAL address to email each run's result to (resolve names via users.lookup first — never invent an address)" },
+      { name: "deliver_telegram_chat_id", type: "string", required: false, description: "Override the global Telegram group/default chat for this schedule. Use a numeric user/group ID or public @channel username; leave blank for the configured default." },
       { name: "template_id", type: "string", required: false, description: "Optional built-in template to run instead of a free-form task (e.g. 'daily-briefing', 'innovation-scan', 'africa-ai-news'). When set, `task` is optional and `template_inputs` supplies that template's inputs." },
       { name: "template_inputs", type: "string", required: false, description: "Inputs for the chosen template_id — a JSON object or an object (e.g. {\"sender\":\"x@y.com\",\"days\":3}). Ignored when template_id is omitted." },
     ],
@@ -4545,6 +4546,8 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       const daysRaw = parseFlexibleList(args.days_of_week);
       const daysOfWeek = daysRaw.map(d => Number(d)).filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
       const deliverEmail = args.deliver_email ? String(args.deliver_email).trim() : "";
+      const telegramChatId = args.deliver_telegram_chat_id ? String(args.deliver_telegram_chat_id).trim() : "";
+      if (telegramChatId && !(/^-?\d+$/.test(telegramChatId) || /^@[A-Za-z0-9_]{5,32}$/.test(telegramChatId))) return { error: "deliver_telegram_chat_id must be a numeric chat/group ID or public @channel username" };
       if (deliverEmail) {
         const { placeholderAddressReason } = await import("./email.js");
         const bad = placeholderAddressReason(deliverEmail);
@@ -4564,7 +4567,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         templateId: runsTemplate ? templateId : "general-task",
         inputs,
         cadence: { daysOfWeek, hour, minute },
-        ...(deliverEmail ? { deliver: { email: deliverEmail } } : {}),
+        ...(deliverEmail || telegramChatId ? { deliver: { ...(deliverEmail ? { email: deliverEmail } : {}), ...(telegramChatId ? { telegramChatId } : {}) } } : {}),
       });
       return { ok: true, schedule: { id: s.id, name: s.name, cadence: s.cadence, enabled: s.enabled, deliver: s.deliver }, note: "Schedule created — visible on the Schedules page; it fires at the given local time." };
     },

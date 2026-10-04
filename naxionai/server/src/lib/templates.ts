@@ -155,7 +155,7 @@ export const templates: Template[] = [
     id: "africa-ai-news",
     role: "Operations",
     title: "Africa AI news — BREAKING",
-    description: "Picks the single most newsworthy Africa/AI story (web search + innovation leads), then posts a BREAKING NEWS card to Telegram: title, summary, Why it matters for Africa, Read more link, hashtags, video, and source. Pair with a daily Schedule.",
+    description: "Picks the strongest fresh Africa/AI story (web search + innovation leads), then posts a sourced card to Telegram. Manual runs use the breaking-news gate; daily schedules post a digest even when the story is not breaking news.",
     icon: "broadcast",
     agent: "naxie-agent",
     inputs: [
@@ -169,7 +169,7 @@ export const templates: Template[] = [
     id: "world-ai-news",
     role: "Operations",
     title: "World AI news — BREAKING",
-    description: "Picks the single most newsworthy global AI/world story (web search), then posts a BREAKING NEWS card to Telegram: title, summary, Why it matters, Read more, hashtags, video, and source. Pair with a daily Schedule.",
+    description: "Picks the strongest fresh global AI/world story (RSS + web search), then posts a sourced card to Telegram. Manual runs use the breaking-news gate; daily schedules post a digest even when the story is not breaking news.",
     icon: "broadcast",
     agent: "naxie-agent",
     inputs: [

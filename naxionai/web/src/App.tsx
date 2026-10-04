@@ -21,7 +21,7 @@ const RunDetail = lazy(() => import("./pages/Runs").then(m => ({ default: m.RunD
 const Planner = lazy(() => import("./pages/Planner").then(m => ({ default: m.Planner })));
 const MyFinances = lazy(() => import("./pages/MyFinances").then(m => ({ default: m.MyFinances })));
 const BusinessFinance = lazy(() => import("./pages/BusinessFinance").then(m => ({ default: m.BusinessFinance })));
-const Webhooks = lazy(() => import("./pages/Webhooks").then(m => ({ default: m.Webhooks })));
+const Automation = lazy(() => import("./pages/Automation").then(m => ({ default: m.Automation })));
 const Team = lazy(() => import("./pages/Team").then(m => ({ default: m.Team })));
 const Presets = lazy(() => import("./pages/Presets").then(m => ({ default: m.Presets })));
 const Models = lazy(() => import("./pages/Models").then(m => ({ default: m.Models })));
@@ -114,7 +114,8 @@ function AppShell() {
         <Route path="/planner" element={<Planner />} />
         <Route path="/my-finances" element={<MyFinances />} />
         <Route path="/business-finance" element={<BusinessFinance />} />
-        <Route path="/webhooks" element={<Webhooks />} />
+        <Route path="/automation" element={<Automation />} />
+        <Route path="/webhooks" element={<Navigate to="/automation" replace />} />
         <Route path="/orchestrate" element={<Navigate to="/council?tab=orchestrate" replace />} />
         <Route path="/team" element={<Team />} />
         <Route path="/presets" element={<Presets />} />

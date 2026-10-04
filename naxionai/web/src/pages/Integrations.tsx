@@ -40,6 +40,7 @@ export function Integrations() {
   const [connecting, setConnecting] = useState<IntegrationProvider | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [testingAll, setTestingAll] = useState(false);
+  const [hiddenProviders, setHiddenProviders] = useState<Set<string>>(new Set());
 
    async function refresh() {
      try { const c = await api.integrationsCatalog(); 
@@ -83,7 +84,7 @@ export function Integrations() {
 
   const connByProvider = (pid: string) => connections.filter(c => c.providerId === pid);
   const grouped = CATEGORY_ORDER
-    .map(cat => ({ cat, items: providers.filter(p => p.category === cat) }))
+    .map(cat => ({ cat, items: providers.filter(p => p.category === cat && !hiddenProviders.has(p.id)) }))
     .filter(g => g.items.length > 0);
 
   return (
@@ -101,13 +102,19 @@ export function Integrations() {
            title={`Connected (${connections.length})`}
            action={
              <div className="flex gap-2">
-               <Button variant="subtle" onClick={() => {
-                 if (providers.length > 0) {
-                   setConnecting(providers[0]);
-                 }
-               }} disabled={connecting !== null || providers.length === 0}>
-                 {connecting === null ? <Plus size={14} /> Add Integration : <Loader2 size={14} className="animate-spin" />}
-               </Button>
+                <Button variant="subtle" onClick={() => {
+                  const first = providers.find(Boolean);
+                  if (first) {
+                    setConnecting(first);
+                  }
+                }} disabled={connecting !== null || providers.length === 0}>
+                  {connecting === null ? (
+                    <>
+                      <Plus size={14} />
+                      Add Integration
+                    </>
+                  ) : <Loader2 size={14} className="animate-spin" />}
+                </Button>
                <Button variant="subtle" onClick={testAll} disabled={testingAll}>
                  {testingAll ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
                </Button>
@@ -129,10 +136,12 @@ export function Integrations() {
                       : <span className="text-amber-300/80">Not tested yet</span>}
                   </div>
                 </div>
-                <Button variant="subtle" onClick={() => test(c.id)} disabled={testing === c.id}>
-                  {testing === c.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Test
-                </Button>
-                <button type="button" onClick={() => remove(c.id, c.label)} className="text-cream-300/50 hover:text-coral-400 p-1.5" title="Disconnect"><Trash2 size={15} /></button>
+                 <Button variant="subtle" onClick={() => test(c.id)} disabled={testing === c.id}>
+                   {testing === c.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Test
+                 </Button>
+                 <Button variant="subtle" onClick={() => remove(c.id, c.label)}>
+                   <Trash2 size={14} /> Delete
+                 </Button>
               </div>
             ))}
           </div>
@@ -143,39 +152,54 @@ export function Integrations() {
         <div key={cat}>
           <div className="text-[11px] uppercase tracking-wider text-cream-300/40 mb-2 mt-1">{CATEGORY_LABELS[cat] ?? cat}</div>
           <div className="grid grid-cols-2 gap-3">
-            {items.map(p => {
-              const conns = connByProvider(p.id);
-              const isConnected = conns.length > 0;
-              // Provider health = worst of its connections (red if any failing,
-              // amber if any untested, green only when all tested-and-working).
-              const anyFail = conns.some(c => c.lastTest && !c.lastTest.ok);
-              const anyUntested = conns.some(c => !c.lastTest);
-              return (
-                <div key={p.id} className={`flex items-center gap-3 p-3 rounded-xl border bg-ink-900/40 ${isConnected ? "border-leaf-500/30" : "border-ink-800"}`}>
-                  <div className="w-9 h-9 rounded-lg bg-ink-800 grid place-items-center text-cream-200 text-xs font-semibold shrink-0">{p.name.slice(0, 2)}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-cream-100 flex items-center gap-1.5">
-                      {p.name}
-                      {isConnected && (
-                        <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full ${anyFail ? "text-coral-400 bg-coral-500/10" : anyUntested ? "text-amber-300/90 bg-amber-400/10" : "text-leaf-400 bg-leaf-500/10"}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${anyFail ? "bg-coral-500" : anyUntested ? "bg-amber-400/80 animate-pulse" : "bg-leaf-500"}`} />
-                          {conns.length > 1 ? `${conns.length} connected` : "connected"}
-                        </span>
-                      )}
-                      {p.auth === "oauth" && <span className="text-[10px] text-amber-300/80 bg-amber-400/10 px-1.5 py-0.5 rounded-full">token</span>}
-                    </div>
-                    {p.note && <div className="text-[10px] text-cream-300/40 truncate">{p.note}</div>}
-                  </div>
-                  {isConnected ? (
-                    <Button variant="subtle" onClick={() => setConnecting(p)} className="!text-leaf-400 !border-leaf-500/30">
-                      <Check size={13} /> Connected
-                    </Button>
-                  ) : (
-                    <Button variant="subtle" onClick={() => setConnecting(p)}><Plus size={13} /> Connect</Button>
-                  )}
-                </div>
-              );
-            })}
+             {items.map(p => {
+               const conns = connByProvider(p.id);
+               const isConnected = conns.length > 0;
+               // Provider health = worst of its connections (red if any failing,
+               // amber if any untested, green only when all tested-and-working).
+               const anyFail = conns.some(c => c.lastTest && !c.lastTest.ok);
+               const anyUntested = conns.some(c => !c.lastTest);
+               return (
+                 <div key={p.id} className={`relative flex items-center gap-3 p-3 rounded-xl border bg-ink-900/40 ${isConnected ? "border-leaf-500/30" : "border-ink-800"}`}>
+                   <div className="w-9 h-9 rounded-lg bg-ink-800 grid place-items-center text-cream-200 text-xs font-semibold shrink-0">{p.name.slice(0, 2)}</div>
+                   <div className="flex-1 min-w-0">
+                     <div className="text-sm text-cream-100 flex items-center gap-1.5">
+                       {p.name}
+                       {isConnected && (
+                         <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full ${anyFail ? "text-coral-400 bg-coral-500/10" : anyUntested ? "text-amber-300/90 bg-amber-400/10" : "text-leaf-400 bg-leaf-500/10"}`}>
+                           <span className={`w-1.5 h-1.5 rounded-full ${anyFail ? "bg-coral-500" : anyUntested ? "bg-amber-400/80 animate-pulse" : "bg-leaf-500"}`} />
+                           {conns.length > 1 ? `${conns.length} connected` : "connected"}
+                         </span>
+                       )}
+                       {p.auth === "oauth" && <span className="text-[10px] text-amber-300/80 bg-amber-400/10 px-1.5 py-0.5 rounded-full">token</span>}
+                     </div>
+                     {p.note && <div className="text-[10px] text-cream-300/40 truncate">{p.note}</div>}
+                   </div>
+                    {isConnected ? (
+                      <>
+                        <Button variant="subtle" onClick={() => setConnecting(p)} className="!text-leaf-400 !border-leaf-500/30">
+                          <Check size={13} /> Connected
+                        </Button>
+                        <Button variant="subtle" onClick={() => remove(conns[0].id, conns[0].label)} className="text-cream-300/50 hover:text-coral-400 p-0">
+                          <Trash2 size={14} />
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button variant="subtle" onClick={() => setConnecting(p)}><Plus size={13} /> Connect</Button>
+                        <Button
+                          variant="subtle"
+                           onClick={() => setHiddenProviders(s => { const n = new Set(s); n.add(p.id); return n; })}
+                          className="absolute top-2 right-2 p-0.5 text-cream-300/50 hover:text-coral-400 hover:bg-ink-800/20 rounded"
+                          aria-label="Remove"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </>
+                    )}
+                 </div>
+               );
+             })}
           </div>
         </div>
       ))}

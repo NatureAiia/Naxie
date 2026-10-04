@@ -39,11 +39,22 @@ webhooksRouter.get("/targets", (_req, res) => {
 webhooksRouter.post("/targets", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   const { label, url, events } = req.body ?? {};
-  if (!label || typeof label !== "string") return respond.error(res, 400, "invalid_input", "label is required");
-  if (!url || typeof url !== "string") return respond.error(res, 400, "invalid_input", "url is required");
+  if (typeof label !== "string" || !label.trim()) return respond.error(res, 400, "invalid_input", "label is required");
+  if (label.trim().length > 100) return respond.error(res, 400, "invalid_input", "label must be 100 characters or fewer");
+  if (typeof url !== "string" || !url.trim()) return respond.error(res, 400, "invalid_input", "url is required");
+  if (url.trim().length > 2048) return respond.error(res, 400, "invalid_input", "url must be 2048 characters or fewer");
+  if (events !== undefined && (!Array.isArray(events) || events.some((event: unknown) => typeof event !== "string"))) {
+    return respond.error(res, 400, "invalid_input", "events must be an array of event names");
+  }
+  const selectedEvents: string[] = Array.from(new Set<string>(((events ?? []) as string[]).map(event => event.trim())));
+  const knownEvents = new Set<string>(WEBHOOK_EVENT_CATALOG.map(event => event.name));
+  if (selectedEvents.length > 8) return respond.error(res, 400, "invalid_input", "choose no more than 8 event types");
+  const unknownEvents = selectedEvents.filter(event => !knownEvents.has(event));
+  if (unknownEvents.length) return respond.error(res, 400, "invalid_input", `unknown event type(s): ${unknownEvents.join(", ")}`);
+  if (selectedEvents.includes("webhook.test")) return respond.error(res, 400, "invalid_input", "webhook.test is reserved for connection checks");
   try {
-    await assertSafePublicUrlAsync(url);
-    const target = addTarget({ label, url, events: Array.isArray(events) ? events.map(String) : [] });
+    await assertSafePublicUrlAsync(url.trim());
+    const target = addTarget({ label: label.trim(), url: url.trim(), events: selectedEvents });
     respond.ok(res, { target: toPublicTarget(target), secret: target.secret }, 201);
   } catch (e: any) {
     respond.error(res, 400, "invalid_input", e?.message ?? String(e));

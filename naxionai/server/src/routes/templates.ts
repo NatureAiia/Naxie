@@ -980,14 +980,16 @@ type StorySource = { title: string; url?: string; text: string; links?: string[]
 // All tiers carry a REAL url; LLM never invents one.
 // ─────────────────────────────────────────────────────────────────────────────
 const DEFAULT_AFRICA_QUERIES = [
-  "Africa artificial intelligence breakthrough funding 2025",
+  '"Super Intelligence" Africa SI AI research policy news',
+  "Africa artificial intelligence breakthrough funding 2026",
   "African tech startup AI innovation Nairobi Lagos Cape Town",
   "Africa AI policy regulation Africa Tech Summit",
   "Zimbabwe AI technology deployment",
   "African machine learning research healthcare agriculture fintech",
 ];
 const DEFAULT_WORLD_QUERIES = [
-  "AI breakthrough model release 2025",
+  '"Super Intelligence" SI AI technology news policy',
+  "AI breakthrough model release 2026",
   "generative AI funding acquisition startup",
   "AI infrastructure chip hardware NVIDIA OpenAI",
   "artificial intelligence research paper arXiv",
@@ -1298,7 +1300,7 @@ async function gatherAfricaStories(push: (m: string) => void): Promise<StorySour
   push("[africa] quality pipeline: RSS (≤48h) + web search + innovation leads → dedupe → enrich → quality rank");
   const [rss, web] = await Promise.all([
     fetchRssTier(push, true),
-    scrapeStoriesForQueries(effectiveAfricaQueries(), push, "africa"),
+    scrapeStoriesForQueries([...new Set([...effectiveAfricaQueries(), '"Super Intelligence" Africa SI AI research policy news'])], push, "africa"),
   ]);
   let merged: StorySource[] = [...rss, ...web];
   // Innovation-scan leads as extra candidates (bullet lines → title + optional url).
@@ -1326,7 +1328,7 @@ async function gatherWorldStories(push: (m: string) => void): Promise<StorySourc
   push("[world] quality pipeline: RSS (≤48h) + web search → dedupe → enrich → quality rank");
   const [rss, web] = await Promise.all([
     fetchRssTier(push, false),
-    scrapeStoriesForQueries(effectiveWorldQueries(), push, "world"),
+    scrapeStoriesForQueries([...new Set([...effectiveWorldQueries(), '"Super Intelligence" SI AI technology news policy'])], push, "world"),
   ]);
   let merged: StorySource[] = [...rss, ...web];
   merged = await dedupeAndFilter(merged, push);
@@ -1407,6 +1409,7 @@ async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: str
   const chatId = String(inputs.chatId ?? "").trim();
   if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
   const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
+  const dailyDigest = inputs.dailyDigest === true;
 
   push("Sweeping for today's Africa/AI news (web + innovation leads).");
   const stories = await gatherAfricaStories(push);
@@ -1420,7 +1423,7 @@ async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: str
   // Urgency gate: only BREAKING if top score ≥ threshold
   const threshold = effectiveBreakingThreshold();
   const topScore = stories[0]?.score ?? 5;
-  if (topScore < threshold) {
+  if (topScore < threshold && !dailyDigest) {
     const reason = `top score ${topScore} < threshold ${threshold} — not breaking enough`;
     push(`[gate] ${reason} — queuing as draft, not posting to Telegram`);
     writeNewsDraft("africa", stories, reason);
@@ -1428,16 +1431,18 @@ async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: str
     return { kind: "africa-ai-news", posted: false, draft: true, note: reason, topScore, threshold };
   }
 
-  push(`Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
+  push(dailyDigest
+    ? `Picked ${stories.length} fresh candidates (top score ${topScore}) — drafting the daily Africa AI news card.`
+    : `Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
   const card = await buildBreakingNewsCard({
     stories,
-    header: "🚨 BREAKING NEWS — Africa AI 🚨",
+    header: dailyDigest ? "🧠 DAILY SUPER INTELLIGENCE / AI NEWS — Africa" : "🚨 BREAKING NEWS — Africa AI 🚨",
     whyHeader: "Why it matters for Africa",
     defaultHashtags: "#AI #Africa #AINews",
     sourceLabel: "web + innovation leads (RSS ≤48h + web + leads)",
     videoUrl,
     push,
-    systemPrompt: "You are the editor for an Africa AI news channel. You pick the most newsworthy Africa/AI story and write a factual BREAKING NEWS card. No hype, no invented facts or links, warm and credible.",
+    systemPrompt: "You are the editor for an Africa AI and Super Intelligence news channel. Pick a fresh, newsworthy Africa/technology story and write a factual Telegram card. Use 'Super Intelligence (SI)' when reporting the US executive-branch terminology in Executive Order 14434; for the broader global field, keep the terminology used by the source (often AI/artificial intelligence). Do not imply the US directive renames technology or usage outside its stated executive-branch scope. No hype or invented facts/links; keep it warm and credible.",
   });
 
   // Resolve picked story for metrics/vault (card.raw picks idx)
@@ -1458,6 +1463,7 @@ async function worldAiNewsRunner(inputs: Record<string, unknown>, push: (m: stri
   const chatId = String(inputs.chatId ?? "").trim();
   if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
   const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
+  const dailyDigest = inputs.dailyDigest === true;
 
   push("Sweeping for today's World AI news (RSS + web search).");
   const stories = await gatherWorldStories(push);
@@ -1470,7 +1476,7 @@ async function worldAiNewsRunner(inputs: Record<string, unknown>, push: (m: stri
 
   const threshold = effectiveBreakingThreshold();
   const topScore = stories[0]?.score ?? 5;
-  if (topScore < threshold) {
+  if (topScore < threshold && !dailyDigest) {
     const reason = `top score ${topScore} < threshold ${threshold} — not breaking enough`;
     push(`[gate] ${reason} — queuing as draft, not posting to Telegram`);
     writeNewsDraft("world", stories, reason);
@@ -1478,16 +1484,18 @@ async function worldAiNewsRunner(inputs: Record<string, unknown>, push: (m: stri
     return { kind: "world-ai-news", posted: false, draft: true, note: reason, topScore, threshold };
   }
 
-  push(`Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
+  push(dailyDigest
+    ? `Picked ${stories.length} fresh candidates (top score ${topScore}) — drafting the daily world AI news card.`
+    : `Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
   const card = await buildBreakingNewsCard({
     stories,
-    header: "\uD83D\uDEA8 BREAKING NEWS - World News \uD83D\uDEA8",
+    header: dailyDigest ? "🧠 DAILY SUPER INTELLIGENCE / AI NEWS — World" : "\uD83D\uDEA8 BREAKING NEWS - World News \uD83D\uDEA8",
     whyHeader: "Why it matters",
-    defaultHashtags: "#WorldNews #AI #BreakingNews",
+    defaultHashtags: dailyDigest ? "#WorldNews #AI #AINews" : "#WorldNews #AI #BreakingNews",
     sourceLabel: "RSS ≤48h + web search",
     videoUrl,
     push,
-    systemPrompt: "You are a world news editor covering AI and technology. You pick the most newsworthy global story and write a factual BREAKING NEWS card. No hype, no invented facts or links, concise and credible.",
+    systemPrompt: "You are a world news editor covering AI, technology and Super Intelligence. Pick a fresh, newsworthy global story and write a factual Telegram card. Use 'Super Intelligence (SI)' when reporting the US executive-branch terminology in Executive Order 14434; for the broader global field, keep the terminology used by the source (often AI/artificial intelligence). Do not imply the US directive renames technology or usage outside its stated executive-branch scope. No hype or invented facts/links; keep it concise and credible.",
   });
 
   const pickedIdx = (card.raw?.pickN ?? 1) - 1;

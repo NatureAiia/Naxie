@@ -32,6 +32,7 @@ const preloaders: Record<string, Thunk> = {
   "/templates": () => import("../pages/Templates"),
   "/skills": () => import("../pages/Skills"),
   "/extensions": () => import("../pages/Extensions"),
+  "/automation": () => import("../pages/Automation"),
   "/office": () => import("../pages/Office"),
   "/command": () => import("../pages/CommandCenter"),
   "/connectors": () => import("../pages/Connectors"),

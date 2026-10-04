@@ -34,11 +34,12 @@ export function Presets() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        icon={<UserPlus size={24} />}
-        // Hire a Worker page removed – functionality moved under Council
-        subtitle="One-click role bundles — activates a persona, ensures its starter templates, and can stand up a recurring briefing schedule."
-      />
+       <PageHeader
+         icon={<UserPlus size={24} />}
+         title="Presets"
+         // Hire a Worker page removed – functionality moved under Council
+         subtitle="One-click role bundles — activates a persona, ensures its starter templates, and can stand up a recurring briefing schedule."
+       />
 
       {presets === null ? (
         <div className="text-sm text-cream-300/60">Loading…</div>

@@ -683,7 +683,7 @@ export async function plan(task: string, _personaSystemSuffix?: string, push?: (
   // create recurring schedules; without the hint the planner treats these as
   // read-only surfaces and refuses or just narrates.
   const scheduleContext = /\b(?:schedule|recurring|every\s+(?:day|week|month|morning|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekday)|daily|weekly|remind(?:er)?|add\s+(?:to|an?\s+event)|book\s+a|put\s+(?:it\s+)?on\s+(?:the\s+|my\s+)?calendar|calendar)\b/i.test(task)
-    ? `\n\nCalendar/schedule context: agents can WRITE to the calendar. One-off dated commitments → calendar.add_event {date: YYYY-MM-DD, title}. Recurring automated work → schedule.create {name, task, hour, minute?, days_of_week?, deliver_email?} (check schedule.list first to avoid duplicates; schedule.delete cancels one). Reading: calendar.read_today / calendar.activity / calendar.plan_day. Do NOT claim the calendar is read-only.\n`
+    ? `\n\nCalendar/schedule context: agents can WRITE to the calendar. One-off dated commitments → calendar.add_event {date: YYYY-MM-DD, title}. Recurring automated work → schedule.create {name, task, hour, minute?, days_of_week?, deliver_email?, deliver_telegram_chat_id?}; every schedule result is sent to the configured Telegram group/default chat unless a specific Telegram destination is supplied. Check schedule.list first to avoid duplicates; schedule.delete cancels one. Reading: calendar.read_today / calendar.activity / calendar.plan_day. Do NOT claim the calendar is read-only.\n`
     : "";
   // Complexity fan-out hint: big or multi-part tasks should be decomposed into
   // PARALLEL sub-agents, not one serial chain. The executor already runs

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { primitives, findPrimitive, type Primitive } from "../lib/primitives.js";
+import { getHermesToolOverride } from "../lib/mcp-tool-settings.js";
 
 // Primitives bridge — exposes a CURATED subset of Naxie's agent primitives
 // over HTTP so an external agent (Hermes, via the MCP bridge in mcp/naxie-
@@ -14,7 +15,7 @@ import { primitives, findPrimitive, type Primitive } from "../lib/primitives.js"
 
 export const primitivesRouter = Router();
 
-const DEFAULT_ALLOWLIST = [
+export const DEFAULT_ALLOWLIST = [
   // Vault grounding (read-only)
   "vault.search", "vault.read", "vault.scan_docs", "vault.list", "vault.find_by_tag",
   // Connectors → company systems. connector.call still respects each
@@ -69,6 +70,8 @@ const DEFAULT_ALLOWLIST = [
 // Exported so routes/hermes-bridge.ts can render the same catalog the bridge
 // actually serves, without duplicating the allowlist.
 export function allowlist(): Set<string> {
+  const saved = getHermesToolOverride();
+  if (saved !== undefined) return new Set(saved);
   const env = (process.env.NAXION_MCP_TOOLS ?? "").split(",").map(s => s.trim()).filter(Boolean);
   return new Set(env.length ? env : DEFAULT_ALLOWLIST);
 }

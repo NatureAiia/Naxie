@@ -105,7 +105,7 @@ const connectNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
   { to: "/connectors", label: "Connectors", icon: Boxes },
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
-  { to: "/webhooks", label: "Webhooks", icon: WebhookIcon },
+  { to: "/automation", label: "Automation", icon: WebhookIcon },
   { to: "/hermes", label: "Hermes", icon: ArrowLeftRight },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
   { to: "/connectors?tab=policies", label: "Policies", icon: CertificateIcon },

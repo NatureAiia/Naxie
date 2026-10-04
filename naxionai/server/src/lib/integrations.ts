@@ -407,10 +407,11 @@ async function runConnectionTest(id: string): Promise<{ ok: boolean; detail: str
           }
         }
         if (!j?.ok) return { ok: false, detail: `${j?.description ?? "getMe failed"} — verify the bot token from @BotFather` };
-        // Token is valid — now validate the DEFAULT chat id if one is set, since
+        // Token is valid — now validate the configured broadcast group first,
+        // falling back to the integration's default chat, since
         // an unreachable chat (or a bot-username pasted as the chat id) is the
         // other common misconfig and the send would fail at runtime otherwise.
-        const chatId = (config.chatId ?? "").trim();
+        const chatId = (process.env.NAXION_TELEGRAM_GROUP_CHAT ?? config.chatId ?? "").trim();
         if (chatId) {
           if (/bot$/i.test(chatId) && !/^-?\d+$/.test(chatId) && !chatId.startsWith("@")) {
             return { ok: false, detail: `bot @${j.result?.username} is valid, but the chat id "${chatId}" looks like a BOT username, not a chat. Use a numeric chat id (DM the bot, then read it from getUpdates) or @channelusername.` };
@@ -418,7 +419,7 @@ async function runConnectionTest(id: string): Promise<{ ok: boolean; detail: str
           const cr = await fetch(`https://api.telegram.org/bot${token}/getChat?chat_id=${encodeURIComponent(chatId)}`);
           const cj: any = await cr.json().catch(() => ({}));
           if (!cj?.ok) return { ok: false, detail: `bot @${j.result?.username} is valid, but chat "${chatId}" is unreachable: ${cj?.description ?? `HTTP ${cr.status}`}. The bot must be a member/admin of that chat (or the user must /start it first).` };
-          return { ok: true, detail: `bot @${j.result?.username} → chat "${cj.result?.title ?? cj.result?.username ?? chatId}"` };
+          return { ok: true, detail: `bot @${j.result?.username} → Telegram destination "${cj.result?.title ?? cj.result?.username ?? chatId}"` };
         }
         return { ok: true, detail: `bot @${j.result?.username} (no default chat id set — pass chatId when sending)` };
       }

@@ -7,6 +7,7 @@ import {
   deleteSchedule,
   nextFireAt,
   type Cadence,
+  type ScheduleDelivery,
 } from "../lib/schedules.js";
 import { callerLayer } from "../lib/access.js";
 import { isLocalMachineTask } from "../lib/task-restrictions.js";
@@ -75,14 +76,24 @@ schedulesRouter.get("/:id", (req, res) => {
   res.json({ schedule: { ...s, nextFireAt: s.enabled ? nextFireAt(s.cadence) : null } });
 });
 
-// Parse an optional delivery block. Today only { email } — a syntactically
-// valid address is required when present, otherwise we drop it silently rather
-// than fail the whole create.
-function parseDeliver(raw: any): { email?: string } | undefined {
+// Parse optional email and Telegram destination overrides. Telegram itself is
+// delivered for every schedule, even when this block is absent.
+function parseDeliver(raw: any): ScheduleDelivery | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const email = typeof raw.email === "string" ? raw.email.trim() : "";
-  if (email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { email };
-  return undefined;
+  const telegramChatId = typeof raw.telegramChatId === "string" ? raw.telegramChatId.trim() : "";
+  const parsed: ScheduleDelivery = {
+    ...(email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? { email } : {}),
+    ...(telegramChatId ? { telegramChatId } : {}),
+  };
+  return Object.keys(parsed).length ? parsed : undefined;
+}
+
+function validTelegramDestination(value: unknown): boolean {
+  if (value === undefined || value === null || value === "") return true;
+  if (typeof value !== "string") return false;
+  const chatId = value.trim();
+  return chatId.length <= 64 && (/^-?\d+$/.test(chatId) || /^@[A-Za-z0-9_]{5,32}$/.test(chatId));
 }
 
 // Parse an optional chainTo list — forgiving like parseDeliver: drop
@@ -112,6 +123,7 @@ schedulesRouter.post("/", (req, res) => {
   const { name, templateId, task, inputs, cadence: rawCadence, enabled, deliver, requireApproval, chainTo } = req.body ?? {};
   if (!guardScheduleMutation(req, res, inputs)) return;
   if (!name || typeof name !== "string") return res.status(400).json({ error: "name is required" });
+  if (!validTelegramDestination(deliver?.telegramChatId)) return res.status(400).json({ error: "deliver.telegramChatId must be a numeric Telegram chat/group ID or @channel username" });
   let resolvedTemplateId: string;
   if (typeof templateId === "string" && templateId) {
     resolvedTemplateId = templateId;
@@ -153,6 +165,7 @@ schedulesRouter.patch("/:id", (req, res) => {
   if (!existing) return res.status(404).json({ error: "not found" });
   // Guard against a low-priv caller swapping in a local-machine task via inputs.
   if (!guardScheduleMutation(req, res, req.body?.inputs)) return;
+  if ("deliver" in (req.body ?? {}) && !validTelegramDestination(req.body?.deliver?.telegramChatId)) return res.status(400).json({ error: "deliver.telegramChatId must be a numeric Telegram chat/group ID or @channel username" });
   const patch: any = {};
   if (typeof req.body?.name === "string") patch.name = req.body.name.trim();
   if (typeof req.body?.templateId === "string") patch.templateId = req.body.templateId;

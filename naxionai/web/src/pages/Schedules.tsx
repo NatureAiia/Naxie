@@ -43,7 +43,7 @@ export function Schedules() {
       <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-cream-50">Schedules</h1>
-          <p className="text-sm text-cream-300/70 mt-1">Run any template on a day-of-week and time cadence. Fires happen on the primary server.</p>
+          <p className="text-sm text-cream-300/70 mt-1">Run any template on a day-of-week and time cadence. Every completed schedule is sent to Telegram using the configured group or default chat.</p>
         </div>
         <Button onClick={() => setShowCreate(o => !o)} variant={showCreate ? "subtle" : "primary"}>
           <span className="inline-flex items-center gap-1.5"><Plus size={14} /> {showCreate ? "Cancel" : "New schedule"}</span>
@@ -98,6 +98,8 @@ export function Schedules() {
                         <span>{formatCadence(s.cadence)}</span>
                         <span className="text-cream-300/40">·</span>
                         <span>Runs <span className="text-cream-100">{tpl?.title ?? s.templateId}</span></span>
+                        <span className="text-cream-300/40">·</span>
+                        <span>Telegram <span className="text-cream-100">{String(s.deliver?.telegramChatId ?? "default group/chat")}</span></span>
                         <span className="text-cream-300/40">·</span>
                         <span>Next: <span className="text-cream-100">{s.enabled ? formatNext(s.nextFireAt) : "paused"}</span></span>
                         {s.fireCount > 0 && (<><span className="text-cream-300/40">·</span><span>{s.fireCount} fire{s.fireCount === 1 ? "" : "s"}</span></>)}
@@ -233,7 +235,7 @@ function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
       }
     >
       <p className="text-xs text-cream-300/60 -mt-2 mb-3">
-        Everything that runs on a cadence, in one place — the always-on background daemons plus your custom schedules below.
+        System digests and custom schedule results go to the configured Telegram group or default chat. Custom schedules can override their destination above.
       </p>
 
       <div className="flex items-end gap-px mb-4" role="img" aria-label="24-hour cadence strip">
@@ -380,6 +382,7 @@ function CreateScheduleForm({ templates, schedules, onCreated, onError }: {
   const [submitting, setSubmitting] = useState(false);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [deliverEmail, setDeliverEmail] = useState("");
+  const [telegramChatId, setTelegramChatId] = useState("");
   const [chainTo, setChainTo] = useState<string[]>([]);
 
   const tpl = useMemo(() => templates.find(t => t.id === templateId), [templates, templateId]);
@@ -411,11 +414,11 @@ function CreateScheduleForm({ templates, schedules, onCreated, onError }: {
         inputs: coerced,
         cadence: { daysOfWeek: days, hour, minute },
         enabled: true,
-        ...(deliverEmail.trim() ? { deliver: { email: deliverEmail.trim() } } : {}),
+        ...(deliverEmail.trim() || telegramChatId.trim() ? { deliver: { ...(deliverEmail.trim() ? { email: deliverEmail.trim() } : {}), ...(telegramChatId.trim() ? { telegramChatId: telegramChatId.trim() } : {}) } } : {}),
         ...(chainTo.length ? { chainTo } : {}),
       });
       await onCreated();
-      setName(""); setTemplateId(""); setInputs({}); setDeliverEmail(""); setChainTo([]);
+      setName(""); setTemplateId(""); setInputs({}); setDeliverEmail(""); setTelegramChatId(""); setChainTo([]);
     } catch (e: any) {
       onError(e?.message ?? String(e));
     } finally {
@@ -534,6 +537,19 @@ function CreateScheduleForm({ templates, schedules, onCreated, onError }: {
             />
             <span className="text-[11px] text-cream-300/50 ml-2">24-hour clock</span>
           </div>
+        </div>
+
+        <div>
+          <label htmlFor="sched-telegram" className="block text-[11px] uppercase tracking-wider text-cream-300/60 mb-1">Telegram destination override (optional)</label>
+          <input
+            id="sched-telegram"
+            type="text"
+            value={telegramChatId}
+            onChange={e => setTelegramChatId(e.target.value)}
+            placeholder="Leave blank for configured group/default chat"
+            className="w-full bg-ink-950 border border-ink-800 focus:border-violet-500/60 rounded-md px-3 py-2 text-sm focus:outline-none placeholder:text-cream-300/40"
+          />
+          <p className="text-[11px] text-cream-300/50 mt-1">Use a numeric user/group ID (group IDs commonly start with -100) or a public @channel username. The bot must be allowed to post there.</p>
         </div>
 
         <div>

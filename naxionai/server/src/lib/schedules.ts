@@ -21,11 +21,11 @@ export type Cadence = {
   once?: string;
 };
 
-// Optional delivery — when set, the schedule's result is pushed somewhere the
-// moment the job finishes (not just left on the Tasks page). Today we support
-// email; the shape is an object so channels (slack, teams) can be added later.
+// Optional delivery overrides. Every result goes to Telegram by default;
+// telegramChatId selects a per-schedule destination and email adds a second channel.
 export type ScheduleDelivery = {
   email?: string;          // address to email the finished result to
+  telegramChatId?: string; // per-schedule Telegram chat/group override; otherwise global/default chat
 };
 
 export type Schedule = {
@@ -231,11 +231,13 @@ async function fireSchedule(s: Schedule, visited: Set<string> = new Set([s.id]))
       const msg = body?.error ? String(body.error) : `HTTP ${r.status}`;
       console.warn(`[schedules] fire failed: ${s.id} (${s.name}) — ${msg}`);
       recordFireError(s.id, msg);
+      void sendScheduleTelegram(s, `## ${s.name} could not start\n\n${msg}`, s.deliver?.telegramChatId);
       return;
     }
     if (!body?.jobId) {
       console.warn(`[schedules] fire returned no jobId: ${s.id} (${s.name})`);
       recordFireError(s.id, "no jobId in response");
+      void sendScheduleTelegram(s, `## ${s.name} could not start\n\nNaxie did not return a job ID.`, s.deliver?.telegramChatId);
       return;
     }
     recordFire(s.id, body.jobId);
@@ -244,28 +246,51 @@ async function fireSchedule(s: Schedule, visited: Set<string> = new Set([s.id]))
     // past `once` date, but disabling makes that explicit, not just implicit).
     if (s.cadence.once) updateSchedule(s.id, { enabled: false });
     console.log(`[schedules] fired ${s.id} (${s.name}) → job ${String(body.jobId).slice(0, 8)}`);
-    // Optional delivery/chaining — if this schedule emails its result and/or
-    // chains to other schedules, wait (in the background) for the job to
-    // finish, then act. Fire-and-forget so a slow job doesn't stall the tick.
-    if (s.deliver?.email || s.chainTo?.length) {
-      void deliverScheduleResult(s, String(body.jobId), s.deliver?.email, s.chainTo, visited);
-    }
+    // Deliver every scheduled result to Telegram (per-schedule override,
+    // configured group, then the connected Telegram integration's default).
+    // Wait in the background so slow jobs don't stall the scheduler tick.
+    void deliverScheduleResult(s, String(body.jobId), s.deliver?.email, s.deliver?.telegramChatId, s.chainTo, visited);
   } catch (e: any) {
     console.warn(`[schedules] fire crashed: ${s.id} (${s.name}) — ${e?.message ?? e}`);
     recordFireError(s.id, String(e?.message ?? e));
+    void sendScheduleTelegram(s, `## ${s.name} could not start\n\n${String(e?.message ?? e)}`, s.deliver?.telegramChatId);
   }
 }
 
-// Poll a fired job to completion, then (a) email the synthesised answer to
-// the configured address, if any, and/or (b) fire any chained schedules —
-// but ONLY on a genuine "succeeded" status, never on failed/rejected/timeout.
+// Poll a fired job to completion, then (a) send the result to Telegram,
+// (b) email the synthesised answer when configured, and/or (c) fire chained
+// schedules — but only on a genuine "succeeded" status.
 // Best-effort: failures are logged but never crash the scheduler (the result
 // still lives on the Tasks page). Used by the "email me a daily briefing"
 // pattern that Role Presets wire up, and by routine chaining.
-async function deliverScheduleResult(s: Schedule, jobId: string, to: string | undefined, chainTo: string[] | undefined, visited: Set<string>): Promise<void> {
+async function scheduleTelegramTarget(override?: string): Promise<string | undefined> {
+  const perSchedule = (override ?? "").trim();
+  if (perSchedule) return perSchedule;
+  const configuredGroup = (process.env.NAXION_TELEGRAM_GROUP_CHAT ?? "").trim();
+  if (configuredGroup) return configuredGroup;
+  try {
+    const { getConnectionByProvider } = await import("./integrations.js");
+    return getConnectionByProvider("telegram")?.config?.chatId?.trim() || undefined;
+  } catch { return undefined; }
+}
+
+async function sendScheduleTelegram(s: Schedule, text: string, override?: string): Promise<void> {
+  try {
+    const chatId = await scheduleTelegramTarget(override);
+    const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    const sent = await sendTelegramMessage(text, chatId);
+    if (!sent.ok) console.warn(`[schedules] Telegram delivery failed for ${s.id} (${s.name}): ${sent.error ?? "unknown error"}`);
+    else console.log(`[schedules] delivered ${s.id} (${s.name}) → Telegram ${chatId ?? "default chat"}`);
+  } catch (e: any) {
+    console.warn(`[schedules] Telegram delivery failed for ${s.id} (${s.name}): ${e?.message ?? e}`);
+  }
+}
+
+async function deliverScheduleResult(s: Schedule, jobId: string, to: string | undefined, telegramOverride: string | undefined, chainTo: string[] | undefined, visited: Set<string>): Promise<void> {
   const base = `http://127.0.0.1:${config.port}`;
   const deadline = Date.now() + 15 * 60_000;
   let answer = "";
+  let result: any;
   try {
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 5000));
@@ -273,6 +298,7 @@ async function deliverScheduleResult(s: Schedule, jobId: string, to: string | un
       if (!r || !r.ok) continue;
       const j: any = await r.json().catch(() => ({}));
       if (j.status === "succeeded") {
+        result = j.result;
         // result.answer is usually a string, but coerce defensively so a
         // structured result never lands in the email as "[object Object]".
         const { coerceEmailBody, looksLikeReasoningLeak } = await import("./email.js");
@@ -302,20 +328,28 @@ async function deliverScheduleResult(s: Schedule, jobId: string, to: string | un
         break;
       }
     }
-    if (!to) return; // nothing further to do once chaining (above) has run
     if (!answer) answer = `Your scheduled task "${s.name}" is still running — check the Tasks page for the result.`;
-    const { sendEmail, emailConfigured } = await import("./email.js");
-    if (!emailConfigured()) {
-      console.warn(`[schedules] deliver skipped for ${s.id} — email not configured`);
-      return;
+
+    // Some templates (for example the news cards) send their result directly
+    // to Telegram. Avoid posting the same completed result a second time.
+    const directlyPosted = result?.posted === true || result?.result?.posted === true;
+    if (!directlyPosted) {
+      await sendScheduleTelegram(s, `## ${s.name}\n\n${answer}\n\n— Naxie`, telegramOverride);
     }
-    const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    await sendEmail({
-      to,
-      subject: `${s.name} — ${today}`,
-      body: `${answer}\n\n— Naxie`,
-    });
-    console.log(`[schedules] delivered ${s.id} (${s.name}) result → ${to}`);
+
+    if (directlyPosted) {
+      console.log(`[schedules] ${s.id} (${s.name}) already posted its result to Telegram`);
+    }
+
+    if (to) {
+      const { sendEmail, emailConfigured } = await import("./email.js");
+      if (!emailConfigured()) console.warn(`[schedules] email delivery skipped for ${s.id} — email not configured`);
+      else {
+        const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+        await sendEmail({ to, subject: `${s.name} — ${today}`, body: `${answer}\n\n— Naxie` });
+        console.log(`[schedules] delivered ${s.id} (${s.name}) result → ${to}`);
+      }
+    }
   } catch (e: any) {
     console.warn(`[schedules] deliver failed for ${s.id} (${s.name}): ${e?.message ?? e}`);
   }

@@ -31,7 +31,7 @@ export type ExecutorMode = "naxie" | "hermes";
 // quality.check threshold, NOT a hard fail), have a peer judge Hermes's
 // answer against Naxie's instead of blindly taking Naxie's — see
 // crosscheckAnswers() in peers.ts and its use in chat.ts.
-export type ExecutorConfig = { mode: ExecutorMode; hermesModel?: string; hermesLocal?: boolean; crosscheck?: boolean };
+export type ExecutorConfig = { mode: ExecutorMode; hermesModel?: string; hermesLocal?: boolean; crosscheck?: boolean; hermesCodeTasks?: boolean };
 
 // Tiny cache so the per-request read isn't a disk hit every time. 5s TTL keeps
 // a live flip visible within a few seconds without hammering the FS.
@@ -48,6 +48,7 @@ function readConfig(): ExecutorConfig {
       if (typeof j?.hermesModel === "string" && j.hermesModel.trim()) cfg.hermesModel = j.hermesModel.trim();
       if (j?.hermesLocal === true) cfg.hermesLocal = true;
       if (j?.crosscheck === true) cfg.crosscheck = true;
+      if (j?.hermesCodeTasks === true) cfg.hermesCodeTasks = true;
     }
   } catch { /* default */ }
   cache = { cfg, at: Date.now() };
@@ -74,14 +75,22 @@ export function isCrosscheckEnabled(): boolean {
   return readConfig().crosscheck === true;
 }
 
+/** Opt-in specialist routing for software tasks while Naxie remains primary. */
+export function isHermesCodeTask(task: string): boolean {
+  if (readConfig().hermesCodeTasks !== true) return false;
+  return /\b(?:write|implement|build|refactor|debug|fix|review|optimi[sz]e|explain|test)\b[\s\S]{0,100}\b(?:code|script|function|class|api|typescript|javascript|python|rust|go|sql|bug|error|stack trace|repository|repo)\b/i.test(task)
+    || /\b(?:typescript|javascript|python|rust|golang|sql)\b[\s\S]{0,80}\b(?:bug|error|function|script|code|test|refactor)\b/i.test(task);
+}
+
 export function isHermesPrimary(): boolean {
   return readConfig().mode === "hermes";
 }
 
 // Update the executor config. Pass `hermesModel: null` to clear the override.
-export function setExecutorConfig(patch: { mode?: ExecutorMode; hermesModel?: string | null; hermesLocal?: boolean; crosscheck?: boolean }): ExecutorConfig {
+export function setExecutorConfig(patch: { mode?: ExecutorMode; hermesModel?: string | null; hermesLocal?: boolean; crosscheck?: boolean; hermesCodeTasks?: boolean }): ExecutorConfig {
   const cur = readConfig();
   const next: ExecutorConfig = { mode: cur.mode, ...(cur.hermesModel ? { hermesModel: cur.hermesModel } : {}), ...(cur.hermesLocal ? { hermesLocal: true } : {}), ...(cur.crosscheck ? { crosscheck: true } : {}) };
+  if (cur.hermesCodeTasks) next.hermesCodeTasks = true;
   if (patch.mode !== undefined) {
     if (patch.mode !== "naxie" && patch.mode !== "hermes") throw new Error(`invalid executor mode "${patch.mode}"`);
     next.mode = patch.mode;
@@ -97,6 +106,10 @@ export function setExecutorConfig(patch: { mode?: ExecutorMode; hermesModel?: st
   if (patch.crosscheck !== undefined) {
     if (patch.crosscheck) next.crosscheck = true;
     else delete next.crosscheck;
+  }
+  if (patch.hermesCodeTasks !== undefined) {
+    if (patch.hermesCodeTasks) next.hermesCodeTasks = true;
+    else delete next.hermesCodeTasks;
   }
   if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
   writeFileSync(CONFIG_PATH, JSON.stringify({ ...next, updatedAt: new Date().toISOString() }, null, 2), "utf8");

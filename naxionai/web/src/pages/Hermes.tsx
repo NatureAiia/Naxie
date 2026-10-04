@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { ArrowLeftRight, CheckCircle2, XCircle, Loader2, RefreshCw, Plug, ListTree, TerminalSquare } from "lucide-react";
 import { api, type HermesBridgeStatus, type ExecutorStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
+import { Notice } from "../components/Notice";
 
 // Everything about the Hermes integration lives on this one page: launching
 // the external CLI, which agent (Naxie vs Hermes) actually runs tasks, and
@@ -96,12 +97,22 @@ function ExecutorCard() {
       </p>
       <div className="flex gap-2 mb-3">
         <Button variant={status.mode === "naxie" ? "primary" : "subtle"} disabled={busy} onClick={() => patch({ mode: "naxie" })}>Naxie</Button>
-        <Button variant={status.mode === "hermes" ? "primary" : "subtle"} disabled={busy || !status.hermes.available} onClick={() => patch({ mode: "hermes" })}>Hermes</Button>
+        <Button variant={status.mode === "hermes" ? "primary" : "subtle"} disabled={busy || !status.hermes.available || status.hermes.readiness !== "ready"} onClick={() => patch({ mode: "hermes" })}>Hermes</Button>
       </div>
 
       <div className="divide-y divide-ink-800/60">
         <Row ok={status.hermes.available} label="Hermes installed" detail={status.hermes.binPath} />
+        <Row ok={status.hermesLocal ? status.hermes.localModelAvailable : status.hermes.providerConfigured !== false} label={status.hermesLocal ? "Local model available" : "Provider configured"} detail={status.hermesLocal ? status.hermes.localModelDetail : `${status.hermes.provider} · ${status.hermes.model}`} />
       </div>
+
+      <label className="flex items-start gap-2 text-sm text-cream-200 mt-3">
+        <input type="checkbox" checked={status.hermesCodeTasks} disabled={busy || status.hermes.readiness !== "ready"}
+          onChange={e => patch({ hermesCodeTasks: e.target.checked })} className="mt-0.5" />
+        <span>Use Hermes for software tasks while Naxie is primary<span className="block text-[11px] text-cream-300/50 mt-0.5">Code, debugging, and refactoring tasks can go to Hermes. Sensitive actions stay on Naxie’s approval-gated path; Hermes failures fall back to Naxie.</span></span>
+      </label>
+
+      {status.hermes.readiness !== "ready" && <Notice tone="warning" className="mt-3">{status.hermes.readinessDetail}. Hermes cannot be selected as the primary executor until setup is ready.</Notice>}
+      {status.hermes.readiness === "ready" && <Notice tone="confirm" className="mt-3">Hermes is ready. Naxie remains available as the configured fallback.</Notice>}
 
       {status.mode === "hermes" && (
         <div className="mt-3 space-y-3 border-t border-ink-800 pt-3">
@@ -134,10 +145,16 @@ function BridgeCard() {
   const [status, setStatus] = useState<HermesBridgeStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
+  const [savingTools, setSavingTools] = useState(false);
+  const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [showTools, setShowTools] = useState(false);
 
   async function refresh() {
-    try { setStatus(await api.hermesBridgeStatus()); }
+    try {
+      const next = await api.hermesBridgeStatus();
+      setStatus(next);
+      setSelectedTools(next.tools.filter(tool => tool.enabled).map(tool => tool.name));
+    }
     catch (e: any) { showToast(e?.message ?? String(e), "error"); }
     finally { setLoading(false); }
   }
@@ -153,7 +170,22 @@ function BridgeCard() {
     finally { setRegistering(false); }
   }
 
+  async function saveTools() {
+    if (!status) return;
+    const enablingWrites = status.tools.some(tool => !tool.readonly && selectedTools.includes(tool.name) && !tool.enabled);
+    if (enablingWrites && !window.confirm("This grants Hermes access to tools that can change data or trigger actions. Continue?")) return;
+    setSavingTools(true);
+    try {
+      const result = await api.setHermesTools(selectedTools);
+      setStatus(result.status);
+      setSelectedTools(result.status.tools.filter(tool => tool.enabled).map(tool => tool.name));
+      showToast("Hermes tool access saved. Restart Hermes to apply the updated tool list.", "success");
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+    finally { setSavingTools(false); }
+  }
+
   const connected = status?.registered && status?.enabled;
+  const toolsChanged = !!status && status.tools.some(tool => tool.enabled !== selectedTools.includes(tool.name));
 
   return (
     <div className="space-y-4">
@@ -200,24 +232,31 @@ function BridgeCard() {
           <Card>
             <button type="button" onClick={() => setShowTools(v => !v)} className="w-full flex items-center justify-between text-left">
               <div className="text-sm text-cream-100 flex items-center gap-2"><ListTree size={15} /> Tools exposed to Hermes</div>
-              <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/60">{status.toolCount}</span>
+              <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/60">{status.toolCount}/{status.availableToolCount}</span>
             </button>
             {showTools && (
+              <>
               <div className="mt-3 space-y-1.5 max-h-96 overflow-auto">
                 {status.tools.map(t => (
                   <div key={t.name} className="rounded-lg bg-ink-950/50 border border-ink-800 p-2.5">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="font-mono text-[12px] text-cream-100">{t.name}</div>
+                      <label className="flex items-center gap-2 font-mono text-[12px] text-cream-100"><input type="checkbox" checked={selectedTools.includes(t.name)} onChange={e => setSelectedTools(current => e.target.checked ? [...current, t.name] : current.filter(name => name !== t.name))} />{t.name}</label>
                       {!t.readonly && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300/80">write</span>}
                     </div>
                     <div className="text-[11px] text-cream-300/60 mt-0.5">{t.description}</div>
                   </div>
                 ))}
               </div>
+              <div className="flex items-center justify-between gap-3 mt-3">
+                <span className="text-[10px] text-cream-300/45">Access source: {status.toolSource}. Changes require an Hermes restart.</span>
+                <Button disabled={savingTools || !toolsChanged} onClick={() => void saveTools()}>
+                  {savingTools ? <Loader2 size={13} className="animate-spin" /> : null} Save tool access
+                </Button>
+              </div>
+              </>
             )}
             <div className="text-[10px] text-cream-300/40 mt-2">
-              Catalog controlled by the allowlist in <span className="font-mono">server/src/routes/primitives.ts</span> (override with the
-              <span className="font-mono"> NAXION_MCP_TOOLS</span> env var).
+              Read tools inspect data. Write tools can change data or trigger actions; enable only what Hermes needs.
             </div>
           </Card>
         </>

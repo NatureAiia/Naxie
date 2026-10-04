@@ -188,7 +188,7 @@ extensionsRouter.post("/connectors/:id/test", async (req, res) => {
 // Mirrors email bridge token gate (index.ts:490) but generic for Zapier/Make → PA.
 // Secret is per-webhook (extension-webhooks.json) or fallback EXTENSION_WEBHOOK_SECRET env.
 extensionsRouter.get("/webhooks", (_req, res) => {
-  res.json({ webhooks: listWebhooks().map(toPublicWebhook) });
+  res.json({ ok: true, webhooks: listWebhooks().map(toPublicWebhook) });
 });
 extensionsRouter.post("/webhooks", (req, res) => {
   if (!requireWebhookAdmin(req, res)) return;
@@ -199,14 +199,14 @@ extensionsRouter.post("/webhooks", (req, res) => {
   const existed = listWebhooks().some(w => w.targetId === targetId && w.targetKind === targetKind);
   const wh = createWebhook(targetId, targetKind);
   logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "webhook.create", target: `${targetKind}:${targetId}`, detail: wh.id, result: "success" });
-  res.json({ webhook: toPublicWebhook(wh), ...(existed ? { alreadyExists: true } : { secret: wh.secret }) });
+  res.json({ ok: true, webhook: toPublicWebhook(wh), ...(existed ? { alreadyExists: true } : { secret: wh.secret }) });
 });
 extensionsRouter.post("/webhooks/:id/rotate", (req, res) => {
   if (!requireWebhookAdmin(req, res)) return;
   const wh = rotateWebhookSecret(String(req.params.id));
   if (!wh) return res.status(404).json({ error: "webhook not found" });
   logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "webhook.rotate", target: wh.id, detail: wh.targetId, result: "success" });
-  res.json({ webhook: toPublicWebhook(wh), secret: wh.secret });
+  res.json({ ok: true, webhook: toPublicWebhook(wh), secret: wh.secret });
 });
 extensionsRouter.delete("/webhooks/:id", (req, res) => {
   if (!requireWebhookAdmin(req, res)) return;

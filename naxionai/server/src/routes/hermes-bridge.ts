@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { detectHermesBin, detectHermesHome } from "../lib/hermes.js";
 import { primitives, type Primitive } from "../lib/primitives.js";
 import { allowlist } from "./primitives.js";
+import { callerLayer } from "../lib/access.js";
+import { setHermesToolOverride, hermesToolOverrideSource } from "../lib/mcp-tool-settings.js";
 
 // Hermes Bridge status — read-only visibility (+ a one-click register) for the
 // naxie-mcp.mjs stdio bridge (server/mcp/naxie-mcp.mjs) that lets the
@@ -70,8 +72,7 @@ function scanMcpServerEntry(yamlText: string, name: string): { registered: boole
 function toolCatalog() {
   const allow = allowlist();
   return primitives
-    .filter((p: Primitive) => allow.has(p.name))
-    .map((p: Primitive) => ({ name: p.name, description: p.description, readonly: p.readonly }));
+    .map((p: Primitive) => ({ name: p.name, description: p.description, readonly: p.readonly, enabled: allow.has(p.name) }));
 }
 
 function status() {
@@ -81,6 +82,7 @@ function status() {
   const configExists = !!configPath && existsSync(configPath);
   const bridgeScriptExists = existsSync(BRIDGE_SCRIPT_PATH);
   const tools = toolCatalog();
+  const enabledTools = tools.filter(tool => tool.enabled);
 
   let registered = false;
   let enabled = false;
@@ -103,13 +105,27 @@ function status() {
     bridgeScriptExists,
     registered,
     enabled,
-    toolCount: tools.length,
+    toolCount: enabledTools.length,
+    availableToolCount: tools.length,
+    toolSource: hermesToolOverrideSource(),
     tools,
   };
 }
 
 hermesBridgeRouter.get("/status", (_req, res) => {
   res.json(status());
+});
+
+hermesBridgeRouter.post("/tools", (req, res) => {
+  const layer = callerLayer(req);
+  if (layer !== null && layer !== "superadmin" && layer !== "admin") return res.status(403).json({ error: "Changing Hermes tool access requires admin access." });
+  const names = req.body?.enabledTools;
+  if (!Array.isArray(names) || names.some((name: unknown) => typeof name !== "string")) return res.status(400).json({ error: "enabledTools must be an array of primitive names" });
+  const known = new Set(primitives.map((primitive: Primitive) => primitive.name));
+  const unknown = [...new Set(names as string[])].filter(name => !known.has(name));
+  if (unknown.length) return res.status(400).json({ error: `Unknown tool(s): ${unknown.join(", ")}` });
+  setHermesToolOverride(names as string[]);
+  res.json({ ok: true, status: status() });
 });
 
 // Idempotent — writes the mcp_servers.naxie block into Hermes's config.yaml

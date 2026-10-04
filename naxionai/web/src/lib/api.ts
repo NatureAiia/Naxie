@@ -783,11 +783,12 @@ export const api = {
     req<{ result: McpCallResult }>(`/api/mcp-servers/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(body) }),
   hermesBridgeStatus: () => req<HermesBridgeStatus>("/api/hermes-bridge/status"),
   registerHermesBridge: () => req<{ ok: boolean; alreadyRegistered: boolean; status: HermesBridgeStatus }>("/api/hermes-bridge/register", { method: "POST" }),
+  setHermesTools: (enabledTools: string[]) => req<{ ok: boolean; status: HermesBridgeStatus }>("/api/hermes-bridge/tools", { method: "POST", body: JSON.stringify({ enabledTools }) }),
   whatsappStatus: () => req<WhatsAppBridgeStatus>("/api/whatsapp/status"),
   whatsappReconnect: () => req<{ ok: true }>("/api/whatsapp/reconnect", { method: "POST" }),
   getExecutor: () => req<ExecutorStatus>("/api/executor"),
-  setExecutor: (body: { mode?: "naxie" | "hermes"; hermesModel?: string | null; hermesLocal?: boolean; crosscheck?: boolean }) =>
-    req<{ ok: true; mode: string; hermesModelOverride: string | null; hermesLocal: boolean; crosscheck: boolean }>("/api/executor", { method: "POST", body: JSON.stringify(body) }),
+  setExecutor: (body: { mode?: "naxie" | "hermes"; hermesModel?: string | null; hermesLocal?: boolean; crosscheck?: boolean; hermesCodeTasks?: boolean }) =>
+    req<{ ok: true; mode: string; hermesModelOverride: string | null; hermesLocal: boolean; crosscheck: boolean; hermesCodeTasks: boolean }>("/api/executor", { method: "POST", body: JSON.stringify(body) }),
   listBrands: () => req<{ brands: Brand[] }>("/api/brands"),
   getBrand: (id: string) => req<{ brand: Brand }>(`/api/brands/${encodeURIComponent(id)}`),
   updateBrand: (id: string, patch: Partial<Omit<Brand, "id" | "createdAt" | "personaIds">>) =>
@@ -1171,9 +1172,14 @@ export type ExecutorStatus = {
   hermesModelOverride: string | null;
   hermesLocal: boolean;
   crosscheck: boolean;
+  hermesCodeTasks: boolean;
   fallbackToNaxie: boolean;
   qualityGate: boolean;
-  hermes: { available: boolean; binPath?: string; model: string; provider: string; localModel: string };
+  hermes: {
+    available: boolean; binPath?: string; model: string; provider: string; localModel: string;
+    localModelAvailable: boolean | null; localModelDetail?: string; providerConfigured: boolean | null;
+    readiness: "ready" | "install" | "configure-model"; readinessDetail: string;
+  };
 };
 
 export type HermesBridgeStatus = {
@@ -1186,7 +1192,9 @@ export type HermesBridgeStatus = {
   registered: boolean;
   enabled: boolean;
   toolCount: number;
-  tools: { name: string; description: string; readonly: boolean }[];
+  availableToolCount: number;
+  toolSource: "saved" | "environment" | "default";
+  tools: { name: string; description: string; readonly: boolean; enabled: boolean }[];
 };
 
 export type WhatsAppBridgeStatus = {
@@ -1428,7 +1436,7 @@ export type Cadence = {
   once?: string;
 };
 
-export type ScheduleDelivery = { email?: string };
+export type ScheduleDelivery = { email?: string; telegramChatId?: string };
 export type Schedule = {
   id: string;
   name: string;

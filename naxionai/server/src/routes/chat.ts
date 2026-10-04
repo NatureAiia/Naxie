@@ -12,7 +12,7 @@ import { checkLaneFit, buildOutOfLaneRefusal, resolveHireToPersona } from "../li
 import { localInflightCount, pickLightestIdlePeer, pickPeerByRole, pickExecutor, delegateToPeer, pollPeers, crosscheckAnswers, type PeerInfo, type RoutingDecision } from "../lib/peers.js";
 import { curatePeerOutput } from "../lib/curation.js";
 import { ensureWorker, ensureExtraWorker } from "../lib/worker-manager.js";
-import { isHermesPrimary, getHermesModelOverride, isCrosscheckEnabled } from "../lib/executor-mode.js";
+import { isHermesPrimary, isHermesCodeTask, getHermesModelOverride, isCrosscheckEnabled } from "../lib/executor-mode.js";
 import { detectsShonaOrNdebele, shonaLanguageDirective, getShonaNdebeleMatches } from "../lib/shona-glossary.js";
 import { recordChatExchange, listChatHistory } from "../lib/chat-history.js";
 import { loadJobById } from "../lib/job-store.js";
@@ -1103,7 +1103,8 @@ async function handleChat(req: any, res: any) {
       // can plan/synth on the local model. This alone avoids ~220s of dead wait
       // per task during an OpenRouter outage.
       let skipHermesForOutage = false;
-      if (isHermesPrimary()) {
+      const useHermes = isHermesPrimary() || isHermesCodeTask(text);
+      if (useHermes) {
         try {
           const { openrouterCircuitOpen } = await import("../lib/openrouter.js");
           if (openrouterCircuitOpen()) {
@@ -1116,10 +1117,10 @@ async function handleChat(req: any, res: any) {
       // Sensitive tasks skip Hermes entirely: Hermes reaches email.send/db/
       // connectors through the MCP bridge, which is NOT behind the approval
       // checkpoint. Route them straight to naxie-agent's gated plan pipeline.
-      if (isHermesPrimary() && sensitiveLikely) {
+      if (useHermes && sensitiveLikely) {
         push("This task may send email, query the database, or call a connector — routing it through the gated pipeline so it pauses for your approval first.");
       }
-      if (isHermesPrimary() && !skipHermesForOutage && !sensitiveLikely) {
+      if (useHermes && !skipHermesForOutage && !sensitiveLikely) {
         const { runHermesAgent } = await import("../lib/hermes.js");
         let governance = "";
         try { const { loadGovernancePrefix } = await import("../lib/governance.js"); governance = loadGovernancePrefix(); } catch { /* optional */ }

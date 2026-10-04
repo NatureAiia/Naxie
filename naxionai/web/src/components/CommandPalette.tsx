@@ -6,6 +6,7 @@ import {
   BookOpen, Sparkles, Terminal,
   UserCircle, PlusCircle, Search as SearchIcon, Calendar,
   Plug, PiggyBank, Brain, LayoutDashboard,
+  Webhook,
 } from "lucide-react";
 import { Kbd, MetaKey } from "./Kbd";
 import { matIcon } from "./FileIcon";
@@ -69,6 +70,7 @@ export function CommandPalette() {
     { id: "n-planner", group: "Navigate", label: "Planner", icon: Calendar, onSelect: go("/planner"), keywords: "tasks todo plan my tasks calendar" },
     { id: "n-finances", group: "Navigate", label: "My Finances", icon: PiggyBank, onSelect: go("/my-finances"), keywords: "budget money savings plans income expense personal finance" },
     { id: "n-schedules", group: "Navigate", label: "Schedules", icon: Calendar, onSelect: go("/schedules"), keywords: "cron recurring schedule daily rhythm calendar export ics read aloud" },
+    { id: "n-automation", group: "Navigate", label: "Automation", icon: Webhook, onSelect: go("/automation"), keywords: "webhook incoming trigger outgoing event integrations automation" },
     { id: "n-memory", group: "Navigate", label: "Naxie Memory", icon: Brain, onSelect: go("/naxie/memory"), keywords: "memory rag teach tool dna habits personalization learned" },
     { id: "n-command", group: "Navigate", label: "Command Center", icon: LayoutDashboard, onSelect: go("/command"), keywords: "org dashboard command center roles" },
     { id: "n-daily", group: "Navigate", label: "Daily Reports", icon: ChangelogIcon, onSelect: go("/daily-reports"), keywords: "daily reports digest rollup" },
