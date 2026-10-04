@@ -81,8 +81,7 @@ const primaryNav: NavItem[] = [
 
 const agentsNav: NavItem[] = [
   { to: "/council", label: "Council", icon: Waypoints },
-  { to: "/team", label: "Focus Team", icon: Users },
-  { to: "/presets", label: "Hire a Worker", icon: UserPlus },
+  // Focus Team and Hire a Worker moved under Council page
 ];
 
 const workNav: NavItem[] = [

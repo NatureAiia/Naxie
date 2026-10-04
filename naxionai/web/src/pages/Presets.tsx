@@ -36,7 +36,7 @@ export function Presets() {
     <div className="space-y-6">
       <PageHeader
         icon={<UserPlus size={24} />}
-        title="Hire a Worker"
+        // Hire a Worker page removed – functionality moved under Council
         subtitle="One-click role bundles — activates a persona, ensures its starter templates, and can stand up a recurring briefing schedule."
       />
 
