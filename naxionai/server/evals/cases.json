@@ -1,0 +1,30 @@
+{
+  "routing": [
+    { "id": "direct-explanation", "task": "Explain async and await in JavaScript.", "expected": "direct" },
+    { "id": "direct-small-talk", "task": "Tell me a short joke about databases.", "expected": "direct" },
+    { "id": "tool-vault", "task": "What is in my vault about Naxie?", "expected": "tools" },
+    { "id": "tool-file", "task": "Read 0-Inbox/meeting-notes.md", "expected": "tools" },
+    { "id": "tool-url", "task": "Summarize https://example.com/release-notes", "expected": "tools" },
+    { "id": "tool-action", "task": "Send an email to alex@example.com with subject \"Update\" and body \"The report is ready.\"", "expected": "tools" }
+  ],
+  "plans": [
+    { "id": "read-vault-file", "task": "Read 0-Inbox/meeting-notes.md", "expectedTools": ["vault.read"] },
+    { "id": "web-research", "task": "Search the web for current flu vaccine guidance", "expectedTools": ["research.deep"] },
+    { "id": "self-contained-email", "task": "Send an email to alex@example.com with subject \"Update\" and body \"The report is ready.\"", "expectedTools": ["email.send"] },
+    { "id": "org-records", "task": "What departments exist in our organization?", "expectedTools": ["users.list", "personas.list", "company.department_data", "vault.search"] },
+    { "id": "schedule-create", "task": "Create a schedule called \"Morning digest\": every weekday at 08:00 run the daily digest report", "expectedTools": ["schedule.create"] },
+    { "id": "notepad-read", "task": "What is in my notepad?", "expectedTools": ["system.notepad"] }
+  ],
+  "retrieval": [
+    { "id": "status-intent", "query": "What is the status of project Atlas?", "expectedIntents": ["status"], "expectedEntities": ["project"] },
+    { "id": "policy-search", "query": "Find the leave policy document", "expectedIntents": ["search"], "expectedEntities": ["leave", "knowledge"] },
+    { "id": "compare-costs", "query": "Compare project cost metrics", "expectedIntents": ["comparison", "analytics"], "expectedEntities": ["project", "finance"] },
+    { "id": "risk-alert", "query": "Show overdue contract risks and warnings", "expectedIntents": ["search", "status", "alert"], "expectedEntities": ["contract"] }
+  ],
+  "contracts": [
+    { "id": "valid-triage-json", "raw": "{\"route\":\"tools\",\"confidence\":0.92}", "schema": { "route": "string", "confidence": "number" }, "valid": true },
+    { "id": "wrapped-quality-json", "raw": "Result: {\"factuality_risk\":0.1,\"citation_coverage\":0.8}", "schema": { "factuality_risk": "number", "citation_coverage": "number" }, "valid": true },
+    { "id": "reject-wrong-type", "raw": "{\"route\":\"direct\",\"confidence\":\"high\"}", "schema": { "route": "string", "confidence": "number" }, "valid": false },
+    { "id": "reject-malformed", "raw": "not json", "schema": { "route": "string" }, "valid": false }
+  ]
+}
