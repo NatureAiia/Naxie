@@ -182,7 +182,11 @@ export function downloadVaultFile(format: "pdf" | "docx", path: string): void {
 // ─── save to vault (uses the existing /api/brain/file surface — no new backend) ─
 
 export async function saveMarkdownToVault(markdown: string, filenameBase: string): Promise<string | null> {
-  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
+  // Strip non-digits rather than with an explicit separator character class:
+  // Tailwind scans every src TS file for class candidates, and a bracketed
+  // "dash-colon-T" pattern reads as an arbitrary-property rule that
+  // lightningcss then refuses to minify (production build fails).
+  const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 12);
   const path = `0-Inbox/${stamp}-${safeBase(filenameBase)}.md`;
   try {
     await api.brainSave(path, markdown);
@@ -198,8 +202,13 @@ export async function saveMarkdownToVault(markdown: string, filenameBase: string
 
 export const NAXIE_HANDOFF_KEY = "naxie.handoffPrompt";
 
-export function sendToNaxie(navigate: (to: string) => void, prompt: string): void {
+/** Queue a prompt for Naxie's composer. Naxie reads + clears it on mount. */
+export function stashNaxiePrompt(prompt: string): void {
   try { localStorage.setItem(NAXIE_HANDOFF_KEY, prompt); } catch { /* ignore */ }
-  void copyText("Result copied — opening Naxie to continue…");
+}
+
+export function sendToNaxie(navigate: (to: string) => void, prompt: string): void {
+  stashNaxiePrompt(prompt);
+  void copyText(prompt, "Copied — opening Naxie to continue…");
   navigate("/naxie");
 }

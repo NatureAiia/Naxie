@@ -38,6 +38,8 @@ function relTime(iso?: string): string {
 export function Orchestrate(props: {
   initialObjective?: string;
   onSendToBoard?: (topic: string) => void;
+  /** Rendered as a Council tab — the Council header is already on the page. */
+  embedded?: boolean;
 } = {}) {
   const navigate = useNavigate();
   const [objective, setObjective] = useState("");
@@ -86,11 +88,13 @@ export function Orchestrate(props: {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        icon={<Waypoints size={24} />}
-        title="Orchestrate"
-        subtitle="Decompose a big objective into parallel sub-tasks and synthesize a final report — for asks too large for one agent pass."
-      />
+      {!props.embedded && (
+        <PageHeader
+          icon={<Waypoints size={24} />}
+          title="Orchestrate"
+          subtitle="Decompose a big objective into parallel sub-tasks and synthesize a final report — for asks too large for one agent pass."
+        />
+      )}
 
       <Card title="New objective">
         <div className="flex gap-2">

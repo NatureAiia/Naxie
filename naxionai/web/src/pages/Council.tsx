@@ -10,6 +10,10 @@ import { Orchestrate } from "./Orchestrate";
 // share the decompose-then-synthesize shape, so they live together with
 // cross-handoffs: Board → Orchestrate carries the decision out, and
 // Orchestrate → Board sends findings back for review.
+//
+// Both tabs stay mounted (the inactive one hidden) so a handoff doesn't cost
+// you the result you just sent: switching back shows the synthesis or the
+// expanded report exactly where you left it, instead of a fresh empty page.
 
 type Tab = "board" | "orchestrate";
 
@@ -34,9 +38,11 @@ export function Council() {
         subtitle="Debate it with the board, or break it down with orchestration — then carry the outcome forward."
       />
 
-      <div className="flex items-center gap-1 border-b border-ink-800">
+      <div role="tablist" aria-label="Council views" className="flex items-center gap-1 border-b border-ink-800">
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === "board"}
           onClick={() => switchTab("board")}
           className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap transition-colors inline-flex items-center gap-1.5 ${
             tab === "board" ? "border-violet-500 text-cream-50" : "border-transparent text-cream-300/60 hover:text-cream-100"
@@ -46,6 +52,8 @@ export function Council() {
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === "orchestrate"}
           onClick={() => switchTab("orchestrate")}
           className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap transition-colors inline-flex items-center gap-1.5 ${
             tab === "orchestrate" ? "border-violet-500 text-cream-50" : "border-transparent text-cream-300/60 hover:text-cream-100"
@@ -55,17 +63,19 @@ export function Council() {
         </button>
       </div>
 
-      {tab === "board" ? (
+      <div role="tabpanel" hidden={tab !== "board"}>
         <BoardMeeting
           initialTopic={boardTopic}
           onSendToOrchestrate={(obj) => { setObjective(obj); switchTab("orchestrate"); }}
         />
-      ) : (
+      </div>
+      <div role="tabpanel" hidden={tab !== "orchestrate"}>
         <Orchestrate
+          embedded
           initialObjective={objective}
           onSendToBoard={(topic) => { setBoardTopic(topic); switchTab("board"); }}
         />
-      )}
+      </div>
     </div>
   );
 }

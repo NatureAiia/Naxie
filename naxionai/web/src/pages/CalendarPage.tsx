@@ -5,6 +5,7 @@ import { api, type Schedule, type Cadence } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { departmentColor } from "../lib/departmentColor";
 import { formatCadence, formatNext, DAY_LABELS } from "../lib/scheduleFormat";
+import { stashNaxiePrompt } from "../lib/resultActions";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -307,7 +308,8 @@ export function CalendarPage() {
                 />
                 <div className="pt-2 border-t border-ink-800">
                   <Link
-                    to={`/chat?q=${encodeURIComponent(`Plan my day for ${ymd(selected)} using calendar.plan_day and the daily-briefing skill.`)}`}
+                    to="/naxie"
+                    onClick={() => stashNaxiePrompt(`Plan my day for ${ymd(selected)} using calendar.plan_day and the daily-briefing skill.`)}
                     className="inline-flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-500"
                   >Plan this day with an agent →</Link>
                 </div>
