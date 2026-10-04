@@ -902,14 +902,29 @@ export async function processInboundEmail(account: EmailAccount, global: GlobalE
     saveTriageStore(store);
 
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    let badge = "📧 Email";
+    let reason = "Awaiting review.";
+    try {
+      const { classifyEmail } = await import("./smart-email-triage.js");
+      const c = classifyEmail(sender, subject, prompt);
+      badge = c.badge;
+      reason = c.oneLinerReason;
+    } catch {}
+
     await sendTelegramMessage(
-      `📧 *New Email Triage*\n\n*From:* ${sender}\n*Subject:* ${subject}\n\n${prompt.slice(0, 200)}${prompt.length > 200 ? "..." : ""}\n\nHow should I handle this?`,
+      `📧 *New Email Triage* — ${badge}\n\n*From:* ${sender}\n*Subject:* ${subject}\n\n💡 _${reason}_\n\n${prompt.slice(0, 200)}${prompt.length > 200 ? "..." : ""}`,
       undefined,
       [
         [
-          { text: "Respond", callback_data: `email:respond:${triageId}` },
-          { text: "Snooze", callback_data: `email:snooze:${triageId}` },
-          { text: "Ignore", callback_data: `email:ignore:${triageId}` },
+          { text: "✉️ Respond", callback_data: `email:respond:${triageId}` },
+          { text: "⏰ Snooze", callback_data: `email:snooze:${triageId}` },
+        ],
+        [
+          { text: "✅ Archive", callback_data: `email:archive:${triageId}` },
+          { text: "➡️ Delegate", callback_data: `email:delegate:${triageId}` },
+        ],
+        [
+          { text: "🗑️ Ignore", callback_data: `email:ignore:${triageId}` },
         ],
       ],
     );

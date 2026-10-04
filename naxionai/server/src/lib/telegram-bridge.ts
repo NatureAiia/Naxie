@@ -306,7 +306,7 @@ async function handleEmailCallback(token: string, allow: Set<string>, cb: any): 
 
     void tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Processing email..." }).catch(() => {});
 
-    const m = data.match(/^email:(respond|snooze|ignore|confirm_send|edit|handle_all):?(.*)$/);
+    const m = data.match(/^email:(respond|snooze|ignore|confirm_send|edit|handle_all|archive|delegate):?(.*)$/);
     if (!m) return;
 
     const [, action, triageId] = m;
@@ -334,6 +334,16 @@ async function handleEmailCallback(token: string, allow: Set<string>, cb: any): 
       saveTriageStore(store);
       await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Ignored" });
       void tg(token, "sendMessage", { chat_id: chatId, text: `🗑️ Ignored email from ${entry.sender}`, parse_mode: "HTML" }).catch(() => {});
+    } else if (action === "archive") {
+      entry.status = "resolved";
+      saveTriageStore(store);
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Archived" });
+      void tg(token, "sendMessage", { chat_id: chatId, text: `🗄️ Archived email from <b>${escapeHtml(entry.sender)}</b>`, parse_mode: "HTML" }).catch(() => {});
+    } else if (action === "delegate") {
+      entry.status = "pending";
+      saveTriageStore(store);
+      await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Delegated" });
+      void tg(token, "sendMessage", { chat_id: chatId, text: `➡️ Delegated email from <b>${escapeHtml(entry.sender)}</b> to specialist team agent`, parse_mode: "HTML" }).catch(() => {});
     } else if (action === "snooze") {
       entry.status = "snoozed";
       saveTriageStore(store);
@@ -422,12 +432,12 @@ async function handleTodoCallback(token: string, allow: Set<string>, cb: any): P
     const cbId = String(cb.id ?? "");
     // Ack immediately to clear spinner
     void tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Working…" }).catch(() => {});
-    const m = data.match(/^todo:(done|snooze):(.+)$/);
+    const m = data.match(/^todo:(done|snooze|reschedule):([^:]+)(?::([^:]+))?$/);
     if (!m) {
       await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Unknown action" });
       return;
     }
-    const [, action, taskId] = m;
+    const [, action, taskId, extraDate] = m;
     // Direct my-tasks store edit (cross-owner search)
     try {
       const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
@@ -449,13 +459,16 @@ async function handleTodoCallback(token: string, allow: Set<string>, cb: any): P
         writeFileSync(storePath, JSON.stringify(parsed, null, 2));
         await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: it.completed ? "✅ Marked done" : "↩️ Marked open" });
         void tg(token, "sendMessage", { chat_id: chatId, text: `${it.completed ? "✅ Done" : "↩️ Reopened"}: ${String(it.title).slice(0,120)}`, parse_mode: "HTML" }).catch(() => {});
-      } else if (action === "snooze") {
-        const tmr = new Date(); tmr.setDate(tmr.getDate()+1);
-        const ymd = `${tmr.getFullYear()}-${String(tmr.getMonth()+1).padStart(2,"0")}-${String(tmr.getDate()).padStart(2,"0")}`;
+      } else if (action === "snooze" || action === "reschedule") {
+        let ymd = extraDate;
+        if (!ymd) {
+          const tmr = new Date(); tmr.setDate(tmr.getDate()+1);
+          ymd = `${tmr.getFullYear()}-${String(tmr.getMonth()+1).padStart(2,"0")}-${String(tmr.getDate()).padStart(2,"0")}`;
+        }
         it.dueDate = ymd;
         writeFileSync(storePath, JSON.stringify(parsed, null, 2));
-        await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: `⏰ Snoozed to ${ymd}` });
-        void tg(token, "sendMessage", { chat_id: chatId, text: `⏰ Snoozed to <b>${ymd}</b>: ${escapeHtml(String(it.title).slice(0,120))}`, parse_mode: "HTML" }).catch(() => {});
+        await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: `⏰ Rescheduled to ${ymd}` });
+        void tg(token, "sendMessage", { chat_id: chatId, text: `⏰ Rescheduled to <b>${ymd}</b>: ${escapeHtml(String(it.title).slice(0,120))}`, parse_mode: "HTML" }).catch(() => {});
       }
     } catch (e: any) {
       await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: `Failed: ${String(e?.message ?? e).slice(0,60)}` });

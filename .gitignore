@@ -74,3 +74,18 @@ Thumbs.db
 # Claude Code local state
 # ==========================
 .claude/settings.local.json
+
+# ==========================
+# Local setup & bootstrap scripts
+# ==========================
+setup.ps1
+setup*.ps1
+file
+
+# ==========================
+# Local integrations & scratch
+# ==========================
+naxionai/integrations/
+.gemini/
+scratch/
+graphify-out/cache/

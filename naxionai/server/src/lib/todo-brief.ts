@@ -268,8 +268,18 @@ export async function runTodoBrief(_opts?: any): Promise<TodoBriefResult> {
       console.warn(`[todo-brief] job registration failed: ${e?.message ?? e}`);
     }
 
+    // Habit & Focus Streaks sync
+    let streakBadge = "";
+    try {
+      const { syncStreaksToVault, getStreakTelegramBadge } = await import("./streaks.js");
+      const streakStats = await syncStreaksToVault();
+      streakBadge = getStreakTelegramBadge(streakStats);
+    } catch (e: any) {
+      console.warn(`[todo-brief] streak sync failed: ${e?.message ?? e}`);
+    }
+
     // Telegram delivery — best-effort, never throws.
-    void deliverToTelegram(result);
+    void deliverToTelegram(result, streakBadge);
 
     return result;
   })();
@@ -277,12 +287,13 @@ export async function runTodoBrief(_opts?: any): Promise<TodoBriefResult> {
   finally { inFlight = null; }
 }
 
-async function deliverToTelegram(result: TodoBriefResult): Promise<void> {
+async function deliverToTelegram(result: TodoBriefResult, streakBadge?: string): Promise<void> {
   try {
     const { sendTelegramMessage, stripVaultFrontmatterForTelegram } = await import("./telegram-bridge.js");
     const niceDate = fmtNice(result.date);
     const body = stripVaultFrontmatterForTelegram(result.markdown).slice(0, 3300);
-    const text = `☀️ *Todo Brief — ${niceDate}*\n📋 ${result.todayCount} today · ⚠️ ${result.overdueCount} overdue · 📅 ${result.weekCount} rest-of-week · 📦 ${result.openCount} open\n\n${body}\n\n📄 _Full brief in vault:_ ${result.path}`;
+    const streakLine = streakBadge ? `${streakBadge}\n` : "";
+    const text = `☀️ *Todo Brief — ${niceDate}*\n${streakLine}📋 ${result.todayCount} today · ⚠️ ${result.overdueCount} overdue · 📅 ${result.weekCount} rest-of-week · 📦 ${result.openCount} open\n\n${body}\n\n📄 _Full brief in vault:_ ${result.path}`;
     const kb = (result.top3 ?? []).slice(0, 3).map((p: any) => {
       const t = String(p.task.title ?? "").slice(0, 22).replace(/"/g, "");
       return [

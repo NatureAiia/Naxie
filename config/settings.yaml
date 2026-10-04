@@ -1,0 +1,23 @@
+﻿environment: "development"
+service_name: "naxionai-neuroworks"
+
+router:
+  complexity_threshold: 0.65
+  max_context_window: 8192
+
+memory:
+  redis_url: "redis://localhost:6379/0"
+  neo4j_uri: "bolt://localhost:7687"
+  neo4j_user: "neo4j"
+  neo4j_password: "naxion_secret_2026"
+  qdrant_url: "http://localhost:6333"
+  working_memory_ttl_seconds: 86400
+  sliding_window_turns: 10
+
+security:
+  strict_mode: true
+  allowed_tools:
+    - "database_query"
+    - "web_retrieval"
+    - "code_analysis"
+    - "graph_search"

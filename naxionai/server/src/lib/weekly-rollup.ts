@@ -90,6 +90,22 @@ export async function runWeeklyRollup(): Promise<WeeklyRollupResult> {
     let weatherBlock = "";
     try { const { getWeather } = await import("./host-tools.js"); weatherBlock = await getWeather("auto"); } catch {}
 
+    let streakBlock = "";
+    try {
+      const { calculateStreakStats, syncStreaksToVault } = await import("./streaks.js");
+      const s = await syncStreaksToVault();
+      streakBlock = `## 🔥 Habit & Focus Streaks\n\n> **Current Streak:** **${s.currentStreak} day${s.currentStreak === 1 ? "" : "s"}** · All-time high: **${s.longestStreak} days** 🏅\n> **7-Day Focus Score:** **${Math.round(s.weeklyAvgRate * 100)}%** completion rate across scheduled tasks.\n\n`;
+    } catch {}
+
+    let predictiveBlock = "";
+    let predictiveSuggestions: any[] = [];
+    try {
+      const { analyzePredictiveTasks, formatPredictiveRollupMarkdown } = await import("./predictive-tasks.js");
+      const pred = analyzePredictiveTasks();
+      predictiveBlock = formatPredictiveRollupMarkdown(pred) + "\n";
+      predictiveSuggestions = pred.suggestions;
+    } catch {}
+
     const header = `---
 type: weekly-rollup
 week: ${start} → ${end}
@@ -111,7 +127,7 @@ ${weatherBlock ? weatherBlock+"\n" : ""}
 
 ${todo.completed===0 && todo.open===0 ? "_No todo activity recorded this week._" : `_${todo.completed} completed, ${todo.open} still open — overdue ${todo.overdue}_`}
 
-## 🌙 Reflections — ${refs.length} ${refs.length===1?"entry":"entries"}
+${streakBlock}${predictiveBlock}## 🌙 Reflections — ${refs.length} ${refs.length===1?"entry":"entries"}
 
 ${refs.length ? refs.map(f=>`- \`${f}\``).join("\n") : "_No reflections this week._"}
 
@@ -141,7 +157,18 @@ ${latestReview ? `Latest self-improvement review: \`${latestReview}\` — propos
     lastResult = result;
     try { const { newJob } = await import("./jobs.js"); const { persistJobRecord } = await import("./job-store.js"); const j = newJob("weekly-rollup"); j.title=`🗓️ Weekly Rollup — ${label} (${todo.completed} done, ${todo.open} open)`; j.status="succeeded"; j.startedAt=generatedAt; j.finishedAt=generatedAt; j.result={answer:markdown, briefPath:path}; try{persistJobRecord(j)}catch{} } catch {}
     void (async () => {
-      try { const { sendTelegramMessage, stripVaultFrontmatterForTelegram } = await import("./telegram-bridge.js"); const text = `🗓️ *Weekly Rollup — ${label}*\n✅ ${todo.completed} done · 📋 ${todo.open} open · ⚠️ ${todo.overdue} overdue\n🔭 ${scans.length} scans · 🌙 ${refs.length} reflections\n\n${stripVaultFrontmatterForTelegram(markdown).slice(0,3200)}\n\n— _Full: ${path}_`; const r=await sendTelegramMessage(text); if(!r.ok) console.warn(`[weekly-rollup] telegram skip: ${r.error}`);} catch {}
+      try {
+        const { sendTelegramMessage, stripVaultFrontmatterForTelegram } = await import("./telegram-bridge.js");
+        const text = `🗓️ *Weekly Rollup — ${label}*\n✅ ${todo.completed} done · 📋 ${todo.open} open · ⚠️ ${todo.overdue} overdue\n🔭 ${scans.length} scans · 🌙 ${refs.length} reflections\n\n${stripVaultFrontmatterForTelegram(markdown).slice(0,3200)}\n\n— _Full: ${path}_`;
+        const kb = (predictiveSuggestions ?? []).slice(0, 3).map((s: any) => {
+          const shortTitle = String(s.title ?? "").slice(0, 18).replace(/"/g, "");
+          return [
+            { text: `⏰ Reschedule "${shortTitle}"`, callback_data: `todo:reschedule:${s.taskId}:${s.suggestedDate}` }
+          ];
+        });
+        const r = await sendTelegramMessage(text, undefined, kb.length ? kb : undefined);
+        if(!r.ok) console.warn(`[weekly-rollup] telegram skip: ${r.error}`);
+      } catch {}
       try { const { sendEmail, emailConfigured } = await import("./email.js"); const { config } = await import("../config.js"); if (emailConfigured()) { const to = (config as any).operatorEmail ?? ""; if (to) await sendEmail({to, subject:`Weekly Rollup — ${label}`, body: markdown}); } } catch {}
     })();
     return result;
