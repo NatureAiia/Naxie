@@ -266,7 +266,7 @@ export function Extensions() {
       <div className="grid grid-cols-4 gap-3">
         {[
           { id: "platform" as ExtTab, href: null, label: "Platform APIs enabled", value: `${data.counts.coreEnabled}/${data.counts.coreTotal}`, sub: `${data.counts.coreHealthy} healthy`, icon: Cpu },
-          { id: "integrations" as ExtTab, href: null, label: "Integrations", value: String(data.counts.integrations), sub: "Slack, Telegram, GitHub…", icon: Plug },
+          { id: "integrations" as ExtTab, href: null, label: "Integrations", value: String(data.counts.integrations), sub: "Buffer Business, GitHub…", icon: Plug },
           { id: null, href: "/connectors", label: "Connectors", value: String(data.counts.connectors), sub: "Company systems + personal accounts", icon: Boxes },
           { id: null, href: null, label: "Model Providers", value: String(data.counts.modelProviders), sub: `${(data.costSummary?.totalCostUsd ?? 0).toFixed(2)} USD 30d`, icon: Cloud },
         ].map(k => (
@@ -758,7 +758,7 @@ function AddPluginModal({ onClose, onAdded, initialTab = "integration" }: { onCl
         </div>
         <div className="flex gap-1 p-1 bg-ink-950 rounded-lg border border-ink-800 w-fit">
           {[
-            { id: "integration", label: "Integration", icon: Plug, desc: "Slack, Telegram, Ayrshare…" },
+            { id: "integration", label: "Integration", icon: Plug, desc: "Buffer Business, Ayrshare…" },
             { id: "connector", label: "Custom API", icon: Boxes, desc: "Any HTTP API" },
             { id: "model", label: "Model Provider", icon: Cloud, desc: "OpenAI / OpenRouter…" },
           ].map(t => (

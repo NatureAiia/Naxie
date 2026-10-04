@@ -86,7 +86,7 @@ export function Integrations() {
       <div>
         <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Plug size={24} /> Integrations</h1>
         <p className="text-sm text-cream-300/70 mt-1">
-          Connect your tools so agents can act on them — post to <span className="font-mono">Slack</span>/<span className="font-mono">Telegram</span>, read <span className="font-mono">Notion</span>/<span className="font-mono">GitHub</span>, and more.
+           Connect your tools so agents can act on them — post to <span className="font-mono">Buffer Business</span>, read <span className="font-mono">Notion</span>/<span className="font-mono">GitHub</span>, and more.
           Secrets are <span className="text-cream-200">encrypted at rest</span> and never leave the server.
         </p>
       </div>
