@@ -223,7 +223,10 @@ async function searchFetchValidate(query: string, depth: number): Promise<{ kept
 }
 
 // One LLM call per weakness/query (batched over all its sources) — not
-// per-source — to keep cost bounded.
+// per-source — to keep cost bounded. Bounded by SUMMARIZE_TIMEOUT_MS so a
+// stalled backend can't hang the whole scan (the research loops below await
+// these sequentially with no other cap).
+const SUMMARIZE_TIMEOUT_MS = Math.max(30_000, Number(process.env.NAXION_INNOVATION_SUMMARIZE_TIMEOUT_MS ?? "90000"));
 async function summarizeBatch(topic: string, kept: ValidatedSource[]): Promise<string> {
   if (kept.length === 0) return "_No usable sources found for this topic._";
   const evidence = kept
@@ -232,7 +235,11 @@ async function summarizeBatch(topic: string, kept: ValidatedSource[]): Promise<s
   const sys = "You summarize web research for a busy operator. Two to four plain-language sentences, no jargon dump, cite sources inline as [N]. Be concrete about what's actionable.";
   const prompt = `Topic: ${topic}\n\n${evidence}\n\nWrite the summary.`;
   try {
-    const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "low", maxTokens: 300 } as any);
+    const meta = await withTimeout(
+      () => llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "normal", maxTokens: 300, timeoutMs: SUMMARIZE_TIMEOUT_MS }),
+      SUMMARIZE_TIMEOUT_MS,
+      `innovation-scan summarize "${topic}"`,
+    );
     return meta.text.trim();
   } catch (e: any) {
     return `_Summary unavailable (${String(e?.message ?? e).slice(0, 100)}). Sources: ${kept.map(s => s.url).join(", ")}_`;
@@ -434,6 +441,16 @@ export async function synthesizeDigest(targeted: TargetedFinding[], broad: Broad
     ? broad.news.map(n => `### "${n.query}"\n${n.summary}`).join("\n\n")
     : "_(no news findings)_";
 
+  // Grounding for the "what's new" section: the curated feed is verified
+  // titles/links straight from source RSS (the renderer prints them verbatim
+  // below the digest for the same reason). Without this, a thin news pass
+  // leaves the LLM with nothing to say and it fills the void with stale
+  // training-data items (observed 2026-10-04: GPT-4 Turbo, Gemini 1.5 —
+  // years out of date). The section prompt may ONLY use the items below.
+  const curatedBlock = (broad.curated ?? []).length > 0
+    ? (broad.curated ?? []).slice(0, 25).map(c => `- [${c.source}] ${c.title} (${c.url})`).join("\n")
+    : "_(no verified feed items this run)_";
+
   // Per-section budget derived from measured local throughput + the lane's
   // own observed queue wait (local-budget.ts) — each section is a small ask
   // (≤350 tokens), so this lands far below the total cap on a healthy box.
@@ -460,8 +477,8 @@ export async function synthesizeDigest(targeted: TargetedFinding[], broad: Broad
     },
     {
       id: "whats-new", heading: "✨ What's new and interesting", maxTokens: 350,
-      sys: `${DIGEST_VOICE}\nDigestible highlights from the trending repos and news findings — what it is and why it might matter to us, in plain terms. If there's nothing, say so.`,
-      prompt: `## Trending repos\n\n${reposBlock}\n\n## News findings\n\n${newsBlock}`,
+      sys: `${DIGEST_VOICE}\nDigestible highlights from the material below — what it is and why it might matter to us, in plain terms. GROUNDING RULE: write ONLY about the repos, news findings, and verified feed items given here. Never invent tools, model versions, or links, and never reach for older items you "remember" — if a section's data says nothing usable, say so plainly instead of filling the gap.`,
+      prompt: `## Trending repos\n\n${reposBlock}\n\n## News findings\n\n${newsBlock}\n\n## Verified feed items (last 48h — prefer these)\n\n${curatedBlock}`,
     },
   ];
 

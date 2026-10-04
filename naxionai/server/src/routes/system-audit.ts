@@ -113,7 +113,7 @@ systemAuditRouter.post("/architect-pr", requireLayer("admin"), async (req, res) 
     const finding = String(req.body?.finding ?? "").slice(0, 500);
     if (!finding) return res.status(400).json({ error: "finding required" });
     const { runArchitectReview } = await import("../lib/architect.js");
-    const r = await runArchitectReview();
+    const r = await runArchitectReview({ focus: finding });
     res.json({ ...r, finding });
   } catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
 });

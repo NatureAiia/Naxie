@@ -171,7 +171,9 @@ Tools available (call by responding with a single JSON object, nothing else):
 Never propose changes under naxionai/backend/ — it is out of scope. Respond with ONLY the JSON object for your next tool call, no other text.`;
 
 async function callArchitectLLM(prompt: string): Promise<ToolCall | null> {
-  const raw = await llmGenerate(prompt, SYSTEM_PROMPT, { profile: "planning", maxTokens: 4000, temperature: 0.2 });
+  // Bounded per step (6 steps max) so an LLM outage fails the button in
+  // ~9 min worst case instead of hanging it for ~90 min on 15-min defaults.
+  const raw = await llmGenerate(prompt, SYSTEM_PROMPT, { profile: "planning", maxTokens: 4000, temperature: 0.2, timeoutMs: 90_000 });
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) return null;
   try {

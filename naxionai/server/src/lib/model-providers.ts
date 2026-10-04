@@ -19,15 +19,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = resolve(__dirname, "../../../.naxion");
 const PATH = resolve(STATE_DIR, "model-providers.json");
 
-export type ProviderKind = "anthropic" | "openai" | "gemini" | "openrouter" | "groq" | "together" | "ollama_cloud" | "custom";
+export type ProviderKind = "openai" | "gemini" | "openrouter" | "groq" | "together" | "ollama_cloud" | "custom";
 
 export const PROVIDER_DEFAULTS: Record<ProviderKind, { label: string; baseUrl: string; modelHint: string }> = {
-  // Anthropic via its OpenAI-compatible endpoint (/v1/chat/completions), so it
-  // flows through the same client (Bearer auth, streaming) as every other
-  // provider — no separate Messages-API client needed. Model IDs are the native
-  // Claude ones. Default = Fable 5 (latest); alternatives: claude-opus-4-8 (max
-  // quality), claude-sonnet-4-6 (workhorse), claude-haiku-4-5-20251001 (cheapest).
-  anthropic:  { label: "Anthropic (Claude)", baseUrl: "https://api.anthropic.com/v1", modelHint: "claude-fable-5" },
   openai:     { label: "OpenAI",     baseUrl: "https://api.openai.com/v1",      modelHint: "gpt-4o-mini" },
   // Google Gemini via its OpenAI-compatible endpoint — same Bearer-auth
   // chat-completions shape as everything else here, no separate SDK. Get a
@@ -36,7 +30,9 @@ export const PROVIDER_DEFAULTS: Record<ProviderKind, { label: string; baseUrl: s
   openrouter: { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1",   modelHint: "openai/gpt-4o-mini" },
   groq:       { label: "Groq",       baseUrl: "https://api.groq.com/openai/v1", modelHint: "llama-3.3-70b-versatile" },
   together:   { label: "Together",   baseUrl: "https://api.together.xyz/v1",    modelHint: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
-  ollama_cloud: { label: "Ollama Cloud", baseUrl: "https://ollama.com/api/v1",   modelHint: "gemma4:31b" },
+  // Ollama Cloud via its OpenAI-compatible endpoint (verified 2026-10-04:
+  // chat completions live at https://ollama.com/v1 — /api/v1 404s).
+  ollama_cloud: { label: "Ollama Cloud", baseUrl: "https://ollama.com/v1",   modelHint: "gemma4:31b" },
   custom:     { label: "Custom (OpenAI-compatible)", baseUrl: "", modelHint: "" },
 };
 
@@ -49,6 +45,9 @@ export type ModelProvider = {
   apiKey: string;       // encrypted at rest
   active: boolean;
   createdAt: string;
+  // Display/failover order, controlled from the Models page (lower = earlier).
+  // Assigned on creation (append); changed via reorderProviders().
+  position: number;
   // Naxie's model-selection self-improvement loop (system.admin's
   // "switch_model" action, approval-gated) writes here instead of the
   // kind-based defaults in applyToRuntime below — persists across restart,
@@ -63,7 +62,20 @@ function load(): ModelProvider[] {
   try {
     if (!existsSync(PATH)) return [];
     const parsed = JSON.parse(readFileSync(PATH, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // Legacy records predate `position` — backfill from creation order so
+    // old installs get a stable order instead of all-zero ties.
+    const sorted = [...parsed].sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")));
+    let changed = false;
+    sorted.forEach((p, i) => {
+      if (typeof p.position !== "number") { p.position = i; changed = true; }
+    });
+    // Unknown kinds from older versions (e.g. retired "anthropic") can never
+    // be activated or used again — drop them instead of showing dead rows.
+    const kept = sorted.filter(p => (PROVIDER_DEFAULTS as Record<string, unknown>)[p.kind]);
+    if (kept.length !== sorted.length) changed = true;
+    if (changed) save(kept);
+    return kept.sort((a, b) => (a.position - b.position) || String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")));
   } catch { return []; }
 }
 
@@ -84,7 +96,7 @@ function redact(p: ModelProvider): ModelProviderPublic {
 }
 
 export function listProviders(): ModelProviderPublic[] {
-  return load().map(redact).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return load().map(redact);
 }
 
 export function addProvider(input: { label?: string; kind: ProviderKind; baseUrl?: string; model: string; apiKey: string; active?: boolean }): ModelProviderPublic {
@@ -99,6 +111,7 @@ export function addProvider(input: { label?: string; kind: ProviderKind; baseUrl
     apiKey: input.apiKey.trim(),
     active: input.active ?? true,
     createdAt: new Date().toISOString(),
+    position: list.reduce((m, p) => Math.max(m, typeof p.position === "number" ? p.position : -1), -1) + 1,
   };
   if (!p.baseUrl) throw new Error("baseUrl is required for a custom provider");
   if (!p.model) throw new Error("model is required");
@@ -132,6 +145,23 @@ export function activateProvider(id: string): ModelProviderPublic | null {
   return redact(target);
 }
 
+// Persist a new display/failover order from the Models page. `ids` holds
+// every provider id in the desired order (first = highest priority); the
+// active provider keeps working — order only affects listing + failover.
+export function reorderProviders(ids: string[]): ModelProviderPublic[] {
+  const list = load();
+  const seen = new Set<string>();
+  const ordered: ModelProvider[] = [];
+  for (const id of ids) {
+    const p = list.find(x => x.id === id);
+    if (p && !seen.has(id)) { seen.add(id); ordered.push(p); }
+  }
+  for (const p of list) if (!seen.has(p.id)) ordered.push(p);
+  ordered.forEach((p, i) => { p.position = i; });
+  save(ordered);
+  return ordered.map(redact);
+}
+
 // Mutate the live router config so the provider takes effect with no restart.
 // Passing null reverts to whatever the env originally set (captured once).
 let envSnapshot: { apiKey: string; baseUrl: string; model: string; largeModel: string; enabled: boolean } | null = null;
@@ -163,19 +193,9 @@ export function applyToRuntime(p: ModelProvider | null): void {
   // COST TIERING. The dispatcher (llm.ts) already splits every call into a
   // small tier (openrouterModel — planning, extraction, normal synth) and a
   // large tier (openrouterLargeModel — complexity:"high" or prompts over the
-  // local context budget). Early Fable rollout set BOTH tiers to the
-  // provider's model, which billed planning/triage-sized calls at frontier
-  // rates (one oversized triage cost $0.096). For Anthropic providers the
-  // small tier now defaults to Haiku ($1/$5 per MTok vs Fable's $10/$50) and
-  // ONLY complex work hands off to the provider's chosen big model.
-  // Overrides: ANTHROPIC_SMALL_MODEL pins the cheap tier;
-  // ANTHROPIC_LARGE_MODEL pins the handoff target (e.g. claude-sonnet-5
-  // instead of Fable).
-  if (p.kind === "anthropic") {
-    config.openrouterModel = (process.env.ANTHROPIC_SMALL_MODEL ?? "").trim() || "claude-haiku-4-5";
-    config.openrouterLargeModel = (process.env.ANTHROPIC_LARGE_MODEL ?? "").trim() || p.model;
-  } else if (p.kind === "gemini") {
-    // Same cheap/complex split as Anthropic above: Flash handles the small
+  // local context budget).
+  if (p.kind === "gemini") {
+    // Cheap/complex split: Flash handles the small
     // tier (planning/triage/everyday synth) at a fraction of Pro's cost;
     // only complexity:"high" / oversized prompts hand off to the provider's
     // chosen large model (default Pro). Overrides: GEMINI_SMALL_MODEL /
@@ -211,7 +231,6 @@ export function applyToRuntime(p: ModelProvider | null): void {
 // availability, not quality escalation.
 const FALLBACK_SMALL_MODEL: Partial<Record<ProviderKind, string>> = {
   openai: "gpt-5.4-mini",
-  anthropic: "claude-haiku-4-5",
   gemini: "gemini-flash-latest",
   openrouter: "nvidia/nemotron-3-super-120b-a12b:free",
 };
@@ -225,16 +244,14 @@ export type FallbackProvider = {
   largeModel: string;
 };
 
-// The NON-active registered providers, decrypted and ordered for failover:
-// OpenAI first (the designated secondary), then everything else, Anthropic
-// last (premium — most expensive per token, so it's the last resort, not the
-// second call). llm.ts walks this chain when the active provider's call
-// fails transiently or its circuit is open.
+// The NON-active registered providers, decrypted and ordered for failover.
+// Order is operator-controlled from the Models page (position, lower first):
+// llm.ts walks this chain when the active provider's call fails transiently
+// or its circuit is open.
 export function getFallbackChain(): FallbackProvider[] {
-  const rank = (k: ProviderKind) => (k === "openai" ? 0 : k === "anthropic" ? 2 : 1);
   return load()
     .filter(p => !p.active && plainKey(p))
-    .sort((a, b) => rank(a.kind) - rank(b.kind))
+    .sort((a, b) => (a.position - b.position) || a.createdAt.localeCompare(b.createdAt))
     .map(p => ({
       kind: p.kind,
       label: p.label,

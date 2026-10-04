@@ -2,7 +2,7 @@ import { Router } from "express";
 import { config } from "../config.js";
 import { listModels, pickModelFor, TASK_PROFILES, invalidateModelPickCache } from "../lib/models.js";
 import {
-  listProviders, addProvider, removeProvider, activateProvider,
+  listProviders, addProvider, removeProvider, activateProvider, reorderProviders,
   PROVIDER_DEFAULTS, type ProviderKind,
 } from "../lib/model-providers.js";
 import { getModelPolicy, setAllowPaidModels, isFreeModelId } from "../lib/model-policy.js";
@@ -171,6 +171,20 @@ modelsRouter.post("/providers/:id/activate", (req, res) => {
   const p = activateProvider(req.params.id);
   if (!p) return res.status(404).json({ error: "provider not found" });
   res.json({ provider: p });
+});
+
+// Persist a new provider order (failover priority + Models-page display).
+// Body: { ids: string[] } — every provider id, first = highest priority.
+modelsRouter.post("/providers/reorder", (req, res) => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.some(id => typeof id !== "string")) {
+    return res.status(400).json({ error: "ids must be an array of provider id strings" });
+  }
+  try {
+    res.json({ providers: reorderProviders(ids) });
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message ?? String(e) });
+  }
 });
 
 modelsRouter.delete("/providers/:id", (req, res) => {

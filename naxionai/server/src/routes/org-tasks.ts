@@ -6,7 +6,7 @@
 
 import { Router } from "express";
 import { callerOf } from "../lib/access.js";
-import { listOrgTasks, getOrgTask, resolveApproval, setOrgTaskPriorityScore, ORG_TASK_PRIORITIES, type OrgRole, type OrgTaskStatus, type OrgTaskPriority } from "../lib/org-tasks.js";
+import { listOrgTasks, getOrgTask, resolveApproval, updateOrgTaskStatus, setOrgTaskPriorityScore, ORG_TASK_PRIORITIES, type OrgRole, type OrgTaskStatus, type OrgTaskPriority } from "../lib/org-tasks.js";
 import { parseFinancePendingRef } from "../lib/business-finance.js";
 import { scorePriority } from "../lib/priority-score.js";
 
@@ -67,6 +67,18 @@ orgTasksRouter.patch("/:id/resolve", async (req, res) => {
       const out = await settleSpendApproval(req.params.id, approved, owner);
       if (!out) return res.status(404).json({ error: "org task not found, or not currently waiting-on-approval" });
       return res.json(out);
+    }
+  }
+  // Blocked-triage shortcut (Daily Reports → Blocked triage card shows
+  // status:"blocked" tasks with Resolve/Archive buttons). Blocked tasks never
+  // pass through waiting-on-approval, so resolveApproval() below would 404
+  // them by construction. Resolve requeues to active; Archive marks done.
+  {
+    const t = getOrgTask(req.params.id);
+    if (t && t.status === "blocked") {
+      const next = updateOrgTaskStatus(req.params.id, approved ? "active" : "done");
+      if (!next) return res.status(404).json({ error: "org task not found" });
+      return res.json({ task: next });
     }
   }
   const task = resolveApproval(req.params.id, approved);

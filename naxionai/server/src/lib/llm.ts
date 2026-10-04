@@ -453,8 +453,8 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
       const fallbackOn = process.env.NAXION_OR_FALLBACK_OLLAMA !== "0";
       if (isTransientError(e) && fallbackOn && !streamed) {
         // PROVIDER-POOL FAILOVER (2026-07-12): before dropping all the way
-        // to the 3B local model, walk the other registered providers —
-        // OpenAI as the designated secondary, Anthropic last (priciest).
+        // to the 3B local model, walk the other registered providers in the
+        // operator's Models-page order (getFallbackChain — position-sorted).
         // Same OpenAI-compatible client, different endpoint+key+model; each
         // fallback call bypasses OR's circuit breaker (see openrouter.ts).
         // Complexity tier is preserved: a complex task falls to the

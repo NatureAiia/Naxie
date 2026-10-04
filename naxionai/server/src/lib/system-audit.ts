@@ -105,7 +105,16 @@ export type UselessItem = {
 
 export type CostCorrelation = { template?: string; persona?: string; costUsd: number; calls: number; dormant: boolean };
 export type VaultHygiene = { duplicates: { hash: string; files: string[] }[]; staleNotes: { path: string; daysOld: number }[]; totalNotes: number };
-export type DeadCodeItem = { file: string; reason: string };
+export type DeadCodeItem = {
+  file: string;
+  reason: string;
+  // Proof, not vibes: who imports this file ("none" when truly orphaned),
+  // whether a test covers it (tested utilities are dormant, never dead),
+  // and how sure the detector is.
+  evidence?: string;
+  hasTests?: boolean;
+  confidence?: "high" | "medium";
+};
 export type PersonaMergeCandidate = { a: string; b: string; similarity: number; reason: string };
 export type IntegrationHealth = { id: string; label: string; ok: boolean; detail: string };
 
@@ -602,23 +611,85 @@ export function getDeadCode(inventory: FileInventory): DeadCodeItem[] {
       if (orphans.length) return orphans.slice(0, 20);
     }
   } catch { /* fall through to heuristic */ }
-  // Heuristic: lib files not imported anywhere (cheap grep via file content)
+  // Heuristic v2 — real import-graph analysis, not substring matching.
+  // The old heuristic grepped for bare basenames inside routes/ + lib/ only,
+  // which hallucinated in BOTH directions (verified 2026-10-04):
+  //   false positives — lib/security-headers.ts is imported by src/index.ts
+  //     (the entry point was never scanned) and lib/llm-json-contract.ts is
+  //     imported by its own test (test/ was never scanned);
+  //   false negatives — lib/sector-bundles.ts mentions its own name in log
+  //     strings, and a comment in signal-series.ts mentions omnis-extract,
+  //     so both looked "referenced" while having zero real importers.
+  // This version parses actual import specifiers (static + dynamic) across
+  // ALL of src (including index.ts) plus test/, resolves relative paths to
+  // files (self-references excluded), and treats test-covered modules as
+  // dormant utilities rather than dead code.
   try {
     const libSet = new Set(inventory.libFiles);
-    const referenced = new Set<string>();
-    const allServerFiles = [...inventory.routes.map(r => join(SERVER_ROOT, "routes", r + ".ts")), ...inventory.libFiles.map(f => join(SERVER_ROOT, f))];
-    // Quick: check if lib file name appears in any route/lib file content
-    for (const abs of allServerFiles) {
-      try {
-        const txt = readFileSync(abs, "utf8");
-        for (const lib of libSet) {
-          const base = lib.replace("lib/", "").replace(".ts", "");
-          if (txt.includes(base)) referenced.add(lib);
-        }
-      } catch { /* ignore */ }
+    const srcFiles = listFilesRecursive(SERVER_ROOT, [".ts"])
+      .filter(f => !f.endsWith(".d.ts") && !f.includes("node_modules"))
+      .map(f => join(SERVER_ROOT, f));
+    const testRoot = join(SERVER_ROOT, "..", "test");
+    const testFiles = listFilesRecursive(testRoot, [".ts"]).map(f => join(testRoot, f));
+    const allFiles = [...srcFiles, ...testFiles];
+    // specifier -> resolved repo-absolute file (or null when external/bare)
+    const resolveSpec = (fromAbs: string, spec: string): string | null => {
+      if (!spec.startsWith(".")) return null; // bare package import — not ours
+      const base = resolve(dirname(fromAbs), spec);
+      const candidates = [base + ".ts", base + ".tsx", join(base, "index.ts"), base];
+      for (const c of candidates) {
+        try {
+          const st = statSync(c);
+          if (st.isFile()) return c;
+        } catch { /* try next */ }
+      }
+      // Extension already present (e.g. "./x.js" ESM-style pointing at x.ts)
+      if (base.endsWith(".js")) {
+        const tsTwin = base.slice(0, -3) + ".ts";
+        try { if (statSync(tsTwin).isFile()) return tsTwin; } catch { /* no */ }
+      }
+      return null;
+    };
+    const inbound = new Map<string, Set<string>>(); // target abs -> importer abs set
+    const importRe = /(?:import\s+(?:[^"']*?\sfrom\s+)?|import\s*\(\s*|export\s+[^"']*?\sfrom\s+)["']([^"']+)["']/g;
+    for (const abs of allFiles) {
+      let txt = "";
+      try { txt = readFileSync(abs, "utf8"); } catch { continue; }
+      // Strip comments so a MENTION ("see lib/x.ts") never counts as a use.
+      const code = txt.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "$1");
+      importRe.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = importRe.exec(code)) !== null) {
+        const target = resolveSpec(abs, m[1]);
+        if (!target || target === abs) continue; // external, unresolvable, or self
+        if (!inbound.has(target)) inbound.set(target, new Set());
+        inbound.get(target)!.add(abs);
+      }
     }
+    const short = (abs: string) => relative(SERVER_ROOT, abs).split("\\").join("/");
     const dead: DeadCodeItem[] = [];
-    for (const lib of libSet) if (!referenced.has(lib)) dead.push({ file: lib, reason: "no inbound reference found in routes/lib (heuristic)" });
+    for (const lib of libSet) {
+      const abs = join(SERVER_ROOT, lib);
+      if (!existsSync(abs)) continue;
+      const importers = [...(inbound.get(abs) ?? [])].map(short);
+      const base = lib.replace(/^lib\//, "").replace(/\.tsx?$/, "");
+      // A test file for the module, or any test importing it, means the
+      // module is exercised — dormant at worst, never delete-on-sight.
+      const ownTest = testFiles.some(t => {
+        const norm = t.replace(/\\/g, "/");
+        return norm.endsWith(`/${base}.test.ts`) || norm.endsWith(`/${base}.test.tsx`);
+      });
+      const testedBy = importers.filter(i => !i.startsWith("lib/") && !i.startsWith("routes/") && !i.startsWith("index.ts"));
+      const hasTests = ownTest || testedBy.length > 0;
+      if (importers.length > 0 || hasTests) continue; // alive or tested — not dead
+      dead.push({
+        file: lib,
+        reason: `no static/dynamic import in ${allFiles.length} src+test files and no covering test (import-graph)`,
+        evidence: "importers: none",
+        hasTests: false,
+        confidence: "high",
+      });
+    }
     return dead.slice(0, 20);
   } catch { return []; }
 }
@@ -1104,25 +1175,34 @@ export function stopSystemAuditScheduler(): void {
 }
 
 // ── MD Voice Briefing (07:05) — 60s spoken summary of the audit ───────────
-export async function triggerVoiceBriefing(): Promise<{ ok: boolean; text?: string; error?: string }> {
+export async function triggerVoiceBriefing(): Promise<{ ok: boolean; text?: string; audioPath?: string; error?: string }> {
   try {
-    const last = lastResult ?? (await runSystemAudit().catch(() => null));
-    if (!last) return { ok: false, error: "no audit available" };
+    // Never kick off a full multi-minute audit from this button — the caller
+    // asked for a briefing of the LATEST audit, not a fresh scan. Run an
+    // audit first (Run MD Audit now) if none exists yet.
+    const last = lastResult;
+    if (!last) return { ok: false, error: "no audit yet — press Run MD Audit now first, then request the briefing" };
     const s = last.stats;
     const script = `Good morning. Naxie here, your Managing Director. Health is ${s.health.score} out of 100 — ${s.health.summary}. We have ${s.dormant.length} dormant items and ${s.useless.length} candidates to review. Top priority: ${s.improvements[0]?.issue ?? "stay the course"}. Check Daily Reports for the full MD audit.`;
     // Try TTS — best-effort, falls back to Telegram text only
     try {
       const { synthesizeWithVoice } = await import("./voice.js");
       const out = await synthesizeWithVoice(script, "naxie");
-      // Save to vault media for the UI to play — not critical if it fails
+      // Persist BOTH the audio (so the UI has something to play) and the
+      // script text next to it — previously only the .txt was written and
+      // the synthesized audio was silently discarded.
+      let audioRel: string | undefined;
       try {
         const { writeFileSync, mkdirSync } = await import("node:fs");
         const mediaDir = join(config.vaultPath, "_naxion/md-briefings");
         mkdirSync(mediaDir, { recursive: true });
+        const ext = /mpeg|mp3/i.test(out.contentType) ? "mp3" : /wav/i.test(out.contentType) ? "wav" : /ogg/i.test(out.contentType) ? "ogg" : "mp3";
         writeFileSync(join(mediaDir, `${s.date}.txt`), script, "utf8");
+        writeFileSync(join(mediaDir, `${s.date}.${ext}`), out.audio);
+        audioRel = `_naxion/md-briefings/${s.date}.${ext}`;
       } catch { /* ignore */ }
       void import("./telegram-bridge.js").then(m => m.sendTelegramMessage(`🎙️ *MD Voice Briefing — ${s.date}*\n${script}`).catch(() => {}));
-      return { ok: true, text: script };
+      return { ok: true, text: script, audioPath: audioRel };
     } catch {
       // TTS is best-effort — fall back to the same plain text message the
       // success path sends, no error caption cluttering the briefing.
