@@ -13,11 +13,12 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
-const scope = new AsyncLocalStorage<string>();
+type JobScope = { jobId: string; signal?: AbortSignal };
+const scope = new AsyncLocalStorage<JobScope>();
 
-/** Run `fn` with `jobId` visible to everything it awaits. */
-export function runInJobScope<T>(jobId: string, fn: () => T): T {
-  return scope.run(jobId, fn);
+/** Run `fn` with its job id and cancellation signal visible to awaited work. */
+export function runInJobScope<T>(jobId: string, fn: () => T, signal?: AbortSignal): T {
+  return scope.run({ jobId, signal }, fn);
 }
 
 /**
@@ -28,5 +29,10 @@ export function runInJobScope<T>(jobId: string, fn: () => T): T {
  * "adhoc".
  */
 export function currentJobId(): string | undefined {
-  return scope.getStore();
+  return scope.getStore()?.jobId;
+}
+
+/** Cancellation signal for the active job, if this call belongs to one. */
+export function currentJobSignal(): AbortSignal | undefined {
+  return scope.getStore()?.signal;
 }

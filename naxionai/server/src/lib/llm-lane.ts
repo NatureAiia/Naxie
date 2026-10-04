@@ -49,7 +49,7 @@ function laneSize(): number {
 
 const CAP = laneSize();
 
-type Waiter = { resolve: () => void; reject: (e: Error) => void; queuedAt: number };
+type Waiter = { resolve: () => void; reject: (e: Error) => void; queuedAt: number; signal?: AbortSignal; onAbort?: () => void };
 
 let active = 0;
 const queue: Waiter[] = [];
@@ -86,6 +86,7 @@ function release(): void {
     const waited = Date.now() - next.queuedAt;
     stats.totalWaitMs += waited;
     if (waited > stats.maxWaitMs) stats.maxWaitMs = waited;
+    if (next.signal && next.onAbort) next.signal.removeEventListener("abort", next.onAbort);
     next.resolve();
   } else {
     active = Math.max(0, active - 1);
@@ -109,20 +110,22 @@ export async function withLocalLlmSlot<T>(fn: () => Promise<T>, signal?: AbortSi
     stats.queued += 1;
     if (queue.length + 1 > stats.maxDepth) stats.maxDepth = queue.length + 1;
     await new Promise<void>((resolve, reject) => {
-      const w: Waiter = { resolve, reject, queuedAt: Date.now() };
-      queue.push(w);
+      const w: Waiter = { resolve, reject, queuedAt: Date.now(), signal };
       if (signal) {
-        const onAbort = () => {
+        w.onAbort = () => {
           const i = queue.indexOf(w);
           // Only bail if still QUEUED. If release() already handed us the
           // slot, the resolve has fired and dropping out now would leak it.
           if (i >= 0) {
             queue.splice(i, 1);
+            signal.removeEventListener("abort", w.onAbort!);
             reject(new Error("aborted while waiting for a local LLM slot"));
           }
         };
-        signal.addEventListener("abort", onAbort, { once: true });
+        signal.addEventListener("abort", w.onAbort, { once: true });
       }
+      queue.push(w);
+      if (signal?.aborted) w.onAbort?.();
     });
   }
 

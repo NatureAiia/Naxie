@@ -23,6 +23,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import { config } from "../config.js";
 import { pollPeers } from "./peers.js";
 import { registerPeer } from "./peer-registry.js";
@@ -270,9 +271,16 @@ async function spawnOnPort(port: number): Promise<WorkerHandle> {
 function spawnWorker(port: number): Promise<WorkerHandle> {
   const url = `http://127.0.0.1:${port}`;
   // On Windows pnpm is `pnpm.cmd`. spawn() can't find .cmd files on PATH
-  // without `shell: true` — using shell is fine here because the args come
-  // from us, not user input.
-  const cmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  // without `shell: true` (deprecated). Use the resolved path to the pnpm
+  // binary instead — works cross-platform without shell.
+  let cmd: string;
+  if (process.platform === "win32") {
+    // Find pnpm.cmd via npm prefix -g or local node_modules
+    const pnpmCmd = resolve(process.env.APPDATA ?? "", "npm/pnpm.cmd");
+    cmd = existsSync(pnpmCmd) ? pnpmCmd : "pnpm.cmd"; // fallback to PATH lookup if not found
+  } else {
+    cmd = "pnpm";
+  }
   // Distinguish each worker's name in logs so the user can tell them apart
   // when the pool is >1 (e.g. "managed-worker-7473" vs "managed-worker-7474").
   const env = {
@@ -304,7 +312,6 @@ function spawnWorker(port: number): Promise<WorkerHandle> {
   const child = spawn(cmd, ["run", "dev"], {
     cwd: SERVER_DIR,
     env,
-    shell: process.platform === "win32",
     stdio: ["ignore", "pipe", "pipe"],
   });
 

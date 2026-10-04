@@ -11,7 +11,10 @@
 
 import { config } from "../config.js";
 
-const REQUEST_TIMEOUT_MS = Number(process.env.NAXION_JEV_TIMEOUT_MS ?? "10000");
+const configuredTimeout = Number(process.env.NAXION_JEV_TIMEOUT_MS ?? "10000");
+const REQUEST_TIMEOUT_MS = Number.isFinite(configuredTimeout)
+  ? Math.min(60_000, Math.max(250, configuredTimeout))
+  : 10_000;
 
 export type JevQuestion =
   | { type: "noul"; instructions: string }
@@ -38,11 +41,19 @@ export class JevUnavailable extends Error {
 export async function askJev(
   state: unknown,
   questions: Record<string, JevQuestion>,
+  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<Record<string, JevAnswer>> {
   if (!config.jevEnabled) throw new JevUnavailable("TYPESAFE_API_KEY not set");
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  const requestedTimeout = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const timeoutMs = Number.isFinite(requestedTimeout)
+    ? Math.min(60_000, Math.max(250, requestedTimeout))
+    : REQUEST_TIMEOUT_MS;
+  const abortFromCaller = () => ctrl.abort();
+  if (opts.signal?.aborted) ctrl.abort();
+  else opts.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let r: Response;
   try {
     r = await fetch(config.jevBaseUrl, {
@@ -58,6 +69,7 @@ export async function askJev(
     throw new JevUnavailable(`request failed: ${e?.message ?? e}`);
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", abortFromCaller);
   }
 
   if (!r.ok) {
@@ -76,8 +88,14 @@ export async function askJev(
   for (const id of Object.keys(questions)) {
     const a = json?.[id];
     if (!a || typeof a !== "object") throw new JevUnavailable(`no answer for question "${id}"`);
-    out[id] = { probability: typeof a.probability === "number" ? a.probability : undefined,
-      confidence: typeof a.confidence === "number" ? a.confidence : undefined,
+    const probability = typeof a.probability === "number" && Number.isFinite(a.probability) ? a.probability : undefined;
+    const confidence = typeof a.confidence === "number" && Number.isFinite(a.confidence) ? a.confidence : undefined;
+    if ((probability !== undefined && (probability < 0 || probability > 1)) ||
+        (confidence !== undefined && (confidence < 0 || confidence > 1))) {
+      throw new JevUnavailable(`out-of-range probability for question "${id}"`);
+    }
+    out[id] = { probability,
+      confidence,
       category: typeof a.category === "string" ? a.category : undefined };
   }
   return out;

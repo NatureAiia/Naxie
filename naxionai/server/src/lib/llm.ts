@@ -5,7 +5,7 @@ import { recordLlmCost, recordLlmFailure } from "./cost-tracker.js";
 import { isCloudReachableCached } from "./connectivity.js";
 import { isOffline } from "./offline-mode.js";
 import { withLocalLlmSlot } from "./llm-lane.js";
-import { currentJobId } from "./job-scope.js";
+import { currentJobId, currentJobSignal } from "./job-scope.js";
 import { recordTrace, classifyError, hashPrompt } from "./llm-trace.js";
 
 export type LLMCallOptions = {
@@ -31,6 +31,8 @@ export type LLMCallOptions = {
   // burned the full 8 min before the findings-only fallback could land).
   // Absent = provider default (15 min). Synthesis-grade callers pass ~3 min.
   timeoutMs?: number;
+  /** Cancellation signal; defaults to the active job's signal when present. */
+  signal?: AbortSignal;
   // Override the default sampling temperature (Ollama default 0.3, OR default
   // 0.3). Pass 0 to pin deterministic output — useful for scorers/graders
   // where run-to-run noise corrupts the metric. Applies to both backends.
@@ -44,6 +46,53 @@ export type LLMCallOptions = {
 };
 
 export type Backend = "ollama" | "openrouter" | "little-coder" | "ollama_cloud";
+
+// A separate FIFO lane protects remote provider quotas from planner fan-out.
+// Local inference has its own measured lane in llm-lane.ts.
+const REMOTE_LLM_CAP = (() => {
+  const raw = process.env.NAXION_REMOTE_LLM_LANE?.trim();
+  const value = raw ? Number(raw) : 2;
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 2;
+})();
+type RemoteWaiter = { resolve: () => void; reject: (error: Error) => void; signal?: AbortSignal; onAbort?: () => void };
+const remoteLanes = new Map<string, { active: number; waiters: RemoteWaiter[] }>();
+
+async function withRemoteLlmSlot<T>(provider: string, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (REMOTE_LLM_CAP <= 0) return fn(); // explicit unbounded mode
+  if (signal?.aborted) throw new Error("aborted before acquiring remote LLM slot");
+  const lane = remoteLanes.get(provider) ?? { active: 0, waiters: [] };
+  remoteLanes.set(provider, lane);
+  if (lane.active >= REMOTE_LLM_CAP) {
+    await new Promise<void>((resolve, reject) => {
+      const waiter: RemoteWaiter = { resolve, reject, signal };
+      if (signal) {
+        waiter.onAbort = () => {
+          const index = lane.waiters.indexOf(waiter);
+          if (index >= 0) {
+            lane.waiters.splice(index, 1);
+            signal.removeEventListener("abort", waiter.onAbort!);
+            reject(new Error("aborted while waiting for a remote LLM slot"));
+            if (lane.active === 0 && lane.waiters.length === 0) remoteLanes.delete(provider);
+          }
+        };
+        signal.addEventListener("abort", waiter.onAbort, { once: true });
+      }
+      lane.waiters.push(waiter);
+      if (signal?.aborted) waiter.onAbort?.();
+    });
+  } else lane.active++;
+  try {
+    return await fn();
+  } finally {
+    const next = lane.waiters.shift();
+    if (next) {
+      if (next.signal && next.onAbort) next.signal.removeEventListener("abort", next.onAbort);
+      next.resolve();
+    }
+    else lane.active = Math.max(0, lane.active - 1);
+    if (lane.active === 0 && lane.waiters.length === 0) remoteLanes.delete(provider);
+  }
+}
 
 const PROFILE_ENV_KEYS: Record<NonNullable<LLMCallOptions["profile"]>, string> = {
   planning:   "OPENROUTER_PLAN_MODEL",
@@ -234,7 +283,7 @@ const OLLAMA_CTX = 8192;
 
 // Raw Ollama streaming call — same as the original ollamaGenerate body but
 // without the routing logic (that's now upstream in llmGenerateWithMeta).
-async function callOllamaStream(prompt: string, system: string | undefined, model: string, onToken?: LLMCallOptions["onToken"], maxTokens?: number, temperature?: number, timeoutMs?: number): Promise<{ text: string; model: string }> {
+async function callOllamaStream(prompt: string, system: string | undefined, model: string, onToken?: LLMCallOptions["onToken"], maxTokens?: number, temperature?: number, timeoutMs?: number, signal?: AbortSignal): Promise<{ text: string; model: string }> {
   // qwen3 ships with reasoning mode on by default. The /no_think directive in
   // the SYSTEM prompt (not user) suppresses the <think>…</think> block.
   const isQwen3 = /qwen3/i.test(model) && !/qwen3\.5/i.test(model);
@@ -248,11 +297,14 @@ async function callOllamaStream(prompt: string, system: string | undefined, mode
   // inside Ollama holding open HTTP streams and burning the caller's own
   // timeout. This wraps exactly one HTTP request and never nests another
   // slot acquisition inside itself, so a slot holder can never deadlock.
-  return withLocalLlmSlot(() => callOllamaStreamInner(prompt, sys, model, onToken, numPredict, temperature, timeoutMs));
+  return withLocalLlmSlot(() => callOllamaStreamInner(prompt, sys, model, onToken, numPredict, temperature, timeoutMs, signal), signal);
 }
 
-async function callOllamaStreamInner(prompt: string, sys: string | undefined, model: string, onToken: LLMCallOptions["onToken"] | undefined, numPredict: number, temperature: number | undefined, timeoutMs: number | undefined): Promise<{ text: string; model: string }> {
+async function callOllamaStreamInner(prompt: string, sys: string | undefined, model: string, onToken: LLMCallOptions["onToken"] | undefined, numPredict: number, temperature: number | undefined, timeoutMs: number | undefined, signal?: AbortSignal): Promise<{ text: string; model: string }> {
   const ctrl = new AbortController();
+  const abortFromCaller = () => ctrl.abort();
+  if (signal?.aborted) ctrl.abort();
+  else signal?.addEventListener("abort", abortFromCaller, { once: true });
   const timer = setTimeout(() => ctrl.abort(), Math.max(5_000, timeoutMs ?? 15 * 60_000));
   try {
     const res = await fetch(`${config.ollamaHost}/api/generate`, {
@@ -303,6 +355,7 @@ async function callOllamaStreamInner(prompt: string, sys: string | undefined, mo
     return { text: response.replace(/<think>[\s\S]*?<\/think>/gi, "").trim(), model };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -340,6 +393,9 @@ export async function llmGenerateWithMeta(prompt: string, system?: string, opts:
   try {
     result = await generateWithMetaInner(prompt, system, tracedOpts);
   } catch (e: any) {
+    // Cancellation is not a model/provider failure and should not poison
+    // failure-rate dashboards or trigger degraded-model routing decisions.
+    if ((opts.signal ?? currentJobSignal())?.aborted) throw e;
     // Terminal failure — every retry/fallback in generateWithMetaInner is
     // exhausted. Record it once (previously invisible: cost-tracker only ever
     // ran on the success path below) so byModel.failureRate is real, then
@@ -392,6 +448,7 @@ export async function llmGenerateWithMeta(prompt: string, system?: string, opts:
 }
 
 async function generateWithMetaInner(prompt: string, system?: string, opts: LLMCallOptions = {}): Promise<{ text: string; model: string; usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } }> {
+  const signal = opts.signal ?? currentJobSignal();
   // Kuwana-inspired budget gate — before any paid dispatch, check monthly cap
   try {
     const { checkBudget } = await import("./ai/budget.js");
@@ -448,7 +505,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
       ? (chunk: string, acc: string) => { streamed = true; opts.onToken!(chunk, acc); }
       : undefined;
     try {
-      return await openrouterGenerateWithMeta(prompt, system, { model, onToken, maxTokens: opts.maxTokens, temperature: opts.temperature, timeoutMs: opts.timeoutMs });
+      return await withRemoteLlmSlot("openrouter", () => openrouterGenerateWithMeta(prompt, system, { model, onToken, maxTokens: opts.maxTokens, temperature: opts.temperature, timeoutMs: opts.timeoutMs, signal }), signal);
     } catch (e: any) {
       const fallbackOn = process.env.NAXION_OR_FALLBACK_OLLAMA !== "0";
       if (isTransientError(e) && fallbackOn && !streamed) {
@@ -489,11 +546,12 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
               if (opts.onRoutingDecision) {
                 try { opts.onRoutingDecision({ backend: "openrouter", model: fbModel, reason: `active provider unavailable — failover to ${fp.label}`, tokenEstimate }); } catch { /* consumer error */ }
               }
-              return await openrouterGenerateWithMeta(prompt, system, {
+              return await withRemoteLlmSlot(`fallback:${fp.label}`, () => openrouterGenerateWithMeta(prompt, system, {
                 model: fbModel, onToken, maxTokens: opts.maxTokens, temperature: opts.temperature,
                 timeoutMs: opts.timeoutMs,
+                signal,
                 endpoint: { baseUrl: fp.baseUrl, apiKey: fp.apiKey },
-              });
+              }), signal);
             } catch (fe: any) {
               if (streamed) throw fe; // tokens reached the consumer — can't switch again
               console.warn(`[llm] fallback ${fp.label} also failed: ${String(fe?.message ?? fe).slice(0, 120)}`);
@@ -505,7 +563,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
         if (opts.onRoutingDecision) {
           try { opts.onRoutingDecision({ backend: "ollama", model: localModel, reason: `OpenRouter rate-limited/unavailable — fell back to local ${localModel}`, tokenEstimate }); } catch { /* consumer error */ }
         }
-        return callOllamaStream(prompt, system, localModel, opts.onToken, opts.maxTokens, opts.temperature, opts.timeoutMs);
+        return callOllamaStream(prompt, system, localModel, opts.onToken, opts.maxTokens, opts.temperature, opts.timeoutMs, signal);
       }
       throw e;
     }
@@ -529,7 +587,7 @@ async function generateWithMetaInner(prompt: string, system?: string, opts: LLMC
       // fall through to the normal Ollama dispatch
     }
   }
-  return callOllamaStream(prompt, system, model, opts.onToken, opts.maxTokens, opts.temperature, opts.timeoutMs);
+  return callOllamaStream(prompt, system, model, opts.onToken, opts.maxTokens, opts.temperature, opts.timeoutMs, signal);
 }
 
 export async function llmGenerate(prompt: string, system?: string, opts: LLMCallOptions = {}): Promise<string> {

@@ -309,13 +309,18 @@ export type ProgressUpdater = (patch: Record<string, unknown>) => void;
 // tasks submitted together all hit the LLM at once — on free-tier OpenRouter
 // that's a thundering herd where all N stall on rate limits. With a cap, only
 // NAXION_MAX_CONCURRENT_JOBS run at a time; the rest wait in FIFO order while
-// staying `pending` (still pollable). 0 = unbounded (legacy behaviour, default
-// so nothing changes unless the operator opts in).
-const MAX_CONCURRENT_JOBS = Math.max(0, Number(process.env.NAXION_MAX_CONCURRENT_JOBS ?? "0"));
+// staying `pending` (still pollable). Default to two concurrent jobs so
+// multiple submissions do not stampede a local model or shared API quota.
+// Explicitly set 0 to restore unbounded legacy behavior.
+const configuredJobLimit = process.env.NAXION_MAX_CONCURRENT_JOBS?.trim();
+const parsedJobLimit = configuredJobLimit ? Number(configuredJobLimit) : 2;
+const MAX_CONCURRENT_JOBS = Number.isFinite(parsedJobLimit)
+  ? Math.max(0, Math.floor(parsedJobLimit))
+  : 2;
 // Crown-priority jobs may borrow this many slots ABOVE the cap (see
 // acquireSlot below) so a Crown Job never sits stuck behind a full queue of
-// ordinary work. Only meaningful when MAX_CONCURRENT_JOBS > 0 — with the
-// default unbounded queue there's no cap to reserve against, so this is a
+// ordinary work. Only meaningful when MAX_CONCURRENT_JOBS > 0 — with an
+// unbounded queue there's no cap to reserve against, so this is a
 // pure no-op and every job (crown or not) still runs immediately.
 const CROWN_RESERVED_SLOTS = Math.max(0, Number(process.env.NAXION_CROWN_RESERVED_SLOTS ?? "1"));
 // Mirror every job into the Obsidian vault as a markdown note? Default OFF — it
@@ -357,7 +362,7 @@ const slotWaiters: SlotWaiter[] = [];
 
 // `priority` is optional so every existing caller (none of which knew about
 // crown before) keeps behaving exactly as before. When MAX_CONCURRENT_JOBS
-// <= 0 (unbounded, the default) this returns immediately for EVERYONE,
+// <= 0 (explicit unbounded mode) this returns immediately for EVERYONE,
 // crown or not — reserved slots only mean something once there's a cap to
 // reserve against, so unbounded behaviour is completely unchanged.
 function acquireSlot(priority?: OrgTaskPriority): Promise<void> {
@@ -411,6 +416,7 @@ export function jobQueueStatus(): {
 }
 
 export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progress: ProgressUpdater) => Promise<T>): Promise<void> {
+  const slotRequestedAt = Date.now();
   // Backpressure gate. Stays `pending` (pollable) while queued. If the job was
   // aborted (e.g. graceful shutdown) while waiting, bail without running.
   // Mirrors acquireSlot's own ceiling so this pre-check log is accurate for a
@@ -456,16 +462,34 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
     // listeners must not crash the job runner — wrap in try.
     try { ee.emit("log", line); } catch { /* tolerate */ }
   };
+  let currentPhase = "starting";
+  let currentPhaseStartedAt = Date.now();
+  const completedPhases: { phase: string; durationMs: number }[] = [];
+  const phaseSnapshot = (now = Date.now()) => [
+    ...completedPhases,
+    { phase: currentPhase, durationMs: Math.max(0, now - currentPhaseStartedAt) },
+  ];
   const progress: ProgressUpdater = (patch) => {
-    j.result = { ...(j.result ?? {}), ...patch } as Record<string, unknown>;
-    try { ee.emit("patch", patch); } catch { /* tolerate */ }
+    const now = Date.now();
+    const nextPhase = typeof patch.phase === "string" ? patch.phase : undefined;
+    if (nextPhase && nextPhase !== currentPhase) {
+      completedPhases.push({ phase: currentPhase, durationMs: Math.max(0, now - currentPhaseStartedAt) });
+      currentPhase = nextPhase;
+      currentPhaseStartedAt = now;
+    }
+    const enriched = { ...patch, phaseTimings: phaseSnapshot(now) };
+    j.result = { ...(j.result ?? {}), ...enriched } as Record<string, unknown>;
+    try { ee.emit("patch", enriched); } catch { /* tolerate */ }
   };
+  const queueWaitMs = Date.now() - slotRequestedAt;
+  progress({ queueWaitMs });
+  if (queueWaitMs >= 250) push(`Started after ${Math.round(queueWaitMs / 1000)}s in the task queue.`);
   try {
     // Every LLM call fn makes, at any depth, can now attribute its cost and
     // trace rows to this job (job-scope.ts) instead of the literal "adhoc" —
     // AsyncLocalStorage carries the job id down the whole async subtree
     // without threading a new option through every call site in between.
-    const final = await runInJobScope(j.id, () => fn(push, progress));
+    const final = await runInJobScope(j.id, () => fn(push, progress), abort.signal);
     // Operator cancelled while fn was unwinding — the delegate/agent path
     // returns NORMALLY after a cancel (it doesn't throw), so without this
     // guard the success path below would flip the job back to "succeeded"
@@ -562,6 +586,9 @@ export async function runJob<T>(j: Job, fn: (push: (msg: string) => void, progre
   } finally {
     jobAborts.delete(j.id);
     j.finishedAt = new Date().toISOString();
+    if (j.result && typeof j.result === "object" && !Array.isArray(j.result)) {
+      (j.result as Record<string, unknown>).phaseTimings = phaseSnapshot();
+    }
     // Mirror the job into the vault as a note — OFF by default for ad-hoc tasks
     // (a file per task cluttered the real vault). SCHEDULED runs are the
     // exception: those are the progress reports the operator wants in the

@@ -19,6 +19,8 @@ export type OpenRouterCallOptions = {
   // cap (scan/audit synthesis) pass less so attempts fail fast instead of
   // outliving the race they're in.
   timeoutMs?: number;
+  /** Abort this request when its owning task is cancelled. */
+  signal?: AbortSignal;
   // Point this ONE call at a different OpenAI-compatible endpoint (the
   // provider-pool fallback chain in llm.ts — OpenAI / Anthropic secondary
   // when OpenRouter is down). When set, the OpenRouter circuit breaker is
@@ -34,7 +36,22 @@ export type OpenRouterCallOptions = {
 // may fall back to the local model instead of failing the whole task.
 const TRANSIENT_STATUS = new Set([429, 500, 502, 503, 504]);
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.NAXION_OR_MAX_ATTEMPTS ?? "3"));
-const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) { reject(new Error("aborted")); return; }
+  const timer = setTimeout(done, ms);
+  function done() {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", aborted);
+    resolve();
+  }
+  function aborted() {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", aborted);
+    reject(new Error("aborted"));
+  }
+  signal?.addEventListener("abort", aborted, { once: true });
+  if (signal?.aborted) aborted();
+});
 // Exponential backoff: ~0.5s, 1s, 2s … capped at 8s.
 const backoffMs = (attempt: number) => Math.min(8_000, 500 * 2 ** (attempt - 1));
 
@@ -148,6 +165,9 @@ export async function openrouterGenerateWithMeta(
   const effectiveMax = REASONING_MODEL_RE.test(model) ? Math.max(requestedMax * 4, 4096) : requestedMax;
 
   const ctrl = new AbortController();
+  const abortFromCaller = () => ctrl.abort();
+  if (opts.signal?.aborted) ctrl.abort();
+  else opts.signal?.addEventListener("abort", abortFromCaller, { once: true });
   const timer = setTimeout(() => ctrl.abort(), Math.max(5_000, opts.timeoutMs ?? 15 * 60_000));
   try {
     // Establish the streaming response with retry-on-transient. Retries happen
@@ -155,6 +175,7 @@ export async function openrouterGenerateWithMeta(
     // from a doomed attempt. Honours a Retry-After header when present.
     let res: Response;
     for (let attempt = 1; ; attempt++) {
+      if (opts.signal?.aborted) throw new Error("aborted");
       let r: Response;
       try {
         r = await fetch(`${endpointBase}/chat/completions`, {
@@ -195,6 +216,7 @@ export async function openrouterGenerateWithMeta(
           signal: ctrl.signal,
         });
       } catch (e: any) {
+        if (opts.signal?.aborted) throw new Error("aborted");
         // opts.timeoutMs elapsed. This is a per-caller budget, not evidence the
         // provider is down — a caller with a tight timeout (e.g. a 180s
         // audit job) shouldn't trip the circuit breaker shared by every other
@@ -204,7 +226,7 @@ export async function openrouterGenerateWithMeta(
         // the same way instantly, burning the retry budget for nothing.
         if (ctrl.signal.aborted) throw markTransient(new Error(`OpenRouter request timed out after ${attempt} attempt(s): ${e?.message ?? e}`));
         // Network-level failure (DNS, reset) — transient, retry.
-        if (attempt < MAX_ATTEMPTS) { await sleep(backoffMs(attempt)); continue; }
+        if (attempt < MAX_ATTEMPTS) { await sleep(backoffMs(attempt), opts.signal); continue; }
         if (!isFallbackEndpoint) cbRecordFailure(); // sustained connection failure → trip the breaker
         throw markTransient(new Error(`OpenRouter request failed after ${attempt} attempts: ${e?.message ?? e}`));
       }
@@ -238,7 +260,7 @@ export async function openrouterGenerateWithMeta(
         const retryAfter = Number(r.headers.get("retry-after"));
         const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 10_000) : backoffMs(attempt);
         console.warn(`[openrouter] ${r.status} on ${model} (attempt ${attempt}/${MAX_ATTEMPTS}) — retrying in ${wait}ms`);
-        await sleep(wait);
+        await sleep(wait, opts.signal);
         continue;
       }
       // Exhausted retries or a non-transient status (401/403/400/404) — throw.
@@ -342,6 +364,7 @@ export async function openrouterGenerateWithMeta(
     return { text, model: resolvedModel, usage };
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 

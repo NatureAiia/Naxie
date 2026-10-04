@@ -5,7 +5,7 @@
 // Rebuilds only on vault writes or persona/memory changes (mtime-gated).
 
 import { createHash } from "node:crypto";
-import { statSync, existsSync } from "node:fs";
+import { statSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "../config.js";
 import { buildMagContext } from "./mag.js";
@@ -25,6 +25,16 @@ const WATCHED = [
 
 function mtimesSnapshot(): Map<string, number> {
   const m = new Map<string, number>();
+  // The cached MAG portion includes recently written JSONL facts. Track those
+  // files too, otherwise memory.note can leave the stable prefix stale forever.
+  const memoryDir = join(config.vaultPath, "_naxion/memory");
+  try {
+    for (const name of readdirSync(memoryDir).filter(f => f.endsWith(".jsonl")).sort()) {
+      try { m.set(`memory:${name}`, statSync(join(memoryDir, name)).mtimeMs); } catch { /* concurrent delete */ }
+    }
+  } catch { /* no memory directory yet */ }
+  // A runtime vault switch must never reuse another vault's prefix.
+  m.set(`vaultPath:${config.vaultPath}`, 1);
   for (const rel of WATCHED) {
     try {
       const st = statSync(join(config.vaultPath, rel));
@@ -57,7 +67,8 @@ export function buildCagPrefix(): { prefix: string; hash: string; cached: boolea
     return { prefix: cached.prefix, hash: cached.hash, cached: true };
   }
 
-  const mag = buildMagContext({ maxFacts: 10, includeDated: true });
+  // Dated facts belong in live MAG, not a long-lived prompt-cache prefix.
+  const mag = buildMagContext({ maxFacts: 10, includeDated: false });
 
   let sectorCtx = "";
   try {

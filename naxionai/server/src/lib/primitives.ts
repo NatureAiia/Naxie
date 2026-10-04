@@ -4895,13 +4895,13 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
   },
 
   // ─── Naxie host tools (docs/naxie-architecture.md §2.2) ─────────────────
-  // Ported by behavior from naxionai/backend/agent/tools/pa_tools.py.
+  // Native TypeScript tools implementing the behavior specified in §2.2.
   // system_control / manage_clipboard / git_pull are also registered in
   // SENSITIVE_APPROVAL_TOOLS (agent.ts) and CONSEQUENTIAL_TOOLS
   // (governance.ts) — the Settings > System Access toggle in host-tools.ts
   // only makes them ELIGIBLE to run; a plan using them still pauses for
   // sign-off. get_weather / set_reminder / git_status / browser_open are
-  // deliberately left out of both, matching the Python original's posture.
+  // deliberately left out of both, matching the documented posture.
   {
     name: "get_weather",
     description: "Fetch live weather conditions and forecast for a city or the operator's default location (Open-Meteo, free, no API key).",

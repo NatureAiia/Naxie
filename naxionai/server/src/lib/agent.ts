@@ -24,6 +24,7 @@ import { listSources as listDataSources, getSourceByLabel } from "./data-sources
 import { appendMissionNote, dailyScopeId } from "./mission-log.js";
 import type { OrgTaskPriority } from "./org-tasks.js"; // type-only — erased at runtime, no import cycle
 import { isOffline } from "./offline-mode.js";
+import { askJev } from "./jev-client.js";
 
 // Shared local-filesystem detector — "does this task point at a file on the
 // operator's PC?" Used at three points (the planner's system-prompt hint,
@@ -1066,7 +1067,23 @@ export async function executePlan(p: Plan, push: (msg: string) => void, onProgre
           const wait = STEP_RETRY_BACKOFF_MS[attempt];
           attempt++;
           push(`  ⟳ ${step.label ?? step.tool}: transient error (attempt ${attempt}/${STEP_RETRY_BACKOFF_MS.length}), retrying in ${(wait / 1000).toFixed(1)}s — ${msg.slice(0, 120)}`);
-          await new Promise(r => setTimeout(r, wait));
+          // A user cancel should interrupt backoff immediately, not wait for
+          // the timer and accidentally start another network/tool attempt.
+          if (signal?.aborted) return;
+          await new Promise<void>(resolve => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            function done() {
+              if (timer) clearTimeout(timer);
+              signal?.removeEventListener("abort", done);
+              resolve();
+            }
+            if (signal?.aborted) { resolve(); return; }
+            timer = setTimeout(done, wait);
+            signal?.addEventListener("abort", done, { once: true });
+            // Close the race where cancellation lands while registering.
+            if (signal?.aborted) done();
+          });
+          if (signal?.aborted) return;
           continue;
         }
         runs[i] = { step, ok: false, error: msg, durationMs: Date.now() - t0, startedAt: t0 };
@@ -1306,7 +1323,7 @@ function taskHasPriorTurnContext(fullTask: string): boolean {
 
 // Ask the smallest available model "does this need tools, or can you answer
 // directly from world knowledge?". Returns true → direct, false → plan.
-async function llmTriage(task: string): Promise<boolean> {
+async function llmTriage(task: string, signal?: AbortSignal, push?: (msg: string) => void): Promise<boolean> {
   // Company-internal questions can NEVER be answered from world knowledge —
   // the answer lives in the org's own records (users directory, persona
   // roster, org chart, department data). The small triage model reliably
@@ -1328,6 +1345,33 @@ async function llmTriage(task: string): Promise<boolean> {
   // channels, never world knowledge. The small triage model calls "check our
   // social engagement" DIRECT and then apologises about having no data.
   if (SOCIAL_TASK_RE.test(task)) return false;
+  // Jev is well suited to this narrow typed decision. Only act on a decisive
+  // result; ambiguous/unavailable judgments retain the established small-LLM
+  // fallback below. Deterministic tool-required guards above always win.
+  if (config.jevEnabled) {
+    try {
+      const judged = await askJev(
+        { task: task.slice(0, 2500) },
+        { route: { type: "noul", instructions: "Can this request be answered directly from general world knowledge without reading private user/org data, using external tools, or taking an action? Yes means DIRECT; no means TOOLS." } },
+        { timeoutMs: 1800, signal },
+      );
+      const answer = judged.route;
+      const probability = answer?.probability;
+      const confident = answer?.confidence === undefined || answer.confidence >= 0.6;
+      if (confident && typeof probability === "number" && probability >= 0.8) {
+        push?.("Jev fast triage: direct answer — skipping the planner.");
+        return true;
+      }
+      if (confident && typeof probability === "number" && probability <= 0.2) {
+        push?.("Jev fast triage: tools needed — sending this to the planner.");
+        return false;
+      }
+    } catch {
+      if (signal?.aborted) return false;
+      // Jev is optional; preserve the existing model triage as fallback.
+    }
+  }
+  if (signal?.aborted) return false;
   const sys = `Classify whether the user's task can be answered DIRECTLY from world knowledge alone, or whether it needs tools (vault search, GitHub, web, file system).
 
 Reply with exactly one word: DIRECT or TOOLS.
@@ -1520,7 +1564,7 @@ export async function planAndExecute(
     // returns in ~50-200ms. The content search still runs later inside the
     // research primitives when we actually need real matches.
     const [llmDirect, vaultHits] = await Promise.all([
-      heuristicDirect ? Promise.resolve(true) : llmTriage(bareTask).catch(() => false),
+      heuristicDirect ? Promise.resolve(true) : llmTriage(bareTask, opts.signal, push).catch(() => false),
       (topic && topic.length >= 2)
         ? Promise.resolve().then(() => { try { return searchVaultFilenames(topic, 1, { excludeAgentCaptures: true }); } catch { return []; } })
         : Promise.resolve([] as { path: string; line: number; preview: string }[]),

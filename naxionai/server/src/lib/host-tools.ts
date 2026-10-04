@@ -1,8 +1,8 @@
 // Naxie's host-level PA tools — weather, reminders/toasts, system control,
-// clipboard, git status/pull, and browser-open. Ported by BEHAVIOR from
-// naxionai/backend/agent/tools/pa_tools.py (Python/LangChain), not by code —
-// see docs/naxie-architecture.md §2.2 for the source-of-truth spec this
-// mirrors, including the exact security posture to preserve:
+// clipboard, git status/pull, and browser-open. This is a native TypeScript
+// implementation; there is no first-party Python/LangChain PA-tools runtime
+// in this repository. See docs/naxie-architecture.md §2.2 for the behavior
+// and security posture this module follows:
 //
 //   - system_control / manage_clipboard reach real OS-level access and are
 //     gated behind an explicit settings toggle (§2.2 decided a plain
