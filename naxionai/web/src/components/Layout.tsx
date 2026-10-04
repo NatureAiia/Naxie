@@ -79,12 +79,20 @@ const primaryNav: NavItem[] = [
   { to: "/ide", label: "Naxion IDE", icon: Terminal },
 ];
 
-const agentsNav: NavItem[] = [
-  { to: "/council", label: "Council", icon: Waypoints },
-  { to: "/team", label: "Focus Team", icon: Users },
-];
+const agentsNav: NavItem[] = [];
 
 const workNav: NavItem[] = [
+  { to: "/my-work", label: "My Inbox", icon: Inbox, badgeKey: "approvals" },
+  { to: "/council", label: "Council", icon: Waypoints },
+  { to: "/brands", label: "Brands", icon: Megaphone },
+  { to: "/planner", label: "Planner", icon: CalendarDays },
+  { to: "/my-finances", label: "My Finances", icon: PiggyBank },
+  { to: "/business-finance", label: "Business Finance", icon: Building2 },
+  { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
+  { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
+  { to: "/models", label: "Models", icon: Cpu },
+  { to: "/cost", label: "Cost", icon: Wallet },
+];
   { to: "/my-work", label: "My Inbox", icon: Inbox, badgeKey: "approvals" },
   { to: "/brands", label: "Brands", icon: Megaphone },
   { to: "/planner", label: "Planner", icon: CalendarDays },
@@ -340,23 +348,21 @@ export function Layout({ children }: { children: ReactNode }) {
 
           <nav className={`flex-1 space-y-0.5 overflow-y-auto scrollbar-thin ${collapsed ? "px-2" : "px-3"}`}>
             {primaryNav.map(renderNavItem)}
-            {collapsed ? (
-              <>
-                {agentsNav.map(renderNavItem)}
-                {workNav.map(renderNavItem)}
-                {memoryNav.map(renderNavItem)}
-                {connectNav.map(renderNavItem)}
-                {renderNavItem(securityScanNav)}
-              </>
-            ) : (
-              <>
-                {agentsNav.length > 0 && renderGroup("agents", "Agents & Subagents", RobotFolderIcon, agentsNav)}
-                {renderGroup("work", "Work Queue", WorkspaceFolderIcon, workNav, counts.approvals + counts.activity)}
-                {renderGroup("memory", "Memory & Knowledge", DocsFolderIcon, memoryNav)}
-                {renderGroup("connect", "Connect", Puzzle, connectNav)}
-                {renderNavItem(securityScanNav)}
-              </>
-            )}
+{collapsed ? (
+                <>
+                  {workNav.map(renderNavItem)}
+                  {memoryNav.map(renderNavItem)}
+                  {connectNav.map(renderNavItem)}
+                  {renderNavItem(securityScanNav)}
+                </>
+              ) : (
+                <>
+                  {renderGroup("work", "Work Queue", WorkspaceFolderIcon, workNav, counts.approvals + counts.activity)}
+                  {renderGroup("memory", "Memory & Knowledge", DocsFolderIcon, memoryNav)}
+                  {renderGroup("connect", "Connect", Puzzle, connectNav)}
+                  {renderNavItem(securityScanNav)}
+                </>
+              )}
           </nav>
 
           <div className="px-3 py-3 border-t border-ink-800">
