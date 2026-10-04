@@ -18,7 +18,7 @@ import { GlassCard } from "../components/GlassCard";
 // pages/McpServers.tsx, and Layout.tsx's connectNav.
 // Env secrets are never returned — only prefix + enabled/health.
 
-type ExtTab = "overview" | "platform" | "integrations" | "audit" | "cost";
+type ExtTab = "overview" | "platform" | "integrations" | "audit" | "cost" | "whatsapp";
 
 const TABS: { id: ExtTab; label: string; icon: any }[] = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
