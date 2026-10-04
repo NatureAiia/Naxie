@@ -110,6 +110,8 @@ const connectNav: NavItem[] = [
   { to: "/hermes", label: "Hermes", icon: ArrowLeftRight },
   { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
   { to: "/connectors?tab=policies", label: "Policies", icon: CertificateIcon },
+  { to: "/models", label: "Models", icon: Cpu },
+  { to: "/cost", label: "Cost", icon: Wallet },
 ];
 
 // Security Scan — a single standalone slot outside the groups, same spot
