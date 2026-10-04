@@ -103,7 +103,6 @@ const memoryNav: NavItem[] = [
 
 const connectNav: NavItem[] = [
   { to: "/extensions", label: "Extensions", icon: Puzzle },
-  { to: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
   { to: "/connectors", label: "Connectors", icon: Boxes },
   { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
   { to: "/webhooks", label: "Webhooks", icon: WebhookIcon },

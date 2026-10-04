@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Webhook, Download, LayoutGrid, DollarSign, BarChart3, TrendingUp, Calendar, Hourglass, Server } from "lucide-react";
+import { Puzzle, Plug, Boxes, Cpu, Cloud, KeyRound, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Play, Settings2, Radio, Layers, Sparkles, Plus, Clock, Shield, RefreshCw, History, Copy, Upload, Webhook, Download, LayoutGrid, DollarSign, BarChart3, TrendingUp, Calendar, Hourglass, Server, MessageCircle } from "lucide-react";
 import { api, type ConnectorAuthType, type RagStatus, type TimeAnalysis, type CostTrend, type RosterRow } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { Integrations } from "./Integrations";
+import { WhatsApp } from "./WhatsApp";
 import { AuditLog } from "./AuditLog";
 import { SignalBloom } from "../components/SignalBloom";
 import { GlassCard } from "../components/GlassCard";
@@ -24,6 +25,7 @@ const TABS: { id: ExtTab; label: string; icon: any }[] = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
   { id: "platform", label: "Platform APIs", icon: Cpu },
   { id: "integrations", label: "Integrations", icon: Plug },
+  { id: "whatsapp", label: "WhatsApp", icon: MessageCircle },
   { id: "audit", label: "Audit", icon: History },
   { id: "cost", label: "AI Models & Cost", icon: DollarSign },
 ];
@@ -627,9 +629,11 @@ export function Extensions() {
             )}
           </div>
         )
-      )}
-
-      {hintFor && (
+       )}
+       
+       {tab === "whatsapp" && <WhatsApp />}
+       
+       {hintFor && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setHintFor(null)}>
           <div className="w-full max-w-md bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
