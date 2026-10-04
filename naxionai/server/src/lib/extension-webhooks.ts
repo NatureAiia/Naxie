@@ -17,7 +17,18 @@ export type WebhookEntry = {
   createdAt: string;
   lastHitAt?: string;
   hitCount: number;
+  /** Recent caller-supplied idempotency keys prevent duplicate task runs. */
+  recentJobs?: { key: string; jobId: string; at: string }[];
 };
+
+const IDEMPOTENCY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_RECENT_JOBS = 100;
+
+export type PublicWebhookEntry = Omit<WebhookEntry, "secret" | "recentJobs"> & { secretConfigured: boolean };
+export function toPublicWebhook(w: WebhookEntry): PublicWebhookEntry {
+  const { secret, recentJobs: _recentJobs, ...publicEntry } = w;
+  return { ...publicEntry, secretConfigured: !!secret };
+}
 
 function load(): WebhookEntry[] {
   try {
@@ -88,4 +99,20 @@ export function verifySecret(id: string, provided?: string): boolean {
   const env = (process.env.EXTENSION_WEBHOOK_SECRET ?? process.env.NW_WEBHOOK_SIGNING_SECRET ?? "").trim();
   if (env && provided === env) return true;
   return false;
+}
+
+export function findIdempotentJob(id: string, key: string): string | undefined {
+  const w = getWebhook(id);
+  if (!w) return undefined;
+  const match = w.recentJobs?.find(item => item.key === key && Date.now() - Date.parse(item.at) < IDEMPOTENCY_TTL_MS);
+  return match?.jobId;
+}
+
+export function recordIdempotentJob(id: string, key: string, jobId: string): void {
+  const list = load();
+  const w = list.find(item => item.id === id);
+  if (!w) return;
+  const cutoff = Date.now() - IDEMPOTENCY_TTL_MS;
+  w.recentJobs = [...(w.recentJobs ?? []).filter(item => Date.parse(item.at) >= cutoff && item.key !== key), { key, jobId, at: new Date().toISOString() }].slice(-MAX_RECENT_JOBS);
+  save(list);
 }

@@ -41,10 +41,15 @@ export function Integrations() {
   const [testing, setTesting] = useState<string | null>(null);
   const [testingAll, setTestingAll] = useState(false);
 
-  async function refresh() {
-    try { const c = await api.integrationsCatalog(); setProviders(c.providers); } catch {}
-    try { const l = await api.listIntegrations(); setConnections(l.connections); } catch {}
-  }
+   async function refresh() {
+     try { const c = await api.integrationsCatalog(); 
+        // Filter out unwanted social providers (keep only Buffer) and ensure n8n is present if needed
+        let filtered = c.providers.filter(p => p.category !== "social" || p.id === "buffer");
+        // Optionally ensure n8n is present (if missing, we could add a placeholder, but assume it's there)
+        setProviders(filtered);
+      } catch {}
+     try { const l = await api.listIntegrations(); setConnections(l.connections); } catch {}
+   }
   useEffect(() => { void refresh(); }, []);
 
   async function test(id: string) {

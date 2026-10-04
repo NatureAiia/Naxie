@@ -6,7 +6,7 @@ import { listProviders } from "../lib/model-providers.js";
 import { getHealthSummaries, getHealthHistory } from "../lib/extension-health.js";
 import { getCostRecords, getCostSummary } from "../lib/cost-tracker.js";
 import { logAudit } from "../lib/audit-log.js";
-import { createWebhook, listWebhooks, getWebhook, rotateWebhookSecret, removeWebhook, recordHit, verifySecret } from "../lib/extension-webhooks.js";
+import { createWebhook, listWebhooks, getWebhook, rotateWebhookSecret, removeWebhook, recordHit, verifySecret, toPublicWebhook, findIdempotentJob, recordIdempotentJob } from "../lib/extension-webhooks.js";
 import { getExtensionSchedulerStatus, runExtensionHealthCheckNow } from "../lib/extension-scheduler.js";
 import { reembedStats, runReembedNow } from "../lib/rag-embed.js";
 import { setRagOverrides, getRagOverridesStatus } from "../lib/rag-config.js";
@@ -178,21 +178,23 @@ extensionsRouter.post("/connectors/:id/test", async (req, res) => {
 // Mirrors email bridge token gate (index.ts:490) but generic for Zapier/Make → PA.
 // Secret is per-webhook (extension-webhooks.json) or fallback EXTENSION_WEBHOOK_SECRET env.
 extensionsRouter.get("/webhooks", (_req, res) => {
-  res.json({ webhooks: listWebhooks() });
+  res.json({ webhooks: listWebhooks().map(toPublicWebhook) });
 });
 extensionsRouter.post("/webhooks", (req, res) => {
   const targetId = String(req.body?.targetId ?? "").trim();
-  const targetKind = String(req.body?.targetKind ?? "connector").trim() as "connector" | "integration" | "extension";
+  const targetKind = String(req.body?.targetKind ?? "connector").trim() as "connector" | "integration" | "extension" | "task";
   if (!targetId) return res.status(400).json({ error: "targetId required" });
+  if (!["connector", "integration", "extension", "task"].includes(targetKind)) return res.status(400).json({ error: "invalid targetKind" });
+  const existed = listWebhooks().some(w => w.targetId === targetId && w.targetKind === targetKind);
   const wh = createWebhook(targetId, targetKind);
   logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "webhook.create", target: `${targetKind}:${targetId}`, detail: wh.id, result: "success" });
-  res.json({ webhook: wh });
+  res.json({ webhook: toPublicWebhook(wh), ...(existed ? { alreadyExists: true } : { secret: wh.secret }) });
 });
 extensionsRouter.post("/webhooks/:id/rotate", (req, res) => {
   const wh = rotateWebhookSecret(String(req.params.id));
   if (!wh) return res.status(404).json({ error: "webhook not found" });
   logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "webhook.rotate", target: wh.id, detail: wh.targetId, result: "success" });
-  res.json({ webhook: wh });
+  res.json({ webhook: toPublicWebhook(wh), secret: wh.secret });
 });
 extensionsRouter.delete("/webhooks/:id", (req, res) => {
   const ok = removeWebhook(String(req.params.id));
@@ -213,6 +215,10 @@ extensionsRouter.post("/webhook/:id", async (req, res) => {
   const wh = getWebhook(id);
   recordHit(id);
   const payload = req.body ?? {};
+  const idempotencyKey = String(req.headers["idempotency-key"] ?? "").trim();
+  if (idempotencyKey.length > 128 || /[^\x21-\x7e]/.test(idempotencyKey)) {
+    return res.status(400).json({ error: "Idempotency-Key must be printable ASCII and at most 128 characters" });
+  }
   // Security scan — block high-severity secrets in webhook payloads (mirrors vault scan)
   const scanStr = JSON.stringify(payload);
   const findings = scanForSecurityRisks(scanStr, "note");
@@ -227,17 +233,23 @@ extensionsRouter.post("/webhook/:id", async (req, res) => {
 
   // Webhook → Job: if payload carries a task/text/objective, auto-create a PA job
   const taskText = String(payload.task ?? payload.text ?? payload.objective ?? payload.prompt ?? "").trim();
+  if (taskText.length > 12_000) return res.status(413).json({ error: "task text exceeds the 12000 character limit" });
   let jobId: string | undefined;
   if (taskText) {
     try {
       const { newJob, runJob } = await import("../lib/jobs.js");
       const { planAndExecute, crownBypassesApproval } = await import("../lib/agent.js");
       const { getActivePersona, personaSystemSuffix } = await import("../lib/personas.js");
+      if (idempotencyKey) {
+        const previousJobId = findIdempotentJob(id, idempotencyKey);
+        if (previousJobId) return res.json({ ok: true, received: true, duplicate: true, target: wh ? `${wh.targetKind}:${wh.targetId}` : id, jobId: previousJobId });
+      }
       const job = newJob(`webhook:${id}`);
       (job as any).title = taskText.slice(0, 80);
       (job as any).task = taskText;
       (job as any).inputs = { task: taskText, webhookId: id, payload };
       jobId = job.id;
+      if (idempotencyKey) recordIdempotentJob(id, idempotencyKey, jobId);
       const persona = getActivePersona();
       // Fire-and-forget execution — client gets jobId immediately, polls /api/tasks/jobs/:id
       void runJob(job, async (push, progress) => {
@@ -254,7 +266,7 @@ extensionsRouter.post("/webhook/:id", async (req, res) => {
     }
   }
 
-  res.json({ ok: true, received: true, target: wh ? `${wh.targetKind}:${wh.targetId}` : id, at: new Date().toISOString(), jobId });
+  res.json({ ok: true, received: true, duplicate: false, target: wh ? `${wh.targetKind}:${wh.targetId}` : id, at: new Date().toISOString(), jobId });
 });
 
 // Scheduler status + manual trigger
