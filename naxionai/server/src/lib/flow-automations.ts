@@ -64,6 +64,7 @@ export type FlowStepResult = {
   bodyPreview?: string;
   error?: string;
   warnings?: string[];
+  durationMs?: number;
 };
 
 export type FlowRun = {
@@ -316,13 +317,14 @@ async function runSteps(flow: FlowAutomation, triggerPayload: unknown, run: Flow
   const stepOutputs: Record<string, unknown> = {};
   const ctxBase = triggerPayload;
   for (const step of flow.steps) {
+    const stepStartedAt = Date.now();
     // v1 branch: skip-if-not-match.
     if (step.condition) {
       const { resolveTokenPath } = await import("./flow-mapper.js");
       const r = resolveTokenPath(step.condition.path.replace(/^\$\./, "$."), { trigger: ctxBase, steps: stepOutputs });
       const match = r.found && JSON.stringify(r.value) === JSON.stringify(step.condition.equals);
       if (!match) {
-        run.stepResults.push({ stepId: step.id, kind: step.kind, status: "skipped", ok: true });
+        run.stepResults.push({ stepId: step.id, kind: step.kind, status: "skipped", ok: true, durationMs: Date.now() - stepStartedAt });
         push(`[${step.id}] skipped (condition did not match).`);
         continue;
       }
@@ -343,7 +345,7 @@ async function runSteps(flow: FlowAutomation, triggerPayload: unknown, run: Flow
         const path = typeof resolved?.path === "string" ? resolved.path : "/";
         const r: any = await callConnector(step.ref, { method, path, query: resolved?.query, body: resolved?.body, headers: resolved?.headers });
         stepOutputs[step.id] = { body: r.body, status: r.status };
-        run.stepResults.push({ stepId: step.id, kind: step.kind, status: r.ok ? "succeeded" : "failed", ok: !!r.ok, statusCode: r.status, bodyPreview: previewOf(r.body), error: r.ok ? undefined : String(r.error ?? `status ${r.status}`).slice(0, 300), warnings });
+        run.stepResults.push({ stepId: step.id, kind: step.kind, status: r.ok ? "succeeded" : "failed", ok: !!r.ok, statusCode: r.status, bodyPreview: previewOf(r.body), error: r.ok ? undefined : String(r.error ?? `status ${r.status}`).slice(0, 300), warnings, durationMs: Date.now() - stepStartedAt });
         push(`[${step.id}] connector ${step.ref} → ${r.ok ? "ok" : "FAILED"}${r.status ? ` (${r.status})` : ""}`);
         if (!r.ok) throw new Error(String(r.error ?? `connector step ${step.id} failed`));
       } else if (step.kind === "webhook.publish") {
@@ -351,7 +353,7 @@ async function runSteps(flow: FlowAutomation, triggerPayload: unknown, run: Flow
         const event = typeof resolved?.event === "string" && resolved.event ? resolved.event : step.ref;
         await publishEvent(event, resolved?.payload ?? resolved);
         stepOutputs[step.id] = { body: { event }, status: 202 };
-        run.stepResults.push({ stepId: step.id, kind: step.kind, status: "succeeded", ok: true, statusCode: 202, bodyPreview: previewOf({ event }), warnings });
+        run.stepResults.push({ stepId: step.id, kind: step.kind, status: "succeeded", ok: true, statusCode: 202, bodyPreview: previewOf({ event }), warnings, durationMs: Date.now() - stepStartedAt });
         push(`[${step.id}] published ${event}.`);
       } else {
         // agent.task — deterministic prompt built from the mapper, then the
@@ -360,13 +362,13 @@ async function runSteps(flow: FlowAutomation, triggerPayload: unknown, run: Flow
         const { generalTaskRunner } = await import("../routes/templates.js");
         const r: any = await generalTaskRunner({ task: String(taskText).slice(0, 8000), save_as_template: false }, push, () => {});
         stepOutputs[step.id] = { body: r?.answer ?? r ?? null };
-        run.stepResults.push({ stepId: step.id, kind: step.kind, status: "succeeded", ok: true, bodyPreview: previewOf(r?.answer ?? r), warnings });
+        run.stepResults.push({ stepId: step.id, kind: step.kind, status: "succeeded", ok: true, bodyPreview: previewOf(r?.answer ?? r), warnings, durationMs: Date.now() - stepStartedAt });
         push(`[${step.id}] agent task done.`);
       }
     } catch (e: any) {
       const msg = String(e?.message ?? e).slice(0, 300);
       if (!run.stepResults.some((s) => s.stepId === step.id)) {
-        run.stepResults.push({ stepId: step.id, kind: step.kind, status: "failed", ok: false, error: msg, warnings });
+        run.stepResults.push({ stepId: step.id, kind: step.kind, status: "failed", ok: false, error: msg, warnings, durationMs: Date.now() - stepStartedAt });
       }
       run.status = "failed";
       run.lastError = msg;

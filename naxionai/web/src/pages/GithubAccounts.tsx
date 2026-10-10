@@ -1,23 +1,16 @@
-import { useEffect, useState } from "react";
-import { GitBranch, Plus, Trash2, Pencil, KeyRound, Loader2, X, AlertTriangle, FolderGit2 } from "lucide-react";
+import { useEffect, useState, ChangeEvent } from "react";
+import { GitBranch, Plus, Trash2, Pencil, KeyRound, Loader2, AlertTriangle, FolderGit2 } from "lucide-react";
 import { api, type GithubAccount, type Project, type GithubEvent } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
+import { PageHeader } from "../components/PageHeader";
+import { Modal } from "../components/Modal";
+import { Input, Textarea, Select } from "../components/forms";
+import { relTime } from "../lib/time";
 
 // GitHub multi-account credentials + projects — personal/work/business PATs,
 // each project (a name + repos) picks one to watch under. The
 // github-commit-watcher engine (server/src/lib/github-watcher.ts) polls
 // these on a schedule; the events list below shows what it's found.
-
-function relTime(iso?: string): string {
-  if (!iso) return "";
-  const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60); if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
-
-const FIELD = "w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/60 placeholder:text-cream-300/30";
 
 export function GithubAccounts() {
   const [accounts, setAccounts] = useState<GithubAccount[]>([]);
@@ -50,13 +43,11 @@ export function GithubAccounts() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><GitBranch size={24} /> GitHub Accounts</h1>
-        <p className="text-sm text-cream-300/70 mt-1">
-          Fine-grained PATs for your personal, work, and business GitHub accounts — each project below picks one, so
-          different repos get watched under the right identity. Tokens are <span className="text-cream-200">encrypted at rest</span>.
-        </p>
-      </div>
+      <PageHeader
+        title="GitHub Accounts"
+        subtitle="Fine-grained PATs for your personal, work, and business GitHub accounts — each project below picks one, so different repos get watched under the right identity. Tokens are encrypted at rest."
+        icon={<GitBranch size={28} />}
+      />
 
       <Card title="Accounts" action={<Button onClick={() => setEditingAccount("new")}><Plus size={14} /> Add account</Button>}>
         {accounts.length === 0 ? (
@@ -155,32 +146,33 @@ function AccountModal({ existing, onClose, onSaved }: { existing: GithubAccount 
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-ink-900 flex flex-col overflow-hidden" onClick={onClose}>
-      <div className="flex-1 flex flex-col items-center justify-center p-6" onClick={e => e.stopPropagation()}>
-        <div className="w-full max-w-md bg-ink-950 border border-ink-800 rounded-3xl p-8 space-y-6 shadow-2xl">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl text-cream-50 font-medium">{existing ? "Rename account" : "Add GitHub account"}</h2>
-            <button onClick={onClose} className="p-2 text-cream-300/50 hover:text-cream-100 hover:bg-ink-800 rounded-lg transition-colors"><X size={24} /></button>
-          </div>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="block text-[12px] font-medium text-cream-300/70">Label <span className="text-coral-400">*</span></label>
-              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Personal / Work / Business" className={FIELD} />
-            </div>
-            {!existing && (
-              <div className="space-y-2">
-                <label className="block text-[12px] font-medium text-cream-300/70">Fine-grained PAT <span className="text-coral-400">*</span></label>
-                <input type="password" value={token} onChange={e => setToken(e.target.value)} className={`${FIELD} font-mono`} autoComplete="off" spellCheck={false} />
-              </div>
-            )}
-          </div>
-          {err && <div className="text-sm text-coral-400 flex items-center gap-2 p-3 rounded-lg bg-coral-500/5 border border-coral-500/20"><AlertTriangle size={16} /> {err}</div>}
-          <div className="flex justify-end pt-2">
-            <Button onClick={submit} disabled={saving || !label || (!existing && !token)} className="px-6 py-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} {existing ? "Save" : "Add account"}</Button>
-          </div>
-        </div>
+    <Modal open onClose={onClose} title={existing ? "Rename account" : "Add GitHub account"} size="md">
+      <div className="space-y-4">
+        <Input
+          label="Label"
+          value={label}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setLabel(e.target.value)}
+          placeholder="Personal / Work / Business"
+          required
+        />
+        {!existing && (
+          <Input
+            label="Fine-grained PAT"
+            type="password"
+            value={token}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setToken(e.target.value)}
+            className="font-mono"
+            autoComplete="off"
+            spellCheck={false}
+            required
+          />
+        )}
+        {err && <div className="text-sm text-coral-400 flex items-center gap-2 p-3 rounded-lg bg-coral-500/5 border border-coral-500/20"><AlertTriangle size={16} /> {err}</div>}
       </div>
-    </div>
+      <div className="flex justify-end pt-2">
+        <Button onClick={submit} disabled={saving || !label || (!existing && !token)} className="px-6 py-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} {existing ? "Save" : "Add account"}</Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -201,22 +193,24 @@ function RotateModal({ account, onClose, onSaved }: { account: GithubAccount; on
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>
-      <div className="w-full max-w-sm bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg text-cream-50 font-medium">Rotate token — {account.label}</h2>
-          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
-        </div>
-        <div>
-          <label className="block text-[11px] text-cream-300/70 mb-1">New fine-grained PAT <span className="text-coral-400">*</span></label>
-          <input type="password" value={token} onChange={e => setToken(e.target.value)} className={`${FIELD} font-mono`} autoComplete="off" spellCheck={false} />
-        </div>
+    <Modal open onClose={onClose} title={`Rotate token — ${account.label}`} size="sm">
+      <div className="space-y-3">
+        <Input
+          label="New fine-grained PAT"
+          type="password"
+          value={token}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setToken(e.target.value)}
+          className="font-mono"
+          autoComplete="off"
+          spellCheck={false}
+          required
+        />
         {err && <div className="text-[12px] text-coral-400 flex items-center gap-1.5"><AlertTriangle size={13} /> {err}</div>}
-        <div className="flex justify-end pt-1">
-          <Button onClick={submit} disabled={saving || !token}>{saving ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />} Rotate</Button>
-        </div>
       </div>
-    </div>
+      <div className="flex justify-end pt-2">
+        <Button onClick={submit} disabled={saving || !token}>{saving ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />} Rotate</Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -241,34 +235,39 @@ function ProjectModal({ existing, accounts, onClose, onSaved }: { existing: Proj
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>
-      <div className="w-full max-w-lg bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4 my-8" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg text-cream-50 font-medium">{existing ? "Edit project" : "Add project"}</h2>
-          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Name <span className="text-coral-400">*</span></label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Client website" className={FIELD} />
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Account <span className="text-coral-400">*</span></label>
-            <select value={accountId} onChange={e => setAccountId(e.target.value)} className={FIELD}>
-              {accounts.length === 0 && <option value="">No accounts yet — add one first</option>}
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Repos (one "owner/repo" per line) <span className="text-coral-400">*</span></label>
-            <textarea value={reposText} onChange={e => setReposText(e.target.value)} rows={4} placeholder={"acme/website\nacme/api"} className={`${FIELD} font-mono text-[12px]`} spellCheck={false} />
-          </div>
-        </div>
-        {err && <div className="text-[12px] text-coral-400 flex items-center gap-1.5"><AlertTriangle size={13} /> {err}</div>}
-        <div className="flex justify-end pt-1">
-          <Button onClick={submit} disabled={saving || !name || !accountId || !reposText.trim()}>{saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} {existing ? "Save" : "Add project"}</Button>
-        </div>
+    <Modal open onClose={onClose} title={existing ? "Edit project" : "Add project"} size="lg">
+      <div className="space-y-3">
+        <Input
+          label="Name"
+          value={name}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
+          placeholder="Client website"
+          required
+        />
+        <Select
+          label="Account"
+          value={accountId}
+          onChange={(e: ChangeEvent<HTMLSelectElement>) => setAccountId(e.target.value)}
+          required
+        >
+          {accounts.length === 0 && <option value="">No accounts yet — add one first</option>}
+          {accounts.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+        </Select>
+        <Textarea
+          label='Repos (one "owner/repo" per line)'
+          value={reposText}
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setReposText(e.target.value)}
+          rows={4}
+          placeholder={"acme/website\nacme/api"}
+          spellCheck={false}
+          className="font-mono text-[12px]"
+          required
+        />
       </div>
-    </div>
+      {err && <div className="text-[12px] text-coral-400 flex items-center gap-1.5"><AlertTriangle size={13} /> {err}</div>}
+      <div className="flex justify-end pt-2">
+        <Button onClick={submit} disabled={saving || !name || !accountId || !reposText.trim()}>{saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} {existing ? "Save" : "Add project"}</Button>
+      </div>
+    </Modal>
   );
 }

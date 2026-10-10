@@ -25,6 +25,7 @@ import { appendMissionNote, dailyScopeId } from "./mission-log.js";
 import type { OrgTaskPriority } from "./org-tasks.js"; // type-only — erased at runtime, no import cycle
 import { isOffline } from "./offline-mode.js";
 import { askJev } from "./jev-client.js";
+import { sanitizeScheduleName } from "./schedules.js";
 
 // Shared local-filesystem detector — "does this task point at a file on the
 // operator's PC?" Used at three points (the planner's system-prompt hint,
@@ -2785,7 +2786,14 @@ export function heuristicPlan(task: string, opts: { hasAttachments?: boolean } =
     if (!work) { const ci = t.lastIndexOf(":"); if (ci > 0) work = t.slice(ci + 1).trim(); }
     if (email && work) work = work.replace(/[\s,]*(?:and|then)\s+(?:email|send|deliver)\b[\s\S]*$/i, "").trim();
     if (work.length >= 12 && Number.isInteger(hour) && hour >= 0 && hour <= 23) {
-      const name = nameMatch?.[1]?.trim() ?? `Scheduled: ${work.slice(0, 50)}`;
+      // Auto-names come from raw user/agent text — strip markdown (e.g. a
+      // `** Persona …` fragment) and never cut mid-word, so the Schedules
+      // page doesn't render literal `**` + a chopped title.
+      const rawWork = work.slice(0, 50);
+      const lastGap = rawWork.lastIndexOf(" ");
+      const shortWork = lastGap > 20 ? rawWork.slice(0, lastGap) : rawWork;
+      const rawName = nameMatch?.[1]?.trim() ?? `Scheduled: ${shortWork}`;
+      const name = sanitizeScheduleName(rawName, 64);
       return {
         steps: [
           { tool: "schedule.create", args: { name, task: work, hour, minute, ...(days.length ? { days_of_week: days.join(",") } : {}), ...(email ? { deliver_email: email } : {}) }, rationale: "create the recurring schedule the user described", label: humanStepLabel("schedule.create", { name }) },

@@ -3,6 +3,9 @@
 // Applying a department template creates the personas and templates in one step.
 
 import { addPersona, slugifyId, type Persona } from "./personas.js";
+import { buildStarterTemplates, listPersonaTemplates } from "./persona-templates.js";
+import { saveCustomTemplate } from "./custom-templates.js";
+import { createSchedule, listSchedules } from "./schedules.js";
 
 export type DepartmentTemplateStep = {
   persona: string;         // persona role name
@@ -70,42 +73,6 @@ export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
     ],
   },
   {
-    id: "sales-marketing",
-    name: "Sales & Marketing",
-    tagline: "Content creation, brand compliance, lead qualification, pipeline tracking",
-    description: "Combined sales and marketing team: drafts content, monitors brand mentions and enforces brand voice, qualifies leads, updates CRM records, drafts follow-up emails, and produces weekly content and pipeline reports. Integrates with HubSpot and Google.",
-    icon: "TrendingUp",
-    color: "coral",
-    agents: [
-      {
-        name: "Content Strategist",
-        role: "Knowledge",
-        jobDescription: "Draft blog posts, social media content, and newsletters. Research industry trends and competitors. Ensure all content follows brand voice guidelines. Produce weekly content performance reports.",
-        tone: "engaging, professional, on-brand",
-      },
-      {
-        name: "Sales Analyst",
-        role: "Operations",
-        jobDescription: "Qualify incoming leads from CRM. Update deal stages and contact records. Draft personalized follow-up emails. Generate weekly pipeline reports with win/loss analysis.",
-        tone: "professional, persuasive, concise",
-      },
-    ],
-    recommendedIntegrations: ["slack", "google", "webhook", "hubspot"],
-    recommendedTemplates: ["search-brain", "add-note", "daily-briefing"],
-    schedule: {
-      name: "Weekly sales & marketing report",
-      templateId: "daily-briefing",
-      cadence: { daysOfWeek: [5], hour: 16, minute: 0 },
-    },
-    workflow: [
-      { persona: "Content Strategist", task: "Research trending topics in the industry" },
-      { persona: "Content Strategist", task: "Draft content aligned with brand voice" },
-      { persona: "Sales Analyst", task: "Review new leads and qualify by priority" },
-      { persona: "Sales Analyst", task: "Update deal stages in CRM" },
-      { persona: "Sales Analyst", task: "Draft follow-up sequence for warm leads" },
-    ],
-  },
-  {
     id: "finance-legal",
     name: "Finance and Legal",
     tagline: "Expense tracking, financial reporting, contract review, compliance monitoring",
@@ -141,75 +108,66 @@ export const DEPARTMENT_TEMPLATES: DepartmentTemplate[] = [
     ],
   },
   {
-    id: "communications",
-    name: "Communications",
-    tagline: "Ticket triage, response drafting, press releases, announcements, media & inbound response",
-    description: "Combined communications and customer-service team: triages incoming support tickets, drafts responses, tracks resolution SLAs and satisfaction trends, drafts press releases and announcements, and monitors/responds to media and public inquiries — keeping messaging consistent under normal operations and during a crisis. All agents can be pinned to Shona or Ndebele independently (Personas page) for a local-language desk.",
-    icon: "Megaphone",
-    color: "teal",
+    id: "business-administration",
+    name: "Business Ops",
+    tagline: "A founder's operating team for planning, content, customer inbox, and growth",
+    description: "A reusable business operations team, initially tuned for Varity Vault. The Chief Executive turns each business's goals into an owned weekly plan; specialists produce launch creative, short-form scripts, evidence-led SEO articles, inbox triage, and campaign reporting. Every brief must identify its business and audience so brands and customer data stay separate. Work is drafted and checked before anything is published, sent, or paid for. If business context or brand facts are missing, ask instead of inventing them.",
+    icon: "Briefcase",
+    color: "amber",
     agents: [
       {
-        name: "Ticket Responder",
+        name: "Mark",
         role: "Operations",
-        jobDescription: "Triage incoming support tickets by urgency and category. Draft customer-facing responses that resolve the underlying issue, not just the surface complaint. Match the customer's tone — acknowledge frustration before troubleshooting.",
-        tone: "helpful, patient, solution-focused",
+        jobDescription: "Act as operating lead across the businesses the operator names. Start each cycle by identifying the business, current goal, audience, due date, and success measure; retrieve the relevant brand notes and prior results, and never mix business contexts. Turn goals into an owner, deliverable, deadline, dependency, and completion check for each task. Delegate work to the named specialists, track handoffs, resolve routine blockers, and report progress and evidence. Escalate decisions that change strategy, make commitments, spend money, disclose sensitive information, or publish/send externally; keep all other work moving within approved limits.",
+        tone: "decisive, delegating, outcome-focused",
       },
       {
-        name: "Support Summariser",
-        role: "Operations",
-        jobDescription: "Track resolution times against SLAs. Summarize weekly support trends, recurring issues, and escalation patterns into a digest for the team lead.",
-        tone: "concise, pattern-focused, actionable",
-      },
-      {
-        name: "Comms Writer",
+        name: "Takunda",
         role: "Knowledge",
-        jobDescription: "Draft press releases, announcements, and public statements. Keep messaging consistent with brand voice and, where relevant, crisis-communications guidelines. Prepare statements ahead of known sensitive dates or events.",
-        tone: "clear, on-message, calm under pressure",
+        jobDescription: "Create launch graphics, thumbnails, and promo visuals from an approved brief. Confirm the business and audience, use only verified brand colors, fonts, logos, and claims, and flag missing assets instead of approximating them. Deliver web-ready files with dimensions, alt text, source assets, and usage notes. Give the Growth Marketer a short handoff describing the intended channel and campaign; do not publish assets.",
+        tone: "creative, precise, on-brand",
       },
       {
-        name: "Comms Responder",
+        name: "Lesley",
         role: "Knowledge",
-        jobDescription: "Monitor and respond to media and public inquiries. Route sensitive or high-risk questions for human review rather than answering them directly. Log inbound requests and their outcomes.",
-        tone: "measured, accurate, non-committal on anything unconfirmed",
+        jobDescription: "Turn an approved brief into platform-native short-form scripts. Lead with a specific hook, keep beats concise, include a clear but truthful call to action, and label any claim that needs substantiation. Match the named business's voice and audience; do not invent product features, prices, testimonials, or outcomes. Hand over the script, caption, shot list, and source notes to the Growth Marketer. Draft only; scheduling and publication require approval.",
+        tone: "punchy, conversational, hook-first",
       },
-    ],
-    recommendedIntegrations: ["slack", "google", "webhook"],
-    recommendedTemplates: ["daily-briefing"],
-    workflow: [
-      { persona: "Ticket Responder", task: "Triage new tickets and prioritize" },
-      { persona: "Ticket Responder", task: "Draft responses for pending tickets" },
-      { persona: "Support Summariser", task: "Generate weekly support metrics report" },
-      { persona: "Comms Writer", task: "Draft a release or statement for a pending announcement" },
-      { persona: "Comms Responder", task: "Triage and respond to inbound media/public inquiries" },
-      { persona: "Comms Writer", task: "Review outgoing statements for consistency before publishing" },
-    ],
-  },
-  {
-    id: "operations",
-    name: "Operations & Admin",
-    tagline: "Process automation, reporting, vendor management",
-    description: "Operations team that automates recurring processes, manages vendor relationships, generates operational reports, and keeps the business running smoothly.",
-    icon: "Settings",
-    color: "red",
-    agents: [
       {
-        name: "Operations Manager",
+        name: "Kupakwashe",
+        role: "Knowledge",
+        jobDescription: "Research the named business's audience and search intent before proposing topics. For each approved cycle, prepare two distinct, useful article drafts with keyword rationale, outline, meta title and description, internal-link suggestions, and reputable citations for factual claims. Separate sourced facts from recommendations, avoid keyword stuffing and unsupported product claims, and hand the drafts plus source list to the Growth Marketer. Do not publish.",
+        tone: "clear, helpful, search-aware",
+      },
+      {
+        name: "Tricia",
         role: "Operations",
-        jobDescription: "Automate recurring operational processes. Track vendor contracts and renewals. Generate daily operations status reports. Monitor key operational metrics and flag deviations.",
-        tone: "efficient, systematic, proactive",
+        jobDescription: "Triage connected business inbox messages as Act-now, Read-later, or FYI, with a reason, sender, date, and next action. Draft replies for Act-now items; never send, forward, delete, or commit the business without explicit approval. Flag payment requests, legal issues, complaints, credentials, and ambiguous requests for the operator. Maintain an honest open-item list and produce a five-hour status report when a five-hour schedule is configured; do not claim that cadence is active unless it is.",
+        tone: "organized, responsive, calm under load",
+      },
+      {
+        name: "Roselene",
+        role: "Operations",
+        jobDescription: "Assemble a campaign pack from approved assets: newsletter draft, channel-specific social copy, links, proposed send/publish times, and a content-calendar entry. Confirm the business, audience, offer, dates, and approved claims; attach a basic KPI plan and tracking links where supported. Repurpose the Designer, Script Writer, and SEO Writer outputs without changing their verified claims. Get human approval before sending email, publishing social content, spending on promotion, or promising delivery. Report measured results with period and data source; distinguish missing data from zero performance.",
+        tone: "engaging, professional, data-aware",
       },
     ],
-    recommendedIntegrations: ["slack", "google", "webhook"],
-    recommendedTemplates: ["daily-briefing", "run-digest", "search-brain"],
+    recommendedIntegrations: ["slack", "google", "ayrshare", "mailjet"],
+    recommendedTemplates: ["daily-briefing", "email-to-vault", "search-brain", "add-note"],
     schedule: {
-      name: "Daily ops briefing",
+      name: "Weekly goals + delegation briefing",
       templateId: "daily-briefing",
-      cadence: { daysOfWeek: [1, 2, 3, 4, 5], hour: 7, minute: 0 },
+      cadence: { daysOfWeek: [1], hour: 7, minute: 0 },
     },
     workflow: [
-      { persona: "Operations Manager", task: "Review overnight alerts and system status" },
-      { persona: "Operations Manager", task: "Check vendor deliverables against SLAs" },
-      { persona: "Operations Manager", task: "Publish daily operations status report" },
+      { persona: "Mark", task: "Review this week's goals and break them into assignable tasks" },
+      { persona: "Kupakwashe", task: "Research search intent and submit two evidence-backed article briefs" },
+      { persona: "Lesley", task: "Draft a short-form script and caption against the approved campaign brief" },
+      { persona: "Takunda", task: "Create campaign assets using verified brand references and deliver a channel-ready handoff" },
+      { persona: "Tricia", task: "Triage the business inbox, draft urgent replies, and flag approval-required items" },
+      { persona: "Kupakwashe", task: "Turn approved briefs into two sourced article drafts with metadata and internal links" },
+      { persona: "Roselene", task: "Assemble an approval-ready campaign pack and measurable distribution plan" },
+      { persona: "Mark", task: "Verify owners, evidence, deadlines, and approvals; report outcomes and decisions needed" },
     ],
   },
 ];
@@ -222,15 +180,17 @@ export function getDepartmentTemplate(id: string): DepartmentTemplate | undefine
   return DEPARTMENT_TEMPLATES.find(d => d.id === id);
 }
 
-// Creates the persona(s) a resolved department template (built-in or custom —
-// see routes/departments.ts's resolveDepartment) describes. Shared by the
-// /:id/apply route and the sector-bundle installer (sector-packs.ts) so
-// there's exactly one code path that turns a template into real personas.
+// Creates the personas and ensures each has usable starter tasks. Reapplying
+// preserves existing persona templates rather than overwriting user edits.
 export function applyResolvedTemplate(tpl: DepartmentTemplate): {
   department: string; departmentName: string; personas: { name: string; role: string; id: string }[];
-  recommendedIntegrations: string[]; recommendedTemplates: string[]; workflow: DepartmentTemplateStep[]; schedule: DepartmentTemplate["schedule"] | null;
+  starterTemplatesCreated: number;
+  recommendedIntegrations: string[]; recommendedTemplates: string[]; workflow: DepartmentTemplateStep[];
+  schedule: DepartmentTemplate["schedule"] | null;
+  scheduleCreated: { id: string; name: string } | null;
 } {
   const created: { name: string; role: string; id: string }[] = [];
+  let starterTemplatesCreated = 0;
   for (const agent of tpl.agents) {
     const persona: Persona = {
       id: slugifyId(agent.name),
@@ -247,15 +207,40 @@ export function applyResolvedTemplate(tpl: DepartmentTemplate): {
       createdAt: new Date().toISOString(),
     };
     addPersona(persona);
+    if (listPersonaTemplates(persona.id).length === 0) {
+      const starterTemplates = buildStarterTemplates(persona);
+      for (const template of starterTemplates) saveCustomTemplate(template);
+      starterTemplatesCreated += starterTemplates.length;
+    }
     created.push({ name: persona.name, role: persona.role, id: persona.id });
+  }
+  let scheduleCreated: { id: string; name: string } | null = null;
+  if (tpl.schedule) {
+    const existing = listSchedules().find(s => s.name === tpl.schedule!.name && s.inputs?.department === tpl.id);
+    if (existing) scheduleCreated = { id: existing.id, name: existing.name };
+    else {
+      const createdSchedule = createSchedule({
+        name: tpl.schedule.name,
+        templateId: tpl.schedule.templateId,
+        inputs: {
+          department: tpl.id,
+          focus: `${tpl.name}: review current goals, open work, and decisions for this week's plan. Keep this business context separate from other businesses.`,
+        },
+        cadence: tpl.schedule.cadence,
+        enabled: true,
+      });
+      scheduleCreated = { id: createdSchedule.id, name: createdSchedule.name };
+    }
   }
   return {
     department: tpl.id,
     departmentName: tpl.name,
     personas: created,
+    starterTemplatesCreated,
     recommendedIntegrations: tpl.recommendedIntegrations,
     recommendedTemplates: tpl.recommendedTemplates,
     workflow: tpl.workflow,
     schedule: tpl.schedule ?? null,
+    scheduleCreated,
   };
 }

@@ -1,8 +1,11 @@
-import { useState, useEffect } from "react";
-import { Cable, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Power, ListTree, Sparkles } from "lucide-react";
+import { useState, useEffect, ChangeEvent } from "react";
+import { Cable, Plus, Trash2, CheckCircle2, Loader2, AlertTriangle, Play, Power, ListTree, Sparkles, X } from "lucide-react";
 import { api, type McpServer, type McpServerInput, type McpCatalogEntry, type McpTool, type McpCallResult } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
-import { ConfirmDialog } from "../components/Modal";
+import { Modal, ConfirmDialog } from "../components/Modal";
+import { PageHeader } from "../components/PageHeader";
+import { Input, Textarea } from "../components/forms";
+import { relTime } from "../lib/time";
 
 // MCP-client servers — register EXTERNAL MCP servers (community catalog, e.g.
 // github.com/punkpeye/awesome-mcp-servers: filesystem, browser, Postgres,
@@ -14,15 +17,6 @@ import { ConfirmDialog } from "../components/Modal";
 // More privileged than a Connector (a spawned process isn't scoped to an
 // origin the way an HTTP call is) — so every call is ALWAYS approval-gated,
 // with no read/write auto-approve toggle.
-
-function relTime(iso?: string): string {
-  if (!iso) return "";
-  const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60); if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
 
 export function McpServers() {
   const [servers, setServers] = useState<McpServer[]>([]);
@@ -192,53 +186,62 @@ function AddMcpServerModal({ prefill, onClose, onSaved }: { prefill: McpCatalogE
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-ink-900 flex flex-col overflow-hidden" onClick={onClose}>
-      <div className="flex-1 flex flex-col items-center justify-center p-6" onClick={e => e.stopPropagation()}>
-        <div className="w-full max-w-2xl bg-ink-950 border border-ink-800 rounded-3xl p-8 space-y-6 shadow-2xl">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl text-cream-50 font-medium">Add MCP server</h2>
-            <button onClick={onClose} className="p-2 text-cream-300/50 hover:text-cream-100 hover:bg-ink-800 rounded-lg transition-colors"><X size={24} /></button>
+    <Modal open onClose={onClose} title="Add MCP server" size="lg" showCloseButton={true}>
+      <div className="space-y-4">
+        <Input
+          label="Label"
+          value={label}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setLabel(e.target.value)}
+          placeholder="Filesystem"
+        />
+        <Input
+          label="Description"
+          value={description}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setDescription(e.target.value)}
+          placeholder="What this server exposes — agents read this"
+        />
+        <Input
+          label="Command"
+          value={command}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setCommand(e.target.value)}
+          placeholder="npx"
+          className="font-mono"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Input
+          label="Args"
+          value={argsText}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setArgsText(e.target.value)}
+          placeholder='-y @modelcontextprotocol/server-filesystem /home/user/docs'
+          className="font-mono"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <div className="text-[11px] text-cream-300/40">Space-separated; wrap an argument with spaces in quotes.</div>
+        <Textarea
+          label="Env vars (JSON, optional)"
+          value={envJson}
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEnvJson(e.target.value)}
+          rows={3}
+          placeholder={'{ "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..." }'}
+          className="font-mono text-[12px]"
+          spellCheck={false}
+        />
+        <div className="text-[11px] text-cream-300/40">Encrypted at rest, never shown again after saving.</div>
+        {prefill?.env?.length ? (
+          <div className="text-[11px] text-amber-300/70 p-2 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+            {prefill.label} needs: {prefill.env.map(e => `${e.name}${e.required ? "" : " (optional)"}`).join(", ")}
           </div>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="block text-[12px] font-medium text-cream-300/70">Label <span className="text-coral-400">*</span></label>
-              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Filesystem" className={FIELD} />
-            </div>
-            <div className="space-y-2">
-              <label className="block text-[12px] font-medium text-cream-300/70">Description</label>
-              <input value={description} onChange={e => setDescription(e.target.value)} placeholder="What this server exposes — agents read this" className={FIELD} />
-            </div>
-            <div className="space-y-2">
-              <label className="block text-[12px] font-medium text-cream-300/70">Command <span className="text-coral-400">*</span></label>
-              <input value={command} onChange={e => setCommand(e.target.value)} placeholder="npx" className={`${FIELD} font-mono`} autoComplete="off" spellCheck={false} />
-            </div>
-            <div className="space-y-2">
-              <label className="block text-[12px] font-medium text-cream-300/70">Args</label>
-              <input value={argsText} onChange={e => setArgsText(e.target.value)} placeholder='-y @modelcontextprotocol/server-filesystem /home/user/docs' className={`${FIELD} font-mono`} autoComplete="off" spellCheck={false} />
-              <p className="text-[11px] text-cream-300/40">Space-separated; wrap an argument with spaces in quotes.</p>
-            </div>
-            <div className="space-y-2">
-              <label className="block text-[12px] font-medium text-cream-300/70">Env vars (JSON, optional)</label>
-              <textarea value={envJson} onChange={e => setEnvJson(e.target.value)} rows={3}
-                placeholder={'{ "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..." }'} className={`${FIELD} font-mono text-[12px]`} spellCheck={false} />
-              <p className="text-[11px] text-cream-300/40">Encrypted at rest, never shown again after saving.</p>
-              {prefill?.env?.length ? (
-                <div className="text-[11px] text-amber-300/70 p-2 bg-amber-500/5 border border-amber-500/20 rounded-lg">
-                  {prefill.label} needs: {prefill.env.map(e => `${e.name}${e.required ? "" : " (optional)"}`).join(", ")}
-                </div>
-              ) : null}
-            </div>
-            <div className="text-xs text-cream-300/60 bg-ink-900/50 border border-ink-800 rounded-xl px-4 py-3 leading-relaxed">
-              This runs a local command with the server's own OS permissions. Only add servers from sources you trust.
-            </div>
-          </div>
-
-          {err && <div className="text-sm text-coral-400 flex items-center gap-2 p-3 rounded-lg bg-coral-500/5 border border-coral-500/20"><AlertTriangle size={16} /> {err}</div>}
-          <div className="flex justify-end pt-2">
-            <Button onClick={review} disabled={!label || !command} className="px-6 py-2"><Plus size={16} /> Add server</Button>
-          </div>
+        ) : null}
+        <div className="text-xs text-cream-300/60 bg-ink-900/50 border border-ink-800 rounded-xl px-4 py-3 leading-relaxed">
+          This runs a local command with the server's own OS permissions. Only add servers from sources you trust.
         </div>
+      </div>
+
+      {err && <div className="text-sm text-coral-400 flex items-center gap-2 p-3 rounded-lg bg-coral-500/5 border border-coral-500/20"><AlertTriangle size={16} /> {err}</div>}
+      <div className="flex justify-end pt-2">
+        <Button onClick={review} disabled={!label || !command} className="px-6 py-2"><Plus size={16} /> Add server</Button>
       </div>
 
       <ConfirmDialog
@@ -256,7 +259,7 @@ function AddMcpServerModal({ prefill, onClose, onSaved }: { prefill: McpCatalogE
         onConfirm={confirmAdd}
         onCancel={() => setPendingBody(null)}
       />
-    </div>
+    </Modal>
   );
 }
 

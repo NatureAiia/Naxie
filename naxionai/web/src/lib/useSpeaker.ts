@@ -13,7 +13,7 @@ export type UseSpeaker = {
   stop: () => void;
 };
 
-export function useSpeaker(personaId?: string): UseSpeaker {
+export function useSpeaker(personaId?: string, purpose: "main" | "readaloud" = "main"): UseSpeaker {
   const [speaking, setSpeaking] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -28,7 +28,7 @@ export function useSpeaker(personaId?: string): UseSpeaker {
     if (!text.trim()) return;
     setSpeaking(true);
     try {
-      const blob = await api.voiceTts(text, personaId);
+      const blob = await api.voiceTts(text, personaId, purpose);
       const audio = new Audio(URL.createObjectURL(blob));
       audioRef.current = audio;
       audio.onended = () => setSpeaking(false);
@@ -43,7 +43,7 @@ export function useSpeaker(personaId?: string): UseSpeaker {
       u.onend = () => setSpeaking(false);
       window.speechSynthesis.speak(u);
     } catch { setSpeaking(false); }
-  }, [personaId, stop]);
+  }, [personaId, purpose, stop]);
 
   return { speaking, speak, stop };
 }

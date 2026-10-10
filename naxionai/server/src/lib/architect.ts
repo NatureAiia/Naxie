@@ -249,6 +249,16 @@ export async function runArchitectReview(opts: { focus?: string } = {}): Promise
         transcript += `\n\nYour proposed content is identical to the current file — that's not a change. Propose something concrete.`;
         continue;
       }
+      // Dedup: never stack an identical proposal on top of one already
+      // waiting. Hot reloads (and the weekly tick after a restart) re-run
+      // the same analysis and converge on the same file — without this the
+      // inbox fills with byte-identical "Proposed improvement: X" triplets.
+      const dupe = listOrgTasks({ status: "waiting-on-approval" } as any).find(
+        (t: any) => t.role === "architect" && (t.pendingApproval?.proposal?.filesTouched ?? []).includes(targetPath),
+      );
+      if (dupe) {
+        return { created: false, reason: `identical proposal already waiting (${dupe.id.slice(0, 8)})` };
+      }
       const proposal: ArchitectProposal = {
         diff,
         filesTouched: [targetPath],

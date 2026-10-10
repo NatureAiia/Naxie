@@ -11,6 +11,7 @@ import {
 import { Runs } from "./Runs";
 import { AgentApprovals } from "./AgentApprovals";
 import { AmbientWatch } from "./AmbientWatch";
+import { useVisibleInterval } from "../lib/useVisibleInterval";
 
 // Unified Work page — My Inbox (Naxie approvals + agent handoffs) +
 // Runs (timeline/board) + Ambient (background watcher, stub) + History
@@ -41,12 +42,13 @@ export function MyWork() {
   }
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-1 border-b border-ink-800">
+      <div role="group" aria-label="Filter work by view" className="flex items-center gap-1 border-b border-ink-800">
         {([["inbox", "Inbox", Inbox], ["runs", "Runs", ListChecks], ["ambient", "Ambient", Radar], ["history", "History", History]] as const).map(([id, label, Icon]) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id as typeof tab)}
+            aria-pressed={tab === id}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors inline-flex items-center gap-1.5 ${
               tab === id ? "border-violet-500 text-cream-50" : "border-transparent text-cream-300/60 hover:text-cream-100"
             }`}
@@ -97,7 +99,7 @@ function MyWorkInner() {
       setWaiting(w.waiting);
     } catch (e: any) { setErr(e.message); }
   }
-  useEffect(() => { load(); const i = setInterval(load, 8000); return () => clearInterval(i); }, []);
+  useVisibleInterval(load, 8000);
 
   return (
     <div className="space-y-6">

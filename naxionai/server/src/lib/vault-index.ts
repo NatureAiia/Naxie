@@ -309,11 +309,22 @@ export function indexStats(): { ready: boolean; docs: number; ageMs: number; bui
 // existing SearchHit so the caller can substitute one for the other without
 // touching downstream rendering. Line is approximated by find-first-match
 // on the original body (cheap; under 1ms per result for typical previews).
-export function searchIndex(query: string, vaultRoot: string, limit = 50): IndexSearchHit[] | null {
+export function searchIndex(
+  query: string,
+  vaultRoot: string,
+  limit = 50,
+  opts?: { exclude?: (path: string) => boolean },
+): IndexSearchHit[] | null {
   if (!index) return null;
   const q = query.trim();
   if (!q) return [];
-  const raw = index.search(q, { combineWith: "AND" }).slice(0, limit);
+  // Exclusion applies BEFORE the cap: filtering a capped top-N lets a flood
+  // of machine-state duplicates (a new dated template every day) crowd real
+  // docs out of the window entirely. The scorer still ranks everything; we
+  // just drop excluded paths before slicing.
+  const raw = index.search(q, { combineWith: "AND" })
+    .filter((r) => !(opts?.exclude?.(r.path) ?? false))
+    .slice(0, limit);
   const hits: IndexSearchHit[] = [];
   for (const r of raw) {
     const storedPreview = (r as unknown as { preview?: string }).preview ?? "";

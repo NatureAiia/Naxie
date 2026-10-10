@@ -22,10 +22,11 @@ const Planner = lazy(() => import("./pages/Planner").then(m => ({ default: m.Pla
 const MyFinances = lazy(() => import("./pages/MyFinances").then(m => ({ default: m.MyFinances })));
 const BusinessFinance = lazy(() => import("./pages/BusinessFinance").then(m => ({ default: m.BusinessFinance })));
 const Automation = lazy(() => import("./pages/Automation").then(m => ({ default: m.Automation })));
-const Team = lazy(() => import("./pages/Team").then(m => ({ default: m.Team })));
-const Presets = lazy(() => import("./pages/Presets").then(m => ({ default: m.Presets })));
+// Models + Cost live as nav items in the System group; their merged
+// spend/roster view also lives as a tab inside Command Center.
 const Models = lazy(() => import("./pages/Models").then(m => ({ default: m.Models })));
 const Cost = lazy(() => import("./pages/Cost").then(m => ({ default: m.Cost })));
+const Policies = lazy(() => import("./pages/Policies").then(m => ({ default: m.Policies })));
 const Schedules = lazy(() => import("./pages/Schedules").then(m => ({ default: m.Schedules })));
 
 // Build
@@ -47,8 +48,7 @@ const Brands = lazy(() => import("./pages/Brands").then(m => ({ default: m.Brand
 const GithubAccounts = lazy(() => import("./pages/GithubAccounts").then(m => ({ default: m.GithubAccounts })));
 const Pentest = lazy(() => import("./pages/Pentest").then(m => ({ default: m.Pentest })));
 
-// Govern — Policies now lives as a tab inside Connectors; OrgDashboard merged into CommandCenter
-const PoliciesRedirect = () => <Navigate to="/connectors?tab=policies" replace />;
+// Govern — Policies is a nav item in the System group; OrgDashboard merged into CommandCenter
 
 // Ambient Watch — now a tab inside My Work (see pages/MyWork.tsx), not its own page.
 const AmbientRedirect = () => <Navigate to="/my-work?tab=ambient" replace />;
@@ -117,8 +117,6 @@ function AppShell() {
         <Route path="/automation" element={<Automation />} />
         <Route path="/webhooks" element={<Navigate to="/automation" replace />} />
         <Route path="/orchestrate" element={<Navigate to="/council?tab=orchestrate" replace />} />
-        <Route path="/team" element={<Team />} />
-        <Route path="/presets" element={<Presets />} />
         <Route path="/models" element={<Models />} />
         <Route path="/cost" element={<Cost />} />
         <Route path="/calendar" element={<Navigate to="/planner" replace />} />
@@ -144,11 +142,10 @@ function AppShell() {
         <Route path="/github-accounts" element={<GithubAccounts />} />
         <Route path="/pentest" element={<Pentest />} />
 
-        {/* Govern — merged */}
-        <Route path="/policies" element={<PoliciesRedirect />} />
+        {/* Govern */}
+        <Route path="/policies" element={<Policies />} />
         <Route path="/audit" element={<Navigate to="/extensions?tab=audit" replace />} />
         <Route path="/org-dashboard" element={<Navigate to="/command?tab=org" replace />} />
-        <Route path="/cost" element={<Navigate to="/extensions?tab=cost" replace />} />
         <Route path="/admin/notifications" element={<Navigate to="/audit" replace />} />
         <Route path="/admin/email-telegram" element={<Navigate to="/connectors" replace />} />
 
@@ -168,6 +165,7 @@ function AppShell() {
         <Route path="/results/:jobId" element={<ResultsRedirect />} />
         <Route path="/quality" element={<Navigate to="/runs?filter=quality" replace />} />
         <Route path="/agents" element={<Navigate to="/office" replace />} />
+        {/* Team and preset management are consolidated into Office. */}
         <Route path="/team" element={<Navigate to="/office" replace />} />
         <Route path="/presets" element={<Navigate to="/office" replace />} />
         <Route path="/workforce" element={<Navigate to="/office" replace />} />
@@ -176,11 +174,13 @@ function AppShell() {
         <Route path="/squads" element={<Navigate to="/office" replace />} />
         <Route path="/spin-up" element={<Navigate to="/office" replace />} />
         <Route path="/skill-forge" element={<Navigate to="/skills?tab=forge" replace />} />
-        <Route path="/governance" element={<Navigate to="/connectors?tab=policies" replace />} />
+        <Route path="/governance" element={<Navigate to="/policies" replace />} />
+        {/* Library's Connections tab moved to Connectors as Databases */}
+        <Route path="/library/data" element={<Navigate to="/connectors?tab=databases" replace />} />
         <Route path="/security" element={<Navigate to="/audit" replace />} />
         <Route path="/knowledge/*" element={<Navigate to="/library" replace />} />
         <Route path="/knowledge-packs" element={<Navigate to="/library/datasets" replace />} />
-        <Route path="/data-sources" element={<Navigate to="/library/data" replace />} />
+        <Route path="/data-sources" element={<Navigate to="/connectors?tab=databases" replace />} />
         <Route path="/terminal" element={<Navigate to="/ide" replace />} />
 
         <Route path="*" element={<Navigate to="/naxie" />} />

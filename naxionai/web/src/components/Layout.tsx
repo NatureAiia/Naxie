@@ -11,6 +11,8 @@ import {
   Inbox,
   PanelLeftClose,
   PanelLeftOpen,
+  Menu,
+  X,
   Terminal,
   LayoutDashboard,
   GitBranch,
@@ -28,7 +30,10 @@ import {
   UserPlus,
   Cpu,
   Wallet,
+  Briefcase,
+  Settings,
   ShieldAlert,
+  BookOpen,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -42,6 +47,7 @@ import { TerminalProvider } from "../lib/terminalContext";
 import { TerminalDrawer } from "./TerminalDrawer";
 import { NaxieWidget } from "./NaxieWidget";
 import { OfflineToggle, OfflineFooterLabel } from "./OfflineToggle";
+import { PAGE_CATALOG, pageInfo, type PageId } from "../lib/pageCatalog";
 
 // Atom Material icons (see FileIcon.tsx) for the nav items with a clean
 // conceptual match; everything else keeps its lucide icon — there's no
@@ -66,6 +72,11 @@ type NavItem = {
   iconColor?: string;
 };
 
+function pageNav(id: PageId, icon: NavItem["icon"], options: Omit<NavItem, "to" | "label" | "icon"> = {}): NavItem {
+  const page = pageInfo(id);
+  return { to: page.path, label: page.label, icon, ...options };
+}
+
 // Top-level: Home Base. Everything else folds into a collapsible group so
 // the rail stays short. No role-based filtering below — this is a
 // single-operator app now (see removed staff/admin/superadmin nav logic);
@@ -73,61 +84,92 @@ type NavItem = {
 // boundary exists (e.g. Library's Connections tab), this file just no
 // longer hides a link from the one person using it.
 const primaryNav: NavItem[] = [
-  { to: "/naxie", label: "Naxie", icon: Sparkles, iconColor: "text-violet-400" },
-  { to: "/command", label: "Command Center", icon: LayoutDashboard },
-  { to: "/office", label: "Office", icon: Building2 },
-  { to: "/ide", label: "Naxion IDE", icon: Terminal },
+  pageNav("naxie", Sparkles, { iconColor: "text-violet-400" }),
+  pageNav("office", Building2, { iconColor: "text-violet-300" }),
 ];
 
 const agentsNav: NavItem[] = [];
 
-const workNav: NavItem[] = [
-  { to: "/my-work", label: "My Inbox", icon: Inbox, badgeKey: "approvals" },
-  { to: "/council", label: "Council", icon: Waypoints },
-  { to: "/brands", label: "Brands", icon: Megaphone },
-  { to: "/planner", label: "Planner", icon: CalendarDays },
-  { to: "/my-finances", label: "My Finances", icon: PiggyBank },
-  { to: "/business-finance", label: "Business Finance", icon: Building2 },
-  { to: "/schedules", label: "Schedules", icon: EventFolderIcon },
-   { to: "/daily-reports", label: "Daily Reports", icon: ChangelogIcon },
+const workspaceNav: NavItem[] = [
+  pageNav("inbox", Inbox, { badgeKey: "approvals" }),
+  pageNav("council", Waypoints),
+  pageNav("schedules", EventFolderIcon),
+  pageNav("dailyReports", ChangelogIcon),
 ];
 
-const memoryNav: NavItem[] = [
-  { to: "/naxie/memory", label: "Naxie Memory", icon: Brain },
-  { to: "/library", label: "Library", icon: DocsFolderIcon },
-  { to: "/templates", label: "Templates", icon: TemplateIcon },
-  { to: "/skills", label: "Skills", icon: TemplateIcon },
+const mySuiteNav: NavItem[] = [
+  pageNav("command", LayoutDashboard),
+  pageNav("brands", Megaphone),
+  pageNav("planner", CalendarDays),
+  pageNav("myFinances", PiggyBank),
+  pageNav("businessFinance", Building2),
+];
+
+const knowledgeNav: NavItem[] = [
+  pageNav("memory", Brain, { iconColor: "text-teal-300" }),
+  pageNav("library", DocsFolderIcon, { iconColor: "text-teal-300" }),
+  pageNav("templates", TemplateIcon, { iconColor: "text-teal-300" }),
+  pageNav("skills", TemplateIcon, { iconColor: "text-teal-300" }),
   // SkillForge lives as a tab on Skills. Datasets (formerly "Knowledge
   // Packs") lives as a tab on Library.
 ];
 
 const connectNav: NavItem[] = [
-  { to: "/extensions", label: "Extensions", icon: Puzzle },
-  { to: "/connectors", label: "Connectors", icon: Boxes },
-  { to: "/mcp-servers", label: "MCP Servers", icon: Cable },
-  { to: "/automation", label: "Automation", icon: WebhookIcon },
-  { to: "/hermes", label: "Hermes", icon: ArrowLeftRight },
-  { to: "/github-accounts", label: "GitHub Accounts", icon: GitBranch },
-  { to: "/connectors?tab=policies", label: "Policies", icon: CertificateIcon },
-  { to: "/models", label: "Models", icon: Cpu },
-  { to: "/cost", label: "Cost", icon: Wallet },
+  pageNav("extensions", Puzzle),
+  pageNav("connectors", Boxes),
+  pageNav("mcp", Cable),
+  pageNav("hermes", ArrowLeftRight),
+  pageNav("github", GitBranch),
+];
+
+const systemNav: NavItem[] = [
+  pageNav("automation", WebhookIcon),
+  pageNav("ide", Terminal),
+  pageNav("models", Cpu),
+  pageNav("cost", Wallet),
+  pageNav("policies", CertificateIcon),
 ];
 
 // Security Scan — a single standalone slot outside the groups, same spot
 // Ambient Watch used to occupy (Ambient moved into My Work as a tab). Kept
 // out of connectNav so it stays visible without expanding a group — a
 // pentest trigger is not something you want buried.
-const securityScanNav: NavItem = { to: "/pentest", label: "Security Scan", icon: ShieldAlert };
+const securityScanNav: NavItem = pageNav("security", ShieldAlert, { iconColor: "text-coral-400" });
 
 export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
+  useEffect(() => {
+    const routeTitles: Record<string, string> = {
+      ...Object.fromEntries(Object.values(PAGE_CATALOG).map(page => [page.path, page.label])),
+      "/": "Naxie",
+      "/runs": "Runs",
+    };
+    const pathParts = location.pathname.split("/").filter(Boolean);
+    const lastPart = pathParts[pathParts.length - 1];
+    const title = routeTitles[location.pathname]
+      ?? (location.pathname.startsWith("/library/") ? "Library" : undefined)
+      ?? (/^\/runs\/[^/]+/.test(location.pathname) ? "Run details" : undefined)
+      ?? lastPart?.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+      ?? "Workspace";
+    document.title = `${title} · Naxie`;
+  }, [location.pathname]);
   const [health, setHealth] = useState<{ ready: boolean; missing?: string[] } | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [counts, setCounts] = useState<{ approvals: number; activity: number }>({ approvals: 0, activity: 0 });
   const [persona, setPersona] = useState<{ id: string; name: string; role: string } | null>(null);
   // Per-group open state. Undefined = "not toggled yet"; a group with an active
   // child defaults to open so the current page is always visible in the rail.
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const saved = localStorage.getItem("naxie.sidebarGroups");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [isSmallScreen, setIsSmallScreen] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 819px)").matches);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // Atom One Dark only — the theme switcher was removed, but [data-theme]
   // stays set (index.css keys off it, and OfficeScene/PixelDriftText observe
   // it for repaints) so this constant just fixes it to "dark" everywhere.
@@ -140,6 +182,7 @@ export function Layout({ children }: { children: ReactNode }) {
     // viewports so the shell becomes compact on tablet/smaller devices.
     return localStorage.getItem("naxie.sidebarCollapsed") === "1";
   });
+  const compactNav = isSmallScreen ? false : collapsed;
 
   // Responsive: keep the sidebar collapsed on tablet and smaller screens by
   // default, and expand on larger viewports. We listen for resize so the
@@ -151,9 +194,13 @@ export function Layout({ children }: { children: ReactNode }) {
       // If the viewport is tablet/smaller, force collapsed; otherwise restore
       // the user's saved preference (or expanded by default).
       if (mql.matches) {
+        setIsSmallScreen(true);
         setCollapsed(true);
+        setMobileNavOpen(false);
       } else {
+        setIsSmallScreen(false);
         setCollapsed(localStorage.getItem("naxie.sidebarCollapsed") === "1");
+        setMobileNavOpen(false);
       }
     };
     apply();
@@ -170,8 +217,24 @@ export function Layout({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("naxie.sidebarCollapsed", collapsed ? "1" : "0");
-  }, [collapsed]);
+    if (!isSmallScreen) localStorage.setItem("naxie.sidebarCollapsed", collapsed ? "1" : "0");
+  }, [collapsed, isSmallScreen]);
+
+  // Persist group expand/collapse state across reloads so the user's
+  // preferred sidebar shape survives a refresh.
+  useEffect(() => {
+    if (isSmallScreen) return;
+    localStorage.setItem("naxie.sidebarGroups", JSON.stringify(openGroups));
+  }, [openGroups, isSmallScreen]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileNavOpen]);
 
   async function tick() {
     try {
@@ -217,8 +280,11 @@ export function Layout({ children }: { children: ReactNode }) {
   const statusOk = health?.ready === true;
   const statusLabel = !health ? "connecting" : statusOk ? "All systems nominal" : "Degraded — check server logs";
 
-  const renderNavItem = (n: NavItem) => {
+  const renderNavItem = (n: NavItem, _idx?: number | { glow?: boolean }, _arr?: NavItem[], opts?: { glow?: boolean }) => {
     const Icon = n.icon;
+    // Accepts both renderNavItem(n, { glow: true }) and .map(renderNavItem)
+    // (which passes (item, index, array)) — the index/array are ignored.
+    const glowClass = (opts?.glow ?? (typeof _idx === "object" ? _idx.glow : false)) ? "nw-nav-glow" : "";
     if (n.external) {
       return (
         <a
@@ -226,12 +292,12 @@ export function Layout({ children }: { children: ReactNode }) {
           href={n.to}
           target="_blank"
           rel="noopener noreferrer"
-          title={collapsed ? n.label : undefined}
-          className={`flex items-center gap-3 py-2 rounded-md text-sm transition-colors ${collapsed ? "justify-center px-2" : "px-3"} text-cream-300 hover:text-cream-50 hover:bg-ink-800/60`}
+          title={compactNav ? n.label : undefined}
+          className={`flex items-center gap-3 py-2 rounded-md text-sm transition-colors ${compactNav ? "justify-center px-2" : "px-3"} text-cream-300 hover:text-cream-50 hover:bg-ink-800/60 hover:shadow-[0_0_12px_-2px_rgba(167,139,250,0.4)]`}
         >
-          <Icon size={16} className={`${n.iconColor ?? "text-cream-300/70"} shrink-0`} />
-          {!collapsed && <span className="flex-1 truncate">{n.label}</span>}
-          {!collapsed && <span className="text-[9px] text-cream-300/40">↗</span>}
+          <Icon size={16} className={`${n.iconColor ?? "text-cream-300/70"} shrink-0 drop-shadow-[0_0_4px_rgba(167,139,250,0.3)] ${glowClass}`} />
+          {!compactNav && <span className="flex-1 truncate">{n.label}</span>}
+          {!compactNav && <span className="text-[9px] text-cream-300/40">↗</span>}
         </a>
       );
     }
@@ -239,17 +305,18 @@ export function Layout({ children }: { children: ReactNode }) {
       <NavLink
         key={n.to}
         to={n.to}
-        title={collapsed ? n.label : undefined}
+        title={compactNav ? n.label : undefined}
         onMouseEnter={() => preloadRoute(n.to)}
         onFocus={() => preloadRoute(n.to)}
+        onClick={() => { if (isSmallScreen) setMobileNavOpen(false); }}
         className={({ isActive }) =>
-          `flex items-center gap-3 py-2 rounded-md text-sm transition-colors ${collapsed ? "justify-center px-2" : "px-3"} ${isActive ? "bg-ink-800 text-cream-50" : "text-cream-300 hover:text-cream-50 hover:bg-ink-800/60"}`
+          `flex items-center gap-3 py-2 rounded-md text-sm transition-colors ${compactNav ? "justify-center px-2" : "px-3"} ${isActive ? "bg-ink-800 text-cream-50 shadow-[0_0_16px_-4px_rgba(167,139,250,0.5)]" : "text-cream-300 hover:text-cream-50 hover:bg-ink-800/60 hover:shadow-[0_0_12px_-2px_rgba(167,139,250,0.4)]"}`
         }
       >
-        <Icon size={16} className={`${n.iconColor ?? "text-cream-300/70"} shrink-0`} />
-        {!collapsed && <span className="flex-1 truncate">{n.label}</span>}
-        {!collapsed && n.badgeKey && counts[n.badgeKey] > 0 && (
-          <span className="bg-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+        <Icon size={16} className={`${n.iconColor ?? "text-cream-300/70"} shrink-0 drop-shadow-[0_0_4px_rgba(167,139,250,0.3)] ${glowClass}`} />
+        {!compactNav && <span className="flex-1 truncate">{n.label}</span>}
+        {!compactNav && n.badgeKey && counts[n.badgeKey] > 0 && (
+          <span className="bg-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono shadow-[0_0_8px_rgba(167,139,250,0.3)]">
             {counts[n.badgeKey]}
           </span>
         )}
@@ -269,24 +336,38 @@ export function Layout({ children }: { children: ReactNode }) {
   ) => {
     const hasActive = items.some((n) => location.pathname.startsWith(n.to));
     const open = openGroups[key] ?? hasActive;
+    const isKnowledgeGroup = key === "knowledge";
+    const toggle = () => setOpenGroups((g) => ({ ...g, [key]: !(g[key] ?? hasActive) }));
     return (
       <div key={key}>
         <button
           type="button"
-          onClick={() => setOpenGroups((g) => ({ ...g, [key]: !(g[key] ?? hasActive) }))}
-          className="w-full flex items-center gap-3 px-3 py-2 mt-3 rounded-md text-sm text-cream-300 hover:text-cream-50 hover:bg-ink-800/60 transition-colors"
+          onClick={toggle}
+          onKeyDown={(e) => {
+            if (e.key === " " || e.key === "Enter") {
+              e.preventDefault();
+              toggle();
+            }
+          }}
+          aria-expanded={open}
+          aria-controls={`nav-group-${key}`}
+          className={`w-full flex items-center gap-3 px-3 py-2 mt-3 rounded-lg text-sm transition-colors ${hasActive && isKnowledgeGroup ? "bg-teal-400/[0.08] text-teal-100 ring-1 ring-inset ring-teal-300/10 shadow-[0_0_16px_-4px_rgba(45,212,191,0.3)]" : "text-cream-300 hover:text-cream-50 hover:bg-ink-800/60 hover:shadow-[0_0_12px_-2px_rgba(167,139,250,0.3)]"}`}
         >
-          <Icon size={16} className="text-cream-300/70 shrink-0" />
+          <Icon size={16} className={`${hasActive && isKnowledgeGroup ? "text-teal-300" : "text-cream-300/70"} shrink-0 drop-shadow-[0_0_4px_rgba(167,139,250,0.3)]`} />
           <span className="flex-1 text-left">{label}</span>
           {/* Aggregate badge — keeps a pending count visible even when collapsed. */}
           {badge > 0 && !open && (
-            <span className="bg-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+            <span className="bg-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono shadow-[0_0_8px_rgba(167,139,250,0.3)]">
               {badge}
             </span>
           )}
           <ChevronRight size={14} className={`text-cream-300/50 transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
-        {open && <div className="ml-3 pl-3 border-l border-ink-800 space-y-0.5">{items.map(renderNavItem)}</div>}
+        {open && (
+          <div id={`nav-group-${key}`} className="ml-3 space-y-0.5 border-l border-ink-800 pl-3">
+            {items.map((item) => renderNavItem(item))}
+          </div>
+        )}
       </div>
     );
   };
@@ -300,34 +381,49 @@ export function Layout({ children }: { children: ReactNode }) {
     <TerminalProvider>
       <div className="flex h-full">
         <GlitterBackground />
-        <aside
-          className={`shrink-0 bg-ink-900 border-r border-ink-800 flex flex-col transition-[width] duration-200 overflow-hidden ${collapsed ? "w-16" : "w-60"}`}
-        >
+        {isSmallScreen && mobileNavOpen && (
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => setMobileNavOpen(false)}
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          />
+        )}
+<aside
+           id="main-navigation"
+           aria-label="Main navigation"
+           hidden={isSmallScreen && !mobileNavOpen}
+           style={isSmallScreen && !mobileNavOpen ? { display: "none" } : undefined}
+           className={`${isSmallScreen ? "fixed inset-y-0 left-0 z-50 w-72 shadow-2xl" : `shrink-0 ${collapsed ? "w-16" : "w-60"}`} bg-ink-900 border-r border-ink-800 flex flex-col transition-[width,transform] duration-200 overflow-hidden shadow-[0_0_40px_-10px_rgba(167,139,250,0.15)]`}
+         >
           <div
-            className={`flex items-center ${collapsed ? "flex-col gap-2 px-2 py-4" : "justify-between px-4 py-4 tablet:px-5 tablet:py-5"}`}
+            className={`flex items-center ${compactNav ? "flex-col gap-2 px-2 py-4" : "justify-between px-4 py-4 tablet:px-5 tablet:py-5"}`}
           >
-            <Link to="/naxie" className={`flex items-center gap-2.5 min-w-0 ${collapsed ? "justify-center" : ""}`}>
-              <BrandMark size={26} />
-              {!collapsed && (
+            <Link to="/naxie" onClick={() => setMobileNavOpen(false)} className={`flex items-center gap-2.5 min-w-0 ${compactNav ? "justify-center" : ""} group`}>
+              <div className="drop-shadow-[0_0_12px_rgba(167,139,250,0.4)] group-hover:drop-shadow-[0_0_20px_rgba(167,139,250,0.6)] transition-all nw-nav-glow">
+                <BrandMark size={26} />
+              </div>
+              {!compactNav && (
                 <div className="w-[168px] h-8">
-                  <PixelDriftText text="Naxie" />
+                  <PixelDriftText text="NaxionAI" />
                 </div>
               )}
             </Link>
-            <div className={`flex items-center gap-1 ${collapsed ? "" : "shrink-0"}`}>
-              <button
+            <div className={`flex items-center gap-1 ${compactNav ? "" : "shrink-0"}`}>
+              {!isSmallScreen && <button
                 type="button"
                 onClick={() => setCollapsed((c) => !c)}
                 title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                 aria-label="Toggle sidebar"
-                className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0"
+                className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0 hover:shadow-[0_0_12px_-3px_rgba(167,139,250,0.4)]"
               >
                 {collapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
-              </button>
+              </button>}
+              {isSmallScreen && <button type="button" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" className="grid place-items-center w-9 h-9 rounded-md text-cream-300 hover:bg-ink-800"><X size={18} /></button>}
             </div>
           </div>
 
-          {!collapsed && (
+          {!compactNav && (
             <div className="px-4 pb-4 tablet:px-5">
               <div className="w-full aspect-square rounded-full overflow-hidden border border-ink-700">
                 <img src="/brand/logo.jpg" alt="Naxie" className="w-full h-full object-cover" />
@@ -335,36 +431,41 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
           )}
 
-          <nav className={`flex-1 space-y-0.5 overflow-y-auto scrollbar-thin ${collapsed ? "px-2" : "px-3"}`}>
-            {primaryNav.map(renderNavItem)}
-{collapsed ? (
+          <nav aria-label="Primary" className={`flex-1 space-y-0.5 overflow-y-auto scrollbar-thin ${compactNav ? "px-2" : "px-3"}`}>
+            {primaryNav.map(n => renderNavItem(n, { glow: true }))}
+{compactNav ? (
                 <>
-                  {workNav.map(renderNavItem)}
-                  {memoryNav.map(renderNavItem)}
+                  {workspaceNav.map(renderNavItem)}
+                  {mySuiteNav.map(renderNavItem)}
+                  {knowledgeNav.map(renderNavItem)}
                   {connectNav.map(renderNavItem)}
-                  {renderNavItem(securityScanNav)}
+                  {systemNav.map(renderNavItem)}
+                  {renderNavItem(securityScanNav, { glow: true })}
                 </>
               ) : (
                 <>
-                  {renderGroup("work", "Work Queue", WorkspaceFolderIcon, workNav, counts.approvals + counts.activity)}
-                  {renderGroup("memory", "Memory & Knowledge", DocsFolderIcon, memoryNav)}
+                  {renderGroup("workspace", "WorkSpace", WorkspaceFolderIcon, workspaceNav, counts.approvals + counts.activity)}
+                  {renderGroup("mysuite", "My Suite", Briefcase, mySuiteNav)}
+                  {renderGroup("knowledge", "Knowledge Studio", BookOpen, knowledgeNav)}
                   {renderGroup("connect", "Connect", Puzzle, connectNav)}
-                  {renderNavItem(securityScanNav)}
+                  {renderGroup("system", "System", Settings, systemNav)}
+                  {renderNavItem(securityScanNav, { glow: true })}
                 </>
               )}
           </nav>
 
           <div className="px-3 py-3 border-t border-ink-800">
-            {!collapsed && <OfflineFooterLabel />}
+            {!compactNav && <OfflineFooterLabel />}
           </div>
         </aside>
 
         <main className="flex-1 flex flex-col overflow-hidden">
-          <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 tablet:px-6 tablet:py-2 border-b border-ink-800">
+          <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 tablet:px-6 tablet:py-2 border-b border-ink-800 shadow-[0_0_30px_-10px_rgba(167,139,250,0.1)]">
             <div className="flex items-center gap-2.5 min-w-0">
+              {isSmallScreen && <button type="button" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileNavOpen} className="grid place-items-center w-9 h-9 -ml-2 rounded-md text-cream-200 hover:bg-ink-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"><Menu size={18} /></button>}
               {user ? (
                 <>
-                  <div className="w-7 h-7 shrink-0 rounded-full bg-gradient-to-br from-violet-500 to-coral-500 grid place-items-center text-[11px] font-semibold text-white">
+                  <div className="w-7 h-7 shrink-0 rounded-full bg-gradient-to-br from-violet-500 to-coral-500 grid place-items-center text-[11px] font-semibold text-white shadow-[0_0_12px_-2px_rgba(167,139,250,0.5)]">
                     {user.name
                       .split(" ")
                       .map((p) => p[0])
@@ -393,16 +494,16 @@ export function Layout({ children }: { children: ReactNode }) {
               {persona && (
                 <Link
                   to="/office"
-                  className="nw-shiny-pill flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border bg-violet-500/10 border-violet-500/30 text-violet-300"
+                  className="nw-shiny-pill flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border bg-violet-500/10 border-violet-500/30 text-violet-300 shadow-[0_0_12px_-3px_rgba(167,139,250,0.4)] hover:shadow-[0_0_16px_-2px_rgba(167,139,250,0.5)] transition-shadow"
                   title="Active persona"
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0 drop-shadow-[0_0_4px_rgba(167,139,250,0.6)]" />
                   <span className="truncate max-w-[8rem] tablet:max-w-none">{persona.name}</span>
                   <span className="opacity-60 hidden tablet:inline">· {persona.role}</span>
                 </Link>
               )}
               <div
-                className={`nw-shiny-pill flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border ${statusOk ? "bg-leaf-500/10 border-leaf-500/30 text-leaf-400" : "bg-flame-500/10 border-flame-500/30 text-flame-400"}`}
+                className={`nw-shiny-pill flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border ${statusOk ? "bg-leaf-500/10 border-leaf-500/30 text-leaf-400 shadow-[0_0_12px_-3px_rgba(34,197,94,0.3)]" : "bg-flame-500/10 border-flame-500/30 text-flame-400 shadow-[0_0_12px_-3px_rgba(239,68,68,0.3)]"}`}
               >
                 <span
                   className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${statusOk ? "bg-leaf-500" : "bg-flame-500 animate-pulse"}`}
@@ -416,7 +517,7 @@ export function Layout({ children }: { children: ReactNode }) {
                   const ev = new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true, bubbles: true });
                   document.dispatchEvent(ev);
                 }}
-                className="flex items-center gap-2 text-xs px-3 py-1.5 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors"
+                className="flex items-center gap-2 text-xs px-3 py-1.5 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors hover:shadow-[0_0_12px_-3px_rgba(167,139,250,0.3)]"
                 title="Open command palette"
               >
                 <SearchIcon size={12} />
@@ -428,7 +529,8 @@ export function Layout({ children }: { children: ReactNode }) {
               </button>
             </div>
           </header>
-          <div className={`flex-1 scrollbar-thin ${clearBackground ? "overflow-y-auto tablet:overflow-hidden" : "overflow-auto"}`}>
+          <a href="#main-content" className="skip-link">Skip to main content</a>
+          <div id="main-content" tabIndex={-1} className={`flex-1 scrollbar-thin ${clearBackground ? "overflow-y-auto tablet:overflow-hidden" : "overflow-auto"}`}>
             {/* key re-keys the wrapper on route change, restarting the
               nw-page-enter animation. Reduced-motion users get an instant
               swap (the keyframe collapses to no-op in CSS). Naxie gets a

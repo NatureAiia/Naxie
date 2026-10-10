@@ -45,7 +45,7 @@ export function ReadAloud({ open, onClose, title, markdown }: { open: boolean; o
   const [idx, setIdx] = useState(0);
   const [answer, setAnswer] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
-  const speaker = useSpeaker();
+  const speaker = useSpeaker(undefined, "readaloud");
   const mic = useSpeechRecognition();
   const listeningRef = useRef(false);
 

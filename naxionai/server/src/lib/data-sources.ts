@@ -127,6 +127,18 @@ export function removeSource(id: string): boolean {
   return true;
 }
 
+// Resolve which database a Mongo query targets: explicit `db` wins, else the
+// connection string's default path. Throws instead of silently landing on
+// "test" when neither exists. Pure — unit-tested without a cluster.
+export function resolveMongoDbName(connection: string, qDb: unknown): string {
+  if (qDb) return String(qDb);
+  const m = /mongodb(?:\+srv)?:\/\/[^/]*\/([^?]*)/.exec(connection);
+  const dbName = (m?.[1] ?? "").trim();
+  if (!dbName) {
+    throw new Error('mongodb query needs a "db" — e.g. {"db":"naxionai","collection":"vault_chunks","filter":{}} (connection string has no default database)');
+  }
+  return dbName;
+}
 // Blunt keyword gate for read-only sources. Errs on the side of blocking: a
 // false positive (a token appearing inside a string literal) just refuses the
 // query — the operator can set readonly=false for a trusted write path. The
@@ -296,10 +308,11 @@ async function runMongoQuery(source: DataSource, raw: string, limit: number): Pr
   try { mongodb = await import("mongodb"); }
   catch { throw new Error("mongodb driver not installed — run `pnpm -C server add mongodb`"); }
   const { MongoClient } = mongodb.default ?? mongodb;
+  const dbName = resolveMongoDbName(source.connection, q.db);
   const client = new MongoClient(source.connection);
   try {
     await client.connect();
-    const db = q.db ? client.db(String(q.db)) : client.db(); // db() with no arg uses the connstring's default
+    const db = client.db(dbName);
     const coll = db.collection(String(q.collection));
 
     const pipeline = q.aggregate ?? q.pipeline;

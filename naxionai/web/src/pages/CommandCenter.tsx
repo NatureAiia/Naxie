@@ -6,15 +6,21 @@ import {
 } from "lucide-react";
 import { api, type TimeAnalysis, type QualitySummary, type SecurityStatus, type SchedulerEngine, type RagStatus, type OrgTask, type OrgRole, type OrgTaskStatus, type OrgTaskPriority } from "../lib/api";
 import { Card } from "../components/Card";
+import { AiModelsCost } from "./AiModelsCost";
 
-// Merged Command Center: Overview (bento) + Org Backlog (former /org-dashboard) as tabs.
-// Single canonical route /command?tab=overview|org — /org-dashboard redirects here.
+// Merged Command Center: Overview (bento) + AI Models & Cost (moved over
+// from the Extensions page) + Org Backlog (former /org-dashboard) as tabs.
+// Single canonical route /command?tab=overview|models-cost|org —
+// /org-dashboard and /extensions?tab=cost redirect here.
+type CommandTab = "overview" | "models-cost" | "org";
 export function CommandCenter() {
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get("tab");
-  const activeTab: "overview" | "org" = rawTab === "org" ? "org" : "overview";
+  // Back-compat: the old standalone-tab ids land on the merged tab.
+  const activeTab: CommandTab =
+    rawTab === "org" ? "org" : rawTab === "models-cost" || rawTab === "models" || rawTab === "cost" ? "models-cost" : "overview";
 
-  function setTab(tab: "overview" | "org") {
+  function setTab(tab: CommandTab) {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       if (tab === "overview") next.delete("tab");
@@ -33,7 +39,9 @@ export function CommandCenter() {
           <p className="text-sm text-cream-300/70 mt-1">
             {activeTab === "org"
               ? "Naxie's internal 6-role backlog — diagnostics only. She never names a role in conversation; this is here purely for when you want to see what's actually happening."
-              : "What Naxie's running, how well she's running it, and what it's costing — one board, for the boss."}
+              : activeTab === "models-cost"
+                ? "What Naxie thinks with and what it costs — roster, spend, and trends."
+                : "What Naxie's running, how well she's running it, and what it's costing — one board, for the boss."}
           </p>
         </div>
         <div className="flex items-center gap-1 p-1 rounded-full bg-ink-900 border border-ink-800 shrink-0">
@@ -44,13 +52,20 @@ export function CommandCenter() {
           >Overview</button>
           <button
             type="button"
+            onClick={() => setTab("models-cost")}
+            className={`text-xs px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${activeTab === "models-cost" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}
+          ><DollarSign size={12} /> AI Models & Cost</button>
+          <button
+            type="button"
             onClick={() => setTab("org")}
             className={`text-xs px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${activeTab === "org" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}
           ><Network size={12} /> Org Backlog</button>
         </div>
       </div>
 
-      {activeTab === "overview" ? <OverviewTab onGoOrg={() => setTab("org")} /> : <OrgBacklogTab />}
+      {activeTab === "overview" ? <OverviewTab onGoOrg={() => setTab("org")} />
+        : activeTab === "models-cost" ? <AiModelsCost />
+        : <OrgBacklogTab />}
     </div>
   );
 }
@@ -176,7 +191,7 @@ function OverviewTab({ onGoOrg }: { onGoOrg: () => void }) {
             <MiniStat icon={<Brain className="w-3.5 h-3.5" />} label="Prompt-cache hit rate" value={cache?.overall?.cacheHitRatio != null ? `${Math.round(cache.overall.cacheHitRatio * 100)}%` : "—"} />
           </div>
           <div className="mt-3">
-            <Link to="/cost" className="text-violet-400 hover:text-violet-300 text-xs">Full cost breakdown →</Link>
+            <Link to="/command?tab=models-cost" className="text-violet-400 hover:text-violet-300 text-xs">Full cost breakdown →</Link>
           </div>
         </Cell>
 
@@ -239,7 +254,7 @@ function OverviewTab({ onGoOrg }: { onGoOrg: () => void }) {
           )}
           <div className="mt-3 flex gap-4 text-xs">
             <Link to="/audit" className="text-violet-400 hover:text-violet-300">Audit log →</Link>
-            <Link to="/connectors?tab=policies" className="text-violet-400 hover:text-violet-300">Policies →</Link>
+            <Link to="/policies" className="text-violet-400 hover:text-violet-300">Policies →</Link>
           </div>
         </Cell>
       </div>

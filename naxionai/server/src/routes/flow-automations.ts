@@ -67,9 +67,9 @@ flowsRouter.patch("/:id", (req, res) => {
   const existing = getFlow(req.params.id);
   if (!existing) return respond.empty(res, "flow not found");
   if (req.body?.steps !== undefined) {
-    const v = validateFlowInput({ name: req.body?.name ?? existing.name, trigger: existing.trigger, steps: req.body.steps });
+    const v = validateFlowInput({ name: req.body?.name ?? existing.name, trigger: existing.trigger, steps: req.body.steps, requireApproval: req.body?.requireApproval ?? existing.requireApproval });
     if (!v.ok) return respond.error(res, 400, "invalid_input", (v as any).error ?? "invalid steps");
-    const updated = updateFlow(req.params.id, { steps: v.value.steps, ...(typeof req.body?.name === "string" ? { name: req.body.name } : {}) });
+    const updated = updateFlow(req.params.id, { steps: v.value.steps, requireApproval: v.value.requireApproval, ...(typeof req.body?.name === "string" ? { name: req.body.name } : {}) });
     return respond.ok(res, { flow: updated });
   }
   const patch: any = {};

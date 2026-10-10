@@ -99,7 +99,10 @@ describe("retry and dead-letter", () => {
     expect(listDeliveries()[0].attempts).toBe(1);
 
     // Retry 4 more times (attempts 2..5) — the 5th attempt crosses MAX_ATTEMPTS.
-    for (let i = 0; i < 4; i++) await retryFailedDeliveries();
+    // Backoff parks each failure in the future, so simulate elapsed time;
+    // without it the due-guard (correctly) skips every retry.
+    const farFuture = Date.now() + 4 * 3600_000;
+    for (let i = 0; i < 4; i++) await retryFailedDeliveries(farFuture);
     const delivery = listDeliveries()[0];
     expect(delivery.attempts).toBe(5);
     expect(delivery.status).toBe("dead_letter");
@@ -119,7 +122,8 @@ describe("retry and dead-letter", () => {
     mockFetchReject();
     addTarget({ label: "x", url: "https://example.com/hook" });
     await publishEvent("e", {});
-    for (let i = 0; i < 4; i++) await retryFailedDeliveries();
+    const farFuture = Date.now() + 4 * 3600_000;
+    for (let i = 0; i < 4; i++) await retryFailedDeliveries(farFuture);
     const dead = listDeliveries()[0];
     expect(dead.status).toBe("dead_letter");
 

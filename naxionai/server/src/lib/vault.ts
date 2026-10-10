@@ -414,9 +414,10 @@ export function writeZettel(title: string, body: string, tags: string[] = []): {
 }
 
 // `_naxion/` (and its OS path-separator variants) is Naxie's own
-// audit/state tree inside the vault — not user knowledge. Writes there must not
-// disturb the user-knowledge search index.
-function isMachineStatePath(rel: string): boolean {
+// audit/state tree inside the vault - not user knowledge. Writes there must not
+// disturb the user-knowledge search index. Exported so searchIndex callers can
+// apply the same exclusion before the result cap (see searchVault).
+export function isMachineStatePath(rel: string): boolean {
   const norm = rel.replace(/\\/g, "/").replace(/^\.?\//, "");
   return norm === "_naxion" || norm.startsWith("_naxion/") ||
     // Legacy pre-rename tree — still skipped until old notes age out.
@@ -868,10 +869,12 @@ export function searchVaultFilenames(query: string, limit = 5, opts?: { excludeA
         continue;
       }
       if (!e.name.endsWith(".md")) continue;
+      const relPath = relative(VAULT, full).split(sep).join("/");
+      if (excludeAgentCaptures && isAgentCapture(relPath)) continue;
       const normalised = e.name.slice(0, -3).toLowerCase().replace(/[-_]+/g, " ");
       if (tokens.every(t => normalised.includes(t))) {
         out.push({
-          path: relative(VAULT, full).split(sep).join("/"),
+          path: relPath,
           line: 0,
           preview: e.name,
         });
@@ -913,11 +916,19 @@ export function searchVault(query: string, limit = 50, opts?: { excludeAgentCapt
     // catches up instead of staying stale forever.
     if (stats.stale) void buildIndex(VAULT);
     // Over-fetch when filtering so excluding captures doesn't just shrink
-    // the capped set — pull a larger candidate pool, filter, then cap.
+    // the capped set - pull a larger candidate pool, filter, then cap.
+    // The exclusion ALSO runs inside searchIndex (pre-cap), so a flood of
+    // machine-state duplicates can't crowd real docs out of the pool no
+    // matter how many land per day; this post-filter stays as the backstop
+    // for hits from paths the index predicate didn't cover.
+    // Exclusion = machine-state dirs AND 0-Inbox agent captures (the same
+    // isAgentCapture predicate callers assert on) - filtering only _naxion/
+    // left dated research/board/curated captures crowding the window.
+    const isExcluded = (p: string) => isMachineStatePath(p) || isAgentCapture(p);
     const fetchLimit = excludeAgentCaptures ? Math.max(limit * 5, 100) : limit;
-    const indexed = searchIndex(query, VAULT, fetchLimit);
+    const indexed = searchIndex(query, VAULT, fetchLimit, excludeAgentCaptures ? { exclude: isExcluded } : undefined);
     if (indexed && indexed.length > 0) {
-      const filtered = excludeAgentCaptures ? indexed.filter(h => !isMachineStatePath(h.path)) : indexed;
+      const filtered = excludeAgentCaptures ? indexed.filter(h => !isExcluded(h.path)) : indexed;
       if (filtered.length > 0) {
         const results = filtered.slice(0, limit).map(h => ({ path: h.path, line: h.line, preview: h.preview }));
         SEARCH_CACHE.set(key, { at: Date.now(), results });
@@ -946,12 +957,14 @@ export function searchVault(query: string, limit = 50, opts?: { excludeAgentCapt
         continue;
       }
       if (e.name.endsWith(".md") && statSync(full).size < 1_000_000) {
+        const rel = relative(VAULT, full).split(sep).join("/");
+        if (excludeAgentCaptures && isAgentCapture(rel)) continue;
         try {
           const content = readFileSync(full, "utf8");
           const lines = content.split("\n");
           for (let i = 0; i < lines.length && out.length < limit; i++) {
             if (lines[i].toLowerCase().includes(q)) {
-              out.push({ path: relative(VAULT, full).split(sep).join("/"), line: i + 1, preview: lines[i].slice(0, 200) });
+              out.push({ path: rel, line: i + 1, preview: lines[i].slice(0, 200) });
               break;
             }
           }
@@ -970,7 +983,7 @@ export function searchVault(query: string, limit = 50, opts?: { excludeAgentCapt
   return out;
 }
 
-function ensureInsideVault(full: string) {
+export function ensureInsideVault(full: string) {
   const r = resolve(full);
   if (!r.startsWith(resolve(VAULT))) {
     throw new Error(`path escapes vault: ${full}`);

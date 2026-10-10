@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ollamaGenerate } from "./ollama.js";
@@ -72,8 +72,8 @@ export function isMasterEmployee(personaId: string | null | undefined): boolean 
 export const BUILTIN_NAXIE_PERSONA: Persona = {
   id: "naxie",
   name: "Naxie",
-  role: "Personal Assistant to Nature · COO, Operations & Admin",
-  description: "Your first point of contact — triages, remembers, and delegates to the right specialist. Also serves as COO, part of Operations & Admin.",
+  role: "Personal Assistant to Nature · COO, Business Ops",
+  description: "Your first point of contact — triages, remembers, and delegates to the right specialist. Also coordinates Business Ops across the operator's businesses.",
   jobDescription: "Built-in. Naxie is Nature's PA. First contact for every Telegram, chat, and voice message. Knows the operator, remembers preferences, and routes complex work to the right hired persona (Sam, Ivy, Cole, etc.) while reporting back in Naxie's voice. Warm, concise, proactive — never a generic assistant.",
   tone: "adaptive · triage-first · calendar-aware",
   responsibilities: [
@@ -83,7 +83,7 @@ export const BUILTIN_NAXIE_PERSONA: Persona = {
     "Delegate deep work to the right hired persona (Sam, Ivy, Cole, etc.) and report back as Naxie",
     "Remember operator preferences and prior context (memory.note / memory.recall) and capture outcomes to the vault",
   ],
-  systemPromptOverride: `You are Naxie — Nature's Personal Assistant, the FIRST point of contact for every message on Telegram, /naxie, and chat. You also serve as COO, part of the Operations & Admin department.
+  systemPromptOverride: `You are Naxie — Nature's Personal Assistant, the FIRST point of contact for every message on Telegram, /naxie, and chat. You also coordinate Business Ops across the operator's businesses.
 
 Identity:
 - You serve Nature (the operator). You OWN triage + calendar. Never a generic assistant — you are Naxie.
@@ -119,6 +119,7 @@ As Master Employee (COO), you also get org.approvals_pending — a read-only, or
 };
 
 let cache: PersonaStore | null = null;
+let cacheMtimeMs = -1;
 // Set when ensureBuiltinSeeded rewrites a built-in's display name (a rename),
 // so loadPersonas knows to persist the corrected store back to disk.
 let personasSyncDirty = false;
@@ -391,7 +392,7 @@ export const BUILTIN_PERSONAS: Persona[] = [
 // the synthetic "general" room.
 const BUILTIN_DEPARTMENTS: Record<string, string> = {
   "software-engineer": "it-devops", "it-support": "it-devops",
-  "social-media-manager": "sales-marketing",
+  "social-media-manager": "business-administration",
   "accountant": "finance-legal",
   "naxie-agent": "general",
 };
@@ -461,7 +462,12 @@ function ensureBuiltinSeeded(s: PersonaStore): PersonaStore {
 }
 
 export function loadPersonas(): PersonaStore {
-  if (cache) return cache;
+  let diskMtimeMs = -1;
+  try { if (existsSync(FILE)) diskMtimeMs = statSync(FILE).mtimeMs; } catch { /* read path below handles missing/inaccessible files */ }
+  // The roster may be changed by a one-off installer or an operator-side
+  // migration while this process is already running. Refresh the cache when
+  // the persisted file changes so Office and routing see the same hires.
+  if (cache && cacheMtimeMs === diskMtimeMs) return cache;
   if (!existsSync(FILE)) {
     cache = ensureBuiltinSeeded({ personas: [], activeId: null });
     savePersonaStore(cache);
@@ -472,6 +478,7 @@ export function loadPersonas(): PersonaStore {
     const loaded: PersonaStore = { personas: Array.isArray(data.personas) ? data.personas : [], activeId: data.activeId ?? null };
     cache = ensureBuiltinSeeded(loaded);
     if (cache.personas.length !== loaded.personas.length || personasSyncDirty) { savePersonaStore(cache); personasSyncDirty = false; }
+    else cacheMtimeMs = diskMtimeMs;
   } catch { cache = ensureBuiltinSeeded({ personas: [], activeId: null }); }
   return cache;
 }
@@ -480,6 +487,7 @@ export function savePersonaStore(s: PersonaStore): void {
   mkdirSync(STATE_DIR, { recursive: true });
   writeFileSync(FILE, JSON.stringify(s, null, 2), "utf8");
   cache = s;
+  try { cacheMtimeMs = statSync(FILE).mtimeMs; } catch { cacheMtimeMs = -1; }
 }
 
 export function addPersona(p: Persona): void {

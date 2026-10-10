@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, ArrowDownToLine, ArrowUpFromLine, Check, Copy, ExternalLink, Loader2, Plus, RefreshCw, RotateCw, Send, ShieldCheck, Trash2, Webhook, Workflow } from "lucide-react";
+import { Activity, ArrowDownToLine, ArrowUpFromLine, Check, Copy, ExternalLink, Loader2, Plus, RefreshCw, RotateCw, Send, ShieldCheck, Trash2, Webhook, Workflow, ChevronUp, ChevronDown, Pencil, X } from "lucide-react";
 import { api, type ExecutorStatus, type HermesBridgeStatus } from "../lib/api";
 import { apiResult } from "../lib/apiResult";
 import { PageHeader } from "../components/PageHeader";
@@ -14,8 +14,9 @@ type OutboundTarget = { id: string; label: string; url: string; events: string[]
 type DeliveryStatus = "pending" | "success" | "failed" | "dead_letter";
 type Delivery = { id: string; targetId: string; event: string; status: DeliveryStatus; attempts: number; lastAttemptAt?: string; nextAttemptAt?: string; lastError?: string; createdAt: string };
 type InboundTarget = { id: string; targetId: string; targetKind: string; urlPath: string; secretConfigured: boolean; createdAt: string; lastHitAt?: string; hitCount: number; recentJobIds: string[] };
-type Flow = { id: string; name: string; enabled: boolean; trigger: { kind: string }; steps: { id: string; kind: string; ref: string }[]; createdAt: string; invokeUrl?: string };
-type FlowRun = { id: string; flowId: string; status: string; attempts: number; lastError?: string; startedAt: string; finishedAt?: string; jobId?: string; stepResults: { stepId: string; status: string; error?: string }[] };
+type FlowStep = { id: string; kind: "connector.call" | "webhook.publish" | "agent.task"; ref: string; template: unknown; condition?: { path: string; equals: unknown } };
+type Flow = { id: string; name: string; enabled: boolean; trigger: { kind: string }; steps: FlowStep[]; createdAt: string; invokeUrl?: string; requireApproval?: boolean };
+type FlowRun = { id: string; flowId: string; status: string; attempts: number; lastError?: string; startedAt: string; finishedAt?: string; jobId?: string; stepResults: { stepId: string; kind?: string; status: string; error?: string; bodyPreview?: string; warnings?: string[]; durationMs?: number }[] };
 type InboundSecret = { label: string; secret: string; url: string; sampleTask: string };
 type Recipe = { id: string; label: string; task: string; help: string };
 
@@ -53,9 +54,12 @@ export function Automation() {
   const [createFlow, setCreateFlow] = useState(false);
   const [flowName, setFlowName] = useState("");
   const [flowTrigger, setFlowTrigger] = useState<"webhook" | "schedule">("webhook");
-  const [flowStepKind, setFlowStepKind] = useState("connector.call");
-  const [flowStepRef, setFlowStepRef] = useState("");
-  const [flowTemplate, setFlowTemplate] = useState('{\n  "method": "GET",\n  "path": "/"\n}');
+  const [editingFlow, setEditingFlow] = useState<Flow | null>(null);
+  const [draftSteps, setDraftSteps] = useState<FlowStep[]>([]);
+  const [draftTemplateText, setDraftTemplateText] = useState<Record<string, string>>({});
+  const [testTarget, setTestTarget] = useState<Flow | null>(null);
+  const [samplePayload, setSamplePayload] = useState('{\n  "body": {}\n}');
+  const [testPreview, setTestPreview] = useState<{ resolved: unknown[]; warnings: string[] } | null>(null);
   const [deleteFlow, setDeleteFlow] = useState<Flow | null>(null);
   const [incoming, setIncoming] = useState<InboundTarget[] | null>(null);
   const [outgoing, setOutgoing] = useState<OutboundTarget[] | null>(null);
@@ -88,7 +92,11 @@ export function Automation() {
       apiResult<{ flows: Flow[] }>("/api/flows"),
     ]);
     if (inRes.ok) { setIncoming(inRes.webhooks); setError(""); } else setError(inRes.error);
-    if (flowRes.ok) setFlows(flowRes.flows);
+    if (flowRes.ok) {
+      setFlows(flowRes.flows);
+      const runLists = await Promise.all(flowRes.flows.map(flow => apiResult<{ runs: FlowRun[] }>(`/api/flows/${encodeURIComponent(flow.id)}/runs`)));
+      setFlowRuns(runLists.flatMap(result => result.ok ? result.runs : []).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 30));
+    }
     if (outRes.ok) setOutgoing(outRes.targets);
     if (deliveryRes.ok) setDeliveries(deliveryRes.deliveries);
     if (catalogRes.ok) setEvents(catalogRes.events);
@@ -179,21 +187,37 @@ export function Automation() {
     showToast(`Replay ${response.delivery.status}`, response.delivery.status === "success" ? "success" : "error"); await refresh();
   }
 
+  function startNewFlow() {
+    setEditingFlow(null); setFlowName(""); setFlowTrigger("webhook");
+    const initial = { id: `step-${Date.now()}`, kind: "connector.call" as const, ref: "", template: { method: "GET", path: "/" } };
+    setDraftSteps([initial]); setDraftTemplateText({ [initial.id]: JSON.stringify(initial.template, null, 2) });
+    setCreateFlow(true);
+  }
+
+  function startEditFlow(flow: Flow) {
+    setEditingFlow(flow); setFlowName(flow.name); setFlowTrigger(flow.trigger.kind === "schedule" ? "schedule" : "webhook");
+    const steps = flow.steps.map((step, index) => ({ ...step, id: step.id || `step-${index + 1}`, template: step.template ?? {} }));
+    setDraftSteps(steps); setDraftTemplateText(Object.fromEntries(steps.map(step => [step.id, JSON.stringify(step.template, null, 2)])));
+    setCreateFlow(true);
+  }
+
+  function updateDraftStep(index: number, patch: Partial<FlowStep>) {
+    setDraftSteps(current => current.map((step, i) => i === index ? { ...step, ...patch } : step));
+  }
+
   async function addFlow() {
-    if (!flowName.trim() || !flowStepRef.trim()) return;
-    let template: unknown = {};
-    try { template = flowTemplate.trim() ? JSON.parse(flowTemplate) : {}; }
-    catch { return showToast("Step template is not valid JSON", "error"); }
+    if (!flowName.trim() || draftSteps.length === 0 || draftSteps.some(step => !step.ref.trim())) return;
+    const trigger = editingFlow ? editingFlow.trigger : flowTrigger === "webhook" ? { kind: "webhook" } : { kind: "schedule", cadence: { daysOfWeek: [], hour: 8, minute: 0 } };
     setBusy(true);
-    const trigger = flowTrigger === "webhook" ? { kind: "webhook" } : { kind: "schedule", cadence: { daysOfWeek: [], hour: 8, minute: 0 } };
-    const response = await apiResult<{ flow: Flow; invokeUrl?: string; secret?: string }>("/api/flows", {
-      method: "POST", body: JSON.stringify({ name: flowName.trim(), trigger, steps: [{ kind: flowStepKind, ref: flowStepRef.trim(), template }] }),
-    });
+    const payload = { name: flowName.trim(), trigger, steps: draftSteps.map(step => ({ ...step, ref: step.ref.trim() })) };
+    const response = editingFlow
+      ? await apiResult<{ flow: Flow; invokeUrl?: string; secret?: string }>(`/api/flows/${encodeURIComponent(editingFlow.id)}`, { method: "PATCH", body: JSON.stringify(payload) })
+      : await apiResult<{ flow: Flow; invokeUrl?: string; secret?: string }>("/api/flows", { method: "POST", body: JSON.stringify(payload) });
     setBusy(false);
     if (!response.ok) return showToast(response.error, "error");
-    setCreateFlow(false); setFlowName(""); setFlowStepRef("");
+    setCreateFlow(false); setEditingFlow(null);
     if (response.secret && response.invokeUrl) setSecretNotice({ label: response.flow.name, secret: response.secret, url: `${window.location.origin}${response.invokeUrl}`, sampleTask: "Flow trigger payload, e.g. {\"body\":{\"email\":\"a@x.com\"}}" });
-    else showToast("Flow created", "success");
+    else showToast(editingFlow ? "Flow updated" : "Flow created", "success");
     await refresh();
   }
 
@@ -221,9 +245,11 @@ export function Automation() {
   }
 
   async function testFlow(flow: Flow) {
-    const response = await apiResult<{ resolved: unknown[]; warnings: string[] }>(`/api/flows/${encodeURIComponent(flow.id)}/test`, { method: "POST", body: JSON.stringify({ sample: { body: {} } }) });
+    let sample: unknown;
+    try { sample = JSON.parse(samplePayload); } catch { return showToast("Sample payload must be valid JSON", "error"); }
+    const response = await apiResult<{ resolved: unknown[]; warnings: string[] }>(`/api/flows/${encodeURIComponent(flow.id)}/test`, { method: "POST", body: JSON.stringify({ sample }) });
     if (!response.ok) return showToast(response.error, "error");
-    showToast(response.warnings.length ? `Mapper warnings: ${response.warnings.join("; ").slice(0, 200)}` : "Mapper resolved cleanly", response.warnings.length ? "info" : "success");
+    setTestPreview(response);
   }
 
   const readinessLabel = executor?.hermes.readiness === "ready" ? "Ready" : executor?.hermes.readiness === "install" ? "Install Hermes" : executor ? "Needs setup" : "Checking…";
@@ -250,7 +276,7 @@ export function Automation() {
       ) : tab === "outgoing" ? (
         <OutgoingSection items={outgoing} deliveries={deliveries} events={events} onAdd={() => setCreateOutgoing(true)} onRotate={rotateOutgoing} onToggle={toggleOutgoing} onDelete={setDeleteOutbound} onTest={testOutgoing} onReplay={replay} />
       ) : (
-        <FlowsSection items={flows} runs={flowRuns} onAdd={() => setCreateFlow(true)} onToggle={toggleFlow} onDelete={setDeleteFlow} onTest={testFlow} onFire={fireFlow} />
+        <FlowsSection items={flows} runs={flowRuns} onAdd={startNewFlow} onEdit={startEditFlow} onToggle={toggleFlow} onDelete={setDeleteFlow} onTest={(flow) => { setTestTarget(flow); setTestPreview(null); }} onFire={fireFlow} />
       )}
 
       {secretNotice && <Modal open onClose={() => setSecretNotice(null)} title="Copy this secret now">
@@ -279,18 +305,26 @@ export function Automation() {
         </div>
       </Modal>
 
-      <Modal open={createFlow} onClose={() => setCreateFlow(false)} title="Create flow">
+      <Modal open={createFlow} onClose={() => { setCreateFlow(false); setEditingFlow(null); }} title={editingFlow ? "Edit flow" : "Create flow"} size="xl">
         <div className="space-y-3">
-          <p className="text-xs text-cream-300/60">A flow runs ordered steps when its trigger fires. Tokens like <code>{"{{$.trigger.body.email}}"}</code> map trigger data into step inputs without the LLM.</p>
+          <p className="text-xs text-cream-300/60">Build a sequence of up to 10 steps. Map fields with tokens such as <code>{"{{$.trigger.body.email}}"}</code> or data from earlier steps with <code>{"{{$.steps.step-1.body.id}}"}</code>.</p>
           <label className="block text-xs text-cream-300/60">Flow name<input value={flowName} onChange={e => setFlowName(e.target.value)} placeholder="Stripe → CRM" className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100" /></label>
-          <label className="block text-xs text-cream-300/60">Trigger<select value={flowTrigger} onChange={e => setFlowTrigger(e.target.value as "webhook" | "schedule")} className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100"><option value="webhook">Webhook (per-flow URL + secret)</option><option value="schedule">Schedule (daily 08:00, editable via API)</option></select></label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block text-xs text-cream-300/60">First step<select value={flowStepKind} onChange={e => setFlowStepKind(e.target.value)} className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100"><option value="connector.call">Connector call</option><option value="webhook.publish">Publish event</option><option value="agent.task">Agent task</option></select></label>
-            <label className="block text-xs text-cream-300/60">Ref (connector / event / task)<input value={flowStepRef} onChange={e => setFlowStepRef(e.target.value)} placeholder="crm" className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100" /></label>
+          {!editingFlow && <label className="block text-xs text-cream-300/60">Trigger<select value={flowTrigger} onChange={e => setFlowTrigger(e.target.value as "webhook" | "schedule")} className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100"><option value="webhook">Webhook (per-flow URL + secret)</option><option value="schedule">Schedule (daily 08:00)</option></select></label>}
+          <div className="space-y-2 max-h-[52vh] overflow-y-auto pr-1">
+            {draftSteps.map((step, index) => <div key={step.id} className="rounded-lg border border-ink-800 bg-ink-950/50 p-3 space-y-2">
+              <div className="flex items-center justify-between"><div className="text-xs font-medium text-cream-100">Step {index + 1} <span className="text-cream-300/40">· {step.id}</span></div><div className="flex gap-1"><Button variant="ghost" disabled={index === 0} onClick={() => setDraftSteps(current => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })}><ChevronUp size={13} /></Button><Button variant="ghost" disabled={index === draftSteps.length - 1} onClick={() => setDraftSteps(current => { const next = [...current]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next; })}><ChevronDown size={13} /></Button><Button variant="ghost" disabled={draftSteps.length <= 1} onClick={() => setDraftSteps(current => current.filter((_, i) => i !== index))}><X size={13} /></Button></div></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2"><label className="block text-xs text-cream-300/60">Action<select value={step.kind} onChange={e => updateDraftStep(index, { kind: e.target.value as FlowStep["kind"] })} className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100"><option value="connector.call">Connector call</option><option value="webhook.publish">Publish event</option><option value="agent.task">Agent task</option></select></label><label className="block text-xs text-cream-300/60">{step.kind === "connector.call" ? "Connector ID" : step.kind === "webhook.publish" ? "Event name" : "Task"}<input value={step.ref} onChange={e => updateDraftStep(index, { ref: e.target.value })} placeholder={step.kind === "connector.call" ? "crm" : step.kind === "webhook.publish" ? "record.created" : "Summarize the request"} className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100" /></label></div>
+              <label className="block text-xs text-cream-300/60">Input template (JSON)<textarea value={draftTemplateText[step.id] ?? JSON.stringify(step.template ?? {}, null, 2)} onChange={e => { const value = e.target.value; setDraftTemplateText(current => ({ ...current, [step.id]: value })); try { updateDraftStep(index, { template: JSON.parse(value) }); } catch { /* allow editing incomplete JSON */ } }} rows={4} spellCheck={false} className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-md px-3 py-2 text-xs font-mono text-cream-100" /></label>
+              {step.condition && <div className="grid grid-cols-2 gap-2"><label className="block text-xs text-cream-300/60">Run only when path equals<input value={step.condition.path} onChange={e => updateDraftStep(index, { condition: { ...step.condition!, path: e.target.value } })} className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-xs font-mono text-cream-100" /></label><label className="block text-xs text-cream-300/60">Expected JSON value<input value={JSON.stringify(step.condition.equals)} onChange={e => { try { updateDraftStep(index, { condition: { ...step.condition!, equals: JSON.parse(e.target.value) } }); } catch { /* ignore until valid */ } }} className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-xs font-mono text-cream-100" /></label></div>}
+              {!step.condition && <button className="text-[11px] text-violet-300 hover:text-violet-200" onClick={() => updateDraftStep(index, { condition: { path: "$.trigger.body.status", equals: "ready" } })}>+ Add condition</button>}
+            </div>)}
           </div>
-          <label className="block text-xs text-cream-300/60">Step template (JSON, {"{{$.trigger…}}"} tokens)<textarea value={flowTemplate} onChange={e => setFlowTemplate(e.target.value)} rows={5} spellCheck={false} className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-md px-3 py-2 text-xs font-mono text-cream-100" /></label>
-          <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setCreateFlow(false)}>Cancel</Button><Button disabled={busy || !flowName.trim() || !flowStepRef.trim()} onClick={() => void addFlow()}>{busy ? "Creating…" : "Create flow"}</Button></div>
+          <div className="flex justify-between gap-2"><Button variant="subtle" disabled={draftSteps.length >= 10} onClick={() => { const step = { id: `step-${Date.now()}`, kind: "connector.call" as const, ref: "", template: { method: "GET", path: "/" } }; setDraftSteps(current => [...current, step]); setDraftTemplateText(current => ({ ...current, [step.id]: JSON.stringify(step.template, null, 2) })); }}><Plus size={13} /> Add step</Button><div className="flex gap-2"><Button variant="ghost" onClick={() => { setCreateFlow(false); setEditingFlow(null); }}>Cancel</Button><Button disabled={busy || !flowName.trim() || draftSteps.some(step => !step.ref.trim() || (() => { try { JSON.parse(draftTemplateText[step.id] ?? "{}"); return false; } catch { return true; } })())} onClick={() => void addFlow()}>{busy ? "Saving…" : editingFlow ? "Save flow" : "Create flow"}</Button></div></div>
         </div>
+      </Modal>
+
+      <Modal open={!!testTarget} onClose={() => setTestTarget(null)} title={`Preview mapping${testTarget ? ` · ${testTarget.name}` : ""}`}>
+        <div className="space-y-3"><p className="text-xs text-cream-300/60">This resolves templates only. It does not call connectors, publish events, or run agent tasks.</p><label className="block text-xs text-cream-300/60">Sample trigger payload<textarea value={samplePayload} onChange={e => setSamplePayload(e.target.value)} rows={5} spellCheck={false} className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-md px-3 py-2 text-xs font-mono text-cream-100" /></label><Button disabled={!testTarget} onClick={() => testTarget && void testFlow(testTarget)}><ShieldCheck size={13} /> Preview</Button>{testPreview && <div className="space-y-2"><pre className="max-h-56 overflow-auto rounded bg-ink-950 border border-ink-800 p-3 text-[11px] text-cream-200">{JSON.stringify(testPreview.resolved, null, 2)}</pre>{testPreview.warnings.length > 0 && <div className="text-xs text-amber-300">{testPreview.warnings.join(" · ")}</div>}</div>}</div>
       </Modal>
 
       <ConfirmDialog open={deleteFlow !== null} title="Remove flow?" body="Its trigger URL stops working and scheduled fires stop. Run history stays on disk." rows={deleteFlow ? [["Name", deleteFlow.name], ["Steps", String(deleteFlow.steps.length)]] : []} confirmLabel="Remove flow" danger onConfirm={() => void removeFlow()} onCancel={() => setDeleteFlow(null)} />
@@ -300,8 +334,8 @@ export function Automation() {
   );
 }
 
-function FlowsSection({ items, runs, onAdd, onToggle, onDelete, onTest, onFire }: {
-  items: Flow[] | null; runs: FlowRun[] | null; onAdd: () => void;
+function FlowsSection({ items, runs, onAdd, onEdit, onToggle, onDelete, onTest, onFire }: {
+  items: Flow[] | null; runs: FlowRun[] | null; onAdd: () => void; onEdit: (flow: Flow) => void;
   onToggle: (flow: Flow) => void; onDelete: (flow: Flow) => void;
   onTest: (flow: Flow) => void; onFire: (flow: Flow) => void;
 }) {
@@ -310,9 +344,9 @@ function FlowsSection({ items, runs, onAdd, onToggle, onDelete, onTest, onFire }
     {items === null ? <div className="text-sm text-cream-300/50">Loading flows…</div> : items.length === 0 ? <EmptyState icon={Workflow} title="No flows" body="Create one: a webhook trigger plus a connector call with {{$.trigger…}} tokens." action={<Button onClick={onAdd}><Plus size={13} /> Create flow</Button>} /> : <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">{items.map(flow => <Card key={flow.id} className={flow.enabled ? "" : "opacity-60"}>
       <div className="flex items-start justify-between gap-3"><div><div className="font-medium text-cream-50">{flow.name}</div><div className="text-[11px] text-cream-300/45 mt-1">{flow.trigger.kind} · {flow.steps.length} step{flow.steps.length === 1 ? "" : "s"} · {flow.steps.map(s => s.kind).join(" → ")}</div></div><span className={`text-[10px] h-fit rounded-full px-2 py-1 ${flow.enabled ? "bg-leaf-500/10 text-leaf-300" : "bg-ink-800 text-cream-300/55"}`}>{flow.enabled ? "enabled" : "paused"}</span></div>
       {flow.invokeUrl && <code className="block text-[11px] text-cream-200 bg-ink-950 p-2 rounded mt-3 break-all">{window.location.origin}{flow.invokeUrl}</code>}
-      <div className="flex flex-wrap gap-1.5 mt-3"><Button variant="subtle" onClick={() => onFire(flow)}><Send size={12} /> Run now</Button><Button variant="subtle" onClick={() => onTest(flow)}><ShieldCheck size={12} /> Test mapper</Button><Button variant="subtle" onClick={() => onToggle(flow)}><RotateCw size={12} /> {flow.enabled ? "Pause" : "Enable"}</Button><Button variant="ghost" onClick={() => onDelete(flow)}><Trash2 size={12} /> Remove</Button></div>
+      <div className="flex flex-wrap gap-1.5 mt-3"><Button variant="subtle" onClick={() => onFire(flow)}><Send size={12} /> Run now</Button><Button variant="subtle" onClick={() => onTest(flow)}><ShieldCheck size={12} /> Test mapper</Button><Button variant="subtle" onClick={() => onEdit(flow)}><Pencil size={12} /> Edit</Button><Button variant="subtle" onClick={() => onToggle(flow)}><RotateCw size={12} /> {flow.enabled ? "Pause" : "Enable"}</Button><Button variant="ghost" onClick={() => onDelete(flow)}><Trash2 size={12} /> Remove</Button></div>
     </Card>)}</div>}
-    {runs && runs.length > 0 && <section><h3 className="text-sm font-medium text-cream-100 mb-2">Latest runs</h3><div className="space-y-1.5 max-h-64 overflow-y-auto">{runs.map(run => <div key={run.id} className="rounded-md bg-ink-950/50 border border-ink-800 px-3 py-2 text-xs"><span className={`text-[9px] px-1.5 py-0.5 rounded-full ${run.status === "succeeded" ? "bg-leaf-500/15 text-leaf-400" : run.status === "failed" ? "bg-coral-500/15 text-coral-400" : "bg-ink-800 text-cream-300/60"}`}>{run.status}</span><span className="ml-2 text-cream-300/60">attempt {run.attempts} · {run.stepResults.map(s => `${s.stepId}:${s.status}`).join(", ")}</span>{run.lastError && <span className="block text-[10px] text-coral-300/80 break-all mt-1">{run.lastError}</span>}</div>)}</div></section>}
+    {runs && runs.length > 0 && <section><h3 className="text-sm font-medium text-cream-100 mb-2">Latest runs</h3><div className="space-y-1.5 max-h-96 overflow-y-auto">{runs.map(run => <details key={run.id} className="rounded-md bg-ink-950/50 border border-ink-800 px-3 py-2 text-xs"><summary className="cursor-pointer list-none flex flex-wrap items-center gap-2"><span className={`text-[9px] px-1.5 py-0.5 rounded-full ${run.status === "succeeded" ? "bg-leaf-500/15 text-leaf-400" : run.status === "failed" ? "bg-coral-500/15 text-coral-400" : "bg-ink-800 text-cream-300/60"}`}>{run.status}</span><span className="text-cream-300/60">{items?.find(flow => flow.id === run.flowId)?.name ?? run.flowId} · attempt {run.attempts}</span><span className="ml-auto text-cream-300/35">{new Date(run.startedAt).toLocaleString()}</span></summary><div className="mt-2 pl-2 border-l border-ink-700 space-y-2">{run.stepResults.map(step => <div key={step.stepId}><div className="flex gap-2"><span className={step.status === "failed" ? "text-coral-300" : step.status === "succeeded" ? "text-leaf-300" : "text-cream-300/60"}>{step.status}</span><span className="text-cream-200">{step.stepId}{step.kind ? ` · ${step.kind}` : ""}</span><span className="text-cream-300/40">{typeof step.durationMs === "number" ? `${step.durationMs} ms` : ""}</span></div>{step.error && <div className="text-[10px] text-coral-300/80 break-all mt-1">{step.error}</div>}{step.warnings?.length ? <div className="text-[10px] text-amber-300/80 mt-1">{step.warnings.join(" · ")}</div> : null}{step.bodyPreview && <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded bg-ink-950 p-2 mt-1 text-[10px] text-cream-300/60">{step.bodyPreview}</pre>}</div>)}{run.lastError && <div className="text-[10px] text-coral-300/80 break-all">{run.lastError}</div>}</div></details>)}</div></section>}
     <Notice tone="info">Webhook flows answer in under 50 ms with a run ID and execute async. Step outputs are previewed (2 KB) on the run — full bodies stay server-side.</Notice>
   </div>;
 }

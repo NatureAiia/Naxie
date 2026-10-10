@@ -253,9 +253,10 @@ export function FileExplorer({ onSelectionChange, renderOverlay, initialPath }: 
   const segments = path ? path.split("/") : [];
 
   return (
-    <div className="flex h-[70vh] min-h-[520px] border border-violet-500/20 rounded-xl overflow-hidden bg-ink-950/90 backdrop-blur-md shadow-[0_0_32px_-12px_rgba(139,92,246,0.2)]">
+    <div className="flex h-[72vh] min-h-[500px] flex-col overflow-hidden rounded-2xl border border-violet-500/20 bg-ink-950/90 shadow-[0_0_40px_-20px_rgba(139,92,246,0.22)] tablet:h-[70vh] tablet:min-h-[520px] tablet:flex-row">
       {/* Sidebar: backends + folder tree */}
-      <div className="w-64 shrink-0 border-r border-violet-500/10 bg-ink-900/40 backdrop-blur-sm overflow-y-auto scrollbar-thin p-2">
+      <div className="w-full shrink-0 border-b border-violet-500/10 bg-ink-900/50 p-2 tablet:h-full tablet:w-64 tablet:overflow-y-auto tablet:border-b-0 tablet:border-r tablet:bg-ink-900/40 tablet:backdrop-blur-sm">
+        <div role="group" aria-label="Storage locations" className="flex gap-1 overflow-x-auto scrollbar-thin tablet:block">
         {backends.map(b => (
           <BackendRow
             key={b.id}
@@ -265,8 +266,9 @@ export function FileExplorer({ onSelectionChange, renderOverlay, initialPath }: 
             onDrop={ev => { setBackend(b.id); setPath(""); void handleDrop(b.id, "", ev); }}
           />
         ))}
+        </div>
         {backend !== "drive" && backend !== "supabase" && (
-          <div className="mt-2 pt-2 border-t border-ink-800">
+          <div className="mt-2 hidden border-t border-ink-800 pt-2 tablet:block">
             <FolderTree
               backend={backend}
               currentPath={path}
@@ -282,7 +284,7 @@ export function FileExplorer({ onSelectionChange, renderOverlay, initialPath }: 
       </div>
 
       {/* Main pane */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Toolbar */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-violet-500/10 bg-ink-900/30 backdrop-blur-sm">
           <button onClick={() => void refreshEntries()} className="p-1.5 rounded hover:bg-ink-800 text-cream-300/70" title="Refresh"><RefreshCw size={14} /></button>
@@ -505,16 +507,18 @@ function BackendRow({ info, active, onClick, onDrop }: { info: FileBackendInfo; 
   const Icon = BACKEND_ICON[info.id] ?? Folder;
   const dimmed = info.kind === "unavailable" && !info.configured;
   return (
-    <div
+    <button
+      type="button"
+      aria-pressed={active}
       onClick={onClick}
       onDragOver={ev => { if (info.kind !== "unavailable") ev.preventDefault(); }}
       onDrop={onDrop}
-      className={`flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer text-sm ${active ? "bg-violet-500/15 text-violet-300" : dimmed ? "text-cream-300/35" : "text-cream-200 hover:bg-ink-800/70"}`}
+      className={`flex min-w-max items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors tablet:w-full tablet:min-w-0 tablet:text-sm ${active ? "bg-violet-500/15 text-violet-300" : dimmed ? "text-cream-300/35" : "text-cream-200 hover:bg-ink-800/70"}`}
     >
       <Icon size={16} className="shrink-0" />
       <span className="flex-1 truncate">{info.label}</span>
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${info.reachable ? "bg-leaf-500" : info.configured ? "bg-flame-400" : "bg-ink-700"}`} title={info.detail} />
-    </div>
+    </button>
   );
 }
 

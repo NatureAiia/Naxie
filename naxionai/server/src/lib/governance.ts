@@ -395,7 +395,7 @@ export const CONSEQUENTIAL_TOOLS = new Set([
   "vault.capture_note", "vault.capture_youtube",
   "fs.import_to_vault",
   "github.create_issue", "github.comment_on_issue", "github.update_issue", "github.request_review",
-  "webhook.post", "slack.post", "telegram.send", "discord.post", "msteams.post", "googlechat.post",
+  "webhook.post", "slack.post", "telegram.send", "telegram.send_file", "discord.post", "msteams.post", "googlechat.post",
   "connector.call",
   "crm.upsert_contact", "crm.move_deal_stage",
   "db.write",
@@ -409,6 +409,10 @@ export const CONSEQUENTIAL_TOOLS = new Set([
   // not a parallel check.
   "calendar.write_external_attendee",
   "system_control", "manage_clipboard", "git_pull",
+  // Naxie's own folder + Telegram file flow: local.write/delete are jailed to
+  // D:\Naxie and local.send moves nothing until the Telegram tap, but they
+  // still pass the gate like vault.write/telegram.send do above.
+  "local.send", "local.write", "local.delete",
 ]);
 
 // Prefix form of the same allowlist, for tool families that don't have a

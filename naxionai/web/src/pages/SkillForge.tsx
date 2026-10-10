@@ -1,6 +1,10 @@
-import { useState } from "react";
+import { useState, ChangeEvent } from "react";
 import { api } from "../lib/api";
 import { Loader2, Hammer, Sparkles, Eye, Save, AlertCircle, CheckCircle } from "lucide-react";
+import { Button, showToast, Card } from "../components/Card";
+import { PageHeader } from "../components/PageHeader";
+import { EmptyState, ErrorState } from "../components/States";
+import { Input, Textarea } from "../components/forms";
 
 export function SkillForge() {
   const [intent, setIntent] = useState("");
@@ -33,7 +37,10 @@ export function SkillForge() {
     setSaving(true);
     try {
       const result = await api.saveSkill(intent.trim(), draft.raw);
-      if (result.ok) setSaved(true);
+      if (result.ok) {
+        setSaved(true);
+        showToast("Skill saved to library", "success");
+      }
     } catch (e: any) {
       setError(e?.message ?? "Failed to save skill");
     } finally {
@@ -43,78 +50,85 @@ export function SkillForge() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Hammer className="w-6 h-6" />
-        <h1 className="text-2xl font-bold">SkillForge</h1>
-      </div>
-      <p className="text-sm text-cream-300/60">
-        Generate a skill playbook from a natural language description. The LLM writes a structured markdown skill
-        with frontmatter, process, rules, and pitfalls. Review and save it to your skill library.
-      </p>
+      <PageHeader
+        title="SkillForge"
+        subtitle="Generate a skill playbook from a natural language description. The LLM writes a structured markdown skill with frontmatter, process, rules, and pitfalls. Review and save it to your skill library."
+        icon={<Hammer size={28} />}
+        action={
+          <Button onClick={forge} disabled={loading || !intent.trim() || !taskSample.trim()} className="px-4 py-2">
+            {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            Forge Skill
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="space-y-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium">Intent label</label>
-            <input value={intent} onChange={e => setIntent(e.target.value)} placeholder="e.g. draft-email, compliance-check" className="text-sm border rounded px-3 py-2 bg-ink-900" />
+        <Card>
+          <div className="space-y-4">
+            <Input
+              label="Intent label"
+              value={intent}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setIntent(e.target.value)}
+              placeholder="e.g. draft-email, compliance-check"
+            />
+            <Textarea
+              label="Task sample"
+              value={taskSample}
+              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setTaskSample(e.target.value)}
+              rows={4}
+              placeholder="Paste a real task that this skill should handle…"
+            />
+            <Textarea
+              label="Failure reason (optional)"
+              value={failureReason}
+              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setFailureReason(e.target.value)}
+              rows={2}
+              placeholder="What went wrong last time? Helps the LLM draft better rules…"
+            />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium">Task sample</label>
-            <textarea value={taskSample} onChange={e => setTaskSample(e.target.value)} rows={4} placeholder="Paste a real task that this skill should handle…" className="text-sm border rounded px-3 py-2 bg-ink-900" />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium">Failure reason (optional)</label>
-            <textarea value={failureReason} onChange={e => setFailureReason(e.target.value)} rows={2} placeholder="What went wrong last time? Helps the LLM draft better rules…" className="text-sm border rounded px-3 py-2 bg-ink-900" />
-          </div>
-          <button
-            onClick={forge}
-            disabled={loading || !intent.trim() || !taskSample.trim()}
-            className="flex items-center gap-2 px-4 py-2 rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            Forge Skill
-          </button>
-        </div>
+        </Card>
 
-        <div className="space-y-4">
-          {error && (
-            <div className="flex items-start gap-2 p-3 rounded bg-coral-500/10 border border-coral-500/30 text-sm text-coral-300 ">
-              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-              {error}
+        <Card>
+          {error ? (
+            <ErrorState title="Generation failed" body={error} onRetry={forge} />
+          ) : loading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 size={24} className="animate-spin text-violet-400" />
+              <span className="ml-2 text-sm text-cream-300/60">Generating skill…</span>
             </div>
-          )}
-
-          {draft && (
-            <>
+          ) : draft ? (
+            <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <Eye className="w-4 h-4" />
-                <span className="font-medium text-sm">Draft: {draft.skill.name}</span>
+                <Eye size={16} className="text-cream-300/70" />
+                <span className="font-medium text-sm text-cream-100">Draft: {draft.skill.name}</span>
                 {draft.skill.applies_to?.length > 0 && (
                   <span className="text-xs text-cream-300/50">applies to: {draft.skill.applies_to.join(", ")}</span>
                 )}
               </div>
-              <pre className="text-xs border rounded p-3 bg-ink-950 overflow-auto max-h-96 whitespace-pre-wrap font-mono">
+              <pre className="text-xs border border-ink-800 rounded-lg p-3 bg-ink-950 overflow-auto max-h-96 whitespace-pre-wrap font-mono text-cream-300">
                 {draft.raw}
               </pre>
               <div className="flex items-center gap-2">
                 {saved ? (
                   <div className="flex items-center gap-2 text-sm text-leaf-400">
-                    <CheckCircle className="w-4 h-4" /> Saved to skill library
+                    <CheckCircle size={16} /> Saved to skill library
                   </div>
                 ) : (
-                  <button
-                    onClick={save}
-                    disabled={saving}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded bg-leaf-500 text-white hover:bg-leaf-600 disabled:opacity-50 text-sm"
-                  >
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <Button onClick={save} disabled={saving} className="px-3 py-1.5">
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                     Save to Library
-                  </button>
+                  </Button>
                 )}
               </div>
-            </>
+            </div>
+          ) : (
+            <EmptyState
+              icon={Sparkles}
+              title="No draft yet"
+              body="Fill in the intent and task sample, then click Forge Skill to generate a draft."
+            />
           )}
-        </div>
+        </Card>
       </div>
     </div>
   );

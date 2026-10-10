@@ -10,6 +10,7 @@ import { MultiStepLoader } from "../components/MultiStepLoader";
 import { AgentStepFeed } from "../components/AgentStepFeed";
 import { LinkPreview } from "../components/LinkPreview";
 import { VoiceDiscussion } from "../components/VoiceDiscussion";
+import { useVisibleInterval } from "../lib/useVisibleInterval";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Runs — the merged job list. Folds together what used to be four separate
@@ -100,33 +101,30 @@ export function Runs() {
   async function load() {
     try { const r = await api.listJobs(); setJobs(r.jobs); } catch {} finally { setLoaded(true); }
   }
-  useEffect(() => { load(); const i = setInterval(load, 3000); return () => clearInterval(i); }, []);
+  useVisibleInterval(load, 5000);
   // ETA history refreshes lazily — it barely changes between polls.
-  useEffect(() => { api.taskEtaStats().then(setEta).catch(() => {}); const i = setInterval(() => api.taskEtaStats().then(setEta).catch(() => {}), 30000); return () => clearInterval(i); }, []);
+  const loadEta = () => api.taskEtaStats().then(setEta).catch(() => {});
+  useVisibleInterval(loadEta, 30000);
   // Waiting-on-you queue — tasks paused on a structured human ask. Polled at a
   // relaxed cadence; answering one triggers an immediate refresh.
   const loadWaiting = () => api.tasksWaiting().then(r => setWaiting(r.waiting)).catch(() => {});
-  useEffect(() => { loadWaiting(); const i = setInterval(loadWaiting, 10000); return () => clearInterval(i); }, []);
+  useVisibleInterval(loadWaiting, 15000);
   // Quality signals — feeds the "Low quality" chip + summary strip. Changes
   // slowly (feedback is occasional), so a relaxed poll is enough.
-  useEffect(() => {
-    function loadQuality() {
-      Promise.all([
-        api.getQualitySummary(),
-        api.getLowQualityRuns(0.5, 2),
-        api.getQualitySignals().catch(() => ({ signals: [] as QualitySignal[] })),
-        api.getQualityFlags().catch(() => ({ flags: [] as any[] })),
-      ]).then(([s, lq, sig, fl]) => {
-        setQualitySummary(s);
-        setLowQualityRuns(lq.runs);
-        setQualitySignals((sig as any).signals ?? []);
-        setDownFlaggedJobIds(new Set((fl as any).flags.filter((f: any) => f.rating === "down").map((f: any) => f.jobId)));
-      }).catch(() => {});
-    }
-    loadQuality();
-    const i = setInterval(loadQuality, 30000);
-    return () => clearInterval(i);
-  }, []);
+  function loadQuality() {
+    Promise.all([
+      api.getQualitySummary(),
+      api.getLowQualityRuns(0.5, 2),
+      api.getQualitySignals().catch(() => ({ signals: [] as QualitySignal[] })),
+      api.getQualityFlags().catch(() => ({ flags: [] as any[] })),
+    ]).then(([s, lq, sig, fl]) => {
+      setQualitySummary(s);
+      setLowQualityRuns(lq.runs);
+      setQualitySignals((sig as any).signals ?? []);
+      setDownFlaggedJobIds(new Set((fl as any).flags.filter((f: any) => f.rating === "down").map((f: any) => f.jobId)));
+    }).catch(() => {});
+  }
+  useVisibleInterval(loadQuality, 30000);
 
   const filtered = useMemo(() => {
     let list = jobs;
@@ -164,7 +162,7 @@ export function Runs() {
       <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-cream-50">Runs</h1>
-          <p className="text-sm text-cream-300/70 mt-1">Everything the workforce is doing — tasks, reports, and quality, all in one place.</p>
+          <p className="text-sm text-cream-300/70 mt-1">Completed and active agent executions, reports, and quality signals. Personal tasks are in Planner; recurring work is in Schedules.</p>
         </div>
       </div>
 

@@ -139,7 +139,7 @@ export function Policies() {
       <Card title="Active policies">
         {policies.length === 0 ? (
           <div className="text-sm text-cream-300/60">
-            No policies uploaded yet. Upload a Markdown file and your agents will start honoring it.
+            No policies uploaded yet. Upload a Markdown or PDF file and your agents will start honoring it.
           </div>
         ) : (
           <ul className="divide-y divide-ink-800">
@@ -321,8 +321,8 @@ function PolicyUpload({ onUploaded }: { onUploaded: () => Promise<void> }) {
       setState({ status: "error", filename: file.name, error: "Policy files capped at 5 MB" });
       return;
     }
-    if (!file.name.toLowerCase().endsWith(".md")) {
-      setState({ status: "error", filename: file.name, error: "Only .md policies accepted" });
+    if (!/\.(md|markdown|pdf)$/i.test(file.name)) {
+      setState({ status: "error", filename: file.name, error: "Only .md and .pdf policies accepted" });
       return;
     }
     setState({ status: "uploading", filename: file.name });
@@ -335,8 +335,7 @@ function PolicyUpload({ onUploaded }: { onUploaded: () => Promise<void> }) {
         binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
       }
       const contentBase64 = btoa(binary);
-      await api.upload({ filename: file.name, contentBase64, target: "vault", mimeType: file.type || "text/markdown", vaultFolder: "_governance" });
-      try { await api.invalidateGovernance(); } catch { }
+      await api.uploadGovernance({ filename: file.name, contentBase64 });
       await onUploaded();
       setState({ status: "saved", filename: file.name });
       setTimeout(() => setState(s => s.status === "saved" ? { status: "idle" } : s), 4000);
@@ -347,7 +346,7 @@ function PolicyUpload({ onUploaded }: { onUploaded: () => Promise<void> }) {
 
   return (
     <div className="flex items-center gap-2">
-      <input ref={fileInputRef} type="file" accept=".md,text/markdown" className="hidden" onChange={handleFile} aria-label="Upload a policy file" />
+      <input ref={fileInputRef} type="file" accept=".md,.markdown,.pdf,text/markdown,application/pdf" className="hidden" onChange={handleFile} aria-label="Upload a policy file (.md or .pdf)" />
       <Button onClick={() => fileInputRef.current?.click()} disabled={state.status === "uploading"}>
         <span className="inline-flex items-center gap-1.5"><Upload size={14} /> Upload policy</span>
       </Button>

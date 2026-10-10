@@ -263,12 +263,14 @@ export async function publishEvent(event: string, payload: unknown, opts: { targ
 // Scheduler tick (registered via scheduler-registry.ts) — retries every
 // "failed" delivery whose target is still enabled. A target removed or
 // disabled since the failure just leaves its deliveries parked, untouched.
-export async function retryFailedDeliveries(): Promise<{ retried: number }> {
+// `now` is injectable so tests can simulate elapsed backoff without waiting;
+// production callers omit it.
+export async function retryFailedDeliveries(now = Date.now()): Promise<{ retried: number }> {
   const list = loadDeliveries();
   let retried = 0;
   for (const d of list) {
     if (d.status !== "failed") continue;
-    if (d.nextAttemptAt && Date.parse(d.nextAttemptAt) > Date.now()) continue;
+    if (d.nextAttemptAt && Date.parse(d.nextAttemptAt) > now) continue;
     const target = getTarget(d.targetId);
     if (!target || !target.enabled) continue;
     await attemptDelivery(target, d);

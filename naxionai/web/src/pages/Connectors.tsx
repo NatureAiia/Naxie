@@ -1,29 +1,30 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Boxes, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Pencil, Lock, Unlock, Plug, Sparkles, Shield } from "lucide-react";
-import { api, type Connector, type ConnectorAuthCatalog, type ConnectorAuthType, type ConnectorInput, type ConnectorCallResult, type ConnectorTemplate } from "../lib/api";
+import { useSearchParams, Navigate } from "react-router-dom";
+import { Boxes, Plus, Trash2, CheckCircle2, Loader2, X, AlertTriangle, Play, Pencil, Lock, Unlock, Plug, Sparkles, Database } from "lucide-react";
+import { api, type Connector, type ConnectorAuthCatalog, type ConnectorAuthType, type ConnectorInput, type ConnectorCallResult, type ConnectorTemplate, type User } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
+import { PageHeader } from "../components/PageHeader";
+import { TabGroup, type TabDef } from "../components/TabGroup";
+import { Modal } from "../components/Modal";
+import { Input } from "../components/forms";
+import { relTime } from "../lib/time";
 import { NaxiePersonalConnectors } from "../components/NaxiePersonalConnectors";
-import { Policies } from "./Policies";
+import { LibraryConnections } from "../components/library/LibraryConnections";
+import { CompanyLinksPanel } from "../components/library/CompanyLinksPanel";
 
 // Connectors — register the company's existing systems (any HTTP API) so agents
 // can read from / act on them. Each connector stores a base URL, an auth scheme
 // (encrypted at rest), and an endpoint manifest that agents read via
 // connector.describe before calling with connector.call. Read-only by default.
 
-function relTime(iso?: string): string {
-  if (!iso) return "";
-  const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60); if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
-
 export function Connectors() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab: "connectors" | "policies" = searchParams.get("tab") === "policies" ? "policies" : "connectors";
-  function setTab(tab: "connectors" | "policies") {
+  // Policies moved back out to its own System-group page (/policies).
+  if (searchParams.get("tab") === "policies") {
+    return <Navigate to="/policies" replace />;
+  }
+  const activeTab: "connectors" | "databases" = searchParams.get("tab") === "databases" ? "databases" : "connectors";
+  function setTab(tab: "connectors" | "databases") {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       if (tab === "connectors") next.delete("tab");
@@ -31,6 +32,11 @@ export function Connectors() {
       return next;
     }, { replace: true });
   }
+  const [user, setUser] = useState<User | null>(null);
+  useEffect(() => { api.session().then(s => setUser(s.user)).catch(() => setUser(null)); }, []);
+  const role = (user?.role ?? "") as string;
+  const layer = !user ? "superadmin" : role === "superadmin" ? "superadmin" : role === "admin" ? "admin" : "staff";
+  const canSeeDatabases = layer !== "staff";
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [authTypes, setAuthTypes] = useState<ConnectorAuthCatalog[]>([]);
   const [templates, setTemplates] = useState<ConnectorTemplate[]>([]);
@@ -66,23 +72,36 @@ export function Connectors() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Boxes size={24} /> Connectors</h1>
-          <p className="text-sm text-cream-300/70 mt-1">
-            {activeTab === "policies"
-              ? "Governance guardrails that apply to every connector call — policies prepend to each agent's system prompt."
-              : "Wire up your existing company systems so agents can read & act on them. Each connector holds a base URL, an auth scheme (encrypted at rest), and an endpoint manifest agents read before calling."}
-          </p>
-        </div>
-        <div className="flex items-center gap-1 p-1 rounded-full bg-ink-900 border border-ink-800 shrink-0">
-          <button type="button" onClick={() => setTab("connectors")} className={`text-xs px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${activeTab === "connectors" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}><Boxes size={12} /> Connectors</button>
-          <button type="button" onClick={() => setTab("policies")} className={`text-xs px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${activeTab === "policies" ? "bg-violet-500 text-white" : "text-cream-300/70 hover:text-cream-100"}`}><Shield size={12} /> Policies</button>
-        </div>
-      </div>
+      <PageHeader
+        title="Connectors"
+        subtitle={activeTab === "databases"
+          ? "Company database connections and curated department data for agents to query."
+          : "Wire up your existing company systems so agents can read & act on them. Each connector holds a base URL, an auth scheme (encrypted at rest), and an endpoint manifest agents read before calling."}
+        icon={<Boxes size={28} />}
+        action={
+          <TabGroup
+            tabs={[
+              { id: "connectors", label: <><Boxes size={14} /> Connectors</> },
+              { id: "databases", label: <><Database size={14} /> Databases</> },
+            ]}
+            value={activeTab}
+            onChange={(id) => setTab(id as "connectors" | "databases")}
+            variant="pill"
+          />
+        }
+      />
 
-      {activeTab === "policies" ? (
-        <Policies />
+      {activeTab === "databases" ? (
+        canSeeDatabases ? (
+          <div className="space-y-4">
+            <LibraryConnections />
+            <CompanyLinksPanel />
+          </div>
+        ) : (
+          <div className="text-sm text-cream-300/70 bg-ink-900 border border-ink-800 rounded-lg px-4 py-3">
+            You don't have permission to view database connections. Ask an admin for access.
+          </div>
+        )
       ) : (
         <>
           <NaxiePersonalConnectors />
@@ -476,33 +495,26 @@ function ConnectModal({ connector, onClose, onConnected }: { connector: Connecto
   }, [connector.id]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 overflow-auto" onClick={onClose}>
-      <div className="w-full max-w-sm bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg text-cream-50 font-medium">Connect — {connector.label}</h2>
-          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
+    <Modal open onClose={onClose} title={`Connect — ${connector.label}`} size="sm">
+      {state === "starting" && (
+        <div className="flex items-center gap-2 text-sm text-cream-300/70"><Loader2 size={14} className="animate-spin" /> Requesting a sign-in code…</div>
+      )}
+
+      {state === "pending" && info && (
+        <div className="space-y-3 text-center">
+          <div className="text-[12px] text-cream-300/70">Go to</div>
+          <a href={info.verificationUri} target="_blank" rel="noreferrer" className="text-sm text-violet-300 underline break-all">{info.verificationUri}</a>
+          <div className="text-[12px] text-cream-300/70">and enter this code:</div>
+          <div className="text-2xl font-mono tracking-widest text-cream-50 bg-ink-950/60 border border-ink-800 rounded-lg py-2">{info.userCode}</div>
+          <div className="flex items-center justify-center gap-2 text-[12px] text-cream-300/60"><Loader2 size={12} className="animate-spin" /> Waiting for sign-in…</div>
         </div>
+      )}
 
-        {state === "starting" && (
-          <div className="flex items-center gap-2 text-sm text-cream-300/70"><Loader2 size={14} className="animate-spin" /> Requesting a sign-in code…</div>
-        )}
-
-        {state === "pending" && info && (
-          <div className="space-y-3 text-center">
-            <div className="text-[12px] text-cream-300/70">Go to</div>
-            <a href={info.verificationUri} target="_blank" rel="noreferrer" className="text-sm text-violet-300 underline break-all">{info.verificationUri}</a>
-            <div className="text-[12px] text-cream-300/70">and enter this code:</div>
-            <div className="text-2xl font-mono tracking-widest text-cream-50 bg-ink-950/60 border border-ink-800 rounded-lg py-2">{info.userCode}</div>
-            <div className="flex items-center justify-center gap-2 text-[12px] text-cream-300/60"><Loader2 size={12} className="animate-spin" /> Waiting for sign-in…</div>
-          </div>
-        )}
-
-        {(state === "error" || state === "expired") && (
-          <div className="text-[12px] text-coral-400 flex items-center gap-1.5">
-            <AlertTriangle size={13} /> {state === "expired" ? "Code expired — try again." : (error ?? "Sign-in failed.")}
-          </div>
-        )}
-      </div>
-    </div>
+      {(state === "error" || state === "expired") && (
+        <div className="text-[12px] text-coral-400 flex items-center gap-1.5">
+          <AlertTriangle size={13} /> {state === "expired" ? "Code expired — try again." : (error ?? "Sign-in failed.")}
+        </div>
+      )}
+    </Modal>
   );
 }

@@ -90,13 +90,32 @@ function heuristicProfile(paramSize?: string): Capabilities {
 }
 
 // Ollama "cloud" tags (e.g. "deepseek-v4-flash:cloud") run on Ollama's hosted
-// infra via this same local daemon/API — not on this machine. They're still
+// infra via this same local daemon/API - not on this machine. They're still
 // useful to pick explicitly (they stay in listModels()/the UI dropdown), but
 // the automatic profile-based router shouldn't silently reach for a remote,
 // possibly metered model when the user asked for "local". Excluded from
 // pickModel()'s candidates unless a caller's `must` pattern explicitly wants one.
 function isCloudModel(name: string): boolean {
   return /:cloud$/i.test(name);
+}
+
+// Embedding-only models (nomic-embed-text, mxbai-embed-*) serve /api/embed,
+// not /api/generate — routing chat to one always fails ("does not support
+// generate"). Never auto-picked; explicit `must` can still match (harmless,
+// the call fails loudly at the backend, same as before).
+export function isEmbeddingModel(name: string): boolean {
+  return /embed/i.test(name);
+}
+
+// CPU-only boxes can't serve giant models in reasonable time (measured live:
+// 12B on CPU takes ~54s for two tokens; 18B+ mostly abort). Cap the auto-pick
+// pool by pulled size so the router stops handing chat turns to models that
+// will time out. Direct picks, `must` patterns, and the UI dropdown are
+// unaffected. 0/empty = no cap. Default 13GB keeps ≤12B models eligible.
+export function maxAutoGb(): number {
+  const raw = (process.env.OLLAMA_MAX_AUTO_GB ?? "13").trim();
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 let cache: { at: number; models: ModelInfo[] } | null = null;
@@ -147,9 +166,16 @@ export function scoreModel(m: ModelInfo, needs: TaskNeeds): number {
   return score;
 }
 
-function filterCandidates(all: ModelInfo[], needs: TaskNeeds, localOnly: boolean): ModelInfo[] {
+export function filterCandidates(all: ModelInfo[], needs: TaskNeeds, localOnly: boolean): ModelInfo[] {
   let candidates = all;
   if (localOnly) candidates = candidates.filter(m => !isCloudModel(m.name));
+  // Never auto-route chat to embedding-only or oversized-local models (see
+  // isEmbeddingModel/maxAutoGb). Explicit `must` still matches — a deliberate
+  // ask bypasses both guards, same as the cloud rule above.
+  const mustWants = (name: string) => (needs.must ?? []).some(re => re.test(name));
+  candidates = candidates.filter(m => mustWants(m.name) || !isEmbeddingModel(m.name));
+  const cap = maxAutoGb();
+  if (cap > 0) candidates = candidates.filter(m => mustWants(m.name) || !(m.sizeGB != null && m.sizeGB > cap));
   if (needs.must && needs.must.length) candidates = candidates.filter(m => needs.must!.some(re => re.test(m.name)));
   if (needs.exclude && needs.exclude.length) candidates = candidates.filter(m => !needs.exclude!.some(re => re.test(m.name)));
   return candidates;

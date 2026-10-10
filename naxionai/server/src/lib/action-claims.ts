@@ -14,9 +14,9 @@
 // answer QUOTING the request, or a draft written for the operator to send by
 // hand all pass untouched (see withoutQuotedDraft / NOT_A_CLAIM below).
 //
-// Tool names below are Naxie's own (primitives.ts) — Naxie has no separate
-// "telegram.send_file"; only telegram.send exists, so the Telegram-file rule
-// targets that instead.
+// Tool names below are Naxie's own (primitives.ts) — telegram.send_file sends
+// files as-is, telegram.send sends text; the Telegram-file rule accepts both
+// as backing evidence.
 
 export type ClaimRun = { step?: { tool?: string }; tool?: string; ok?: boolean };
 
@@ -34,7 +34,7 @@ const NOT_YET = String.raw`(?<!\bto\s)(?<!\bbe\s)(?<!\bwill\s)(?<!\bshall\s)(?<!
 const RULES: { what: string; tools: string[]; re: RegExp }[] = [
   {
     what: "a file was delivered on Telegram",
-    tools: ["telegram.send"],
+    tools: ["telegram.send", "telegram.send_file"],
     re: /\btelegram[.\s_]?send(?:_file)?\b|\b(?:deliver|sent|send)\w*\b[^.\n]{0,60}\b(?:via|on|over|through|to)\s+telegram\b|\btelegram\b[^.\n]{0,40}\b(?:file|document|attachment|pdf|cv|photo)\w*\b[^.\n]{0,30}\b(?:deliver|sent)\w*/i,
   },
   {

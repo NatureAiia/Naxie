@@ -342,3 +342,34 @@ describe("isReviewTimeout — review-breaker.ts's trigger detector", () => {
     expect(isReviewTimeout(undefined)).toBe(false);
   });
 });
+
+describe("heuristicPlan - recurring schedule auto-naming", () => {
+  it("strips markdown from the auto-generated name (no literal ** on the Schedules page)", () => {
+    const p = heuristicPlan("every day at 8 ** Naxie - Personal Assistant to Nature, COO of operations");
+    expect(p).not.toBeNull();
+    expect(p!.steps[0].tool).toBe("schedule.create");
+    const name = String((p!.steps[0].args as any).name);
+    expect(name).toContain("Scheduled:");
+    expect(name).not.toContain("*");
+  });
+
+  it("never cuts the auto-generated name mid-word", () => {
+    const work = "** Naxie - Personal Assistant to Nature, COO of operations and administration";
+    const p = heuristicPlan(`every day at 8 ${work}`);
+    expect(p).not.toBeNull();
+    const name = String((p!.steps[0].args as any).name);
+    const body = name.replace(/^Scheduled:\s*/, "");
+    // The name body must end exactly at a word boundary of the source text.
+    const cleanWork = work.replace(/[*_`~#]+/g, "").replace(/\s+/g, " ").trim();
+    expect(cleanWork.startsWith(body)).toBe(true);
+    const nextChar = cleanWork[body.length];
+    expect(nextChar === undefined || nextChar === " ").toBe(true);
+  });
+
+  it("keeps an explicit 'called X' name verbatim", () => {
+    const p = heuristicPlan("create a schedule called Morning digest: every weekday at 08:00 send me the headlines");
+    expect(p).not.toBeNull();
+    expect(p!.steps[0].tool).toBe("schedule.create");
+    expect(String((p!.steps[0].args as any).name)).toBe("Morning digest");
+  });
+});

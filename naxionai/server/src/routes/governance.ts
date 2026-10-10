@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { existsSync, unlinkSync, readFileSync } from "node:fs";
+import { existsSync, unlinkSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { config } from "../config.js";
 import {
   listGovernance, loadGovernancePrefix, invalidateGovernanceCache,
@@ -84,6 +85,54 @@ governanceRouter.delete("/:name", (req, res) => {
 governanceRouter.post("/invalidate", (_req, res) => {
   invalidateGovernanceCache();
   res.json({ ok: true });
+});
+
+// POST /api/governance/upload — policy upload accepting .md + .pdf.
+// PDFs are text-extracted server-side (doc-extractor, same engine as vault
+// imports) and stored as <stem>.md, so listing, the guardrail prefix, and
+// constraint extraction keep working on markdown unchanged.
+governanceRouter.post("/upload", async (req, res) => {
+  try {
+    const rawName = String(req.body?.filename ?? "").trim();
+    const contentBase64 = String(req.body?.contentBase64 ?? "");
+    if (!rawName) return res.status(400).json({ error: "filename required" });
+    if (!contentBase64) return res.status(400).json({ error: "contentBase64 required" });
+    const safe = rawName.split(/[\\/]/).pop() ?? "";
+    if (!/^[A-Za-z0-9._-]+\.(md|markdown|pdf)$/i.test(safe)) {
+      return res.status(400).json({ error: "only .md and .pdf policies accepted" });
+    }
+    let buf: Buffer;
+    try { buf = Buffer.from(contentBase64, "base64"); }
+    catch { return res.status(400).json({ error: "base64 decode failed" }); }
+    if (buf.length === 0) return res.status(400).json({ error: "decoded payload is empty" });
+    if (buf.length > 5 * 1024 * 1024) return res.status(413).json({ error: "policy files capped at 5 MB" });
+    const stem = safe.replace(/\.(md|markdown|pdf)$/i, "").replace(/[^A-Za-z0-9._-]/g, "-") || "policy";
+    let body: string;
+    if (/\.pdf$/i.test(safe)) {
+      const tmp = join(tmpdir(), `gov-upload-${Date.now()}-${stem}.pdf`);
+      writeFileSync(tmp, buf);
+      try {
+        const { extractDocText } = await import("../lib/doc-extractor.js");
+        body = (await extractDocText(tmp)).text?.trim() ?? "";
+      } finally {
+        try { unlinkSync(tmp); } catch { /* best-effort */ }
+      }
+      if (!body || body.length < 50) {
+        return res.status(422).json({ error: "no text could be extracted from this PDF" });
+      }
+      body = `# ${stem}\n\n_Source: uploaded PDF \`${safe}\` (text-extracted)_\n\n${body}`;
+    } else {
+      body = buf.toString("utf8");
+      if (!body.trim()) return res.status(400).json({ error: "policy file is empty" });
+    }
+    const root = join(config.vaultPath, "_governance");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, `${stem}.md`), body, "utf8");
+    invalidateGovernanceCache();
+    res.json({ ok: true, name: stem, path: `_governance/${stem}.md`, bytes: body.length });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
 });
 
 // ─── Constraint extraction & review ───

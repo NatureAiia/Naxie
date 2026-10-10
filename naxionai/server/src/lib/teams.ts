@@ -13,6 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadPersonas } from "./personas.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = resolve(__dirname, "../../../.naxion");
@@ -46,13 +47,27 @@ export const BUILTIN_TEAMS: PreorgTeam[] = [
       { personaId: "head-of-ai", role: "Head of AI" },
     ],
   },
+  {
+    id: "business-ops",
+    name: "Business Ops",
+    description: "Parallel planning and campaign work for the installed Business Ops department.",
+    members: [
+      { personaId: "mark", role: "Chief Executive" },
+      { personaId: "takunda", role: "Brand Designer" },
+      { personaId: "lesley", role: "Script Writer" },
+      { personaId: "kupakwashe", role: "SEO Writer" },
+      { personaId: "tricia", role: "Inbox Manager" },
+      { personaId: "roselene", role: "Growth Marketer" },
+    ],
+  },
 ];
 
 export function listTeams(): PreorgTeam[] {
-  return BUILTIN_TEAMS.slice();
+  const installedIds = new Set(loadPersonas().personas.map(p => p.id));
+  return BUILTIN_TEAMS.filter(team => team.id !== "business-ops" || team.members.every(m => installedIds.has(m.personaId)));
 }
 export function getTeam(id: string): PreorgTeam | undefined {
-  return BUILTIN_TEAMS.find(t => t.id === id);
+  return listTeams().find(t => t.id === id);
 }
 
 export type TeamTemplateTask = { persona: string; content: string };
@@ -87,6 +102,18 @@ const SEED_TEMPLATES: TeamTemplate[] = [
       { persona: "head-of-ai", content: "Assess the AI implications and 2 build-vs-buy considerations for: {{objective}}" },
     ],
   },
+  {
+    id: "tpl-business-ops-weekly-sprint", name: "Business Ops weekly sprint", teamId: "business-ops", builtin: true, createdAt: "",
+    description: "Dispatch a bounded weekly business objective to all six specialists in parallel. Each returns a self-contained deliverable and flags dependencies, assumptions, and approval needs.",
+    tasks: [
+      { persona: "mark", content: "Turn this weekly objective into a short operating brief: business, goal, audience, success measure, deadline, owners, dependencies, and decisions requiring the operator. Ask for missing critical context; do not assume facts. Objective: {{objective}}" },
+      { persona: "takunda", content: "For the named business and objective, propose one campaign visual direction with a concrete asset checklist, channel dimensions, accessible alt text, and any brand references needed. Do not invent brand rules or publish. Flag assumptions. Objective: {{objective}}" },
+      { persona: "lesley", content: "For the named business and objective, draft one short-form video script with a strong opening hook, concise beats, caption, and truthful CTA. Flag claims needing evidence; do not invent features, results, or testimonials. Objective: {{objective}}" },
+      { persona: "kupakwashe", content: "For the named business and objective, identify likely search intent and propose two distinct article briefs with target query, reader need, outline, and sources to verify. Separate observed evidence from hypotheses. Objective: {{objective}}" },
+      { persona: "tricia", content: "Review the connected business inbox for items relevant to this objective. Return Act-now / Read-later / FYI with reasons and draft urgent replies only. Do not send or delete anything. If inbox access is unavailable, say so. Objective: {{objective}}" },
+      { persona: "roselene", content: "Create an approval-ready distribution plan for this objective: newsletter outline, channel-specific post concepts, proposed timing, measurable KPIs, and tracking needs. Treat other specialist outputs as pending parallel work; state what must be merged before launch. Do not send, publish, or spend. Objective: {{objective}}" },
+    ],
+  },
 ];
 
 type Store = { templates: TeamTemplate[] };
@@ -118,7 +145,7 @@ function persist() {
 
 // Built-in seeds first, then the user's saved templates.
 export function listTeamTemplates(): TeamTemplate[] {
-  return [...SEED_TEMPLATES, ...load().templates];
+  return [...SEED_TEMPLATES, ...load().templates].filter(t => t.teamId !== "business-ops" || !!getTeam("business-ops"));
 }
 
 export function getTeamTemplate(id: string): TeamTemplate | undefined {

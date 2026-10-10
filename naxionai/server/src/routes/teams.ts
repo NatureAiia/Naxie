@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { config } from "../config.js";
+import { requireLayer } from "../lib/access.js";
 import {
   listTeams, getTeam, listTeamTemplates, getTeamTemplate,
   createTeamTemplate, deleteTeamTemplate, buildTasksForTeam, buildTasksForTemplate,
@@ -46,7 +47,7 @@ teamsRouter.delete("/templates/:id", (req, res) => {
 // Dispatch a pre-org team (teamId + objective) or a team template (templateId
 // [+ objective]) as a parallel multi-persona brief. Reuses /api/team so the
 // jobs behave/appear exactly like a hand-built team dispatch.
-teamsRouter.post("/dispatch", async (req, res) => {
+teamsRouter.post("/dispatch", requireLayer("admin"), async (req, res) => {
   try {
     const teamId = typeof req.body?.teamId === "string" ? req.body.teamId : undefined;
     const templateId = typeof req.body?.templateId === "string" ? req.body.templateId : undefined;

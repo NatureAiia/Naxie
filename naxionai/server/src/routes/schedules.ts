@@ -85,6 +85,7 @@ function parseDeliver(raw: any): ScheduleDelivery | undefined {
   const parsed: ScheduleDelivery = {
     ...(email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? { email } : {}),
     ...(telegramChatId ? { telegramChatId } : {}),
+    ...(raw.voiceNote === true ? { voiceNote: true as const } : {}),
   };
   return Object.keys(parsed).length ? parsed : undefined;
 }
@@ -192,4 +193,46 @@ schedulesRouter.delete("/:id", (req, res) => {
   const ok = deleteSchedule(req.params.id);
   if (!ok) return res.status(404).json({ error: "not found" });
   res.json({ ok: true });
+});
+
+// Fire a schedule RIGHT NOW, outside its cadence (the "Run now" button).
+// Same pipeline as a cadence fire (requireApproval still parks the job);
+// the job then runs on its normal cadence afterwards, unaffected.
+schedulesRouter.post("/:id/fire", async (req, res) => {
+  const layer = callerLayer(req);
+  if (layer !== null && layer !== "superadmin" && layer !== "admin") {
+    return res.status(403).json({ error: "Firing schedules requires admin access." });
+  }
+  const { fireScheduleNow } = await import("../lib/schedules.js");
+  const r = await fireScheduleNow(req.params.id);
+  if ("error" in r) {
+    const code = r.error === "not found" ? 404 : r.error.startsWith("schedule is paused") ? 409 : 502;
+    return res.status(code).json({ error: r.error });
+  }
+  res.json({ jobId: r.jobId });
+});
+
+// Recent runs of one schedule — jobs tagged scheduledBy === id, newest first.
+// Merges live jobs with the persisted 30-day journal window.
+schedulesRouter.get("/:id/runs", async (req, res) => {
+  const s = getSchedule(req.params.id);
+  if (!s) return res.status(404).json({ error: "not found" });
+  try {
+    const { listJobs } = await import("../lib/jobs.js");
+    const { loadJobsInWindow } = await import("../lib/job-store.js");
+    const seen = new Set<string>();
+    const rows: { id: string; title: string; status: string; startedAt: string; finishedAt?: string }[] = [];
+    const pick = (j: any) => {
+      if (!j || j.scheduledBy !== req.params.id || seen.has(j.id)) return;
+      seen.add(j.id);
+      rows.push({ id: j.id, title: j.title ?? j.kind ?? j.id, status: j.status, startedAt: j.startedAt, ...(j.finishedAt ? { finishedAt: j.finishedAt } : {}) });
+    };
+    listJobs().forEach(pick);
+    const windowStart = Date.now() - 30 * 24 * 60 * 60_000;
+    loadJobsInWindow(windowStart, Date.now() + 60_000).forEach(pick);
+    rows.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+    res.json({ runs: rows.slice(0, 20) });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
 });

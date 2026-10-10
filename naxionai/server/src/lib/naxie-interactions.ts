@@ -13,9 +13,10 @@ const PATH = resolve(DIR, "naxie-interactions.json");
 
 export type NaxieInteractions = {
   lastInteractionAt: string; // ISO
-  lastNudgeAt?: string;      // ISO — throttles one check-in per idle window
-  lastResearchAt?: string;   // ISO — throttle for proactive research
-  lastZettelScanAt?: string; // ISO — cursor + throttle for auto-zettel extraction
+  lastNudgeAt?: string;      // ISO - throttles one check-in per idle window
+  lastResearchAt?: string;   // ISO - throttle for proactive research
+  lastZettelScanAt?: string; // ISO - cursor + throttle for auto-zettel extraction
+  lastArchitectReviewAt?: string; // ISO - weekly architect throttle, survives restarts
 };
 
 let cache: NaxieInteractions | null = null;
@@ -59,6 +60,7 @@ export function touchInteraction(): void {
       lastNudgeAt: prev?.lastNudgeAt,
       lastResearchAt: prev?.lastResearchAt,
       lastZettelScanAt: prev?.lastZettelScanAt,
+      lastArchitectReviewAt: prev?.lastArchitectReviewAt,
     };
     persist(next);
   } catch { /* best-effort */ }
@@ -67,19 +69,25 @@ export function touchInteraction(): void {
 export function setLastNudgeAt(iso: string): void {
   const prev = load();
   const now = prev?.lastInteractionAt ?? new Date().toISOString();
-  persist({ lastInteractionAt: now, lastNudgeAt: iso, lastResearchAt: prev?.lastResearchAt, lastZettelScanAt: prev?.lastZettelScanAt });
+  persist({ lastInteractionAt: now, lastNudgeAt: iso, lastResearchAt: prev?.lastResearchAt, lastZettelScanAt: prev?.lastZettelScanAt, lastArchitectReviewAt: prev?.lastArchitectReviewAt });
 }
 
 export function setLastResearchAt(iso: string): void {
   const prev = load();
   const now = prev?.lastInteractionAt ?? new Date().toISOString();
-  persist({ lastInteractionAt: now, lastNudgeAt: prev?.lastNudgeAt, lastResearchAt: iso, lastZettelScanAt: prev?.lastZettelScanAt });
+  persist({ lastInteractionAt: now, lastNudgeAt: prev?.lastNudgeAt, lastResearchAt: iso, lastZettelScanAt: prev?.lastZettelScanAt, lastArchitectReviewAt: prev?.lastArchitectReviewAt });
 }
 
 export function setLastZettelScanAt(iso: string): void {
   const prev = load();
   const now = prev?.lastInteractionAt ?? new Date().toISOString();
-  persist({ lastInteractionAt: now, lastNudgeAt: prev?.lastNudgeAt, lastResearchAt: prev?.lastResearchAt, lastZettelScanAt: iso });
+  persist({ lastInteractionAt: now, lastNudgeAt: prev?.lastNudgeAt, lastResearchAt: prev?.lastResearchAt, lastZettelScanAt: iso, lastArchitectReviewAt: prev?.lastArchitectReviewAt });
+}
+
+export function setLastArchitectReviewAt(iso: string): void {
+  const prev = load();
+  const now = prev?.lastInteractionAt ?? new Date().toISOString();
+  persist({ lastInteractionAt: now, lastNudgeAt: prev?.lastNudgeAt, lastResearchAt: prev?.lastResearchAt, lastZettelScanAt: prev?.lastZettelScanAt, lastArchitectReviewAt: iso });
 }
 
 // For tests / daemon's `now` injection — direct read without cache side-effects.

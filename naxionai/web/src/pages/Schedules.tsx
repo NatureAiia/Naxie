@@ -1,11 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Calendar, Play, Pause, Trash2, Plus, AlertTriangle, ArrowRight, Brain, CalendarPlus, Download, Volume2 } from "lucide-react";
+import { Calendar, Play, Pause, Trash2, Plus, AlertTriangle, ArrowRight, Brain, CalendarPlus, Download, Volume2, Pencil, ChevronDown, Zap } from "lucide-react";
 import { ReadAloud } from "../components/ReadAloud";
-import { api, type Schedule, type Template, type WeeklyImprovementStatus } from "../lib/api";
+import { api, type Schedule, type ScheduleRun, type Template, type WeeklyImprovementStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { DAY_LABELS, formatNext, formatCadence } from "../lib/scheduleFormat";
 import { DaemonLoopToggles } from "../components/DaemonLoopToggles";
+import { useVisibleInterval } from "../lib/useVisibleInterval";
+
+// One-line plain-text excerpt of what a schedule actually runs. Ad-hoc
+// (general-task) schedules otherwise render as the unhelpful
+// "Runs Anything else (ad-hoc task)" with no hint of the real task.
+function taskExcerpt(s: Schedule, maxLen = 140): string {
+  const raw = s.templateId === "general-task" ? String((s.inputs as any)?.task ?? "") : "";
+  const s2 = raw
+    .replace(/\[(.*?)\]\(.*?\)/g, "$1")
+    .replace(/[*_`~#]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s2) return "";
+  if (s2.length <= maxLen) return s2;
+  const cut = s2.slice(0, maxLen);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > maxLen * 0.5 ? cut.slice(0, sp) : cut).trimEnd() + "…";
+}
 
 export function Schedules() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -22,15 +40,18 @@ export function Schedules() {
       setErr(e?.message ?? String(e));
     }
   }
-  useEffect(() => {
-    load();
-    const i = setInterval(load, 5000);
-    return () => clearInterval(i);
-  }, []);
+  useVisibleInterval(load, 15000);
 
   async function togglePause(s: Schedule) {
     try { await api.updateSchedule(s.id, { enabled: !s.enabled }); await load(); }
     catch (e: any) { setErr(e?.message ?? String(e)); }
+  }
+  async function runNow(s: Schedule) {
+    try {
+      const r = await api.fireScheduleNow(s.id);
+      showToast(`Fired "${s.name}" — job ${r.jobId.slice(0, 8)} running`, "success", 4000);
+      await load();
+    } catch (e: any) { setErr(e?.message ?? String(e)); }
   }
   async function remove(s: Schedule) {
     if (!confirm(`Delete schedule "${s.name}"? This cannot be undone.`)) return;
@@ -43,7 +64,7 @@ export function Schedules() {
       <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-cream-50">Schedules</h1>
-          <p className="text-sm text-cream-300/70 mt-1">Run any template on a day-of-week and time cadence. Every completed schedule is sent to Telegram using the configured group or default chat.</p>
+          <p className="text-sm text-cream-300/70 mt-1">Recurring agent work runs on the cadence you choose. Manage automations here; use Planner for your personal tasks and calendar.</p>
         </div>
         <Button onClick={() => setShowCreate(o => !o)} variant={showCreate ? "subtle" : "primary"}>
           <span className="inline-flex items-center gap-1.5"><Plus size={14} /> {showCreate ? "Cancel" : "New schedule"}</span>
@@ -83,80 +104,223 @@ export function Schedules() {
           </p>
         ) : (
           <div className="divide-y divide-ink-800">
-            {schedules.map(s => {
-              const tpl = templates.find(t => t.id === s.templateId);
-              return (
-                <div key={s.id} className="py-4 first:pt-0 last:pb-0">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Calendar size={14} className={s.enabled ? "text-violet-400" : "text-cream-300/40"} />
-                        <span className="text-sm text-cream-50 font-medium truncate">{s.name}</span>
-                        {!s.enabled && <span className="text-[10px] uppercase tracking-wider text-cream-300/50 bg-ink-850 border border-ink-700 rounded px-1.5 py-0.5">paused</span>}
-                      </div>
-                      <div className="text-[11px] text-cream-300/70 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <span>{formatCadence(s.cadence)}</span>
-                        <span className="text-cream-300/40">·</span>
-                        <span>Runs <span className="text-cream-100">{tpl?.title ?? s.templateId}</span></span>
-                        <span className="text-cream-300/40">·</span>
-                        <span>Telegram <span className="text-cream-100">{String(s.deliver?.telegramChatId ?? "default group/chat")}</span></span>
-                        <span className="text-cream-300/40">·</span>
-                        <span>Next: <span className="text-cream-100">{s.enabled ? formatNext(s.nextFireAt) : "paused"}</span></span>
-                        {s.fireCount > 0 && (<><span className="text-cream-300/40">·</span><span>{s.fireCount} fire{s.fireCount === 1 ? "" : "s"}</span></>)}
-                      </div>
-                      {s.lastFiredAt && (
-                        <div className="text-[10px] text-cream-300/50 mt-1">
-                          Last fired {new Date(s.lastFiredAt).toLocaleString()}
-                          {s.lastJobId && (
-                            <> · <Link to={`/tasks?focus=${s.lastJobId}`} className="text-violet-400 hover:text-violet-500">
-                              job {s.lastJobId.slice(0, 8)} <ArrowRight size={10} className="inline" />
-                            </Link></>
-                          )}
-                        </div>
-                      )}
-                      {s.lastError && (
-                        <div className="text-[10px] text-coral-400 mt-1 flex items-start gap-1">
-                          <AlertTriangle size={11} className="mt-0.5" /> Last fire failed: {s.lastError}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <a
-                        href={`/api/calendar/${encodeURIComponent(s.id)}/google`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-cream-300/70 hover:text-cream-100 p-1.5 rounded hover:bg-ink-800"
-                        title="Add next run to Google Calendar"
-                        aria-label="Add next run to Google Calendar"
-                      >
-                        <CalendarPlus size={14} />
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => togglePause(s)}
-                        className="text-cream-300 hover:text-cream-50 p-1.5 rounded hover:bg-ink-800"
-                        title={s.enabled ? "Pause schedule" : "Resume schedule"}
-                        aria-label={s.enabled ? "Pause schedule" : "Resume schedule"}
-                      >
-                        {s.enabled ? <Pause size={14} /> : <Play size={14} />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => remove(s)}
-                        className="text-cream-300/70 hover:text-coral-400 p-1.5 rounded hover:bg-ink-800"
-                        title="Delete schedule"
-                        aria-label="Delete schedule"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {schedules.map(s => (
+              <ScheduleRow
+                key={s.id}
+                s={s}
+                tpl={templates.find(t => t.id === s.templateId)}
+                onChanged={load}
+                onError={setErr}
+                onRunNow={() => runNow(s)}
+                onTogglePause={() => togglePause(s)}
+                onRemove={() => remove(s)}
+              />
+            ))}
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+// ── One schedule row: view + inline edit + run history ─────────────────────
+function ScheduleRow({ s, tpl, onChanged, onError, onRunNow, onTogglePause, onRemove }: {
+  s: Schedule;
+  tpl: Template | undefined;
+  onChanged: () => Promise<void>;
+  onError: (msg: string) => void;
+  onRunNow: () => void;
+  onTogglePause: () => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(s.name);
+  const [task, setTask] = useState(String((s.inputs as any)?.task ?? ""));
+  const [voiceNote, setVoiceNote] = useState(s.deliver?.voiceNote === true);
+  const [saving, setSaving] = useState(false);
+  const [showRuns, setShowRuns] = useState(false);
+  const [runs, setRuns] = useState<ScheduleRun[] | null>(null);
+  const excerpt = taskExcerpt(s);
+  const isAdHoc = s.templateId === "general-task";
+
+  async function save() {
+    if (!name.trim()) { onError("Name can't be blank."); return; }
+    setSaving(true);
+    try {
+      const voiceDeliver = { ...(s.deliver ?? {}), ...(voiceNote ? { voiceNote: true as const } : {}) };
+      if (!voiceNote) delete (voiceDeliver as any).voiceNote;
+      await api.updateSchedule(s.id, {
+        name: name.trim(),
+        ...(isAdHoc ? { inputs: { ...(s.inputs as any), task } } : {}),
+        deliver: Object.keys(voiceDeliver).length ? voiceDeliver : undefined as any,
+      });
+      setEditing(false);
+      await onChanged();
+    } catch (e: any) {
+      onError(e?.message ?? String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleRuns() {
+    const next = !showRuns;
+    setShowRuns(next);
+    if (next && runs === null) {
+      try {
+        const r = await api.getScheduleRuns(s.id);
+        setRuns(r.runs);
+      } catch (e: any) {
+        onError(e?.message ?? String(e));
+        setShowRuns(false);
+      }
+    }
+  }
+
+  return (
+    <div className="py-4 first:pt-0 last:pb-0">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          {editing ? (
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                className="w-full bg-ink-950 border border-ink-800 focus:border-violet-500/60 rounded-md px-2 py-1 text-sm focus:outline-none"
+                aria-label="Schedule name"
+              />
+              {isAdHoc && (
+                <textarea
+                  value={task}
+                  onChange={e => setTask(e.target.value)}
+                  rows={3}
+                  className="w-full bg-ink-950 border border-ink-800 focus:border-violet-500/60 rounded-md px-2 py-1 text-xs focus:outline-none"
+                  aria-label="Task text"
+                />
+              )}
+              <label className="flex items-center gap-2 text-[11px] text-cream-300/70 cursor-pointer">
+                <input type="checkbox" checked={voiceNote} onChange={e => setVoiceNote(e.target.checked)} />
+                Also send each run as a voice note (read-aloud)
+              </label>
+              <div className="flex items-center gap-2">
+                <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+                <Button variant="ghost" onClick={() => { setEditing(false); setName(s.name); setTask(String((s.inputs as any)?.task ?? "")); }}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 mb-1">
+                <Calendar size={14} className={s.enabled ? "text-violet-400" : "text-cream-300/40"} />
+                <span className="text-sm text-cream-50 font-medium truncate" title={s.name}>{s.name}</span>
+                {!s.enabled && <span className="text-[10px] uppercase tracking-wider text-cream-300/50 bg-ink-850 border border-ink-700 rounded px-1.5 py-0.5">paused</span>}
+                {s.deliver?.voiceNote && <span className="text-[10px] text-violet-300/80 bg-violet-500/10 rounded px-1.5 py-0.5" title="Each run is also sent as a voice note">voice</span>}
+              </div>
+              <div className="text-[11px] text-cream-300/70 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span>{formatCadence(s.cadence)}</span>
+                <span className="text-cream-300/40">·</span>
+                <span title={excerpt || undefined}>Runs <span className="text-cream-100">{tpl?.title ?? s.templateId}</span>{excerpt && <span className="text-cream-300/70"> — “{excerpt}”</span>}</span>
+                <span className="text-cream-300/40">·</span>
+                <span>Telegram <span className="text-cream-100">{String(s.deliver?.telegramChatId ?? "default group/chat")}</span></span>
+                <span className="text-cream-300/40">·</span>
+                <span>Next: <span className="text-cream-100">{s.enabled ? formatNext(s.nextFireAt) : "paused"}</span></span>
+                {s.fireCount > 0 && (
+                  <><span className="text-cream-300/40">·</span>
+                    <button type="button" onClick={() => void toggleRuns()} className="inline-flex items-center gap-0.5 hover:text-cream-100" title={showRuns ? "Hide run history" : "Show run history"}>
+                      {s.fireCount} fire{s.fireCount === 1 ? "" : "s"} <ChevronDown size={11} className={showRuns ? "rotate-180" : ""} />
+                    </button>
+                  </>
+                )}
+              </div>
+              {s.lastFiredAt && (
+                <div className="text-[10px] text-cream-300/50 mt-1">
+                  Last fired {new Date(s.lastFiredAt).toLocaleString()}
+                  {s.lastJobId && (
+                    <> · <Link to={`/tasks?focus=${s.lastJobId}`} className="text-violet-400 hover:text-violet-500">
+                      job {s.lastJobId.slice(0, 8)} <ArrowRight size={10} className="inline" />
+                    </Link></>
+                  )}
+                </div>
+              )}
+              {s.lastError && (
+                <div className="text-[10px] text-coral-400 mt-1 flex items-start gap-1">
+                  <AlertTriangle size={11} className="mt-0.5" /> Last fire failed: {s.lastError}
+                </div>
+              )}
+              {showRuns && (
+                <div className="mt-2 bg-ink-950 border border-ink-800 rounded-md px-3 py-2">
+                  {runs === null ? (
+                    <p className="text-[11px] text-cream-300/50">Loading runs…</p>
+                  ) : runs.length === 0 ? (
+                    <p className="text-[11px] text-cream-300/50">No recorded runs yet.</p>
+                  ) : (
+                    <ul className="divide-y divide-ink-800">
+                      {runs.map(r => (
+                        <li key={r.id} className="py-1.5 first:pt-0 last:pb-0 flex items-center justify-between gap-2 text-[11px]">
+                          <span className="text-cream-200 truncate flex-1" title={r.title}>{r.title}</span>
+                          <span className={r.status === "succeeded" ? "text-emerald-400" : r.status === "failed" || r.status === "rejected" ? "text-coral-400" : "text-cream-300/60"}>{r.status}</span>
+                          <span className="text-cream-300/40 shrink-0">{new Date(r.startedAt).toLocaleString()}</span>
+                          <Link to={`/tasks?focus=${r.id}`} className="text-violet-400 hover:text-violet-500 shrink-0">job {r.id.slice(0, 8)}</Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {!editing && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={onRunNow}
+              className="text-cream-300/70 hover:text-cream-100 p-1.5 rounded hover:bg-ink-800"
+              title="Run now (fires immediately, cadence unchanged)"
+              aria-label="Run schedule now"
+            >
+              <Zap size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="text-cream-300/70 hover:text-cream-100 p-1.5 rounded hover:bg-ink-800"
+              title="Edit name and task"
+              aria-label="Edit schedule"
+            >
+              <Pencil size={14} />
+            </button>
+            <a
+              href={`/api/calendar/${encodeURIComponent(s.id)}/google`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-cream-300/70 hover:text-cream-100 p-1.5 rounded hover:bg-ink-800"
+              title="Add next run to Google Calendar"
+              aria-label="Add next run to Google Calendar"
+            >
+              <CalendarPlus size={14} />
+            </a>
+            <button
+              type="button"
+              onClick={onTogglePause}
+              className="text-cream-300 hover:text-cream-50 p-1.5 rounded hover:bg-ink-800"
+              title={s.enabled ? "Pause schedule" : "Resume schedule"}
+              aria-label={s.enabled ? "Pause schedule" : "Resume schedule"}
+            >
+              {s.enabled ? <Pause size={14} /> : <Play size={14} />}
+            </button>
+            <button
+              type="button"
+              onClick={onRemove}
+              className="text-cream-300/70 hover:text-coral-400 p-1.5 rounded hover:bg-ink-800"
+              title="Delete schedule"
+              aria-label="Delete schedule"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -174,6 +338,7 @@ type RhythmRow = {
   nextFireAt: number | null;
   lastLabel: string;
   error?: string;
+  excerpt?: string;
 };
 
 function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
@@ -210,6 +375,7 @@ function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
     nextFireAt: s.nextFireAt ?? null,
     lastLabel: s.lastFiredAt ? `Last ${new Date(s.lastFiredAt).toLocaleDateString()}` : "Never fired yet",
     error: s.lastError,
+    excerpt: taskExcerpt(s, 100),
   }));
 
   const all = [...(rows ?? []), ...customRows];
@@ -259,12 +425,12 @@ function DailyRhythmCard({ schedules }: { schedules: Schedule[] }) {
             <div key={r.id} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-cream-100 truncate">{r.name}</span>
+                  <span className="text-sm text-cream-100 truncate" title={r.name}>{r.name}</span>
                   <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 ${r.kind === "system" ? "bg-ink-850 border border-ink-700 text-cream-300/60" : "bg-violet-500/15 text-violet-300"}`}>
                     {r.kind === "system" ? "System" : "Custom"}
                   </span>
                 </div>
-                <div className="text-[11px] text-cream-300/60 mt-0.5">{r.lastLabel}</div>
+                <div className="text-[11px] text-cream-300/60 mt-0.5">{r.lastLabel}{r.excerpt ? ` — “${r.excerpt}”` : ""}</div>
                 {r.error && (
                   <div className="text-[10px] text-coral-400 mt-0.5 flex items-start gap-1">
                     <AlertTriangle size={10} className="mt-0.5" /> {r.error}
@@ -383,6 +549,7 @@ function CreateScheduleForm({ templates, schedules, onCreated, onError }: {
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [deliverEmail, setDeliverEmail] = useState("");
   const [telegramChatId, setTelegramChatId] = useState("");
+  const [voiceNote, setVoiceNote] = useState(false);
   const [chainTo, setChainTo] = useState<string[]>([]);
 
   const tpl = useMemo(() => templates.find(t => t.id === templateId), [templates, templateId]);
@@ -414,11 +581,11 @@ function CreateScheduleForm({ templates, schedules, onCreated, onError }: {
         inputs: coerced,
         cadence: { daysOfWeek: days, hour, minute },
         enabled: true,
-        ...(deliverEmail.trim() || telegramChatId.trim() ? { deliver: { ...(deliverEmail.trim() ? { email: deliverEmail.trim() } : {}), ...(telegramChatId.trim() ? { telegramChatId: telegramChatId.trim() } : {}) } } : {}),
+        ...((deliverEmail.trim() || telegramChatId.trim() || voiceNote) ? { deliver: { ...(deliverEmail.trim() ? { email: deliverEmail.trim() } : {}), ...(telegramChatId.trim() ? { telegramChatId: telegramChatId.trim() } : {}), ...(voiceNote ? { voiceNote: true as const } : {}) } } : {}),
         ...(chainTo.length ? { chainTo } : {}),
       });
       await onCreated();
-      setName(""); setTemplateId(""); setInputs({}); setDeliverEmail(""); setTelegramChatId(""); setChainTo([]);
+      setName(""); setTemplateId(""); setInputs({}); setDeliverEmail(""); setTelegramChatId(""); setVoiceNote(false); setChainTo([]);
     } catch (e: any) {
       onError(e?.message ?? String(e));
     } finally {
@@ -563,6 +730,13 @@ function CreateScheduleForm({ templates, schedules, onCreated, onError }: {
             className="w-full bg-ink-950 border border-ink-800 focus:border-violet-500/60 rounded-md px-3 py-2 text-sm focus:outline-none placeholder:text-cream-300/40"
           />
           <p className="text-[11px] text-cream-300/50 mt-1">When set, the finished result is emailed to this address the moment the job completes (needs the email bridge configured).</p>
+        </div>
+
+        <div>
+          <label className="flex items-center gap-2 text-xs text-cream-200 cursor-pointer">
+            <input type="checkbox" checked={voiceNote} onChange={e => setVoiceNote(e.target.checked)} />
+            Also send each run as a voice note (Naxie reads it aloud on Telegram)
+          </label>
         </div>
 
         {schedules.length > 0 && (

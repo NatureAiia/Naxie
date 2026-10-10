@@ -704,7 +704,7 @@ export const primitives: Primitive[] = [
   },
   {
     name: "db.query",
-    description: "Run SQL (or query document) on a connected data source. Source is identified by label (case-insensitive). For SQL databases: pass standard SQL — SELECT / WITH / EXPLAIN / DESCRIBE. For MongoDB: pass a JSON document like {\"collection\":\"users\",\"filter\":{\"active\":true},\"limit\":50}. For Excel/CSV: pass a JSON like {\"sheet\":\"Sheet1\",\"filter\":{\"col\":\"Status\",\"op\":\"eq\",\"val\":\"Active\"},\"limit\":100}. ALTERNATIVELY pass `question` (natural language) instead of `query` for SQL sources — the schema is fetched automatically, SQL is generated from the question, executed, and each query's rows come back labeled. Use question-mode when the task describes WHAT to find out rather than the exact SQL. Respects the source's read-only setting — writes are blocked unless the source was configured with writes enabled.",
+    description: "Run SQL (or query document) on a connected data source. Source is identified by label (case-insensitive). For SQL databases: pass standard SQL — SELECT / WITH / EXPLAIN / DESCRIBE. For MongoDB: pass a JSON document like {\"db\":\"naxionai\",\"collection\":\"users\",\"filter\":{\"active\":true},\"limit\":50} (\"db\" is required unless the connection string carries a default database). For Excel/CSV: pass a JSON like {\"sheet\":\"Sheet1\",\"filter\":{\"col\":\"Status\",\"op\":\"eq\",\"val\":\"Active\"},\"limit\":100}. ALTERNATIVELY pass `question` (natural language) instead of `query` for SQL sources — the schema is fetched automatically, SQL is generated from the question, executed, and each query's rows come back labeled. Use question-mode when the task describes WHAT to find out rather than the exact SQL. Respects the source's read-only setting — writes are blocked unless the source was configured with writes enabled.",
     readonly: true,
     args: [
       { name: "source", type: "string", required: true, description: "Source label (case-insensitive)" },
@@ -1654,6 +1654,84 @@ export const primitives: Primitive[] = [
         count: hits.length,
         matches: hits,
       };
+    },
+  },
+  {
+    name: "local.send",
+    description: "Stage a local file to SEND to the operator on Telegram. Reads anywhere on the machine EXCEPT secrets (.env, keys, credentials, wallets, browser profiles — refused outright). NOTHING leaves the machine until the operator taps Send on the confirm card (10-minute token, DM-only) — the tap is the approval, so just report what you staged and stop. Chain after fs.find_in to resolve a partial filename first. Use when the user says 'send me X', 'telegram me the file', 'share that doc to my phone'.",
+    readonly: false,
+    args: [
+      { name: "path", type: "string", required: true, description: "Absolute path to the file (chain from fs.find_in matches)" },
+    ],
+    handler: async (args) => {
+      const raw = String(args.path ?? "").trim();
+      if (!raw) throw new Error("local.send: 'path' is required");
+      const { stageSend, formatBytes, localSendCallback, localCancelCallback } = await import("./naxie-fs.js");
+      const { resolveSystemChatId, sendTelegramMessage } = await import("./telegram-bridge.js");
+      const { getConnectionByProvider } = await import("./integrations.js");
+      const chatId = resolveSystemChatId(getConnectionByProvider("telegram")?.config?.chatId);
+      if (!chatId) throw new Error("local.send: no Telegram DM configured — connect Telegram on the Integrations page first");
+      const { token, staged } = stageSend(raw, chatId);
+      const card =
+        `📄 <b>Send this file?</b>\n\n<b>${staged.name}</b> (${formatBytes(staged.size)})\n${staged.path}\n\n<i>Tap Send — nothing has left your machine yet.</i>`;
+      const sent = await sendTelegramMessage(card, chatId, [
+        [{ text: "📤 Send", callback_data: localSendCallback(token) }, { text: "✖️ Cancel", callback_data: localCancelCallback(token) }],
+      ]);
+      if (!sent.ok) throw new Error(`local.send: confirm card failed — ${sent.error ?? "unknown error"}`);
+      return { ok: true, staged: { name: staged.name, size: staged.size }, note: "Confirm card sent to the Telegram DM — the file moves only after the operator taps Send." };
+    },
+  },
+  {
+    name: "local.write",
+    description: "Write a text file — ONLY inside Naxie's own folder (D:\\Naxie / NAXIE_HOME). Refuses every other path. Use for edited copies of machine files (NEVER overwrite the original — save the edited version here and say where), notes, reports, and anything she produces. Creates parent folders.",
+    readonly: false,
+    args: [
+      { name: "path", type: "string", required: true, description: "Destination INSIDE Naxie's folder, e.g. 'edits/report-v2.docx' or an absolute path under it" },
+      { name: "content", type: "string", required: true, description: "Full file content to write" },
+    ],
+    handler: async (args) => {
+      const raw = String(args.path ?? "").trim();
+      const content = String(args.content ?? "");
+      if (!raw) throw new Error("local.write: 'path' is required");
+      const { assertNaxieWritable, naxieHome } = await import("./naxie-fs.js");
+      const { writeFileSync, mkdirSync } = await import("node:fs");
+      const { dirname, resolve, join } = await import("node:path");
+      const home = naxieHome();
+      const full = /^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith("/") || raw.startsWith("\\") ? resolve(raw) : resolve(join(home, raw));
+      assertNaxieWritable(full);
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, content, "utf8");
+      try {
+        const { logAudit } = await import("./audit-log.js");
+        logAudit({ level: "info", actor: "naxie", action: "local.write", target: full, detail: `${content.length} chars`, result: "success" });
+      } catch { /* best-effort */ }
+      return { ok: true, path: full };
+    },
+  },
+  {
+    name: "local.delete",
+    description: "Delete a file — ONLY inside Naxie's own folder (D:\\Naxie / NAXIE_HOME). Refuses every other path, refuses directories. Use to clean up her workspace (stale edits, old uploads).",
+    readonly: false,
+    args: [
+      { name: "path", type: "string", required: true, description: "File INSIDE Naxie's folder to delete" },
+    ],
+    handler: async (args) => {
+      const raw = String(args.path ?? "").trim();
+      if (!raw) throw new Error("local.delete: 'path' is required");
+      const { assertNaxieWritable, naxieHome } = await import("./naxie-fs.js");
+      const { existsSync, statSync, rmSync } = await import("node:fs");
+      const { resolve, join } = await import("node:path");
+      const home = naxieHome();
+      const full = /^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith("/") || raw.startsWith("\\") ? resolve(raw) : resolve(join(home, raw));
+      assertNaxieWritable(full);
+      if (!existsSync(full)) throw new Error(`local.delete: not found: ${raw}`);
+      if (!statSync(full).isFile()) throw new Error("local.delete: files only — directories are never deleted by this tool");
+      rmSync(full);
+      try {
+        const { logAudit } = await import("./audit-log.js");
+        logAudit({ level: "info", actor: "naxie", action: "local.delete", target: full, detail: "deleted from Naxie folder", result: "success" });
+      } catch { /* best-effort */ }
+      return { ok: true, deleted: full };
     },
   },
   {
@@ -3245,7 +3323,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         schedules = (listSchedules() as any[]).filter(s => {
           const d = s.cadence?.daysOfWeek ?? [];
           return s.enabled && (d.length === 0 || d.includes(targetDow));
-        }).map(s => ({ id: s.id, templateId: s.templateId, label: s.label, cadence: s.cadence }));
+        }).map(s => ({ id: s.id, name: (s as any).name, templateId: s.templateId, label: (s as any).label ?? (s as any).name, cadence: s.cadence }));
       } catch { /* schedules optional */ }
 
       // Memory → calendar link: dated facts the agent was told to remember
@@ -4146,6 +4224,40 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     },
   },
   {
+    name: "telegram.send_file",
+    description: "Send a file via the user's connected Telegram bot exactly as-is (pdf, docx, xlsx/csv, mp3, mp4, images, any Telegram-supported type). Path must be vault-relative (e.g. '_naxion/social/clip.mp4'); it never leaves the vault sandbox. Video files (.mp4/.mov) go as streamable video, everything else as a document. Requires a Telegram connection on the Integrations page.",
+    readonly: false,
+    args: [
+      { name: "path", type: "string", required: true, description: "Vault-relative file path to send" },
+      { name: "chatId", type: "string", required: false, description: "Override the default chat id" },
+      { name: "caption", type: "string", required: false, description: "Caption attached to the file (max ~1024 chars)" },
+    ],
+    handler: async (args) => {
+      const rel = String(args.path ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+      if (!rel) return { error: "path is required" };
+      try {
+        const { resolve, extname } = await import("node:path");
+        const { config } = await import("../config.js");
+        const { ensureInsideVault } = await import("./vault.js");
+        const abs = resolve(config.vaultPath, rel);
+        ensureInsideVault(abs);
+        const { existsSync, statSync } = await import("node:fs");
+        if (!existsSync(abs) || !statSync(abs).isFile()) return { error: `file not found in vault: ${rel}` };
+        if (statSync(abs).size > 48 * 1024 * 1024) return { error: "file too large for Telegram (48 MB cap)" };
+        const { sendTelegramVideo, sendTelegramDocument } = await import("./telegram-bridge.js");
+        const ext = extname(abs).toLowerCase();
+        const chatId = args.chatId ? String(args.chatId) : undefined;
+        const caption = args.caption ? String(args.caption) : undefined;
+        const r = (ext === ".mp4" || ext === ".mov")
+          ? await sendTelegramVideo(abs, { chatId, caption })
+          : await sendTelegramDocument(abs, { chatId, caption });
+        return r.ok ? { ok: true, sent: true, as: (ext === ".mp4" || ext === ".mov") ? "video" : "document" } : { error: r.error };
+      } catch (e: any) {
+        return { error: String(e?.message ?? e).slice(0, 300) };
+      }
+    },
+  },
+  {
     name: "whatsapp.reconnect",
     description: "Force a fresh WhatsApp pairing: disconnects the current session, deletes the saved credentials, and restarts the bridge — which prints a brand-new QR code to the server console/logs to scan. Use this whenever the operator asks to reconnect/rescan/relink WhatsApp (e.g. the linked device was removed from the phone, the connection looks stuck, or they just want to re-pair). Not approval-gated — it's a connection reset, not customer-facing.",
     readonly: false,
@@ -4550,6 +4662,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       { name: "days_of_week", type: "string", required: false, description: "Days to fire, comma-separated 0-6 (0=Sun) or JSON array — e.g. '1,2,3,4,5' for weekdays. Omit for every day." },
       { name: "deliver_email", type: "string", required: false, description: "Optional REAL address to email each run's result to (resolve names via users.lookup first — never invent an address)" },
       { name: "deliver_telegram_chat_id", type: "string", required: false, description: "Override the global Telegram group/default chat for this schedule. Use a numeric user/group ID or public @channel username; leave blank for the configured default." },
+      { name: "voice_note", type: "string", required: false, description: "Set to 'true' to also deliver each run as a TTS voice note (read-aloud) to the Telegram chat." },
       { name: "template_id", type: "string", required: false, description: "Optional built-in template to run instead of a free-form task (e.g. 'daily-briefing', 'innovation-scan', 'africa-ai-news'). When set, `task` is optional and `template_inputs` supplies that template's inputs." },
       { name: "template_inputs", type: "string", required: false, description: "Inputs for the chosen template_id — a JSON object or an object (e.g. {\"sender\":\"x@y.com\",\"days\":3}). Ignored when template_id is omitted." },
     ],
@@ -4568,6 +4681,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
       const daysOfWeek = daysRaw.map(d => Number(d)).filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
       const deliverEmail = args.deliver_email ? String(args.deliver_email).trim() : "";
       const telegramChatId = args.deliver_telegram_chat_id ? String(args.deliver_telegram_chat_id).trim() : "";
+      const voiceNote = String(args.voice_note ?? "").trim().toLowerCase() === "true";
       if (telegramChatId && !(/^-?\d+$/.test(telegramChatId) || /^@[A-Za-z0-9_]{5,32}$/.test(telegramChatId))) return { error: "deliver_telegram_chat_id must be a numeric chat/group ID or public @channel username" };
       if (deliverEmail) {
         const { placeholderAddressReason } = await import("./email.js");
@@ -4588,7 +4702,7 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         templateId: runsTemplate ? templateId : "general-task",
         inputs,
         cadence: { daysOfWeek, hour, minute },
-        ...(deliverEmail || telegramChatId ? { deliver: { ...(deliverEmail ? { email: deliverEmail } : {}), ...(telegramChatId ? { telegramChatId } : {}) } } : {}),
+        ...((deliverEmail || telegramChatId || voiceNote) ? { deliver: { ...(deliverEmail ? { email: deliverEmail } : {}), ...(telegramChatId ? { telegramChatId } : {}), ...(voiceNote ? { voiceNote: true as const } : {}) } } : {}),
       });
       return { ok: true, schedule: { id: s.id, name: s.name, cadence: s.cadence, enabled: s.enabled, deliver: s.deliver }, note: "Schedule created — visible on the Schedules page; it fires at the given local time." };
     },

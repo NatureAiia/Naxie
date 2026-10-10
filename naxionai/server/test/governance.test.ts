@@ -51,6 +51,12 @@ describe("CONSEQUENTIAL_TOOLS", () => {
     expect(CONSEQUENTIAL_TOOLS.has("manage_clipboard")).toBe(true);
     expect(CONSEQUENTIAL_TOOLS.has("git_pull")).toBe(true);
   });
+
+  it("includes Naxie's local file tools — her writes and Telegram sends pass the gate like vault.write/telegram.send", () => {
+    expect(CONSEQUENTIAL_TOOLS.has("local.send")).toBe(true);
+    expect(CONSEQUENTIAL_TOOLS.has("local.write")).toBe(true);
+    expect(CONSEQUENTIAL_TOOLS.has("local.delete")).toBe(true);
+  });
 });
 
 describe("isConsequentialTool", () => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Building2, Loader2, Send, X, ChevronDown, RefreshCw } from "lucide-react";
+import { Building2, Loader2, Send, X, ChevronDown, RefreshCw, Sparkles } from "lucide-react";
 import { api, type WorkMode } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { OfficeScene, type OfficeRoom, type OfficeMember } from "../components/office/OfficeScene";
@@ -52,6 +52,10 @@ export function Office() {
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string | null>(null);
   const [taskText, setTaskText] = useState("");
   const [sendingTask, setSendingTask] = useState(false);
+  const [businessOpsTemplateId, setBusinessOpsTemplateId] = useState<string | null>(null);
+  const [businessOpsObjective, setBusinessOpsObjective] = useState("");
+  const [dispatchingBusinessOps, setDispatchingBusinessOps] = useState(false);
+  const [refreshingOffice, setRefreshingOffice] = useState(false);
   const [highlightPersonaId, setHighlightPersonaId] = useState<string | null>(null);
 
   // H — selecting someone from the directory opens the same chat panel a
@@ -94,6 +98,9 @@ export function Office() {
   useEffect(() => {
     loadPersonas();
     api.listDepartments().then(r => setDepartments(r.departments)).catch(e => showToast(e?.message ?? String(e), "error"));
+    api.listTeams().then(r => {
+      setBusinessOpsTemplateId(r.templates.find(t => t.teamId === "business-ops")?.id ?? null);
+    }).catch(() => {});
   }, []);
 
   // personaId → roomId, kept current via a ref so the poll effect below
@@ -158,15 +165,18 @@ export function Office() {
       const deptId = p.department && byId.has(p.department) ? p.department : GENERAL_ROOM.id;
       byId.get(deptId)!.members.push({ personaId: p.id, name: p.name });
     }
-    // Drop any department with no hires — an empty floor is just noise on
-    // the office view, not a useful "you could hire here" signal.
-    const rooms = [...byId.values()].filter(r => r.members.length > 0);
+    // Keep the four approved rooms visible even before their first hire.
+    const rooms = [...byId.values()];
     return { rooms, frontDeskMember };
   }, [personas, departments]);
   useEffect(() => { roomsRef.current = rooms; }, [rooms]);
 
   const panelPersona = panelPersonaId ? personas?.find(p => p.id === panelPersonaId) ?? null : null;
   const selectedRoom = selectedDepartmentId ? rooms.find(r => r.id === selectedDepartmentId) ?? null : null;
+  const departmentCount = rooms.length;
+  const hireCount = rooms.reduce((n, room) => n + room.members.length, 0);
+  const workingCount = rooms.reduce((n, room) => n + room.members.filter(member => busyIds.has(member.personaId)).length, 0);
+  const approvalCount = [...pendingApprovalCounts.values()].reduce((n, count) => n + count, 0);
 
   async function submitTask() {
     const text = taskText.trim();
@@ -184,40 +194,129 @@ export function Office() {
     }
   }
 
+  async function dispatchBusinessOpsSprint() {
+    const objective = businessOpsObjective.trim();
+    if (!businessOpsTemplateId || !objective) return;
+    setDispatchingBusinessOps(true);
+    try {
+      await api.dispatchTeamTemplate(businessOpsTemplateId, objective);
+      setBusinessOpsObjective("");
+      showToast("Business Ops sprint dispatched to the specialists in parallel. Track the jobs in Runs.", "success");
+    } catch (e: any) {
+      showToast(e?.message ?? String(e), "error");
+    } finally {
+      setDispatchingBusinessOps(false);
+    }
+  }
+
+  async function refreshOffice() {
+    setRefreshingOffice(true);
+    try {
+      const [roster, departmentList, teamList] = await Promise.all([
+        api.listPersonas(), api.listDepartments(), api.listTeams(),
+      ]);
+      setPersonas(roster.personas);
+      setActiveId(roster.activeId);
+      setDepartments(departmentList.departments);
+      setBusinessOpsTemplateId(teamList.templates.find(t => t.teamId === "business-ops")?.id ?? null);
+      showToast("Office roster refreshed", "success");
+    } catch (e: any) {
+      showToast(e?.message ?? String(e), "error");
+    } finally {
+      setRefreshingOffice(false);
+    }
+  }
+
   if (!personas || !departments) {
-    return <div className="flex items-center gap-2 text-sm text-cream-300/60"><Loader2 size={16} className="animate-spin" /> Loading the office…</div>;
+    return <div role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-cream-300/60"><Loader2 size={16} className="animate-spin" /> Loading the office…</div>;
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <Building2 size={22} />
-        <div>
-          <h1 className="font-display text-2xl text-cream-50">Office</h1>
-          <p className="text-sm text-cream-300/60">Every hire, at their desk. Click a desk to chat 1:1, or drop a task below to route it automatically.</p>
+    <div className="space-y-5 pb-4">
+      <section className="relative isolate overflow-hidden rounded-3xl border border-ink-700/80 bg-gradient-to-br from-ink-850 via-ink-900 to-[#171821] p-5 shadow-[0_24px_80px_-48px_rgba(125,87,246,.55)] tablet:p-7">
+        <div aria-hidden className="pointer-events-none absolute -right-16 -top-32 h-80 w-80 rounded-full bg-violet-500/15 blur-3xl" />
+        <div aria-hidden className="pointer-events-none absolute bottom-[-8rem] right-[28%] h-64 w-64 rounded-full bg-cyan-400/[0.07] blur-3xl" />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-4">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-violet-300/20 bg-violet-400/10 text-violet-200 shadow-[inset_0_1px_0_rgba(255,255,255,.08)]">
+              <Building2 size={22} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-200/80">NaxionAI · People operations</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-leaf-400/20 bg-leaf-400/[0.07] px-2 py-1 text-[10px] font-medium text-leaf-200"><span className="h-1.5 w-1.5 rounded-full bg-leaf-300 shadow-[0_0_10px_currentColor]" /> Live office</span>
+              </div>
+              <h1 className="mt-2 font-display text-3xl tracking-tight text-cream-50 tablet:text-4xl">Your people, in motion.</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-cream-200/70">A living view of every department. Find the right specialist, see what needs attention, and send work directly to the team.</p>
+            </div>
+          </div>
+          <Button variant="subtle" onClick={refreshOffice} disabled={refreshingOffice} className="border-ink-600 bg-ink-800/70 px-4">
+            <RefreshCw size={14} className={refreshingOffice ? "animate-spin" : ""} /> Refresh roster
+          </Button>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 tablet:grid-cols-[1fr_260px] gap-4 items-start">
-        <OfficeScene
+        <div className="relative mt-6 grid grid-cols-2 gap-2 tablet:grid-cols-4 tablet:gap-3">
+          {[
+            { label: "Departments", value: departmentCount, detail: "connected teams", tint: "text-violet-200", glow: "bg-violet-400/10" },
+            { label: "People", value: hireCount, detail: "ready to help", tint: "text-cyan-200", glow: "bg-cyan-400/10" },
+            { label: "In motion", value: workingCount, detail: "active assignments", tint: "text-leaf-200", glow: "bg-leaf-400/10" },
+            { label: "Needs review", value: approvalCount, detail: approvalCount ? "your decision needed" : "all clear for now", tint: approvalCount ? "text-amber-200" : "text-cream-100", glow: approvalCount ? "bg-amber-400/10" : "bg-ink-800/50" },
+          ].map(item => (
+            <div key={item.label} className="relative overflow-hidden rounded-2xl border border-ink-700/80 bg-ink-950/45 px-4 py-3 backdrop-blur-sm">
+              <div aria-hidden className={`absolute -right-4 -top-8 h-20 w-20 rounded-full ${item.glow} blur-2xl`} />
+              <div className="relative flex items-end justify-between gap-2">
+                <div>
+                  <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-cream-300/60">{item.label}</div>
+                  <div className={`mt-1 text-2xl font-semibold tabular-nums leading-none ${item.tint}`}>{item.value}</div>
+                </div>
+                <div className="pb-0.5 text-right text-[10px] text-cream-300/50">{item.detail}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 items-start gap-4 tablet:grid-cols-[minmax(0,1fr)_320px] tablet:gap-5">
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-ink-700/80 bg-ink-900/55 shadow-[0_20px_60px_-42px_rgba(0,0,0,.8)]">
+          <div className="flex items-center justify-between gap-3 border-b border-ink-700/70 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-violet-400/10 text-violet-200"><Building2 size={15} /></span>
+              <div>
+                <h2 className="text-sm font-semibold text-cream-50">Department floor</h2>
+                <p className="text-[10px] text-cream-300/55">Select a room or teammate to open their workspace</p>
+              </div>
+            </div>
+            <span className="hidden rounded-full border border-ink-700 px-2.5 py-1 text-[10px] text-cream-300/60 tablet:inline-flex">Drag to explore · Scroll to zoom</span>
+          </div>
+          <OfficeScene
+            rooms={rooms}
+            frontDeskMember={frontDeskMember}
+            busyPersonaIds={busyIds}
+            stuckPersonaIds={stuckIds}
+            pendingApprovalCounts={pendingApprovalCounts}
+            highlightPersonaId={highlightPersonaId}
+            onSelectPersona={id => { setPanelPersonaId(id); setSelectedDepartmentId(null); }}
+            onSelectMeetingTable={() => navigate("/council?tab=board")}
+            onSelectDepartment={id => { setSelectedDepartmentId(id); setPanelPersonaId(null); }}
+            height="min(68vh, 620px)"
+          />
+        </section>
+        <OfficeDirectory
           rooms={rooms}
-          frontDeskMember={frontDeskMember}
           busyPersonaIds={busyIds}
           stuckPersonaIds={stuckIds}
           pendingApprovalCounts={pendingApprovalCounts}
-          highlightPersonaId={highlightPersonaId}
-          onSelectPersona={id => { setPanelPersonaId(id); setSelectedDepartmentId(null); }}
-          onSelectMeetingTable={() => navigate("/council?tab=board")}
+          onSelectPersona={selectFromDirectory}
           onSelectDepartment={id => { setSelectedDepartmentId(id); setPanelPersonaId(null); }}
-          height="min(70vh, 640px)"
         />
-        <OfficeDirectory rooms={rooms} onSelectPersona={selectFromDirectory} />
       </div>
 
-      <Card>
+      <Card title="Send work to the right desk" className="border border-ink-700/70 bg-gradient-to-r from-ink-900 to-ink-850">
+        <p className="mb-3 text-xs text-cream-300/60">Describe the outcome. Naxie will route it to the best-fit teammate.</p>
         <div className="flex items-center gap-2">
           <input
             value={taskText}
+            aria-label="Task to assign to the right department"
             onChange={e => setTaskText(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitTask(); } }}
             placeholder="Type a task — it'll route to the right desk automatically…"
@@ -228,6 +327,28 @@ export function Office() {
           </Button>
         </div>
       </Card>
+
+      {businessOpsTemplateId && (
+        <Card title="Business Ops · weekly sprint">
+          <p className="text-xs text-cream-300/60 mb-3">
+            Give the team one business goal. Six specialists will prepare their work in parallel; anything sent, published, or paid for still needs approval.
+          </p>
+          <div className="flex flex-col tablet:flex-row gap-2">
+            <input
+              value={businessOpsObjective}
+              onChange={e => setBusinessOpsObjective(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void dispatchBusinessOpsSprint(); } }}
+              placeholder="Business + goal, e.g. Varity Vault: prepare a spring launch campaign"
+              aria-label="Business Ops sprint objective"
+              className="flex-1 bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-sm text-cream-100 focus:outline-none focus:border-amber-500/60"
+            />
+            <Button onClick={dispatchBusinessOpsSprint} disabled={dispatchingBusinessOps || !businessOpsObjective.trim()}>
+              {dispatchingBusinessOps ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              Run sprint
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {panelPersona && (
         <PersonaChatPanel
@@ -520,7 +641,7 @@ function DepartmentPanel({ room, busyPersonaIds, pendingApprovalCount, onClose, 
 
         <div className="flex-1 overflow-y-auto space-y-1">
           {room.members.length === 0 ? (
-            <div className="text-xs text-cream-300/40 py-2">No one here yet.</div>
+            <div className="text-xs text-cream-300/50 py-2">In the department catalog; no hires assigned yet.</div>
           ) : room.members.map(m => (
             <button
               key={m.personaId}

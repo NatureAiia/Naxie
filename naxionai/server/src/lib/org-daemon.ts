@@ -42,24 +42,53 @@ import { maybeExtractZettels } from "./zettel-extract.js";
 const NUDGE_AFTER_MS = Number(process.env.NAXION_ORG_NUDGE_MS) || 30 * 60 * 1000;
 let lastNudgedAt = 0;
 const NUDGE_THROTTLE_MS = Number(process.env.NAXION_ORG_NUDGE_THROTTLE_MS) || 30 * 60 * 1000;
+// Same unchanged waiting set re-nudges at most this often — the 30-min drill
+// for one ignored task is spam, not urgency. A NEW approval still nudges on
+// the normal throttle above (signature change resets the clock).
+const NUDGE_SAME_SET_MS = Number(process.env.NAXION_ORG_NUDGE_SAME_MS) || 4 * 3600 * 1000;
+let lastNudgeSig = "";
 
 export function maybeNudgePendingApprovals(now = Date.now()): number {
   const waiting = listOrgTasks({ status: "waiting-on-approval" });
-  if (waiting.length === 0) return 0;
+  if (waiting.length === 0) {
+    lastNudgeSig = "";
+    return 0;
+  }
   // Nudge only when the OLDEST waiting approval has sat longer than the threshold
   const oldest = waiting.reduce((min, t) => {
     const at = new Date(t.pendingApproval?.requestedAt ?? t.updatedAt).getTime();
     return at < min ? at : min;
   }, Number.MAX_SAFE_INTEGER);
   if (now - oldest < NUDGE_AFTER_MS) return 0;
-  if (now - lastNudgedAt < NUDGE_THROTTLE_MS) return 0;
+  const sig = waiting.map((t) => t.id).sort().join(",");
+  const sameSet = sig === lastNudgeSig;
+  if (now - lastNudgedAt < (sameSet ? NUDGE_SAME_SET_MS : NUDGE_THROTTLE_MS)) return 0;
   lastNudgedAt = now;
+  lastNudgeSig = sig;
   const first = waiting[0];
-  void notifyAttention(
-    "Naxie — needs your call",
-    `${waiting.length} task${waiting.length === 1 ? "" : "s"} waiting on your approval. Oldest: "${(first.title ?? "").slice(0, 60)}".`,
-    { actor: first.role, target: first.title },
-  );
+  // Actionable nudge — Approve/Reject buttons ride along so the ping can be
+  // settled from the phone instead of demanding a context switch to the app.
+  // Diff-carrying items get review-only buttons (never one-tap approve).
+  void (async () => {
+    try {
+      const { toWaitingView, approvalKeyboard } = await import("./approval-telegram.js");
+      const views = waiting.slice(0, 5).map(toWaitingView);
+      const lines = views.map((v, i) =>
+        `${i + 1}. "${v.title.slice(0, 60)}"${v.hasDiff ? " (code diff — review in app)" : ""}`);
+      await notifyAttention(
+        "Naxie — needs your call",
+        `${waiting.length} task${waiting.length === 1 ? "" : "s"} waiting on your approval. Oldest: ${lines.join(" ")}`,
+        { actor: first.role, target: first.title, keyboard: approvalKeyboard(views) },
+      );
+    } catch {
+      // Keyboard build must never eat the nudge itself.
+      await notifyAttention(
+        "Naxie — needs your call",
+        `${waiting.length} task${waiting.length === 1 ? "" : "s"} waiting on your approval. Oldest: "${(first.title ?? "").slice(0, 60)}".`,
+        { actor: first.role, target: first.title },
+      );
+    }
+  })();
   try {
     logAudit({ level: "info", actor: first.role, action: "org_task.nudge", target: first.title, detail: `${waiting.length} waiting`, result: "success" });
   } catch { /* best-effort */ }
@@ -96,7 +125,23 @@ const ARCHITECT_REVIEW_THROTTLE_MS = Number(process.env.NAXION_ARCHITECT_REVIEW_
 
 export async function maybeRunArchitectReview(now = Date.now()): Promise<boolean> {
   if (now - lastArchitectReviewAt < ARCHITECT_REVIEW_THROTTLE_MS) return false;
-  lastArchitectReviewAt = now;
+  // Persisted throttle: a restart/reload resets the in-memory timestamp, so
+  // without this every boot (and every tsx-watch reload during development)
+  // fires a duplicate review. File wins when newer.
+  try {
+    const { getInteractions, setLastArchitectReviewAt } = await import("./naxie-interactions.js");
+    const persisted = getInteractions()?.lastArchitectReviewAt
+      ? new Date(getInteractions()!.lastArchitectReviewAt!).getTime()
+      : 0;
+    if (Number.isFinite(persisted) && now - persisted < ARCHITECT_REVIEW_THROTTLE_MS) {
+      lastArchitectReviewAt = Math.max(lastArchitectReviewAt, persisted);
+      return false;
+    }
+    lastArchitectReviewAt = now;
+    setLastArchitectReviewAt(new Date(now).toISOString());
+  } catch {
+    lastArchitectReviewAt = now;
+  }
   try {
     await runArchitectReview();
   } catch (e) {

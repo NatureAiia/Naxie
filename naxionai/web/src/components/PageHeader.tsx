@@ -30,20 +30,41 @@ export function BackButton({ to, onClick, label = "Back" }: { to?: string; onCli
   return <button type="button" onClick={onClick} className={cls}><ArrowLeft size={13} /> {label}</button>;
 }
 
-export function PageHeader({ crumbs, title, subtitle, back, action, icon }: {
+export type PageHeaderSize = "sm" | "md" | "lg";
+
+export function PageHeader({
+  crumbs,
+  title,
+  subtitle,
+  back,
+  action,
+  icon,
+  size = "lg",
+  as: HeadingTag = "h1",
+  className = "",
+}: {
   crumbs?: Crumb[];
   title: ReactNode;
   subtitle?: ReactNode;
   back?: { to?: string; onClick?: () => void; label?: string };
   action?: ReactNode;
   icon?: ReactNode;
+  size?: PageHeaderSize;
+  as?: "h1" | "h2" | "h3";
+  className?: string;
 }) {
+  const sizeClass = {
+    sm: "text-lg",
+    md: "text-2xl",
+    lg: "text-3xl",
+  }[size];
+
   return (
-    <div className="flex items-start justify-between gap-3 flex-wrap mb-6">
+    <div className={`flex items-start justify-between gap-3 flex-wrap mb-6 ${className}`}>
       <div className="min-w-0">
         {crumbs && <Breadcrumbs items={crumbs} />}
         {back && <div className="mb-1"><BackButton {...back} /></div>}
-        <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3">{icon}{title}</h1>
+        <HeadingTag className={`font-display ${sizeClass} text-cream-50 flex items-center gap-3`}>{icon}{title}</HeadingTag>
         {subtitle && <p className="text-sm text-cream-300/70 mt-1">{subtitle}</p>}
       </div>
       {action && <div className="shrink-0">{action}</div>}

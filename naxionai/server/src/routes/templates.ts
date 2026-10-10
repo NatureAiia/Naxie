@@ -39,6 +39,7 @@ templatesRouter.get("/news/config", (req, res) => {
     effective: {
       africaQueries: effectiveAfricaQueries(),
       worldQueries: effectiveWorldQueries(),
+      siQueries: effectiveSiQueries(),
       authorityDomains: [...effectiveAuthorityDomains()],
       breakingThreshold: effectiveBreakingThreshold(),
       historyDays: effectiveHistoryDays(),
@@ -47,11 +48,12 @@ templatesRouter.get("/news/config", (req, res) => {
     env: {
       NEWS_AFRICA_QUERIES: process.env.NEWS_AFRICA_QUERIES ?? null,
       NEWS_WORLD_QUERIES: process.env.NEWS_WORLD_QUERIES ?? null,
+      NEWS_SI_QUERIES: process.env.NEWS_SI_QUERIES ?? null,
       NEWS_AUTHORITY_DOMAINS: process.env.NEWS_AUTHORITY_DOMAINS ?? null,
       NEWS_BREAKING_THRESHOLD: process.env.NEWS_BREAKING_THRESHOLD ?? null,
       NEWS_HISTORY_DAYS: process.env.NEWS_HISTORY_DAYS ?? null,
     },
-    defaults: { africaQueries: DEFAULT_AFRICA_QUERIES, worldQueries: DEFAULT_WORLD_QUERIES, authorityDomains: DEFAULT_HIGH_AUTHORITY, breakingThreshold: 8, historyDays: 7 },
+    defaults: { africaQueries: DEFAULT_AFRICA_QUERIES, worldQueries: DEFAULT_WORLD_QUERIES, siQueries: DEFAULT_SI_QUERIES, authorityDomains: DEFAULT_HIGH_AUTHORITY, breakingThreshold: 8, historyDays: 7 },
     feeds: { curated: 22, africaHints: AFRICA_TECH_RSS_HINTS }, // 17 global + 5 Africa
   });
 });
@@ -60,6 +62,7 @@ templatesRouter.patch("/news/config", requireLayer("admin"), (req, res) => {
   const patch: any = {};
   if (Array.isArray(body.africaQueries)) patch.africaQueries = body.africaQueries.map((s:any)=>String(s).trim()).filter(Boolean).slice(0,20);
   if (Array.isArray(body.worldQueries)) patch.worldQueries = body.worldQueries.map((s:any)=>String(s).trim()).filter(Boolean).slice(0,20);
+  if (Array.isArray(body.siQueries)) patch.siQueries = body.siQueries.map((s:any)=>String(s).trim()).filter(Boolean).slice(0,20);
   if (Array.isArray(body.authorityDomains)) patch.authorityDomains = body.authorityDomains.map((s:any)=>String(s).trim().toLowerCase()).filter(Boolean).slice(0,50);
   if (body.breakingThreshold !== undefined) { const n=Number(body.breakingThreshold); if (Number.isFinite(n)) patch.breakingThreshold = Math.max(0, Math.min(10, n)); }
   if (body.historyDays !== undefined) { const n=Number(body.historyDays); if (Number.isFinite(n)) patch.historyDays = Math.max(1, Math.min(30, Math.round(n))); }
@@ -69,6 +72,7 @@ templatesRouter.patch("/news/config", requireLayer("admin"), (req, res) => {
   // allow clearing a field by sending null
   if (body.africaQueries === null) delete (merged as any).africaQueries;
   if (body.worldQueries === null) delete (merged as any).worldQueries;
+  if (body.siQueries === null) delete (merged as any).siQueries;
   if (body.authorityDomains === null) delete (merged as any).authorityDomains;
   try {
     const p = NEWS_CONFIG_FILE;
@@ -77,7 +81,7 @@ templatesRouter.patch("/news/config", requireLayer("admin"), (req, res) => {
     // also clear alt path if exists to avoid divergence
     try { if (_exs(NEWS_CONFIG_FILE_ALT) && NEWS_CONFIG_FILE_ALT !== p) _wfs(NEWS_CONFIG_FILE_ALT, JSON.stringify(merged, null, 2)); } catch {}
   } catch (e:any) { return res.status(500).json({ error: String(e?.message ?? e) }); }
-  res.json({ ok: true, config: merged, effective: { africaQueries: effectiveAfricaQueries(), worldQueries: effectiveWorldQueries(), authorityDomains: [...effectiveAuthorityDomains()], breakingThreshold: effectiveBreakingThreshold(), historyDays: effectiveHistoryDays() } });
+  res.json({ ok: true, config: merged, effective: { africaQueries: effectiveAfricaQueries(), worldQueries: effectiveWorldQueries(), siQueries: effectiveSiQueries(), authorityDomains: [...effectiveAuthorityDomains()], breakingThreshold: effectiveBreakingThreshold(), historyDays: effectiveHistoryDays() } });
 });
 templatesRouter.get("/news/metrics", (req, res) => {
   try {
@@ -546,8 +550,13 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
     case "daily-briefing": return dailyBriefingRunner(inputs, push, progress);
     case "email-to-vault": return emailToVaultRunner(inputs, push);
     case "innovation-scan": return innovationScanRunner(inputs, push, progress);
-    case "africa-ai-news":   return africaAiNewsRunner(inputs, push);
-    case "world-ai-news":    return worldAiNewsRunner(inputs, push);
+    case "africa-ai-news":   return africaAiNewsRunner(inputs, push, progress);
+    case "world-ai-news":    return worldAiNewsRunner(inputs, push, progress);
+    case "super-intelligence-news": return superIntelligenceNewsRunner(inputs, push, progress);
+    case "events-competition-scan": return eventsCompetitionScanRunner(inputs, push, progress);
+    case "deadline-reminders": return deadlineRemindersRunner(inputs, push, progress);
+    case "evening-recap": return eveningRecapRunner(inputs, push, progress);
+    case "weekend-digest": return weekendDigestRunner(inputs, push, progress);
     case "brand-signal-scan": return brandSignalScanRunner(inputs, push);
     case "general-task":   return generalTaskRunner(inputs, push, progress);
     case "board-meeting":  return boardMeetingRunner(inputs, push, progress, meta);
@@ -863,9 +872,10 @@ function gatherRecentNotesUnder(roots: string[], sinceMs: number, cap = 10): { p
     .map(n => ({ path: n.path, mtime: new Date(n.mtime).toISOString().slice(0, 10), text: n.text }));
 }
 
-async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void) {
+async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
   const focus = String(inputs.focus ?? "").trim();
   const today = new Date().toISOString().slice(0, 10);
+  const staged = stagedProgress(progress, ["Read inbox signal", "Read session signal", "Write report", "Story leads"]);
 
   // Local signal — recent 0-Inbox notes read as PRIMARY evidence. Grounds the
   // scan in what's actually landing in the vault instead of leaning entirely on
@@ -884,6 +894,7 @@ async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: s
       push("No recent inbox notes in the window — running a web-only scan.");
     }
   } catch (e: any) { push(`Inbox read skipped (non-fatal): ${String(e?.message ?? e).slice(0, 80)}`); }
+  staged.completeStep(0);
 
   // Session transcripts as SECONDARY local signal — grounds the scan in what the
   // org has actually been asking for and lets the report cite those sessions.
@@ -896,6 +907,7 @@ async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: s
         sessions.map((n, i) => `[Session ${i + 1}: ${n.path} · ${n.mtime}]\n${n.text}`).join("\n\n---\n\n");
     }
   } catch (e: any) { push(`Session read skipped (non-fatal): ${String(e?.message ?? e).slice(0, 80)}`); }
+  staged.completeStep(1);
 
   const task =
     `Produce a professional innovation-scan REPORT (a polished document, not notes) on ways to improve our AI-workforce platform (local-first agents on Ollama plus routed cloud LLMs, deterministic plan builders, a knowledge vault with RAG, connectors/data-sources to external systems, schedules, and a human-in-the-loop layer). Date: ${today}.${focus ? ` Focus this scan on: ${focus}.` : ""}\n\n` +
@@ -914,6 +926,7 @@ async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: s
     `Professional tone: full prose, no raw JSON, no plan dumps, no meta-commentary about tools or time limits. Every external claim needs its source cited; every internal signal cites the note/session path. Be selective — 5 strong finds beat 20 headlines. If a lane genuinely turned up nothing, say so in one line.` +
     inboxBlock + sessionBlock;
   const result: any = await generalTaskRunner({ task, save_as_template: false, _personaId: inputs._personaId }, push, progress);
+  staged.completeStep(2);
 
   // Also surface SHAREABLE STORY LEADS for the daily social posts. The scan
   // already researched the field; distil it (plus a light web sweep) into a
@@ -938,6 +951,8 @@ async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: s
       }
     }
   } catch (e: any) { push(`Story-lead extraction skipped (non-fatal): ${String(e?.message ?? e).slice(0, 100)}`); }
+  staged.completeStep(3);
+  staged.setPhase("done");
   return result;
 }
 
@@ -980,12 +995,14 @@ type StorySource = { title: string; url?: string; text: string; links?: string[]
 // All tiers carry a REAL url; LLM never invents one.
 // ─────────────────────────────────────────────────────────────────────────────
 const DEFAULT_AFRICA_QUERIES = [
-  '"Super Intelligence" Africa SI AI research policy news',
-  "Africa artificial intelligence breakthrough funding 2026",
-  "African tech startup AI innovation Nairobi Lagos Cape Town",
+  "Zimbabwe AI startup funding tech news",
+  "South Africa artificial intelligence startup policy news",
+  "Africa tech summit AI conference 2026",
+  "African tech startup AI innovation Nairobi Lagos Cape Town Johannesburg",
   "Africa AI policy regulation Africa Tech Summit",
-  "Zimbabwe AI technology deployment",
+  "Zimbabwe AI technology deployment TechZim",
   "African machine learning research healthcare agriculture fintech",
+  "Africa artificial intelligence breakthrough funding 2026",
 ];
 const DEFAULT_WORLD_QUERIES = [
   '"Super Intelligence" SI AI technology news policy',
@@ -995,6 +1012,28 @@ const DEFAULT_WORLD_QUERIES = [
   "artificial intelligence research paper arXiv",
   "global AI regulation policy",
   "tech AI product launch enterprise",
+];
+const DEFAULT_SI_QUERIES = [
+  '"Super Intelligence" SI breakthrough research 2026',
+  "superintelligence AI model capability advance",
+  "AGI superintelligence lab OpenAI DeepMind Anthropic",
+  "superintelligence safety alignment policy regulation",
+  "AI superintelligence investment funding startup",
+  "artificial general intelligence milestone progress",
+];
+const DEFAULT_EVENTS_QUERIES = [
+  "site:devpost.com hackathon AI",
+  "site:lablab.ai hackathon",
+  "GDG Harare DevFest tech events",
+  "Meetup Harare technology events",
+  "Eventbrite Harare tech conference",
+  "Zimbabwe tech events hackathon 2026",
+  "South Africa AI hackathon technology events",
+  "Africa startup pitch competition technology",
+  "Devpost AI hackathon online remote",
+  "Africa tech conference summit expo 2026",
+  "startup competition Africa prize technology innovation",
+  "Cape Town Johannesburg tech summit AI 2026",
 ];
 const AFRICA_TECH_RSS_HINTS = ["africa", "african", "zimbabwe", "nairobi", "lagos", "kenya", "nigeria", "south africa", "rwanda", "ethiopia"];
 const DEFAULT_HIGH_AUTHORITY = [
@@ -1010,6 +1049,7 @@ const SPAM_HINTS = ["seo","content farm","sponsored","clickbait","/tag/","/categ
 // Env overrides (deployment-level):
 //   NEWS_AFRICA_QUERIES="q1|q2|q3"  (pipe-separated, or JSON array)
 //   NEWS_WORLD_QUERIES="q1|q2"
+//   NEWS_SI_QUERIES="q1|q2"
 //   NEWS_AUTHORITY_DOMAINS="arxiv.org,openai.com,..." (comma or |)
 //   NEWS_BREAKING_THRESHOLD=8
 //   NEWS_HISTORY_DAYS=7
@@ -1026,7 +1066,7 @@ function envList(name: string): string[] | null {
   if (v.startsWith("[")) { try { const arr = JSON.parse(v); if (Array.isArray(arr)) return arr.map(String).map(s=>s.trim()).filter(Boolean); } catch {} }
   return v.split(/[|,]/).map(s=>s.trim()).filter(Boolean);
 }
-function loadNewsFileConfig(): { africaQueries?: string[]; worldQueries?: string[]; authorityDomains?: string[]; breakingThreshold?: number; historyDays?: number } {
+function loadNewsFileConfig(): { africaQueries?: string[]; worldQueries?: string[]; siQueries?: string[]; eventsQueries?: string[]; authorityDomains?: string[]; breakingThreshold?: number; historyDays?: number } {
   for (const p of [NEWS_CONFIG_FILE, NEWS_CONFIG_FILE_ALT]) {
     try { if (_exs(p)) return JSON.parse(_rfs(p, "utf8")); } catch {}
   }
@@ -1043,6 +1083,18 @@ function effectiveWorldQueries(): string[] {
   if (f.worldQueries?.length) return f.worldQueries;
   const e = envList("NEWS_WORLD_QUERIES"); if (e?.length) return e;
   return DEFAULT_WORLD_QUERIES;
+}
+function effectiveSiQueries(): string[] {
+  const f = loadNewsFileConfig();
+  if (f.siQueries?.length) return f.siQueries;
+  const e = envList("NEWS_SI_QUERIES"); if (e?.length) return e;
+  return DEFAULT_SI_QUERIES;
+}
+function effectiveEventsQueries(): string[] {
+  const f = loadNewsFileConfig();
+  if (f.eventsQueries?.length) return f.eventsQueries;
+  const e = envList("NEWS_EVENTS_QUERIES"); if (e?.length) return e;
+  return DEFAULT_EVENTS_QUERIES;
 }
 function effectiveAuthorityDomains(): Set<string> {
   const f = loadNewsFileConfig();
@@ -1066,6 +1118,110 @@ function effectiveHistoryDays(): number {
 const AFRICA_NEWS_QUERIES = effectiveAfricaQueries();
 const WORLD_NEWS_QUERIES = effectiveWorldQueries();
 const HIGH_AUTHORITY_DOMAINS = effectiveAuthorityDomains();
+
+// ── Cross-feed dedupe (shared picked-today memory) ────────────────────────
+// Africa/World/SI/Events must never post the same story on the same day.
+// Each runner claims its picked URLs into a per-day file; dedupeAndFilter
+// below honours every feed's claims, so whichever edition runs first wins
+// and later editions pick something else.
+function claimedTodayPath(date = new Date().toISOString().slice(0, 10)): string {
+  return resolve(config.vaultPath, "_naxion/news", `claimed-${date}.json`);
+}
+function loadClaimedToday(): Set<string> {
+  try {
+    const p = claimedTodayPath();
+    if (!_exs(p)) return new Set();
+    const arr = JSON.parse(_rfs(p, "utf8"));
+    return new Set(Array.isArray(arr) ? arr.map(String) : []);
+  } catch { return new Set(); }
+}
+function claimUrlsToday(urls: (string | undefined)[]): void {
+  try {
+    const set = loadClaimedToday();
+    let added = 0;
+    for (const u of urls) {
+      const key = normalizeUrlForDedup(u);
+      if (key && !set.has(key)) { set.add(key); added++; }
+    }
+    if (!added) return;
+    const p = claimedTodayPath();
+    _mks(resolve(p, ".."), { recursive: true } as any);
+    _wfs(p, JSON.stringify([...set].slice(-500), null, 1));
+  } catch { /* best-effort — a claim failure must never block a post */ }
+}
+
+// ── Events deadline tracker ───────────────────────────────────────────────
+// The events scan writes machine-readable {name, deadline, url} rows here;
+// the deadline-reminders schedule reads them and nudges at 7/3/1 days out.
+// Merge by URL (latest scan wins), drop entries whose deadline passed >7d
+// ago to keep the file small.
+type TrackedDeadline = { name: string; deadline: string; url: string };
+function eventsTrackerPath(): string {
+  return resolve(config.vaultPath, "_naxion/news", "events-tracker.json");
+}
+function loadEventsTracker(): TrackedDeadline[] {
+  try {
+    const p = eventsTrackerPath();
+    if (!_exs(p)) return [];
+    const arr = JSON.parse(_rfs(p, "utf8"));
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(e => e && typeof e.name === "string" && /^20\d{2}-\d{2}-\d{2}$/.test(e.deadline ?? "") && typeof e.url === "string");
+  } catch { return []; }
+}
+function saveEventsTracker(rows: TrackedDeadline[], push?: (m: string) => void): void {
+  try {
+    const byUrl = new Map<string, TrackedDeadline>();
+    for (const e of loadEventsTracker()) byUrl.set(normalizeUrlForDedup(e.url), e);
+    for (const e of rows) byUrl.set(normalizeUrlForDedup(e.url), e);
+    const cutoff = Date.now() - 7 * 24 * 3600_000;
+    const kept = [...byUrl.values()].filter(e => new Date(e.deadline + "T12:00:00").getTime() >= cutoff).slice(-200);
+    const p = eventsTrackerPath();
+    _mks(resolve(p, ".."), { recursive: true } as any);
+    _wfs(p, JSON.stringify(kept, null, 1));
+    push?.(`[tracker] ${kept.length} deadlines tracked`);
+  } catch { /* best-effort */ }
+}
+
+// Fallback deadline miner for the events card: finds explicit calendar dates
+// near URLs ("Oct 30, 2026", "30 October 2026", "2026-10-30") and resolves
+// them to ISO. Names come from the nearest preceding emoji-led row header.
+function extractDeadlinesFromText(postText: string): { name: string; deadline: string; url: string }[] {
+  const MONTHS: Record<string, number> = {
+    january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+    july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  };
+  const out: { name: string; deadline: string; url: string }[] = [];
+  const seen = new Set<string>();
+  const urlRe = /https?:\/\/[^\s)>\]]+/g;
+  let m: RegExpExecArray | null;
+  while ((m = urlRe.exec(postText))) {
+    const url = m[0].replace(/[.,;]+$/, "");
+    const key = normalizeUrlForDedup(url);
+    if (!key || seen.has(key)) continue;
+    const window = postText.slice(Math.max(0, m.index - 500), m.index + 50);
+    const dm = window.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:\s*,?\s*(20\d{2}))?/i)
+      ?? window.match(/(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s*,?\s*(20\d{2}))?/i)
+      ?? window.match(/(20\d{2})-(\d{2})-(\d{2})/);
+    if (!dm) continue;
+    let y = 0, mo = 0, d = 0;
+    if (dm[0].includes("-") && /^20\d{2}$/.test(dm[1] ?? "")) {
+      y = Number(dm[1]); mo = Number(dm[2]); d = Number(dm[3]); // ISO YYYY-MM-DD
+    } else if (MONTHS[(dm[1] ?? "").toLowerCase()]) {
+      mo = MONTHS[dm[1].toLowerCase()]; d = Number(dm[2]); y = dm[3] ? Number(dm[3]) : new Date().getFullYear(); // Month DD [, YYYY]
+    } else if (MONTHS[(dm[2] ?? "").toLowerCase()]) {
+      d = Number(dm[1]); mo = MONTHS[dm[2].toLowerCase()]; y = dm[3] ? Number(dm[3]) : new Date().getFullYear(); // DD Month [, YYYY]
+    } else continue;
+    if (!mo || d < 1 || d > 31) continue;
+    const iso = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    if (new Date(iso + "T12:00:00").getTime() < Date.now() - 86400_000) continue; // past
+    const nameM = window.match(/(?:^|\n)\s*(?:💻|🚀|🎪|🌍|🎯|⭐)[^\n]{4,120}/);
+    const name = (nameM?.[0] ?? "Tech event").replace(/^[^\p{L}\p{N}]+/u, "").replace(/\s*\|.*$/, "").trim().slice(0, 120) || "Tech event";
+    seen.add(key);
+    out.push({ name, deadline: iso, url });
+    if (out.length >= 10) break;
+  }
+  return out;
+}
 
 function normalizeUrlForDedup(url: string | undefined): string {
   if (!url) return "";
@@ -1204,12 +1360,14 @@ function loadRecentPostedUrls(days: number, push?: (m:string)=>void): Set<string
 
 async function dedupeAndFilter(stories: StorySource[], push: (m:string)=>void): Promise<StorySource[]> {
   const history = loadRecentPostedUrls(effectiveHistoryDays(), push);
+  const claimed = loadClaimedToday();
   const seen = new Set<string>(); const out: StorySource[] = [];
   for (const s of stories) {
     const key = normalizeUrlForDedup(s.url);
     if (!key) continue;
     if (seen.has(key)) continue; seen.add(key);
     if (history.has(key)) { push(`[history] skip already-posted ${domainOf(s.url)}`); continue; }
+    if (claimed.has(key)) { push(`[claimed] skip picked-by-earlier-edition ${domainOf(s.url)}`); continue; }
     if (isSpammy(s)) continue;
     out.push(s);
   }
@@ -1228,7 +1386,7 @@ async function scoreStoriesQuality(stories: StorySource[], push: (m:string)=>voi
   // Single LLM triage call scores every candidate 0-10 on quality dimensions
   const numbered = stories.slice(0, 12).map((s,i) => `[${i+1}] ${s.title} (${domainOf(s.url)}) — ${s.text.slice(0,400)} [authority:${authorityBoost(s.url)}]`).join("\n\n");
   const rubric = forAfrica
-    ? "Africa AI/Tech relevance (Africa angle = high), AI/Tech core vs tangential, recency ≤48h > ≤7d > older, source credibility, factual substance (names/numbers specifics), impact/novelty"
+    ? "African angle FIRST (a Zimbabwe/South Africa/pan-African story outranks a bigger global one), then AI/Tech core vs tangential, recency ≤48h > ≤7d > older, source credibility, factual substance (names/numbers specifics), impact/novelty. A story with no African substance scores at most 5 no matter how big globally"
     : "Global AI/Tech relevance, recency ≤48h, source credibility (lab/tier1 press), factual substance, impact/novelty";
   try {
     const raw = (await llmGenerate(
@@ -1240,7 +1398,14 @@ async function scoreStoriesQuality(stories: StorySource[], push: (m:string)=>voi
     const map = new Map(scores.map(s=>[s.idx, s.score]));
     const reasonMap = new Map(scores.map(s=>[s.idx, s.reason]));
     const scored = stories.map((s,i)=>{
-      const sc = map.get(i+1) ?? 5 + authorityBoost(s.url);
+      let sc = map.get(i+1) ?? 5 + authorityBoost(s.url);
+      // Africa feed: hard Africa-angle re-rank so a global story can never
+      // top an African one (live 2026-10-07: a US DOJ memo outranked every
+      // African candidate). +2 for a genuine African angle, capped at 10.
+      if (forAfrica) {
+        const hay = `${s.title} ${s.text}`.toLowerCase();
+        if (AFRICA_TECH_RSS_HINTS.some(k => hay.includes(k))) sc = Math.min(10, sc + 2);
+      }
       s.score = sc; s.reason = reasonMap.get(i+1) ?? "";
       return {s, score: sc};
     });
@@ -1254,7 +1419,7 @@ async function scoreStoriesQuality(stories: StorySource[], push: (m:string)=>voi
   }
 }
 
-function logNewsMetrics(feed: "africa"|"world", candidates: StorySource[], picked: StorySource | null, push?: (m:string)=>void) {
+function logNewsMetrics(feed: "africa"|"world"|"si"|"events"|"weekend", candidates: StorySource[], picked: StorySource | null, push?: (m:string)=>void) {
   const breakdown = candidates.slice(0, 8).map((c,i)=> ({ idx:i+1, domain: domainOf(c.url), score: c.score, title: c.title.slice(0,60) }));
   const detail = `${feed} candidates=${candidates.length} picked=${picked?.url ?? "none"} score=${picked?.score ?? "?"} domains=${breakdown.map(b=>b.domain).join(",")}`;
   try { logAudit({ level: "info", actor: "news", action: `${feed}.pick`, target: picked?.url ?? "none", detail, result: picked ? "success" : "failure" }); } catch {}
@@ -1268,7 +1433,7 @@ function logNewsMetrics(feed: "africa"|"world", candidates: StorySource[], picke
   if (push) push(`[metrics] ${detail}`);
 }
 
-function writeNewsVault(feed: "africa"|"world", card: { postText: string; story: string }, picked: StorySource) {
+function writeNewsVault(feed: "africa"|"world"|"si"|"events"|"weekend", card: { postText: string; story: string }, picked: StorySource) {
   try {
     const date = new Date().toISOString().slice(0, 10);
     const stamp = new Date().toISOString().slice(0, 16).replace(/:/, "");
@@ -1279,13 +1444,47 @@ function writeNewsVault(feed: "africa"|"world", card: { postText: string; story:
     // also append to drafts history for dedupe already covers this path
   } catch (e:any) { console.warn(`[news] vault write failed: ${e?.message}`); }
 }
-function writeNewsDraft(feed: "africa"|"world", candidates: StorySource[], reason: string) {
+function writeNewsDraft(feed: "africa"|"world"|"si"|"events"|"weekend", candidates: StorySource[], reason: string) {
   try {
     const stamp = new Date().toISOString().slice(0, 16).replace(/:/, "");
     const path = `_naxion/news/drafts/${stamp}-${feed}-below-threshold.md`;
     const body = `---\nfeed: ${feed}\ndraft: true\nreason: ${reason}\n---\n\n# Draft — ${feed} ${stamp} (below threshold)\n\nTop candidates were below BREAKING threshold (${effectiveBreakingThreshold()}).\n\n${candidates.slice(0,5).map((c,i)=>`${i+1}. [${c.score}] ${c.title} — ${c.url} — ${c.reason??""}`).join("\n")}\n`;
     writeVaultFile(path, body);
   } catch {}
+}
+
+// Staged-pipeline progress for template runners that DON'T go through
+// planAndExecute (news cards, briefing evidence, scan preambles). Those
+// runners previously never called progress(), so their Runs page row sat
+// frozen on "running" with no steps until the job completed — "no progress
+// showing while in progress". This seeds a step plan up front (steps render
+// immediately) and marks steps done as stages complete, in the exact
+// {plan.steps[], runs[{step,runs,ok}]} shape the Runs UI reads.
+type ProgressFn = (p: Record<string, unknown>) => void;
+function stagedProgress(progress: ProgressFn | undefined, labels: string[]) {
+  const steps = labels.map(label => ({ label, tool: "pipeline" }));
+  const done: { tool: string; label: string; ms: number }[] = [];
+  const t0 = Date.now();
+  const emit = (phase: string) => {
+    try {
+      progress?.({
+        phase,
+        plan: { steps },
+        runs: done.map(d => ({ step: { tool: d.tool, label: d.label }, ok: true, durationMs: d.ms })),
+      });
+    } catch { /* progress is best-effort — never break the run */ }
+  };
+  emit("executing");
+  return {
+    // Mark one planned step complete (by index) plus optional extra labels.
+    completeStep: (index: number, tool = "pipeline") => {
+      if (steps[index] && !done.some(d => d.label === steps[index].label)) {
+        done.push({ tool, label: steps[index].label, ms: Date.now() - t0 });
+      }
+      emit("executing");
+    },
+    setPhase: (phase: string) => emit(phase),
+  };
 }
 
 // Fallback story material when the source mailbox has nothing fresh: a live web
@@ -1296,12 +1495,13 @@ function writeNewsDraft(feed: "africa"|"world", candidates: StorySource[], reaso
 async function gatherFallbackStories(push: (m: string) => void): Promise<StorySource[]> {
   return gatherAfricaStories(push);
 }
-async function gatherAfricaStories(push: (m: string) => void): Promise<StorySource[]> {
+async function gatherAfricaStories(push: (m: string) => void, onStage?: (stage: "sweep" | "dedupe" | "enrich" | "rank") => void): Promise<StorySource[]> {
   push("[africa] quality pipeline: RSS (≤48h) + web search + innovation leads → dedupe → enrich → quality rank");
   const [rss, web] = await Promise.all([
     fetchRssTier(push, true),
     scrapeStoriesForQueries([...new Set([...effectiveAfricaQueries(), '"Super Intelligence" Africa SI AI research policy news'])], push, "africa"),
   ]);
+  onStage?.("sweep");
   let merged: StorySource[] = [...rss, ...web];
   // Innovation-scan leads as extra candidates (bullet lines → title + optional url).
   const leads = readVaultText(`${SOCIAL_DIR}/story-leads.md`);
@@ -1320,21 +1520,59 @@ async function gatherAfricaStories(push: (m: string) => void): Promise<StorySour
     if (added) push(`[africa] +${added} innovation-scan leads`);
   }
   merged = await dedupeAndFilter(merged, push);
+  onStage?.("dedupe");
   merged = await enrichTopStories(merged, push, 6);
+  onStage?.("enrich");
   merged = await scoreStoriesQuality(merged, push, true);
+  onStage?.("rank");
   return merged.slice(0, 12);
 }
-async function gatherWorldStories(push: (m: string) => void): Promise<StorySource[]> {
+async function gatherWorldStories(push: (m: string) => void, onStage?: (stage: "sweep" | "dedupe" | "enrich" | "rank") => void): Promise<StorySource[]> {
   push("[world] quality pipeline: RSS (≤48h) + web search → dedupe → enrich → quality rank");
   const [rss, web] = await Promise.all([
     fetchRssTier(push, false),
     scrapeStoriesForQueries([...new Set([...effectiveWorldQueries(), '"Super Intelligence" SI AI technology news policy'])], push, "world"),
   ]);
+  onStage?.("sweep");
   let merged: StorySource[] = [...rss, ...web];
   merged = await dedupeAndFilter(merged, push);
+  onStage?.("dedupe");
   merged = await enrichTopStories(merged, push, 6);
+  onStage?.("enrich");
   merged = await scoreStoriesQuality(merged, push, false);
+  onStage?.("rank");
   return merged.slice(0, 12);
+}
+async function gatherSiStories(push: (m: string) => void, onStage?: (stage: "sweep" | "dedupe" | "enrich" | "rank") => void): Promise<StorySource[]> {
+  push("[si] quality pipeline: RSS (≤48h) + SI web search → dedupe → enrich → quality rank");
+  const [rss, web] = await Promise.all([
+    fetchRssTier(push, false),
+    scrapeStoriesForQueries([...new Set(effectiveSiQueries())], push, "si"),
+  ]);
+  onStage?.("sweep");
+  let merged: StorySource[] = [...rss, ...web];
+  merged = await dedupeAndFilter(merged, push);
+  onStage?.("dedupe");
+  merged = await enrichTopStories(merged, push, 6);
+  onStage?.("enrich");
+  merged = await scoreStoriesQuality(merged, push, false);
+  onStage?.("rank");
+  return merged.slice(0, 12);
+}
+
+async function gatherEventsStories(push: (m: string) => void, onStage?: (stage: "sweep" | "dedupe" | "enrich") => void): Promise<StorySource[]> {
+  push("[events] pipeline: RSS (≤48h) + events web search → dedupe → enrich");
+  const [rss, web] = await Promise.all([
+    fetchRssTier(push, false),
+    scrapeStoriesForQueries([...new Set(effectiveEventsQueries())], push, "events"),
+  ]);
+  onStage?.("sweep");
+  let merged: StorySource[] = [...rss, ...web];
+  merged = await dedupeAndFilter(merged, push);
+  onStage?.("dedupe");
+  merged = await enrichTopStories(merged, push, 8);
+  onStage?.("enrich");
+  return merged.slice(0, 20);
 }
 
 // Build a single BREAKING NEWS card from a pool of real stories. The model
@@ -1376,7 +1614,10 @@ async function buildBreakingNewsCard(opts: {
   const chosen = opts.stories[Math.min(Math.max(1, pickN), opts.stories.length) - 1] ?? opts.stories[0];
   const title = grab("TITLE") || chosen.title;
   const summary = grab("SUMMARY") || (chosen.text ?? "").slice(0, 400);
-  const why = grab("WHY_IT_MATTERS") || "";
+  // The card template already prints the why-header line above this text, but
+  // the model often echoes it ("Why it matters for Africa: ...") producing a
+  // doubled header (live 2026-10-07). Strip any such echo.
+  const why = (grab("WHY_IT_MATTERS") || "").replace(/^\s*why it matters[^:]*:\s*/i, "").trim();
   let hashtags = grab("HASHTAGS") || opts.defaultHashtags;
   if (hashtags && !hashtags.includes("#")) hashtags = hashtags.split(/\s+/).filter(Boolean).map(h => `#${h.replace(/^#/, "")}`).join(" ");
   const videoScript = grab("VIDEO_SCRIPT") || toVideoScript(summary);
@@ -1405,14 +1646,16 @@ async function buildBreakingNewsCard(opts: {
 }
 
 // Africa news — BREAKING NEWS card for AI Institute Africa (with urgency gate + metrics + vault)
-async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
+async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
   const chatId = String(inputs.chatId ?? "").trim();
   if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
   const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
   const dailyDigest = inputs.dailyDigest === true;
+  const staged = stagedProgress(progress, ["Sweep RSS + web + leads", "Dedupe + enrich", "Quality rank", "Build news card", "Post to Telegram"]);
+  const stageToStep: Record<string, number> = { sweep: 0, dedupe: 1, enrich: 1, rank: 2 };
 
   push("Sweeping for today's Africa/AI news (web + innovation leads).");
-  const stories = await gatherAfricaStories(push);
+  const stories = await gatherAfricaStories(push, (s) => staged.completeStep(stageToStep[s]));
   if (!stories.length) {
     const skip = "No fresh Africa/AI news found today — skipping the post.";
     push(skip);
@@ -1436,7 +1679,7 @@ async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: str
     : `Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
   const card = await buildBreakingNewsCard({
     stories,
-    header: dailyDigest ? "🧠 DAILY SUPER INTELLIGENCE / AI NEWS — Africa" : "🚨 BREAKING NEWS — Africa AI 🚨",
+    header: dailyDigest ? "🧠 DAILY AI NEWS — Africa" : "🚨 BREAKING NEWS — Africa AI 🚨",
     whyHeader: "Why it matters for Africa",
     defaultHashtags: "#AI #Africa #AINews",
     sourceLabel: "web + innovation leads (RSS ≤48h + web + leads)",
@@ -1446,6 +1689,7 @@ async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: str
   });
 
   // Resolve picked story for metrics/vault (card.raw picks idx)
+  staged.completeStep(3);
   const pickedIdx = (card.raw?.pickN ?? 1) - 1;
   const picked = stories[Math.min(Math.max(0, pickedIdx), stories.length-1)] ?? stories[0];
   logNewsMetrics("africa", stories, picked, push);
@@ -1453,20 +1697,26 @@ async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: str
 
   const tg = findPrimitive("telegram.send");
   if (!tg) throw new Error("telegram.send primitive unavailable");
+  staged.setPhase("posting");
   const sent = await tg.handler({ text: card.postText, chatId });
+  staged.completeStep(4);
+  staged.setPhase("done");
+  if (sent?.ok && picked?.url) claimUrlsToday([picked.url]);
   push(sent?.ok ? `Posted Africa BREAKING NEWS to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
   return { kind: "africa-ai-news", posted: !!sent?.ok, chatId, answer: card.postText, story: card.story, videoScript: card.videoScript, topScore, threshold, error: sent?.ok ? undefined : sent?.error };
 }
 
 // World news — BREAKING NEWS card for global AI/world stories (with urgency gate + metrics + vault)
-async function worldAiNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
+async function worldAiNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
   const chatId = String(inputs.chatId ?? "").trim();
   if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
   const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
   const dailyDigest = inputs.dailyDigest === true;
+  const staged = stagedProgress(progress, ["Sweep RSS + web", "Dedupe + enrich", "Quality rank", "Build news card", "Post to Telegram"]);
+  const stageToStep: Record<string, number> = { sweep: 0, dedupe: 1, enrich: 1, rank: 2 };
 
   push("Sweeping for today's World AI news (RSS + web search).");
-  const stories = await gatherWorldStories(push);
+  const stories = await gatherWorldStories(push, (s) => staged.completeStep(stageToStep[s]));
   if (!stories.length) {
     const skip = "No fresh World news found today — skipping the post.";
     push(skip);
@@ -1499,15 +1749,373 @@ async function worldAiNewsRunner(inputs: Record<string, unknown>, push: (m: stri
   });
 
   const pickedIdx = (card.raw?.pickN ?? 1) - 1;
+  staged.completeStep(3);
   const picked = stories[Math.min(Math.max(0, pickedIdx), stories.length-1)] ?? stories[0];
   logNewsMetrics("world", stories, picked, push);
   writeNewsVault("world", card, picked);
 
   const tg = findPrimitive("telegram.send");
   if (!tg) throw new Error("telegram.send primitive unavailable");
+  staged.setPhase("posting");
   const sent = await tg.handler({ text: card.postText, chatId });
+  staged.completeStep(4);
+  staged.setPhase("done");
+  if (sent?.ok && picked?.url) claimUrlsToday([picked.url]);
   push(sent?.ok ? `Posted World BREAKING NEWS to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
   return { kind: "world-ai-news", posted: !!sent?.ok, chatId, answer: card.postText, story: card.story, videoScript: card.videoScript, topScore, threshold, error: sent?.ok ? undefined : sent?.error };
+}
+
+// Super Intelligence news — daily GLOBAL SI card (same quality pipeline +
+// urgency gate as the Africa/World editions, SI-tuned queries + SI editor
+// prompt). Posts to the Telegram group like the other news editions.
+async function superIntelligenceNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
+  const chatId = String(inputs.chatId ?? "").trim();
+  if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
+  const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
+  const dailyDigest = inputs.dailyDigest === true;
+  const staged = stagedProgress(progress, ["Sweep RSS + SI web", "Dedupe + enrich", "Quality rank", "Build news card", "Post to Telegram"]);
+  const stageToStep: Record<string, number> = { sweep: 0, dedupe: 1, enrich: 1, rank: 2 };
+
+  push("Sweeping for today's global Super Intelligence news (RSS + SI web search).");
+  const stories = await gatherSiStories(push, (s) => staged.completeStep(stageToStep[s]));
+  if (!stories.length) {
+    const skip = "No fresh Super Intelligence news found today — skipping the post.";
+    push(skip);
+    logNewsMetrics("si", stories, null, push);
+    return { kind: "super-intelligence-news", posted: false, note: skip };
+  }
+
+  const threshold = effectiveBreakingThreshold();
+  const topScore = stories[0]?.score ?? 5;
+  if (topScore < threshold && !dailyDigest) {
+    const reason = `top score ${topScore} < threshold ${threshold} — not breaking enough`;
+    push(`[gate] ${reason} — queuing as draft, not posting to Telegram`);
+    writeNewsDraft("si", stories, reason);
+    logNewsMetrics("si", stories, stories[0] ?? null, push);
+    return { kind: "super-intelligence-news", posted: false, draft: true, note: reason, topScore, threshold };
+  }
+
+  push(dailyDigest
+    ? `Picked ${stories.length} fresh candidates (top score ${topScore}) — drafting the daily Super Intelligence card.`
+    : `Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
+  const card = await buildBreakingNewsCard({
+    stories,
+    header: dailyDigest ? "🧠 DAILY SUPER INTELLIGENCE NEWS — Global" : "🚨 BREAKING NEWS — Super Intelligence 🚨",
+    whyHeader: "Why it matters on the path to SI",
+    defaultHashtags: dailyDigest ? "#SuperIntelligence #SI #AI" : "#SuperIntelligence #SI #BreakingNews",
+    sourceLabel: "RSS ≤48h + SI web search",
+    videoUrl,
+    push,
+    systemPrompt: "You are a Super Intelligence desk editor covering the global path to SI: frontier-model capability jumps, AGI/superintelligence research, lab announcements, safety/alignment work, and SI policy. Pick a fresh, newsworthy story and write a factual Telegram card. Use 'Super Intelligence (SI)' when reporting the US executive-branch terminology in Executive Order 14434; for the broader global field, keep the terminology used by the source (often AI/artificial intelligence). Do not imply the US directive renames technology or usage outside its stated executive-branch scope. No hype or invented facts/links; keep it sharp and credible.",
+  });
+
+  const pickedIdx = (card.raw?.pickN ?? 1) - 1;
+  staged.completeStep(3);
+  const picked = stories[Math.min(Math.max(0, pickedIdx), stories.length-1)] ?? stories[0];
+  logNewsMetrics("si", stories, picked, push);
+  writeNewsVault("si", card, picked);
+
+  const tg = findPrimitive("telegram.send");
+  if (!tg) throw new Error("telegram.send primitive unavailable");
+  staged.setPhase("posting");
+  const sent = await tg.handler({ text: card.postText, chatId });
+  staged.completeStep(4);
+  staged.setPhase("done");
+  if (sent?.ok && picked?.url) claimUrlsToday([picked.url]);
+  push(sent?.ok ? `Posted Super Intelligence news to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
+  return { kind: "super-intelligence-news", posted: !!sent?.ok, chatId, answer: card.postText, story: card.story, videoScript: card.videoScript, topScore, threshold, error: sent?.ok ? undefined : sent?.error };
+}
+
+// Events & Competition Scan — daily table of tech events, hackathons,
+// innovation challenges/expos, startup pitch and corporate software
+// competitions (Zimbabwe, South Africa, pan-African + minimum 2 global
+// remote hackathons). ~80% free / ~20% paid. A listing, not a single story,
+// so there is no breaking-news gate: it posts whenever candidates exist.
+// Posts wherever the caller points it (the 07:30 schedule targets the
+// operator DM, not the news group).
+async function eventsCompetitionScanRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
+  const chatId = String(inputs.chatId ?? "").trim();
+  if (!chatId) throw new Error("missing 'chatId' input (the Telegram chat to post into)");
+  const staged = stagedProgress(progress, ["Sweep event sources", "Dedupe + enrich", "Build events table", "Post to Telegram"]);
+  const stageToStep: Record<string, number> = { sweep: 0, dedupe: 1, enrich: 1 };
+
+  push("Sweeping tech events, hackathons and competitions (ZW + SA + pan-African + global remote).");
+  const stories = await gatherEventsStories(push, (s) => staged.completeStep(stageToStep[s]));
+  if (!stories.length) {
+    const skip = "No tech events or competitions found today — skipping the post.";
+    push(skip);
+    logNewsMetrics("events", stories, null, push);
+    return { kind: "events-competition-scan", posted: false, note: skip };
+  }
+
+  push(`Formatting ${stories.length} event candidates into the scan table.`);
+  const numbered = stories.slice(0, 20).map((s, i) => `[${i + 1}] ${s.title}${s.url ? ` (${s.url})` : ""}\n${(s.text ?? "").slice(0, 650)}`).join("\n\n---\n\n");
+  const date = new Date().toISOString().slice(0, 10);
+  const raw = (await llmGenerate(
+    `From the event candidates below, build a rich EVENTS & COMPETITION SCAN for ${date} — this must read like an insider briefing, not a bare list.\n\n` +
+    `Rules:\n` +
+    `- Pick up to 10 entries: tech summits/conferences, hackathons, innovation challenges/expos, startup pitch competitions, corporate software competitions, tech challenges.\n` +
+    `- Geography: Zimbabwe first, then South Africa, then pan-African (incl. virtual). Then append AT LEAST 2 global fully-remote hackathons from the candidates (prefer Devpost / lablab.ai listings).\n` +
+    `- Substance filter: PREFER candidates with concrete dates, venues, prizes or deadlines. At most 2 entries may carry TBA dates; drop vague candidates when dated ones exist. Include at least 1 paid entry whenever any candidate shows a price or ticket.\n` +
+    `- Mix: roughly 80% free, 20% paid. Mark each Free or Paid (verify from the text; when unsure say Free).\n` +
+    `- For EVERY entry dig out: organiser/host, deadline (registration or event date), prize or stakes if any (cash, funding, trip, exposure), who it's for (students, founders, developers…), and one punchy WHY-ATTEND line (what you concretely get: money, network, skills, visibility).\n` +
+    `- Dates are URGENT info: today is ${date}. Write every date/deadline as "Oct 30 (23 days left)" — count the days from today, never write a bare date. Skip entries already over before today.\n` +
+    `- Drop candidates with no usable detail (no date AND no prize AND no clear venue/audience) unless Zimbabwe-based. Up to 4 entries may carry TBA dates when dated ones are scarce — but a card of all-TBA rows is a failure: prefer entries with money, deadlines and names attached.\n` +
+    `- Lead each row with the category emoji: 💻 hackathon/coding challenge, 🚀 pitch/startup competition, 🎪 conference/summit/expo, 🌍 fully-remote global hackathon.\n` +
+    `- Use ONLY facts from the candidate texts — never invent dates, venues, links, prizes or deadlines. If a detail is absent, write "TBA" rather than guessing. Drop candidates with no usable detail instead of guessing.\n\n` +
+    `Output EXACTLY these labelled sections (plain text, no markdown, no angle brackets):\n` +
+    `HEADER: 📅 EVENTS & COMPETITION SCAN — ${date}\n` +
+    `TOPPICK: the single highest-value event, format "Event name — why it is the one not to miss (prize/deadline hook) | URL"\n` +
+    `ROWS: one block per event, exactly this shape:\n` +
+    `<category emoji> Event name\n` +
+    `📅 Date (start–end, with days-left countdown) | 📍 Location or Remote | Free/Paid\n` +
+    `🏆 Prize/stakes (or "—") | ⏰ Deadline (with days-left countdown, or TBA)\n` +
+    `👥 Who: audience | 🔗 URL\n` +
+    `💡 Why attend: one punchy line\n` +
+    `Separate event blocks with a blank line.\n` +
+    `FOOTER: one line with the free/paid counts, e.g. "8 free · 2 paid · 2 remote global"\n` +
+    `TRACKER: one line per event that HAS a concrete deadline, format "Event name | YYYY-MM-DD | URL" (deadline = registration close, else event start; ISO date only, no countdown text). Skip TBA entries here.\n\n` +
+    `CANDIDATES:\n\n${numbered.slice(0, 8000)}`,
+    "You are an events-desk editor for African tech. Rich, concrete briefings only — every entry must carry prize, deadline and a why-attend hook. No hype, no invented facts or links.",
+    { maxTokens: 2000 },
+  )).trim();
+  // The model misspells or decorates labels (live: "TOPICK:", "**HEADER:**",
+  // echoed "FOOTER:" inside ROWS). Match fuzzily, then strip ANY surviving
+  // label echo from the assembled card so raw "LABEL:" text never posts.
+  const LABELS = "(?:HEADER|TOPP?ICK|TOP PICK|ROWS|FOOTER|TRACKER)";
+  const grab = (label: string) => {
+    const alt = label === "TOPPICK" ? "(?:TOPPICK|TOPICK|TOP PICK)" : label;
+    const m = raw.match(new RegExp(`^[\\s>*#-]*${alt}\\s*:?\\s*([\\s\\S]*?)(?=\\n[\\s>*#-]*(?:${LABELS})\\s*:|$)`, "im"));
+    return (m?.[1] ?? "").replace(/```[a-z]*\n?/gi, "").trim().replace(/^["']|["']$/g, "").trim();
+  };
+  const stripLabelEchoes = (text: string) =>
+    text.split("\n")
+      .map(l => l.replace(new RegExp(`^[\\s>*#-]*${LABELS}\\s*:?\\s*`, "i"), "").trimEnd())
+      .filter(l => !new RegExp(`^[\\s>*#-]*${LABELS}\\s*:?\\s*$`, "i").test(l))
+      .join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const header = grab("HEADER") || `📅 EVENTS & COMPETITION SCAN — ${date}`;
+  const toppick = grab("TOPPICK");
+  const rows = grab("ROWS") || raw.slice(0, 4000);
+  const footer = grab("FOOTER");
+  const postText = stripLabelEchoes([header, "", ...(toppick ? [`⭐ TOP PICK: ${toppick}`, ""] : []), rows, ...(footer ? ["", footer] : []), "", "Source: web sweep (RSS ≤48h + event listings + hackathon hubs)"].join("\n"));
+  // Machine-readable deadline tracker (powers the deadline-reminders
+  // schedule). Parsed strictly — bad lines are dropped, never posted.
+  const tracker: { name: string; deadline: string; url: string }[] = [];
+  for (const line of grab("TRACKER").split("\n")) {
+    const parts = line.split("|").map(s => s.trim());
+    if (parts.length < 3) continue;
+    const [name, deadline, url] = parts;
+    if (!name || !/^20\d{2}-\d{2}-\d{2}$/.test(deadline)) continue;
+    const t = new Date(deadline + "T12:00:00").getTime();
+    if (!Number.isFinite(t)) continue;
+    if (!/^https?:\/\//i.test(url)) continue;
+    tracker.push({ name: name.slice(0, 120), deadline, url });
+  }
+  if (tracker.length) {
+    saveEventsTracker(tracker, push);
+  } else {
+    // Fallback: the model often skips TRACKER even when rows carry real
+    // dates ("Oct 30 (23 days left)"). Mine explicit Month-DD-YYYY dates
+    // near URLs straight from the posted table.
+    const mined = extractDeadlinesFromText(postText);
+    if (mined.length) saveEventsTracker(mined, push);
+    else push("[tracker] no machine-readable deadlines this run");
+  }
+  staged.completeStep(2);
+
+  // Frontmatter should point at a real event link from the card — stories[0]
+  // is just pipeline order (often a news article), so lift the first URL out
+  // of the posted table instead.
+  const firstUrl = (postText.match(/https?:\/\/[^\s)>\]]+/) ?? [""])[0].replace(/[.,;]+$/, "");
+  const picked = firstUrl ? { ...stories[0], url: firstUrl } : stories[0];
+  logNewsMetrics("events", stories, picked, push);
+  writeNewsVault("events", { postText, story: rows.split("\n")[0]?.slice(0, 220) ?? "" }, picked);
+
+  const tg = findPrimitive("telegram.send");
+  if (!tg) throw new Error("telegram.send primitive unavailable");
+  staged.setPhase("posting");
+  const sent = await tg.handler({ text: postText, chatId });
+  staged.completeStep(3);
+  staged.setPhase("done");
+  if (sent?.ok) {
+    const urls = [...postText.matchAll(/https?:\/\/[^\s)>\]]+/g)].map(m => m[0].replace(/[.,;]+$/, ""));
+    claimUrlsToday(urls);
+  }
+  push(sent?.ok ? `Posted Events & Competition Scan to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
+  return { kind: "events-competition-scan", posted: !!sent?.ok, chatId, answer: postText, topScore: undefined, threshold: undefined, error: sent?.ok ? undefined : sent?.error };
+}
+
+// Deadline reminders — reads the events-tracker file and posts one reminder
+// card for anything due in 7, 3 or 1 days. Quiet (posted:false) when nothing
+// is due, so the schedule never spams. Urgency ordering: due-tomorrow first.
+async function deadlineRemindersRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
+  const chatId = String(inputs.chatId ?? "").trim();
+  if (!chatId) throw new Error("missing 'chatId' input (the Telegram chat to post into)");
+  const staged = stagedProgress(progress, ["Read deadline tracker", "Post reminders"]);
+  const tracked = loadEventsTracker();
+  staged.completeStep(0);
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const due: { entry: { name: string; deadline: string; url: string }; daysLeft: number }[] = [];
+  for (const e of tracked) {
+    const t = new Date(e.deadline + "T12:00:00").getTime();
+    if (!Number.isFinite(t)) continue;
+    const daysLeft = Math.round((t - today.getTime()) / 86400_000);
+    if (daysLeft === 7 || daysLeft === 3 || daysLeft === 1 || daysLeft === 0) due.push({ entry: e, daysLeft });
+  }
+  if (!due.length) {
+    const skip = `No event deadlines due in 7/3/1 days (${tracked.length} tracked) — staying quiet.`;
+    push(skip);
+    return { kind: "deadline-reminders", posted: false, note: skip, tracked: tracked.length };
+  }
+  due.sort((a, b) => a.daysLeft - b.daysLeft);
+  const line = (d: typeof due[number]) =>
+    d.daysLeft <= 0
+      ? `🔴 <b>${d.entry.name}</b> — due TODAY (${d.entry.deadline}): ${d.entry.url}`
+      : d.daysLeft === 1
+        ? `🔴 <b>${d.entry.name}</b> — tomorrow (${d.entry.deadline}): ${d.entry.url}`
+        : d.daysLeft <= 3
+          ? `🟡 <b>${d.entry.name}</b> — ${d.daysLeft} days left (${d.entry.deadline}): ${d.entry.url}`
+          : `🟢 <b>${d.entry.name}</b> — ${d.daysLeft} days left (${d.entry.deadline}): ${d.entry.url}`;
+  // sendTelegramMessage takes markdown and converts to Telegram HTML itself.
+  const postText = [`⏰ **Event deadlines approaching**`, ``, ...due.map(d => line(d).replace(/<\/?b>/g, "**")), ``, `_${due.length} reminder${due.length === 1 ? "" : "s"} from the tracked events scan_`].join("\n");
+  const tg = findPrimitive("telegram.send");
+  if (!tg) throw new Error("telegram.send primitive unavailable");
+  const sent = await tg.handler({ text: postText, chatId });
+  staged.completeStep(1);
+  staged.setPhase("done");
+  push(sent?.ok ? `Posted ${due.length} deadline reminder(s) to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
+  return { kind: "deadline-reminders", posted: !!sent?.ok, chatId, answer: postText, error: sent?.ok ? undefined : sent?.error };
+}
+
+// Evening recap — stitches today's edition cards (Africa, World, SI,
+// events) into one "Today in AI" digest. No web sweep: it reuses the vault
+// cards the morning pipeline already wrote, so it costs one LLM call.
+async function eveningRecapRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
+  const chatId = String(inputs.chatId ?? "").trim();
+  if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
+  const staged = stagedProgress(progress, ["Read today's cards", "Stitch evening digest", "Post to Telegram"]);
+  const date = new Date().toISOString().slice(0, 10);
+  const sections: { feed: string; body: string }[] = [];
+  for (const feed of ["africa", "world", "si", "events"]) {
+    try {
+      const p = resolve(config.vaultPath, "_naxion/news", `${date}-${feed}.md`);
+      if (!_exs(p)) { push(`[recap] no ${feed} card today — skipping section`); continue; }
+      const raw = _rfs(p, "utf8").replace(/^---\n[\s\S]*?\n---\n+/, "").trim();
+      if (raw) sections.push({ feed, body: raw.slice(0, 2500) });
+    } catch { /* one missing card never sinks the recap */ }
+  }
+  staged.completeStep(0);
+  if (!sections.length) {
+    const skip = "No edition cards found for today — skipping the evening recap.";
+    push(skip);
+    return { kind: "evening-recap", posted: false, note: skip };
+  }
+  push(`Stitching ${sections.length} edition(s) into the evening digest.`);
+  const digest = (await llmGenerate(
+    `Stitch these daytime edition cards into ONE evening digest for a Telegram group audience that may have missed them. ` +
+    `Format (plain text, no markdown, no angle brackets):\n` +
+    `HEADER: 🌙 TODAY IN AI — ${date}\n` +
+    `AFRICA: one line (top Africa story + link)\n` +
+    `WORLD: one line (top world story + link)\n` +
+    `SI: one line (top SI story + link)\n` +
+    `EVENTS: one line (most urgent deadline/event + link), or "no events today"\n` +
+    `SIGNOFF: one short warm line (e.g. see you tomorrow 07:30)\n\n` +
+    `Keep every URL exactly as given — never invent or shorten links.\n\n` +
+    sections.map(s => `== ${s.feed.toUpperCase()} ==\n${s.body}`).join("\n\n"),
+    "You are an evening news editor writing a tight same-day recap. Links verbatim, no hype.",
+    { maxTokens: 800 },
+  )).trim();
+  const grab = (label: string) => {
+    const m = digest.match(new RegExp(`^[\\s>*#-]*${label}\\s*:?\\s*([\\s\\S]*?)(?=\\n[\\s>*#-]*(?:HEADER|AFRICA|WORLD|SI|EVENTS|SIGNOFF)\\s*:|$)`, "im"));
+    return (m?.[1] ?? "").replace(/```[a-z]*\n?/gi, "").trim().replace(/^["']|["']$/g, "").trim();
+  };
+  const clean = (t: string) => t.split("\n").map(l => l.replace(/^\s*(?:HEADER|AFRICA|WORLD|SI|EVENTS|SIGNOFF)\s*:?\s*/i, "").trimEnd()).filter(l => !/^\s*(?:HEADER|AFRICA|WORLD|SI|EVENTS|SIGNOFF)\s*:?\s*$/i.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const postText = clean([
+    grab("HEADER") || `🌙 TODAY IN AI — ${date}`, "",
+    grab("AFRICA"), grab("WORLD"), grab("SI"), grab("EVENTS"), "",
+    grab("SIGNOFF"),
+  ].filter(Boolean).join("\n"));
+  staged.completeStep(1);
+  if (!postText) {
+    push("Digest came back empty — skipping the post.");
+    return { kind: "evening-recap", posted: false, note: "empty digest" };
+  }
+  const tg = findPrimitive("telegram.send");
+  if (!tg) throw new Error("telegram.send primitive unavailable");
+  staged.setPhase("posting");
+  const sent = await tg.handler({ text: postText, chatId });
+  staged.completeStep(2);
+  staged.setPhase("done");
+  if (sent?.ok) claimUrlsToday([...postText.matchAll(/https?:\/\/[^\s)>\]]+/g)].map(m => m[0].replace(/[.,;]+$/, "")));
+  push(sent?.ok ? `Posted evening recap to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
+  return { kind: "evening-recap", posted: !!sent?.ok, chatId, answer: postText, error: sent?.ok ? undefined : sent?.error };
+}
+
+// Weekend digest — ONE combined Africa + World + SI card for Saturday/Sunday
+// mornings, replacing the three weekday editions (which run Mon–Fri only).
+async function weekendDigestRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
+  const chatId = String(inputs.chatId ?? "").trim();
+  if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
+  const staged = stagedProgress(progress, ["Sweep all feeds", "Dedupe + rank", "Build weekend card", "Post to Telegram"]);
+  push("Weekend sweep: Africa + World + SI queries in one pass.");
+  const [rss, web] = await Promise.all([
+    fetchRssTier(push, false),
+    scrapeStoriesForQueries([...new Set([...effectiveAfricaQueries(), ...effectiveWorldQueries(), ...effectiveSiQueries()])].slice(0, 12), push, "weekend"),
+  ]);
+  staged.completeStep(0);
+  let merged: StorySource[] = [...rss, ...web];
+  merged = await dedupeAndFilter(merged, push);
+  merged = await enrichTopStories(merged, push, 6);
+  merged = await scoreStoriesQuality(merged, push, false);
+  staged.completeStep(1);
+  if (!merged.length) {
+    const skip = "No fresh stories for the weekend digest — skipping the post.";
+    push(skip);
+    logNewsMetrics("weekend", merged, null, push);
+    return { kind: "weekend-digest", posted: false, note: skip };
+  }
+  // Top 3 from distinct domains for variety.
+  const picks: StorySource[] = [];
+  for (const s of merged) {
+    if (picks.length >= 3) break;
+    if (picks.some(p => domainOf(p.url) === domainOf(s.url))) continue;
+    picks.push(s);
+  }
+  push(`Picked ${picks.length} stories for the weekend card.`);
+  const numbered = picks.map((s, i) => `[${i + 1}] ${s.title}${s.url ? ` (${s.url})` : ""}\n${(s.text ?? "").slice(0, 500)}`).join("\n\n---\n\n");
+  const date = new Date().toISOString().slice(0, 10);
+  const raw = (await llmGenerate(
+    `Build a WEEKEND AI DIGEST for ${date} from these ${picks.length} pre-ranked stories (1 = best).\n\n` +
+    `Output EXACTLY these labelled lines (plain text, no markdown, no angle brackets):\n` +
+    `HEADER: 🌴 WEEKEND AI DIGEST — ${date}\n` +
+    `STORIES: one block per story: "Title"\n"2-sentence factual summary"\n"🔗 URL"\n"Why it matters in one line", blocks separated by a blank line\n` +
+    `FOOTER: one relaxed weekend sign-off line\n\n` +
+    `Use ONLY facts from the texts — never invent dates, links or details.\n\n${numbered.slice(0, 5000)}`,
+    "You are a weekend news editor. Relaxed but factual, links verbatim, no hype.",
+    { maxTokens: 1200 },
+  )).trim();
+  const grab = (label: string) => {
+    const m = raw.match(new RegExp(`^[\\s>*#-]*${label}\\s*:?\\s*([\\s\\S]*?)(?=\\n[\\s>*#-]*(?:HEADER|STORIES|FOOTER)\\s*:|$)`, "im"));
+    return (m?.[1] ?? "").replace(/```[a-z]*\n?/gi, "").trim().replace(/^["']|["']$/g, "").trim();
+  };
+  const clean = (t: string) => t.split("\n").map(l => l.replace(/^\s*(?:HEADER|STORIES|FOOTER)\s*:?\s*/i, "").trimEnd()).filter(l => !/^\s*(?:HEADER|STORIES|FOOTER)\s*:?\s*$/i.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const postText = clean([grab("HEADER") || `🌴 WEEKEND AI DIGEST — ${date}`, "", grab("STORIES") || raw.slice(0, 3000), "", grab("FOOTER")].filter(Boolean).join("\n"));
+  staged.completeStep(2);
+  if (!postText) {
+    push("Digest came back empty — skipping the post.");
+    return { kind: "weekend-digest", posted: false, note: "empty digest" };
+  }
+  logNewsMetrics("weekend", merged, picks[0] ?? null, push);
+  if (picks[0]) writeNewsVault("weekend", { postText, story: picks[0].title.slice(0, 220) }, picks[0]);
+  const tg = findPrimitive("telegram.send");
+  if (!tg) throw new Error("telegram.send primitive unavailable");
+  staged.setPhase("posting");
+  const sent = await tg.handler({ text: postText, chatId });
+  staged.completeStep(3);
+  staged.setPhase("done");
+  if (sent?.ok) claimUrlsToday(picks.map(p => p.url));
+  push(sent?.ok ? `Posted weekend digest to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
+  return { kind: "weekend-digest", posted: !!sent?.ok, chatId, answer: postText, error: sent?.ok ? undefined : sent?.error };
 }
 
 // Thin wrapper so brand-signal scanning (lib/brand-signals.ts) is reachable
@@ -1624,6 +2232,7 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
   // "Attached documents (user uploaded as context…)" block, the runner routes
   // to the direct-synth path, which reads the block as primary evidence.
   const contextParts: string[] = [];
+  const staged = stagedProgress(progress, ["Pull activity", "Day shape", "Inbox triage", "Approvals + scan", "Write briefing"]);
 
   // Real activity for the window — the agents' own completed jobs, straight
   // from the job store (in-memory + _naxion/jobs JSONL).
@@ -1654,6 +2263,65 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
       }
     }
   } catch (e: any) { push(`Activity lookup failed: ${String(e?.message ?? e).slice(0, 100)}`); }
+  staged.completeStep(0);
+
+  // Today's shape — meetings, Naxie runs, dated commitments, carryover — via
+  // calendar.plan_day's single structured call (it already joins iCal +
+  // schedules + memory + yesterday's failed/awaiting jobs). Without this the
+  // brief had no idea what the day looks like: no meetings, no shape.
+  try {
+    const prim = findPrimitive("calendar.plan_day");
+    if (prim) {
+      const day: any = await prim.handler({ date: to });
+      const { formatDayShape } = await import("../lib/briefing-evidence.js");
+      contextParts.push(formatDayShape(day, to));
+      const n = (day?.meetings ?? []).length;
+      push(n ? `${n} meeting(s) on today's calendar.` : "Nothing on today's calendar.");
+    }
+  } catch (e: any) { push(`Day-shape lookup failed: ${String(e?.message ?? e).slice(0, 100)}`); }
+  staged.completeStep(1);
+
+  // Inbox triage — pending items only (snoozed/resolved stay out). The brief
+  // must never claim "inbox is quiet" without looking here first.
+  let inboxCount = 0;
+  try {
+    const { listTriage } = await import("../lib/email.js");
+    const { formatInboxTriage } = await import("../lib/briefing-evidence.js");
+    const store = listTriage() as Record<string, any>;
+    const { count, block } = formatInboxTriage(store);
+    inboxCount = count;
+    if (block) contextParts.push(block);
+    push(count ? `${count} email(s) waiting in triage.` : "Inbox triage is clear.");
+  } catch (e: any) { push(`Inbox lookup failed: ${String(e?.message ?? e).slice(0, 100)}`); }
+  staged.completeStep(2);
+
+  // Waiting on you — approval-parked jobs + OrgTasks. Read directly (not via
+  // the org.approvals_pending primitive, which is master-employee-gated and
+  // would refuse this headless caller).
+  try {
+    const awaiting = listJobs().filter((j: any) => j.status === "awaiting-approval").slice(0, 8);
+    const { listOrgTasks } = await import("../lib/org-tasks.js");
+    const waiting = (listOrgTasks({ status: "waiting-on-approval" } as any) as any[]).slice(0, 8);
+    const { formatWaiting } = await import("../lib/briefing-evidence.js");
+    const block = formatWaiting(awaiting, waiting);
+    if (block) {
+      contextParts.push(block);
+      push(`${awaiting.length + waiting.length} item(s) waiting on approval.`);
+    }
+  } catch (e: any) { push(`Approvals lookup failed: ${String(e?.message ?? e).slice(0, 100)}`); }
+
+  // Yesterday's Top 3 — follow-through check. The prior briefing's focus
+  // items return as evidence; the synthesiser judges each kept / carried /
+  // dropped against the activity above, so unkept promises resurface.
+  let followupInstruction = "";
+  try {
+    const { previousTop3 } = await import("../lib/briefing-memory.js");
+    const prior = previousTop3(to);
+    if (prior.length) {
+      contextParts.push(`### Yesterday's Top 3\n${prior.map((t) => `  - ${t}`).join("\n")}`);
+      followupInstruction = `\n- Under "## Open loops", FIRST account for each of yesterday's Top 3 (kept / carried / dropped — judge from the activity evidence, never assume). Carried items reappear in today's Top 3 only if still genuinely top-3.`;
+    }
+  } catch { /* first run (or a failed read) simply has no follow-up */ }
 
   // Latest innovation scan (48h) — the research employee's daily R&D report.
   let scanJobId = "";
@@ -1678,6 +2346,7 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
       push("No innovation scan in the last 48h.");
     }
   } catch { /* briefing must never fail on the attachment */ }
+  staged.completeStep(3);
 
   const attachmentBlock = contextParts.length
     ? `\n\nAttached documents (user uploaded as context — treat as the primary evidence, do NOT web-search):\n\n${contextParts.join("\n\n")}`
@@ -1689,18 +2358,26 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
     ? `\n- "## Innovation scout" — 3-5 lines summarising the Top 3 opportunities from the attached innovation scan; cite job ${scanJobId} once so the reader can open the full report.`
     : "";
 
+  // Inbox section exists only when triage is non-empty — an empty inbox gets
+  // no section at all (no-filler rule), never a "nothing to report" line.
+  const inboxInstruction = inboxCount > 0
+    ? `\n- "## Inbox — needs you" — one line per waiting email (sender/subject + what they're asking); only mail with an implicit ask, never newsletters.`
+    : "";
+
   // Section names are given as exact headings to REPRODUCE; the guidance sits
   // on the instruction lines so the model doesn't echo it into the heading
   // text (an earlier version put guidance after an em-dash IN the heading and
   // the synth printed "## Focus today — the 3-5 things that matter…" verbatim).
   const task =
     `Produce my briefing for ${today}.${focus ? ` Focus area: ${focus}.` : ""}\n\n` +
-    `Using ONLY the attached context below (real activity + the latest innovation scan), write a short, scannable briefing. Use these EXACT section headings, nothing after them:\n` +
-    `- "## Focus today" — the 3-5 things that matter most, each one line with WHY it matters.\n` +
-    `- "## Open loops" — anything waiting on me or flagged for follow-up.\n` +
+    `Using ONLY the attached context below (activity, today's shape, inbox, approvals + the latest innovation scan), write a short, scannable briefing. Use these EXACT section headings, nothing after them:\n` +
+    `- "## Focus today" — open with one line on the day's shape (meetings load, first/last commitment, focus blocks or "none"), then the 3-5 things that matter most, each one line with WHY it matters.\n` +
+    `- "## Open loops" — anything waiting on me or flagged for follow-up (approvals, carryover, dated commitments).` +
+    followupInstruction +
     `- "## Worth knowing" — short notes on recent changes or context.` +
+    inboxInstruction +
     innovationInstruction + `\n\n` +
-    `Keep it tight — a morning glance, not a report. If the activity window is empty, say so plainly in one line rather than padding or inventing items. Output ONLY the finished briefing (the headings above and their bullets) — never your reasoning, the guidance, or these instructions.` +
+    `Keep it tight — 150-300 words, a morning glance, not a report. If a window is empty, say so plainly in one line rather than padding or inventing items. Output ONLY the finished briefing (the headings above and their bullets) — never your reasoning, the guidance, or these instructions.` +
     attachmentBlock;
   // `_personaId` passes through so a scheduled briefing can pin the right
   // employee instead of inheriting whoever happens to be the org-wide active
@@ -1711,7 +2388,16 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
   // inbox triage / morning briefings are explicitly her lane (personas.ts),
   // and inheriting a random specialist produces refusals.
   const personaId = (typeof inputs._personaId === "string" && inputs._personaId.trim()) || "naxie";
-  return generalTaskRunner({ task, save_as_template: false, _personaId: personaId }, push, progress);
+  staged.setPhase("synthesizing");
+  const brief = await generalTaskRunner({ task, save_as_template: false, _personaId: personaId }, push, progress);
+  // Remember today's Top 3 for tomorrow's follow-through check. Best-effort:
+  // memory must never fail a briefing that already succeeded.
+  try {
+    const { recordBriefing } = await import("../lib/briefing-memory.js");
+    const ans = (brief as any)?.answer;
+    if (typeof ans === "string" && ans.trim()) recordBriefing(to, ans);
+  } catch { /* ignore */ }
+  return brief;
 }
 
 async function syncDownloadsRunner(inputs: Record<string, unknown>, push: (m: string) => void) {

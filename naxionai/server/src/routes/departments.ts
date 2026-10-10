@@ -71,7 +71,7 @@ departmentsRouter.get("/:id", (req, res) => {
 // POST /api/departments/:id/apply — deploy a department template.
 // Creates the persona(s) listed in the template so the operator can
 // immediately start hiring workers for this department.
-departmentsRouter.post("/:id/apply", async (req, res) => {
+departmentsRouter.post("/:id/apply", requireLayer("admin"), async (req, res) => {
   try {
     const tpl = resolveDepartment(req.params.id);
     if (!tpl) return res.status(404).json({ error: "department template not found" });
@@ -79,7 +79,7 @@ departmentsRouter.post("/:id/apply", async (req, res) => {
     const result = applyResolvedTemplate(tpl);
     res.json({
       ...result,
-      message: `Deployed "${result.departmentName}" — ${result.personas.length} agent${result.personas.length === 1 ? "" : "s"} created. Head to the Team page to activate and assign them.`,
+      message: `Applied "${result.departmentName}" — ${result.personas.length} hires created, ${result.starterTemplatesCreated} starter task templates added, and ${result.scheduleCreated ? "the recurring briefing is scheduled" : "no schedule was needed"}. Review the hires on the Team page and connect any recommended integrations before external work.`,
     });
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? String(e) });

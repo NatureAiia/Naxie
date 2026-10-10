@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Database, Folder, Sparkles } from "lucide-react";
-import { api, type FileBackendId, type FileEntry, type User } from "../lib/api";
+import { BookOpen, Folder, HardDrive, Search, Sparkles } from "lucide-react";
+import { api, type FileBackendId, type FileEntry } from "../lib/api";
 import { FileExplorer } from "../components/FileExplorer";
 import { VaultHealthBanner, type VaultHealth } from "../components/library/VaultHealthBanner";
 import { LibrarySearch } from "../components/library/LibrarySearch";
 import { MarkdownPreviewPanel } from "../components/library/MarkdownPreviewPanel";
 import { PromoteBar } from "../components/library/PromoteBar";
 import { ImportsActions } from "../components/library/ImportsActions";
-import { LibraryConnections } from "../components/library/LibraryConnections";
-import { CompanyLinksPanel } from "../components/library/CompanyLinksPanel";
 import { DatasetsPanel } from "../components/library/DatasetsPanel";
 
 // The vault path lives in the URL (e.g. /library/Naxie%20Data%20Migration.md)
@@ -23,27 +21,17 @@ function isPreviewable(name: string): boolean {
   return name.endsWith(".md") || name.endsWith(".txt") || name.endsWith(".json");
 }
 
-// Connections/Datasets tabs live at their own URL so gating (Connections) and
-// deep-linking apply the same whether the user clicks the tab or hits the
-// URL directly.
-const CONNECTIONS_PATH = "/library/data";
+// The Datasets tab lives at its own URL so deep-linking works whether the
+// user clicks the tab or hits the URL directly. Database connections moved
+// to the Connectors page (tab "databases").
 const DATASETS_PATH = "/library/datasets";
 
 export function Library() {
   const nav = useNavigate();
   const loc = useLocation();
 
-  // ---- access gating (mirrors Layout.tsx's layer computation) ----
-  const [user, setUser] = useState<User | null>(null);
-  useEffect(() => { api.session().then(s => setUser(s.user)).catch(() => setUser(null)); }, []);
-  const role = (user?.role ?? "") as string;
-  const layer = !user ? "superadmin" : role === "superadmin" ? "superadmin" : role === "admin" ? "admin" : "staff";
-  const canSeeConnections = layer !== "staff";
-
-  const onConnectionsRoute = loc.pathname === CONNECTIONS_PATH || loc.pathname.startsWith(CONNECTIONS_PATH + "/");
   const onDatasetsRoute = loc.pathname === DATASETS_PATH || loc.pathname.startsWith(DATASETS_PATH + "/");
-  const tab: "files" | "connections" | "datasets" =
-    onConnectionsRoute && canSeeConnections ? "connections" : onDatasetsRoute ? "datasets" : "files";
+  const tab: "files" | "datasets" = onDatasetsRoute ? "datasets" : "files";
 
   // ---- vault deep-linking (Files tab, vault backend only) ----
   // FileExplorer owns its own path/selection state internally (no controlled
@@ -52,7 +40,7 @@ export function Library() {
   // file's content directly here, and selecting a previewable vault file in
   // FileExplorer pushes the URL to match. Folder browsing stays FileExplorer's
   // own client-side state, same as every other backend.
-  const subPath = !onConnectionsRoute && !onDatasetsRoute ? decodePath(loc.pathname.replace(/^\/library\/?/, "")) : "";
+  const subPath = !onDatasetsRoute ? decodePath(loc.pathname.replace(/^\/library\/?/, "")) : "";
 
   const [sel, setSel] = useState<{ backend: FileBackendId; path: string; entries: FileEntry[]; selectedEntry: FileEntry | null }>(
     { backend: "vault", path: "", entries: [], selectedEntry: null },
@@ -101,58 +89,64 @@ export function Library() {
   const initialPath = subPath && !isPreviewable(subPath) ? { backend: "vault" as const, path: subPath } : undefined;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-cream-50">Library</h1>
-        <p className="text-sm text-cream-300/70 mt-1">
-          Every storage location in one file explorer — the Obsidian vault, a sandboxed local-disk folder, and (once connected) Google Drive or Supabase.
-          {canSeeConnections && " Plus company database connections and curated department data for agents to query."}
-        </p>
-      </div>
+    <div className="space-y-5 pb-4">
+      <section className="relative isolate overflow-hidden rounded-3xl border border-ink-700/80 bg-gradient-to-br from-[#1a202a] via-ink-900 to-[#1c1828] p-5 shadow-[0_24px_80px_-48px_rgba(95,191,169,.3)] tablet:p-7">
+        <div aria-hidden className="pointer-events-none absolute -right-16 -top-28 h-72 w-72 rounded-full bg-teal-400/10 blur-3xl" />
+        <div aria-hidden className="pointer-events-none absolute bottom-[-9rem] right-[28%] h-64 w-64 rounded-full bg-violet-500/[0.12] blur-3xl" />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-4">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-teal-300/20 bg-teal-300/10 text-teal-200 shadow-[inset_0_1px_0_rgba(255,255,255,.08)]"><BookOpen size={22} /></div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-teal-200/80">Memory & knowledge</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-ink-600 bg-ink-950/40 px-2 py-1 text-[10px] text-cream-200/70"><HardDrive size={11} /> Storage locations</span>
+              </div>
+              <h1 className="mt-2 font-display text-3xl tracking-tight text-cream-50 tablet:text-4xl">Knowledge, in one place.</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-cream-200/70">Search, browse, and shape the information your team works from—across your vault and connected storage.</p>
+            </div>
+          </div>
+        </div>
 
-      <div className="flex items-center gap-1 border-b border-ink-800">
-        <button
-          type="button"
-          onClick={() => nav("/library")}
-          className={`flex items-center gap-1.5 text-sm px-3 py-2 border-b-2 -mb-px ${tab === "files" ? "border-violet-500 text-cream-50" : "border-transparent text-cream-300/60 hover:text-cream-100"}`}
-        >
-          <Folder size={14} /> Files
-        </button>
-        {canSeeConnections && (
+        <div role="group" aria-label="Knowledge workspace" className="relative mt-6 inline-flex max-w-full rounded-xl border border-ink-700 bg-ink-950/60 p-1">
           <button
             type="button"
-            onClick={() => nav(CONNECTIONS_PATH)}
-            className={`flex items-center gap-1.5 text-sm px-3 py-2 border-b-2 -mb-px ${tab === "connections" ? "border-violet-500 text-cream-50" : "border-transparent text-cream-300/60 hover:text-cream-100"}`}
+            aria-pressed={tab === "files"}
+            onClick={() => nav("/library")}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-colors ${tab === "files" ? "bg-ink-700 text-cream-50 shadow-sm" : "text-cream-300/65 hover:text-cream-100"}`}
           >
-            <Database size={14} /> Connections
+            <Folder size={14} /> Files
           </button>
-        )}
-        <button
-          type="button"
-          onClick={() => nav(DATASETS_PATH)}
-          className={`flex items-center gap-1.5 text-sm px-3 py-2 border-b-2 -mb-px ${tab === "datasets" ? "border-violet-500 text-cream-50" : "border-transparent text-cream-300/60 hover:text-cream-100"}`}
-        >
-          <Sparkles size={14} /> Datasets
-        </button>
-      </div>
+          <button
+            type="button"
+            aria-pressed={tab === "datasets"}
+            onClick={() => nav(DATASETS_PATH)}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-colors ${tab === "datasets" ? "bg-ink-700 text-cream-50 shadow-sm" : "text-cream-300/65 hover:text-cream-100"}`}
+          >
+            <Sparkles size={14} /> Datasets
+          </button>
+        </div>
+      </section>
 
-      {tab === "connections" ? (
-        canSeeConnections ? (
-          <div className="space-y-4">
-            <LibraryConnections />
-            <CompanyLinksPanel />
-          </div>
-        ) : (
-          <div className="text-sm text-cream-300/70 bg-ink-900 border border-ink-800 rounded-lg px-4 py-3">
-            You don't have permission to view database connections. Ask an admin for access.
-          </div>
-        )
-      ) : tab === "datasets" ? (
+      {tab === "datasets" ? (
         <DatasetsPanel />
       ) : (
         <div className="space-y-4">
           {showVaultChrome && <VaultHealthBanner vaultHealth={vaultHealth} onRetry={retryVaultHealth} />}
-          {showVaultChrome && <LibrarySearch onNavigateToResult={(path) => nav("/library/" + path)} />}
+          {showVaultChrome && (
+            <section className="rounded-2xl border border-ink-700/80 bg-gradient-to-br from-ink-900/90 to-ink-850/70 p-4 tablet:p-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-teal-400/10 text-teal-200"><Search size={15} /></span>
+                  <div>
+                    <h2 className="text-sm font-semibold text-cream-50">Search your vault</h2>
+                    <p className="text-[11px] text-cream-300/55">Find a phrase across your saved notes and files.</p>
+                  </div>
+                </div>
+                <kbd className="hidden rounded-md border border-ink-700 bg-ink-950/60 px-2 py-1 text-[10px] text-cream-300/60 tablet:inline">/ to search</kbd>
+              </div>
+              <LibrarySearch onNavigateToResult={(path) => nav("/library/" + path)} />
+            </section>
+          )}
           {contentErr && <div className="text-coral-400 text-sm">{contentErr}</div>}
 
           {showVaultChrome && content !== null && previewPath ? (

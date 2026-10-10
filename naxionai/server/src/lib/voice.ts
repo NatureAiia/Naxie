@@ -133,10 +133,13 @@ export async function voiceStatus(): Promise<{ realtime: boolean; edge: boolean;
 
 // ── voice identity ─────────────────────────────────────────────────────────
 
-const OPENAI_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"];
-// Kokoro voice ids (Kokoro-FastAPI naming). If the sidecar is Piper-based the
-// model name wins and this list is simply ignored by the server.
-const LOCAL_VOICES = ["af_heart", "am_adam", "af_bella", "bm_george", "af_sky", "am_michael", "bf_emma", "af_nicole"];
+const OPENAI_VOICES = ["coral", "sage", "shimmer"];
+// Kokoro voice ids (Kokoro-FastAPI naming). Female-only by operator rule —
+// every persona, employee voice, and Telegram audio is a female voice, so
+// the masculine lanes (am_adam, bm_george, am_michael) are out. If the
+// sidecar is Piper-based the model name wins and this list is simply ignored
+// by the server.
+const LOCAL_VOICES = ["af_heart", "af_bella", "af_sky", "bf_emma", "af_nicole"];
 
 function hashIdx(s: string, mod: number): number {
   let h = 0;
@@ -144,14 +147,22 @@ function hashIdx(s: string, mod: number): number {
   return h % mod;
 }
 
+// Naxie's two voices (operator rule): bf_emma is her MAIN voice, af_heart
+// does read-alouds + sent audios and is the secondary when main fails.
+// Override with NAXION_NAXIE_MAIN_VOICE / NAXION_NAXIE_READALOUD_VOICE.
+const NAXIE_MAIN_VOICE = (process.env.NAXION_NAXIE_MAIN_VOICE ?? "bf_emma").trim() || "bf_emma";
+const NAXIE_READALOUD_VOICE = (process.env.NAXION_NAXIE_READALOUD_VOICE ?? "af_heart").trim() || "af_heart";
+
+export type NaxieVoicePurpose = "main" | "readaloud";
+
 export function voiceForPersona(personaId: string | undefined): { openaiVoice: string; localVoice: string; edgeVoice: string } {
   const key = (personaId ?? "default").toLowerCase();
   const isNaxie = key === "naxie" || key === "naxie-agent";
-  // Naxie is pinned to specific voices rather than the hash — the hash can
-  // land anywhere in the list, including a voice that doesn't match her
-  // identity (e.g. a male Kokoro voice, or OpenAI's energetic "nova").
+  // Naxie is pinned to her two voices rather than the hash — the hash can
+  // land anywhere in the list. Main voice for speech, read-aloud voice for
+  // read-alouds/sent audios (see NAXIE_MAIN_VOICE / NAXIE_READALOUD_VOICE).
   // Edge: single voice (Libby) for everyone — Naxie's voice is the house voice.
-  const localVoice = isNaxie ? "af_heart" : LOCAL_VOICES[hashIdx(key, LOCAL_VOICES.length)];
+  const localVoice = isNaxie ? NAXIE_MAIN_VOICE : LOCAL_VOICES[hashIdx(key, LOCAL_VOICES.length)];
   const openaiVoice = isNaxie ? NAXIE_OPENAI_VOICE : OPENAI_VOICES[hashIdx(key, OPENAI_VOICES.length)];
   return { openaiVoice, localVoice, edgeVoice: EDGE_VOICE };
 }
@@ -226,13 +237,39 @@ export function ttsCacheStore(key: string, audio: Buffer, contentType: string): 
 // the only change needed to support streamed playback; the existing
 // fully-buffered callers (routes/voice.ts's /tts) simply omit it and get
 // identical behavior to before.
-export async function synthesizeWithVoice(text: string, personaId: string | undefined, onChunk?: (chunk: Buffer) => void): Promise<{ audio: Buffer; contentType: string }> {
+export async function synthesizeWithVoice(
+  text: string,
+  personaId: string | undefined,
+  onChunk?: (chunk: Buffer) => void,
+  purpose: NaxieVoicePurpose = "main",
+): Promise<{ audio: Buffer; contentType: string }> {
   const v = voiceForPersona(personaId);
   const key = (personaId ?? "").toLowerCase();
   const isNaxie = key === "naxie" || key === "naxie-agent";
   const edgeCacheKey = ttsCacheKey(text, v.edgeVoice, "edge");
   const openaiCacheKey = ttsCacheKey(text, v.openaiVoice, "openai");
   const localCacheKey = ttsCacheKey(text, v.localVoice, "local");
+  // Naxie's Kokoro voice by purpose: bf_emma speaks, af_heart reads aloud
+  // (and covers if main fails). Other personas use their hashed local voice.
+  const kokoroVoice = isNaxie
+    ? (purpose === "readaloud" ? NAXIE_READALOUD_VOICE : NAXIE_MAIN_VOICE)
+    : v.localVoice;
+
+  // Naxie leads with Kokoro so she always sounds like herself (her two
+  // voices); everyone else keeps Edge-first order with Kokoro as the local
+  // tier ahead of SAPI.
+  if (isNaxie) {
+    const kokoroCacheKey = ttsCacheKey(text, kokoroVoice, "kokoro");
+    const cachedKokoro = ttsCacheLoad(kokoroCacheKey);
+    if (cachedKokoro) { onChunk?.(cachedKokoro.audio); return cachedKokoro; }
+    try {
+      const out = await synthesizeKokoroVoice(text, kokoroVoice, isNaxie, onChunk);
+      ttsCacheStore(kokoroCacheKey, out.audio, out.contentType);
+      return out;
+    } catch (e) {
+      console.warn(`[voice] Kokoro failed, falling back: ${String((e as any)?.message ?? e).slice(0, 120)}`);
+    }
+  }
 
   if (edgeAvailable()) {
     const cached = ttsCacheLoad(edgeCacheKey);
@@ -254,7 +291,39 @@ export async function synthesizeWithVoice(text: string, personaId: string | unde
       ttsCacheStore(openaiCacheKey, out.audio, out.contentType);
       return out;
     } catch (e) {
-      console.warn(`[voice] OpenAI TTS failed, falling back to local sidecar: ${String((e as any)?.message ?? e).slice(0, 120)}`);
+      console.warn(`[voice] OpenAI TTS failed, falling back to Windows SAPI: ${String((e as any)?.message ?? e).slice(0, 120)}`);
+    }
+  }
+
+  // Embedded Kokoro for everyone else (neural, free, offline after first
+  // download) — ahead of the robotic SAPI floor.
+  if (!isNaxie) {
+    const kokoroCacheKey = ttsCacheKey(text, v.localVoice, "kokoro");
+    const cachedKokoro = ttsCacheLoad(kokoroCacheKey);
+    if (cachedKokoro) { onChunk?.(cachedKokoro.audio); return cachedKokoro; }
+    try {
+      const out = await synthesizeKokoroVoice(text, v.localVoice, false, onChunk);
+      ttsCacheStore(kokoroCacheKey, out.audio, out.contentType);
+      return out;
+    } catch (e) {
+      console.warn(`[voice] Kokoro failed, falling back: ${String((e as any)?.message ?? e).slice(0, 120)}`);
+    }
+  }
+
+  // Windows built-in speech (System.Speech) — robotic next to neural
+  // voices, but free, offline, keyless, and always present on this box.
+  // This is what keeps read-aloud (and Telegram voice notes) alive when
+  // Edge is blocked and OpenAI has no credits.
+  if (sapiAvailable()) {
+    const sapiCacheKey = ttsCacheKey(text, "sapi-default", "sapi");
+    const cachedSapi = ttsCacheLoad(sapiCacheKey);
+    if (cachedSapi) { onChunk?.(cachedSapi.audio); return cachedSapi; }
+    try {
+      const out = await synthesizeSapi(text, onChunk);
+      ttsCacheStore(sapiCacheKey, out.audio, out.contentType);
+      return out;
+    } catch (e) {
+      console.warn(`[voice] Windows SAPI failed, falling back to local sidecar: ${String((e as any)?.message ?? e).slice(0, 120)}`);
     }
   }
 
@@ -263,6 +332,75 @@ export async function synthesizeWithVoice(text: string, personaId: string | unde
   const out = await synthesizeLocal(text, v.localVoice, onChunk);
   ttsCacheStore(localCacheKey, out.audio, out.contentType);
   return out;
+}
+
+// ── Embedded Kokoro-82M (Apache-2.0, free) ────────────────────────────────
+// In-process ONNX synthesis — no sidecar to run, no key, no network after
+// the first model download. Naxie speaks bf_emma, reads aloud af_heart;
+// anyone else uses their hashed (female-only) local voice.
+let kokoroTts: any = null;
+let kokoroLoadFailed = false;
+
+async function loadKokoro(): Promise<any> {
+  if (kokoroTts) return kokoroTts;
+  if (kokoroLoadFailed) throw new Error("kokoro-js unavailable (previous load failed)");
+  let mod: any;
+  try {
+    // Non-literal specifier so tsc doesn't require the package at build
+    // time — availability is a runtime concern (caught below).
+    const spec: string = "kokoro-js";
+    mod = await import(spec);
+  } catch {
+    kokoroLoadFailed = true;
+    throw new Error("kokoro-js not installed - run `pnpm -F naxion-server add kokoro-js`");
+  }
+  const KokoroTTS = mod.KokoroTTS ?? mod.default?.KokoroTTS ?? mod.default;
+  if (!KokoroTTS?.from_pretrained) {
+    kokoroLoadFailed = true;
+    throw new Error("kokoro-js has no KokoroTTS.from_pretrained export");
+  }
+  try {
+    kokoroTts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-ONNX", { dtype: "q8" });
+  } catch (e: any) {
+    kokoroLoadFailed = true;
+    throw new Error(`Kokoro model load failed: ${String(e?.message ?? e).slice(0, 160)}`);
+  }
+  return kokoroTts;
+}
+
+export async function synthesizeKokoroVoice(
+  text: string,
+  voice: string,
+  naxieSecondaryFallback: boolean,
+  onChunk?: (chunk: Buffer) => void,
+): Promise<{ audio: Buffer; contentType: string }> {
+  const tts = await loadKokoro();
+  const speak = text.slice(0, 4000).trim();
+  if (!speak) throw new Error("nothing to speak");
+  const attempt = async (v: string): Promise<Buffer> => {
+    const audio: any = await Promise.race([
+      tts.generate(speak, { voice: v }),
+      new Promise((_res, rej) => setTimeout(() => rej(new Error("Kokoro timed out after 180s")), 180_000)),
+    ]);
+    const wav: Blob = await audio.toWav();
+    const buf = Buffer.from(await wav.arrayBuffer());
+    if (buf.length < 100 || buf.toString("ascii", 0, 4) !== "RIFF") throw new Error("Kokoro produced no usable audio");
+    return buf;
+  };
+  try {
+    const audio = await attempt(voice);
+    onChunk?.(audio);
+    return { audio, contentType: "audio/wav" };
+  } catch (e: any) {
+    // Naxie's secondary rule: af_heart covers when her main voice fails.
+    if (naxieSecondaryFallback && voice !== NAXIE_READALOUD_VOICE) {
+      console.warn(`[voice] Kokoro voice ${voice} failed, retrying ${NAXIE_READALOUD_VOICE}: ${String(e?.message ?? e).slice(0, 120)}`);
+      const audio = await attempt(NAXIE_READALOUD_VOICE);
+      onChunk?.(audio);
+      return { audio, contentType: "audio/wav" };
+    }
+    throw e;
+  }
 }
 
 // Reads a fetch Response body chunk-by-chunk, forwarding each chunk to
@@ -281,6 +419,55 @@ async function collectStreamed(r: Response, onChunk?: (chunk: Buffer) => void): 
     onChunk(buf);
   }
   return Buffer.concat(chunks);
+}
+
+export function sapiAvailable(): boolean {
+  return process.platform === "win32";
+}
+
+// Windows built-in speech synthesis (System.Speech → WAV file). Text travels
+// over the subprocess STDIN and the output path over an env var — neither is
+// ever interpolated into the script (same posture as host-tools.ts).
+export async function synthesizeSapi(text: string, onChunk?: (chunk: Buffer) => void): Promise<{ audio: Buffer; contentType: string }> {
+  if (!sapiAvailable()) throw new Error("Windows SAPI unavailable on this host");
+  const { execFile } = await import("node:child_process");
+  const tmp = join(tmpdir(), `naxie-sapi-${randomUUID()}.wav`);
+  const script = [
+    "$text = [Console]::In.ReadToEnd()",
+    "if ([string]::IsNullOrWhiteSpace($text)) { exit 2 }",
+    "Add-Type -AssemblyName System.Speech",
+    "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer",
+    "$synth.Rate = 0",
+    // Female voice, pinned: Microsoft Zira Desktop (en-US). Default voice on
+    // some boxes is David (male) — the operator rule is female everywhere.
+    "try { $synth.SelectVoice('Microsoft Zira Desktop') } catch {",
+    "  $fem = $synth.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Gender -eq 'Female' } | Select-Object -First 1",
+    "  if ($fem) { $synth.SelectVoice($fem.VoiceInfo.Name) }",
+    "}",
+    "$synth.SetOutputToWaveFile($env:NAXIE_SAPI_OUT)",
+    "$synth.Speak($text) | Out-Null",
+    "$synth.Dispose()",
+  ].join("\n");
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = execFile("powershell", ["-NoProfile", "-Command", script], {
+        env: { ...process.env, NAXIE_SAPI_OUT: tmp },
+        timeout: 60_000,
+        maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true,
+      }, (err) => (err ? reject(err) : resolve()));
+      child.stdin?.write(text.slice(0, 4000));
+      child.stdin?.end();
+    });
+    const audio = readFileSync(tmp);
+    if (audio.length < 100 || audio.toString("ascii", 0, 4) !== "RIFF") {
+      throw new Error("SAPI produced no usable audio");
+    }
+    onChunk?.(audio);
+    return { audio, contentType: "audio/wav" };
+  } finally {
+    try { unlinkSync(tmp); } catch { /* best-effort tmp cleanup */ }
+  }
 }
 
 export async function synthesizeEdgeTts(text: string, voice: string, onChunk?: (chunk: Buffer) => void): Promise<{ audio: Buffer; contentType: string }> {

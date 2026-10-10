@@ -17,7 +17,29 @@ memory:
 security:
   strict_mode: true
   allowed_tools:
-    - "database_query"
-    - "web_retrieval"
+    - "file_read"
+    - "file_list"
+    - "file_write"
+    - "file_edit"
     - "code_analysis"
+    - "bash_run"
+    - "web_retrieval"
     - "graph_search"
+    - "database_query"
+    - "suggest_subagent"
+    # JARVIS host skills (see src/tools/jarvis.py). Gated ones
+    # (system_control, manage_clipboard, git_command) default OFF and fail
+    # closed — flip in .naxion/host-tools-settings.json, not here.
+    - "get_time"
+    - "calculate"
+    - "system_status"
+    - "get_weather"
+    - "notify_toast"
+    - "set_reminder"
+    - "list_reminders"
+    - "system_control"
+    - "manage_clipboard"
+    - "git_command"
+    - "browser_open"
+    - "speak"
+    - "host_settings"

@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
-import { Plug, Plus, Trash2, CheckCircle2, AlertTriangle, Loader2, ExternalLink, X, Check } from "lucide-react";
+import { useEffect, useState, ChangeEvent } from "react";
+import { Plug, Plus, Trash2, CheckCircle2, AlertTriangle, Loader2, ExternalLink, Check } from "lucide-react";
 import { api, type IntegrationProvider, type IntegrationConnection } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
+import { PageHeader } from "../components/PageHeader";
+import { Modal } from "../components/Modal";
+import { Input } from "../components/forms";
+import { relTime } from "../lib/time";
 
 // Health dot — the at-a-glance "connected & working" signal. Green = last test
 // passed, red = last test failed, amber pulse = never tested yet.
@@ -10,15 +14,6 @@ function HealthDot({ conn }: { conn: IntegrationConnection }) {
   const cls = !t ? "bg-amber-400/80 animate-pulse" : t.ok ? "bg-leaf-500" : "bg-coral-500";
   const title = !t ? "Not tested yet" : t.ok ? `Working — ${t.detail}` : `Failing — ${t.detail}`;
   return <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${cls}`} title={title} />;
-}
-
-function relTime(iso?: string): string {
-  if (!iso) return "";
-  const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60); if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
 }
 
 // Integrations — the user connects external services (messaging, social,
@@ -87,17 +82,15 @@ export function Integrations() {
     .map(cat => ({ cat, items: providers.filter(p => p.category === cat && !hiddenProviders.has(p.id)) }))
     .filter(g => g.items.length > 0);
 
-  return (
+return (
     <div className="space-y-4">
-      <div>
-        <h1 className="font-display text-3xl text-cream-50 flex items-center gap-3"><Plug size={24} /> Integrations</h1>
-        <p className="text-sm text-cream-300/70 mt-1">
-           Connect your tools so agents can act on them — post to <span className="font-mono">Buffer Business</span>, read <span className="font-mono">Notion</span>/<span className="font-mono">GitHub</span>, and more.
-          Secrets are <span className="text-cream-200">encrypted at rest</span> and never leave the server.
-        </p>
-      </div>
+      <PageHeader
+        title="Integrations"
+        subtitle="Connect your tools so agents can act on them — post to Buffer Business, read Notion/GitHub, and more. Secrets are encrypted at rest and never leave the server."
+        icon={<Plug size={28} />}
+      />
 
-       {connections.length > 0 && (
+      {connections.length > 0 && (
          <Card
            title={`Connected (${connections.length})`}
            action={
@@ -241,40 +234,36 @@ function ConnectModal({ provider, onClose, onConnected }: { provider: Integratio
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-md bg-ink-900 border border-ink-700 rounded-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg text-cream-50 font-medium">Connect {provider.name}</h2>
-          <button onClick={onClose} className="text-cream-300/50 hover:text-cream-100"><X size={18} /></button>
-        </div>
-        {provider.note && <div className="text-[11px] text-amber-300/80 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">{provider.note}</div>}
-        <div className="space-y-3">
-          <div>
-            <label className="block text-[11px] text-cream-300/70 mb-1">Label</label>
-            <input value={label} onChange={e => setLabel(e.target.value)} className="w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500/60" />
-          </div>
-          {provider.fields.map(f => (
-            <div key={f.name}>
-              <label className="block text-[11px] text-cream-300/70 mb-1">{f.label}{f.required && <span className="text-coral-400"> *</span>}</label>
-              <input
-                type={f.type === "password" ? "password" : "text"}
-                value={values[f.name] ?? ""}
-                onChange={e => setValues(v => ({ ...v, [f.name]: e.target.value }))}
-                placeholder={f.placeholder}
-                autoComplete="off" spellCheck={false}
-                className="w-full bg-ink-950 border border-ink-800 text-sm text-cream-100 rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-violet-500/60 placeholder:text-cream-300/30"
-              />
-            </div>
-          ))}
-        </div>
-        {err && <div className="text-[12px] text-coral-400 flex items-center gap-1.5"><AlertTriangle size={13} /> {err}</div>}
-        <div className="flex items-center justify-between pt-1">
-          {provider.docsUrl
-            ? <a href={provider.docsUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-violet-400 hover:text-violet-300 inline-flex items-center gap-1">Where do I get this? <ExternalLink size={11} /></a>
-            : <span />}
-          <Button onClick={submit} disabled={saving}>{saving ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />} Connect</Button>
-        </div>
+    <Modal open onClose={onClose} title={`Connect ${provider.name}`} size="md">
+      {provider.note && <div className="text-[11px] text-amber-300/80 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">{provider.note}</div>}
+      <div className="space-y-3">
+        <Input
+          label="Label"
+          value={label}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setLabel(e.target.value)}
+        />
+        {provider.fields.map(f => (
+          <Input
+            key={f.name}
+            label={f.label}
+            type={f.type === "password" ? "password" : "text"}
+            value={values[f.name] ?? ""}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setValues(v => ({ ...v, [f.name]: e.target.value }))}
+            placeholder={f.placeholder}
+            autoComplete="off"
+            spellCheck={false}
+            className="font-mono"
+            required={f.required}
+          />
+        ))}
       </div>
-    </div>
+      {err && <div className="text-[12px] text-coral-400 flex items-center gap-1.5"><AlertTriangle size={13} /> {err}</div>}
+      <div className="flex items-center justify-between pt-2">
+        {provider.docsUrl
+          ? <a href={provider.docsUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-violet-400 hover:text-violet-300 inline-flex items-center gap-1">Where do I get this? <ExternalLink size={11} /></a>
+          : <span />}
+        <Button onClick={submit} disabled={saving}>{saving ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />} Connect</Button>
+      </div>
+    </Modal>
   );
 }

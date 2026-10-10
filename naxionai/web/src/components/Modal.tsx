@@ -1,70 +1,170 @@
-import { ReactNode, useEffect, useRef } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "./Card";
 
-// Modal + ConfirmDialog — ported from KimmyDeku/sebastian's src/components/ui/Modal.tsx.
-// Naxie's pages each rolled their own full-screen overlay (McpServers.tsx,
-// Extensions.tsx, Connectors.tsx, GithubAccounts.tsx, ...); this is the first
-// shared, accessible one. Existing ad hoc overlays are left as-is — this is
-// additive, not a forced migration (see McpServers.tsx for the one adopted
-// call site).
-//
-// Focus-trap-lite: focuses the dialog on open, restores focus to whatever
-// was focused before on close, Escape closes, body scroll is locked while
-// open. Not a full focus-trap (Tab can still leave the dialog) — good enough
-// for a confirm-or-cancel dialog with 1-2 actions.
-export function Modal({ open, onClose, title, children, className = "" }: {
+export type ModalSize = "sm" | "md" | "lg" | "xl" | "full";
+
+const SIZE_CLASSES: Record<ModalSize, string> = {
+  sm: "max-w-sm",
+  md: "max-w-lg",
+  lg: "max-w-2xl",
+  xl: "max-w-4xl",
+  full: "max-w-[90vw] max-h-[90vh]",
+};
+
+// Modal + ConfirmDialog — shared accessible dialog with animations.
+// Features:
+// - Framer-style scale + fade entrance/exit (respects prefers-reduced-motion)
+// - Full focus trap (Tab cycles within dialog, Escape closes)
+// - Body scroll lock with modal-open class
+// - Size variants: sm, md, lg, xl, full
+// - Auto-scroll for tall content
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  className = "",
+  size = "md",
+  closeOnOverlayClick = true,
+  showCloseButton = true,
+}: {
   open: boolean;
   onClose: () => void;
   title?: ReactNode;
   children: ReactNode;
   className?: string;
+  size?: ModalSize;
+  closeOnOverlayClick?: boolean;
+  showCloseButton?: boolean;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  const [isExiting, setIsExiting] = useState(false);
+  const [isEntered, setIsEntered] = useState(false);
 
+  // Entrance animation
   useEffect(() => {
-    if (!open) return;
+    if (open) {
+      setIsExiting(false);
+      // Force reflow to trigger entrance animation
+      requestAnimationFrame(() => {
+        setIsEntered(true);
+      });
+    }
+  }, [open]);
+
+  // Exit animation
+  useEffect(() => {
+    if (!open && isEntered && !isExiting) {
+      setIsExiting(true);
+      const timer = setTimeout(() => {
+        setIsEntered(false);
+      }, 200); // Match nw-scale-out duration
+      return () => clearTimeout(timer);
+    }
+  }, [open, isEntered, isExiting]);
+
+  // Focus trap + scroll lock + keyboard handling
+  useEffect(() => {
+    if (!open && !isExiting) return;
+
     previouslyFocused.current = document.activeElement as HTMLElement | null;
     dialogRef.current?.focus();
-    const prevOverflow = document.body.style.overflow;
+    document.body.classList.add("modal-open");
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      document.removeEventListener("keydown", onKey);
-      previouslyFocused.current?.focus?.();
-    };
-  }, [open, onClose]);
 
-  if (!open) return null;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+
+      // Focus trap: Tab cycles within dialog
+      if (e.key === "Tab") {
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+
+        const focusableElements = dialog.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement) {
+            e.preventDefault();
+            lastElement?.focus();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            e.preventDefault();
+            firstElement?.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.classList.remove("modal-open");
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", handleKeyDown);
+      if (!isExiting) {
+        previouslyFocused.current?.focus?.();
+      }
+    };
+  }, [open, onClose, isExiting]);
+
+  if (!open && !isEntered) return null;
+
+  const overlayClass =
+    "fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity";
+  const dialogClass = `
+    w-full ${SIZE_CLASSES[size]} bg-ink-950 border border-ink-800 rounded-2xl shadow-2xl outline-none
+    ${isExiting ? "nw-scale-out" : "nw-scale-in"}
+    ${size === "full" ? "max-h-[90vh] flex flex-col" : ""}
+    ${className}
+  `.trim();
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className={overlayClass}
+      onClick={closeOnOverlayClick ? onClose : undefined}
+      role="presentation"
+      aria-hidden="true"
+    >
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={typeof title === "string" ? title : undefined}
         tabIndex={-1}
-        onClick={e => e.stopPropagation()}
-        className={`w-full max-w-lg bg-ink-950 border border-ink-800 rounded-2xl p-6 shadow-2xl outline-none ${className}`}
+        onClick={(e) => e.stopPropagation()}
+        className={dialogClass}
       >
-        {title && (
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-medium text-cream-50">{title}</h2>
-            <button
-              onClick={onClose}
-              className="p-1.5 text-cream-300/50 hover:text-cream-100 hover:bg-ink-800 rounded-lg transition-colors"
-              aria-label="Close"
-            >
-              <X size={18} />
-            </button>
+        {(title || showCloseButton) && (
+          <div className="flex items-center justify-between mb-4 flex-shrink-0">
+            {title && <h2 className="text-lg font-medium text-cream-50">{title}</h2>}
+            {showCloseButton && (
+              <button
+                onClick={onClose}
+                className="p-1.5 text-cream-300/50 hover:text-cream-100 hover:bg-ink-800 rounded-lg transition-colors flex-shrink-0"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            )}
           </div>
         )}
-        {children}
+        <div
+          className={size === "full" ? "overflow-y-auto flex-1 pr-2" : ""}
+          style={size === "full" ? { scrollbarGutter: "stable" } : undefined}
+        >
+          {children}
+        </div>
       </div>
     </div>,
     document.body,
@@ -78,7 +178,18 @@ export type ConfirmRow = [string, string];
 // what happens and what doesn't, danger tints the confirm button for a
 // destructive action. Nothing the caller passes here actually runs until
 // onConfirm fires — the component itself never calls an API.
-export function ConfirmDialog({ open, title, rows, body, confirmLabel = "Confirm", cancelLabel = "Cancel", onConfirm, onCancel, danger = false, busy = false }: {
+export function ConfirmDialog({
+  open,
+  title,
+  rows,
+  body,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  onConfirm,
+  onCancel,
+  danger = false,
+  busy = false,
+}: {
   open: boolean;
   title: ReactNode;
   rows?: ConfirmRow[];
@@ -104,7 +215,9 @@ export function ConfirmDialog({ open, title, rows, body, confirmLabel = "Confirm
         </dl>
       )}
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel} disabled={busy}>{cancelLabel}</Button>
+        <Button variant="ghost" onClick={onCancel} disabled={busy}>
+          {cancelLabel}
+        </Button>
         <Button
           onClick={onConfirm}
           disabled={busy}

@@ -9,7 +9,7 @@ export function Planner() {
           <CalendarDays size={24} /> Planner
         </h1>
         <p className="text-sm text-cream-300/70 mt-1">
-          Tasks, reminders, and calendar in one place — My Day, Important, and Calendar all live in the left nav.
+          Your personal tasks, reminders, and calendar. For recurring agent work, open Schedules; review active and completed executions in My Inbox → Runs.
         </p>
       </div>
       <MyTasks />

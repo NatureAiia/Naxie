@@ -10,25 +10,26 @@
    steel hairlines, moonlight→glacier text. Same semantic roles as before —
    ink = surface ramp, cream = text ramp — so every existing bg-ink-* /
    text-cream-* class re-skins without component edits. */
-:root, [data-theme="dark"] {
+:root,
+[data-theme="dark"] {
   color-scheme: dark;
   /* Atom One Dark, shifted 35% darker (lightness × 0.65) for a moodier,
      lower-glare canvas. ink = surface ramp, cream = text ramp. */
-  --c-ink-950: #15181c;   /* canvas */
-  --c-ink-900: #1a1d22;   /* panel (sidebar, rails) */
-  --c-ink-850: #1d2027;   /* card */
-  --c-ink-800: #262931;   /* elevated / hover surface */
-  --c-ink-700: #282c35;   /* hairlines, dividers */
-  --c-ink-600: #3c4049;   /* muted structural lines */
+  --c-ink-950: #15181c; /* canvas */
+  --c-ink-900: #1a1d22; /* panel (sidebar, rails) */
+  --c-ink-850: #1d2027; /* card */
+  --c-ink-800: #262931; /* elevated / hover surface */
+  --c-ink-700: #282c35; /* hairlines, dividers */
+  --c-ink-600: #3c4049; /* muted structural lines */
   /* Bold off-white text ramp (brighter than plain One Dark foreground, per
      request — every className already carrying font-medium/semibold/bold
      stays as-is; the base font-weight bump lives on `body` below). */
-  --c-cream-50:  #f5f5f4; /* headings, brightest text */
+  --c-cream-50: #f5f5f4; /* headings, brightest text */
   --c-cream-100: #e2e4e8; /* body */
   --c-cream-200: #b8bcc4; /* secondary */
   --c-cream-300: #8b8f99; /* de-emphasized */
-  --bg-glow: rgba(97, 175, 239, 0.10);       /* One Dark blue wash */
-  --bg-grid: rgba(171, 178, 191, 0.04);      /* 1px architectural grid */
+  --bg-glow: rgba(97, 175, 239, 0.1); /* One Dark blue wash */
+  --bg-grid: rgba(171, 178, 191, 0.04); /* 1px architectural grid */
   /* One Dark syntax accents, replacing the previous Midnight-blueprint set. */
   --c-flame-400: #e06c75; /* One Dark red */
   --c-flame-500: #c9636c;
@@ -39,7 +40,7 @@
   --c-violet-400: #c678dd; /* One Dark purple */
   --c-violet-500: #b361cf;
   --c-violet-600: #9a4eb8;
-  --c-leaf-400: #98c379;  /* One Dark green */
+  --c-leaf-400: #98c379; /* One Dark green */
   --c-leaf-500: #7fb563;
 }
 [data-theme="light"] {
@@ -56,7 +57,7 @@
   --c-ink-700: #a2b1c9;
   --c-ink-600: #74809a;
   /* Bold dark-grey text ramp (plain grey, not the previous navy tint). */
-  --c-cream-50:  #24262b;
+  --c-cream-50: #24262b;
   --c-cream-100: #34363c;
   --c-cream-200: #52555c;
   --c-cream-300: #6e7178;
@@ -82,18 +83,18 @@
      the 8 accent colors from draculatheme.com), mapped onto the same
      ink/cream/accent roles used by One Dark above. ink = surface ramp,
      cream = text ramp. */
-  --c-ink-950: #282a36;   /* canvas — Dracula "Background" */
-  --c-ink-900: #21222c;   /* panel (sidebar, rails) — Dracula's darker sidebar tone */
-  --c-ink-850: #262835;   /* card */
-  --c-ink-800: #343746;   /* elevated / hover surface */
-  --c-ink-700: #44475a;   /* hairlines, dividers — Dracula "Current Line" */
-  --c-ink-600: #565a72;   /* muted structural lines */
-  --c-cream-50:  #f8f8f2; /* headings, brightest text — Dracula "Foreground" */
+  --c-ink-950: #282a36; /* canvas — Dracula "Background" */
+  --c-ink-900: #21222c; /* panel (sidebar, rails) — Dracula's darker sidebar tone */
+  --c-ink-850: #262835; /* card */
+  --c-ink-800: #343746; /* elevated / hover surface */
+  --c-ink-700: #44475a; /* hairlines, dividers — Dracula "Current Line" */
+  --c-ink-600: #565a72; /* muted structural lines */
+  --c-cream-50: #f8f8f2; /* headings, brightest text — Dracula "Foreground" */
   --c-cream-100: #e6e6e0; /* body */
   --c-cream-200: #c0c2cc; /* secondary */
   --c-cream-300: #6272a4; /* de-emphasized — Dracula "Comment" */
-  --bg-glow: rgba(189, 147, 249, 0.10);      /* Dracula purple wash */
-  --bg-grid: rgba(248, 248, 242, 0.04);      /* 1px architectural grid */
+  --bg-glow: rgba(189, 147, 249, 0.1); /* Dracula purple wash */
+  --bg-grid: rgba(248, 248, 242, 0.04); /* 1px architectural grid */
   --c-flame-400: #ff6e6e; /* Dracula red */
   --c-flame-500: #ff5555;
   --c-flame-600: #e64545;
@@ -103,7 +104,7 @@
   --c-violet-400: #caa0ff; /* Dracula purple */
   --c-violet-500: #bd93f9;
   --c-violet-600: #a479e0;
-  --c-leaf-400: #69ff8f;  /* Dracula green */
+  --c-leaf-400: #69ff8f; /* Dracula green */
   --c-leaf-500: #50fa7b;
 }
 [data-theme="paper-light"] {
@@ -113,18 +114,18 @@
      artifact palette (2026-08-29) as a third/fourth named theme alongside
      Atom One Dark and Dracula. This is the light half; see
      [data-theme="paper-dark"] for the matching dark half. */
-  --c-ink-950: #f0eee8;   /* canvas — paper */
-  --c-ink-900: #e8e5dd;   /* panel (sidebar, rails) — slightly deeper paper */
-  --c-ink-850: #ffffff;   /* card — surface */
-  --c-ink-800: #e1ede9;   /* elevated / hover surface — accent-soft */
-  --c-ink-700: #dad7cd;   /* hairlines, dividers — line */
-  --c-ink-600: #bfbbae;   /* muted structural lines */
-  --c-cream-50:  #1e2124; /* headings, brightest text — ink */
+  --c-ink-950: #f0eee8; /* canvas — paper */
+  --c-ink-900: #e8e5dd; /* panel (sidebar, rails) — slightly deeper paper */
+  --c-ink-850: #ffffff; /* card — surface */
+  --c-ink-800: #e1ede9; /* elevated / hover surface — accent-soft */
+  --c-ink-700: #dad7cd; /* hairlines, dividers — line */
+  --c-ink-600: #bfbbae; /* muted structural lines */
+  --c-cream-50: #1e2124; /* headings, brightest text — ink */
   --c-cream-100: #33373b; /* body */
   --c-cream-200: #5b6066; /* secondary — ink-soft */
   --c-cream-300: #9b9689; /* de-emphasized — low */
-  --bg-glow: rgba(43, 110, 99, 0.06);        /* accent teal wash */
-  --bg-grid: rgba(30, 33, 36, 0.04);         /* 1px architectural grid */
+  --bg-glow: rgba(43, 110, 99, 0.06); /* accent teal wash */
+  --bg-grid: rgba(30, 33, 36, 0.04); /* 1px architectural grid */
   --c-flame-400: #b5472b; /* high — terracotta/rust */
   --c-flame-500: #9c3b22;
   --c-flame-600: #82301c;
@@ -134,7 +135,7 @@
   --c-violet-400: #4f8a7d; /* accent teal, lightened */
   --c-violet-500: #2b6e63; /* accent — primary teal */
   --c-violet-600: #1f5349;
-  --c-leaf-400: #6fa88f;  /* sage, adjacent to accent teal */
+  --c-leaf-400: #6fa88f; /* sage, adjacent to accent teal */
   --c-leaf-500: #4f8a7d;
 }
 [data-theme="paper-dark"] {
@@ -142,18 +143,18 @@
   /* Dark half of the "paper" theme — the artifact's dark-mode palette:
      near-black canvas, warm off-white ink, same teal accent and
      terracotta highlight, darkened. */
-  --c-ink-950: #17191b;   /* canvas */
-  --c-ink-900: #1c1e20;   /* panel (sidebar, rails) */
-  --c-ink-850: #1e2124;   /* card — surface */
-  --c-ink-800: #20302c;   /* elevated / hover surface — accent-soft */
-  --c-ink-700: #33362f;   /* hairlines, dividers — line */
-  --c-ink-600: #454940;   /* muted structural lines */
-  --c-cream-50:  #edebe4; /* headings, brightest text — ink */
+  --c-ink-950: #17191b; /* canvas */
+  --c-ink-900: #1c1e20; /* panel (sidebar, rails) */
+  --c-ink-850: #1e2124; /* card — surface */
+  --c-ink-800: #20302c; /* elevated / hover surface — accent-soft */
+  --c-ink-700: #33362f; /* hairlines, dividers — line */
+  --c-ink-600: #454940; /* muted structural lines */
+  --c-cream-50: #edebe4; /* headings, brightest text — ink */
   --c-cream-100: #d5d2c8; /* body */
   --c-cream-200: #a5aba6; /* secondary — ink-soft */
   --c-cream-300: #83887e; /* de-emphasized — low */
-  --bg-glow: rgba(95, 191, 169, 0.08);       /* accent teal wash */
-  --bg-grid: rgba(237, 235, 228, 0.04);      /* 1px architectural grid */
+  --bg-glow: rgba(95, 191, 169, 0.08); /* accent teal wash */
+  --bg-grid: rgba(237, 235, 228, 0.04); /* 1px architectural grid */
   --c-flame-400: #e08a6c; /* high — terracotta */
   --c-flame-500: #c97350;
   --c-flame-600: #a85c3d;
@@ -163,7 +164,7 @@
   --c-violet-400: #7fd4bd; /* accent teal, lightened */
   --c-violet-500: #5fbfa9; /* accent — primary teal */
   --c-violet-600: #479c87;
-  --c-leaf-400: #8fcbb5;  /* sage, adjacent to accent teal */
+  --c-leaf-400: #8fcbb5; /* sage, adjacent to accent teal */
   --c-leaf-500: #5fbfa9;
 }
 
@@ -179,10 +180,39 @@
      this only raises the baseline for text that doesn't set its own. */
   font-weight: 600;
 }
-html { background: var(--c-ink-950); }
-html, body, #root { height: 100%; }
+html {
+  background: var(--c-ink-950);
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+/* Keep keyboard users oriented as they move through the app shell. */
+:focus-visible {
+  outline: 2px solid var(--c-violet-400);
+  outline-offset: 3px;
+}
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  transform: translateY(-180%);
+  border-radius: 0.5rem;
+  background: var(--c-ink-800);
+  color: var(--c-cream-50);
+  padding: 0.7rem 1rem;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 35%);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
 /* Content sits above the blueprint layers below. */
-#root { position: relative; z-index: 1; }
+#root {
+  position: relative;
+  z-index: 1;
+}
 
 /* ── Midnight-blueprint background art ───────────────────────────────────
    A faint ~40px architectural grid drawn in 1px cool lines + a radial
@@ -190,18 +220,28 @@ html, body, #root { height: 100%; }
    in light on dark paper. Both layers are FIXED + pointer-events-none and
    static (matte system: no drift, no grain, no gloss), so zero scroll
    repaints. */
-body::before {                              /* architectural grid */
-  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+body::before {
+  /* architectural grid */
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   background-image:
     linear-gradient(to right, var(--bg-grid) 1px, transparent 1px),
     linear-gradient(to bottom, var(--bg-grid) 1px, transparent 1px);
   background-size: 40px 40px;
   /* Fade the grid out toward the bottom so content areas stay clean. */
-  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.35) 45%, transparent 80%);
-  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.35) 45%, transparent 80%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.35) 45%, transparent 80%);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.35) 45%, transparent 80%);
 }
-body::after {                               /* blueprint glow — light from above */
-  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+body::after {
+  /* blueprint glow — light from above */
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   background: radial-gradient(60% 42% at 50% -6%, var(--bg-glow), transparent 70%);
 }
 
@@ -210,7 +250,7 @@ body::after {                               /* blueprint glow — light from abo
    (geometric, reads crypto/tech-startup) — swapped 2026-07-12 for something
    friendlier without losing weight/presence at heading sizes. */
 .font-display {
-  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
   letter-spacing: normal;
 }
 /* Eyebrow labels — quiet structural markers above headings. Was set in
@@ -229,49 +269,122 @@ body::after {                               /* blueprint glow — light from abo
   color: var(--c-cream-300);
 }
 
-.prose-vault h1 { @apply text-2xl font-semibold tracking-tight mt-6 mb-3 text-cream-50; }
-.prose-vault h2 { @apply text-xl font-semibold tracking-tight mt-5 mb-2 text-cream-50; }
-.prose-vault h3 { @apply text-lg font-semibold mt-4 mb-2 text-cream-100; }
-.prose-vault p { @apply my-2 text-cream-200 leading-relaxed; }
-.prose-vault ul { @apply list-disc pl-6 my-2 text-cream-200; }
-.prose-vault ol { @apply list-decimal pl-6 my-2 text-cream-200; }
-.prose-vault code { @apply bg-ink-800 px-1.5 py-0.5 rounded text-flame-400 font-mono text-sm; }
-.prose-vault pre { @apply bg-ink-900 p-3 rounded-lg overflow-x-auto my-3 border border-ink-700; }
-.prose-vault pre code { @apply bg-transparent p-0 text-cream-200; }
-.prose-vault a { @apply text-violet-400 hover:text-violet-500 underline; }
-.prose-vault blockquote { @apply bg-ink-850 border border-ink-700 rounded-md px-4 py-2 text-cream-200 my-3; }
-.prose-vault table { @apply border-collapse my-3; }
-.prose-vault th, .prose-vault td { @apply border border-ink-700 px-3 py-1.5 text-sm; }
-.prose-vault hr { @apply border-ink-700 my-6; }
+.prose-vault h1 {
+  @apply text-2xl font-semibold tracking-tight mt-6 mb-3 text-cream-50;
+}
+.prose-vault h2 {
+  @apply text-xl font-semibold tracking-tight mt-5 mb-2 text-cream-50;
+}
+.prose-vault h3 {
+  @apply text-lg font-semibold mt-4 mb-2 text-cream-100;
+}
+.prose-vault p {
+  @apply my-2 text-cream-200 leading-relaxed;
+}
+.prose-vault ul {
+  @apply list-disc pl-6 my-2 text-cream-200;
+}
+.prose-vault ol {
+  @apply list-decimal pl-6 my-2 text-cream-200;
+}
+.prose-vault code {
+  @apply bg-ink-800 px-1.5 py-0.5 rounded text-flame-400 font-mono text-sm;
+}
+.prose-vault pre {
+  @apply bg-ink-900 p-3 rounded-lg overflow-x-auto my-3 border border-ink-700;
+}
+.prose-vault pre code {
+  @apply bg-transparent p-0 text-cream-200;
+}
+.prose-vault a {
+  @apply text-violet-400 hover:text-violet-500 underline;
+}
+.prose-vault blockquote {
+  @apply bg-ink-850 border border-ink-700 rounded-md px-4 py-2 text-cream-200 my-3;
+}
+.prose-vault table {
+  @apply border-collapse my-3;
+}
+.prose-vault th,
+.prose-vault td {
+  @apply border border-ink-700 px-3 py-1.5 text-sm;
+}
+.prose-vault hr {
+  @apply border-ink-700 my-6;
+}
 
 /* Customer-facing report variant. Larger reading rhythm + tighter list rules
    so the polished synth output reads like a real document. Layered on top of
    .prose-vault — same heading hierarchy, bigger body text, more whitespace. */
-.prose-result h1 { @apply text-3xl mt-8 mb-4; }
-.prose-result h2 { @apply text-2xl mt-7 mb-3 pb-2 border-b border-ink-800; }
-.prose-result h3 { @apply text-xl mt-6 mb-2; }
-.prose-result h4 { @apply text-base font-semibold mt-5 mb-2 text-cream-100; }
-.prose-result p { @apply text-base leading-7 my-3 text-cream-100; }
-.prose-result li { @apply leading-7 my-1.5; }
-.prose-result ul { @apply pl-6 my-3; }
-.prose-result ol { @apply pl-6 my-3; }
-.prose-result blockquote { @apply text-base text-cream-200 my-4 not-italic border-l-4; }
-.prose-result strong { @apply text-cream-50; }
-.prose-result code { @apply text-[0.92em]; }
-.prose-result pre { @apply my-5; }
-.prose-result a { @apply no-underline border-b hover:border-violet-500 hover:text-violet-300 transition-colors; border-color: color-mix(in srgb, var(--c-violet-500) 40%, transparent); }
-.prose-result hr { @apply my-8; }
+.prose-result h1 {
+  @apply text-3xl mt-8 mb-4;
+}
+.prose-result h2 {
+  @apply text-2xl mt-7 mb-3 pb-2 border-b border-ink-800;
+}
+.prose-result h3 {
+  @apply text-xl mt-6 mb-2;
+}
+.prose-result h4 {
+  @apply text-base font-semibold mt-5 mb-2 text-cream-100;
+}
+.prose-result p {
+  @apply text-base leading-7 my-3 text-cream-100;
+}
+.prose-result li {
+  @apply leading-7 my-1.5;
+}
+.prose-result ul {
+  @apply pl-6 my-3;
+}
+.prose-result ol {
+  @apply pl-6 my-3;
+}
+.prose-result blockquote {
+  @apply text-base text-cream-200 my-4 not-italic border-l-4;
+}
+.prose-result strong {
+  @apply text-cream-50;
+}
+.prose-result code {
+  @apply text-[0.92em];
+}
+.prose-result pre {
+  @apply my-5;
+}
+.prose-result a {
+  @apply no-underline border-b hover:border-violet-500 hover:text-violet-300 transition-colors;
+  border-color: color-mix(in srgb, var(--c-violet-500) 40%, transparent);
+}
+.prose-result hr {
+  @apply my-8;
+}
 
-.scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
-.scrollbar-thin::-webkit-scrollbar-thumb { background: #3f4959; border-radius: 4px; }
-.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #5c687c; }
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #3f4959;
+  border-radius: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: #5c687c;
+}
 
 /* Dynamic-layout utilities — consume CSS variables set on the element
    so the markup stays inline-style-free even when values are runtime-computed
    (trace-bar positioning, progress bars, calendar day-cell activity tint). */
-.dyn-width { width: var(--dyn-w, 0%); }
-.dyn-bar { left: var(--dyn-left, 0%); width: var(--dyn-w, 0%); }
-.heat-tint { background-image: linear-gradient(to bottom right, rgba(102, 58, 243, var(--heat, 0)) 0%, transparent 60%); }
+.dyn-width {
+  width: var(--dyn-w, 0%);
+}
+.dyn-bar {
+  left: var(--dyn-left, 0%);
+  width: var(--dyn-w, 0%);
+}
+.heat-tint {
+  background-image: linear-gradient(to bottom right, rgba(102, 58, 243, var(--heat, 0)) 0%, transparent 60%);
+}
 
 /* ──────────────── Animation system ────────────────
    One source of truth for motion: keyframes + opt-in utility classes.
@@ -280,49 +393,134 @@ body::after {                               /* blueprint glow — light from abo
    users with vestibular sensitivity get instant transitions instead. */
 
 @keyframes nw-skeleton-shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 @keyframes nw-fade-up {
-  from { opacity: 0; transform: translateY(14px); filter: blur(5px); }
-  to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
 }
 @keyframes nw-scale-in {
-  from { opacity: 0; transform: scale(0.96); }
-  to   { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes nw-scale-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes nw-nav-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px rgba(167, 139, 250, 0.25));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.45));
+  }
 }
 @keyframes nw-pop-check {
-  0%   { opacity: 0; transform: scale(0.4); }
-  60%  { opacity: 1; transform: scale(1.15); }
-  100% { opacity: 1; transform: scale(1); }
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 @keyframes nw-page-fade {
-  from { opacity: 0; transform: translateY(10px); filter: blur(4px); }
-  to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
 }
 @keyframes nw-toast-slide {
-  from { opacity: 0; transform: translateY(12px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 @keyframes nw-copy-flash {
-  0%   { background-color: rgba(102, 58, 243, 0.35); }
-  100% { background-color: transparent; }
+  0% {
+    background-color: rgba(102, 58, 243, 0.35);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 @keyframes nw-thinking-dot {
-  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
-  40%           { opacity: 1;    transform: translateY(-2px); }
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
 }
 @keyframes nw-thinking-bar {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(200%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
 }
 @keyframes nw-avatar-breath {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(186, 207, 247, 0.32); }
-  50%      { box-shadow: 0 0 0 6px rgba(186, 207, 247, 0); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(186, 207, 247, 0.32);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(186, 207, 247, 0);
+  }
 }
 @keyframes nw-pulse-soft {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.55; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 
 /* Mic-listening waveform — a few CSS-only bars, no gif/video asset. Replaces
@@ -330,29 +528,57 @@ body::after {                               /* blueprint glow — light from abo
    couple hundred bytes of keyframe. Each bar staggers via animation-delay set
    inline by the component (see MicWaveform in VoiceDiscussion.tsx). */
 @keyframes nw-mic-wave {
-  0%, 100% { transform: scaleY(0.25); }
-  50%      { transform: scaleY(1); }
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
 }
 
 /* Naxie orb (pages/Naxie.tsx) — two counter-rotating rings + a breathing
    glow core, CSS-only (same "no gif/video asset" rule as the mic waveform
    above — see nw-mic-wave's comment). */
 @keyframes nw-orb-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 @keyframes nw-orb-spin-reverse {
-  from { transform: rotate(360deg); }
-  to   { transform: rotate(0deg); }
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
 }
 @keyframes nw-orb-glow {
-  0%, 100% { opacity: 0.6; transform: scale(0.96); }
-  50%      { opacity: 1;   transform: scale(1.04); }
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
 }
-.nw-orb-ring-a { animation: nw-orb-spin 7s linear infinite; }
-.nw-orb-ring-b { animation: nw-orb-spin-reverse 10s linear infinite; }
-.nw-orb-glow { animation: nw-orb-glow 3.2s ease-in-out infinite; }
-.nw-orb-glow.is-active { animation-duration: 1.1s; }
+.nw-orb-ring-a {
+  animation: nw-orb-spin 7s linear infinite;
+}
+.nw-orb-ring-b {
+  animation: nw-orb-spin-reverse 10s linear infinite;
+}
+.nw-orb-glow {
+  animation: nw-orb-glow 3.2s ease-in-out infinite;
+}
+.nw-orb-glow.is-active {
+  animation-duration: 1.1s;
+}
 
 /* Listening — a radial "equalizer" ring of bars around the orb (the
    waveform-visualizer look, without the 6MB+ gif: same reasoning as
@@ -360,60 +586,95 @@ body::after {                               /* blueprint glow — light from abo
    is a wrapper (static rotate+offset, set inline per-bar in Naxie.tsx) plus
    this inner scaling animation; --d staggers the start per bar. */
 @keyframes nw-radial-wave {
-  0%, 100% { transform: scaleY(0.35); opacity: 0.55; }
-  40%, 60% { transform: scaleY(1.1); opacity: 1; }
+  0%,
+  100% {
+    transform: scaleY(0.35);
+    opacity: 0.55;
+  }
+  40%,
+  60% {
+    transform: scaleY(1.1);
+    opacity: 1;
+  }
 }
-.nw-radial-bar { animation: nw-radial-wave 0.75s ease-in-out infinite; animation-delay: var(--d, 0s); }
+.nw-radial-bar {
+  animation: nw-radial-wave 0.75s ease-in-out infinite;
+  animation-delay: var(--d, 0s);
+}
 
-.nw-radial-bar-think { background-color: rgba(34,197,94,0.95); }
-.nw-radial-bar-speak { background-color: rgba(168,85,247,0.88); animation-duration: 0.65s; }
+.nw-radial-bar-think {
+  background-color: rgba(34, 197, 94, 0.95);
+}
+.nw-radial-bar-speak {
+  background-color: rgba(168, 85, 247, 0.88);
+  animation-duration: 0.65s;
+}
 
 .nw-state-listening .nw-orb-ring-a,
 .nw-state-listening .nw-orb-ring-b,
 .nw-state-listening .nw-radial-bar,
 .nw-state-listening .nw-orb-glow {
-  border-color: rgba(255,138,82,0.95) !important;
+  border-color: rgba(255, 138, 82, 0.95) !important;
 }
 .nw-state-listening .nw-orb-glow {
-  background-image: radial-gradient(circle at center, rgba(255,175,120,0.24), transparent 68%);
+  background-image: radial-gradient(circle at center, rgba(255, 175, 120, 0.24), transparent 68%);
 }
 
 /* Thinking — a conic "radar sweep" spinning faster than the idle rings, to
    read as active processing rather than idle ambience. */
-.nw-orb-scan { animation: nw-orb-spin 1.6s linear infinite; }
+.nw-orb-scan {
+  animation: nw-orb-spin 1.6s linear infinite;
+}
 .nw-state-thinking .nw-orb-ring-a,
 .nw-state-thinking .nw-orb-ring-b,
 .nw-state-thinking .nw-orb-glow {
-  border-color: rgba(52,211,153,0.9) !important;
+  border-color: rgba(52, 211, 153, 0.9) !important;
 }
 .nw-state-thinking .nw-orb-glow {
-  background-image: radial-gradient(circle at center, rgba(52,211,153,0.18), transparent 72%);
+  background-image: radial-gradient(circle at center, rgba(52, 211, 153, 0.18), transparent 72%);
 }
 
 /* Speaking — concentric rings expanding outward and fading, like sound
    leaving the orb. --d staggers each ring's start. */
 @keyframes nw-orb-pulse-out {
-  0%   { transform: scale(0.6); opacity: 0.55; }
-  100% { transform: scale(1.7); opacity: 0; }
+  0% {
+    transform: scale(0.6);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
 }
-.nw-orb-pulse-out { animation: nw-orb-pulse-out 1.6s ease-out infinite; animation-delay: var(--d, 0s); }
+.nw-orb-pulse-out {
+  animation: nw-orb-pulse-out 1.6s ease-out infinite;
+  animation-delay: var(--d, 0s);
+}
 .nw-state-speaking .nw-orb-ring-a,
 .nw-state-speaking .nw-orb-ring-b,
 .nw-state-speaking .nw-orb-glow {
-  border-color: rgba(192,106,255,0.95) !important;
+  border-color: rgba(192, 106, 255, 0.95) !important;
 }
 .nw-state-speaking .nw-orb-glow {
-  background-image: radial-gradient(circle at center, rgba(192,106,255,0.25), transparent 70%);
+  background-image: radial-gradient(circle at center, rgba(192, 106, 255, 0.25), transparent 70%);
 }
 
 /* Noise Background — slow diagonal pan of the multi-colour gradient behind a
    button/label. Paired with a grain overlay in NoiseBackground.tsx. */
 @keyframes nw-noise-pan {
-  0%   { background-position: 0% 50%; }
-  50%  { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
-.noise-bg-pan { animation: nw-noise-pan 6s ease-in-out infinite; }
+.noise-bg-pan {
+  animation: nw-noise-pan 6s ease-in-out infinite;
+}
 /* Self-contained noise fill: panning gradient + grain overlay in one class, so
    a button just drops a `<span class="nw-noise-fill absolute inset-0 -z-10">`
    behind its label — no wrapper element, no layout shift. */
@@ -440,7 +701,9 @@ body::after {                               /* blueprint glow — light from abo
   background-image: linear-gradient(115deg, #663af3, #3fb3a0, #ff7657, #663af3);
   background-size: 300% 300%;
   animation: nw-noise-pan 6s ease-in-out infinite;
-  box-shadow: 0 0 6px 1px rgba(102, 58, 243, 0.65), 0 0 3px 1px rgba(63, 179, 160, 0.55);
+  box-shadow:
+    0 0 6px 1px rgba(102, 58, 243, 0.65),
+    0 0 3px 1px rgba(63, 179, 160, 0.55);
 }
 
 /* Skeletons — shimmer over an ink-tinted rounded block. Match the colour
@@ -448,9 +711,11 @@ body::after {                               /* blueprint glow — light from abo
 .skeleton {
   position: relative;
   background:
-    linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.04) 50%, rgba(255,255,255,0) 100%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.04) 50%, rgba(255, 255, 255, 0) 100%),
     var(--c-ink-850);
-  background-size: 200% 100%, 100% 100%;
+  background-size:
+    200% 100%,
+    100% 100%;
   background-repeat: no-repeat;
   border-radius: 6px;
   animation: nw-skeleton-shimmer 1.4s ease-in-out infinite;
@@ -458,53 +723,105 @@ body::after {                               /* blueprint glow — light from abo
 
 /* Stagger-friendly fade-up. Pages set --stagger on the parent and each
    child gets `nw-fade-up`; a few preset delays cover most lists. */
-.nw-fade-up { animation: nw-fade-up 600ms cubic-bezier(0.32, 0.72, 0, 1) both; }
-.nw-scale-in { animation: nw-scale-in 360ms cubic-bezier(0.32, 0.72, 0, 1) both; }
-.nw-delay-1 { animation-delay: 30ms; }
-.nw-delay-2 { animation-delay: 60ms; }
-.nw-delay-3 { animation-delay: 90ms; }
-.nw-delay-4 { animation-delay: 120ms; }
-.nw-delay-5 { animation-delay: 150ms; }
-.nw-delay-6 { animation-delay: 180ms; }
-.nw-delay-7 { animation-delay: 210ms; }
+.nw-fade-up {
+  animation: nw-fade-up 600ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.nw-scale-in {
+  animation: nw-scale-in 200ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.nw-scale-out {
+  animation: nw-scale-out 160ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.nw-nav-glow {
+  animation: nw-nav-glow 3s ease-in-out infinite;
+}
+.nw-delay-1 {
+  animation-delay: 30ms;
+}
+.nw-delay-2 {
+  animation-delay: 60ms;
+}
+.nw-delay-3 {
+  animation-delay: 90ms;
+}
+.nw-delay-4 {
+  animation-delay: 120ms;
+}
+.nw-delay-5 {
+  animation-delay: 150ms;
+}
+.nw-delay-6 {
+  animation-delay: 180ms;
+}
+.nw-delay-7 {
+  animation-delay: 210ms;
+}
 
 /* Page transition — applied to the route container, re-keyed on path. */
-.nw-page-enter { animation: nw-page-fade 520ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+.nw-page-enter {
+  animation: nw-page-fade 520ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
 
 /* Status-dot transitions. Three states share the dot; the state class
    triggers the right animation. running = soft pulse, succeeded = pop. */
-.nw-status-dot { transition: background-color 200ms ease, transform 200ms ease; }
-.nw-status-dot.is-running { animation: nw-pulse-soft 1.4s ease-in-out infinite; }
-.nw-status-dot.is-succeeded { animation: nw-pop-check 360ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.nw-status-dot {
+  transition:
+    background-color 200ms ease,
+    transform 200ms ease;
+}
+.nw-status-dot.is-running {
+  animation: nw-pulse-soft 1.4s ease-in-out infinite;
+}
+.nw-status-dot.is-succeeded {
+  animation: nw-pop-check 360ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
 
 /* Microinteractions */
 /* Card lift uses the AuthKit elevation stack: cool inset highlight + near-black
    drop — elevation built from light-on-dark hairlines, never warm shadows. */
-.nw-card-hover { transition: transform 280ms cubic-bezier(0.32,0.72,0,1), box-shadow 280ms cubic-bezier(0.32,0.72,0,1), border-color 200ms ease; }
+.nw-card-hover {
+  transition:
+    transform 280ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 280ms cubic-bezier(0.32, 0.72, 0, 1),
+    border-color 200ms ease;
+}
 .nw-card-hover:hover {
   transform: translateY(-3px);
   box-shadow:
     inset 0 1px 1px rgba(199, 211, 234, 0.12),
     0 24px 32px -16px rgba(6, 6, 14, 0.7);
 }
-.nw-press { transition: transform 80ms ease; }
-.nw-press:active:not(:disabled) { transform: scale(0.97); }
-.nw-copy-flash { animation: nw-copy-flash 600ms ease-out; }
+.nw-press {
+  transition: transform 80ms ease;
+}
+.nw-press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.nw-copy-flash {
+  animation: nw-copy-flash 600ms ease-out;
+}
 
 /* Toast — slides up from the bottom-right. */
-.nw-toast { animation: nw-toast-slide 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.nw-toast {
+  animation: nw-toast-slide 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
 
 /* Agent "thinking" indicator — dot trio + shimmer bar. */
 .nw-thinking-dots > span {
   display: inline-block;
-  width: 4px; height: 4px;
+  width: 4px;
+  height: 4px;
   background: currentColor;
   border-radius: 50%;
   margin: 0 1px;
   animation: nw-thinking-dot 1.2s infinite ease-in-out both;
 }
-.nw-thinking-dots > span:nth-child(1) { animation-delay: -0.32s; }
-.nw-thinking-dots > span:nth-child(2) { animation-delay: -0.16s; }
+.nw-thinking-dots > span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+.nw-thinking-dots > span:nth-child(2) {
+  animation-delay: -0.16s;
+}
 .nw-thinking-bar {
   position: relative;
   overflow: hidden;
@@ -512,28 +829,43 @@ body::after {                               /* blueprint glow — light from abo
 }
 .nw-thinking-bar::before {
   content: "";
-  position: absolute; inset: 0;
+  position: absolute;
+  inset: 0;
   background: linear-gradient(90deg, transparent 0%, rgba(102, 58, 243, 0.35) 50%, transparent 100%);
   animation: nw-thinking-bar 1.6s linear infinite;
 }
 
 /* Avatar breathing — applied to the wrapper of an active agent avatar. */
-.nw-avatar-active { animation: nw-avatar-breath 2.2s ease-in-out infinite; border-radius: 9999px; }
+.nw-avatar-active {
+  animation: nw-avatar-breath 2.2s ease-in-out infinite;
+  border-radius: 9999px;
+}
 
 /* Shiny pill — a specular highlight sweeps across a pill-shaped badge every
    few seconds (header status + persona pills). The sweep occupies only the
    first third of the keyframe timeline so the pill rests between passes
    instead of strobing. */
 @keyframes nw-pill-shine {
-  0%   { transform: translateX(-130%) skewX(-18deg); }
-  32%  { transform: translateX(280%)  skewX(-18deg); }
-  100% { transform: translateX(280%)  skewX(-18deg); }
+  0% {
+    transform: translateX(-130%) skewX(-18deg);
+  }
+  32% {
+    transform: translateX(280%) skewX(-18deg);
+  }
+  100% {
+    transform: translateX(280%) skewX(-18deg);
+  }
 }
-.nw-shiny-pill { position: relative; overflow: hidden; }
+.nw-shiny-pill {
+  position: relative;
+  overflow: hidden;
+}
 .nw-shiny-pill::after {
   content: "";
   position: absolute;
-  top: 0; bottom: 0; left: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
   width: 45%;
   background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.16) 50%, transparent 100%);
   animation: nw-pill-shine 3.4s ease-in-out infinite;
@@ -543,28 +875,63 @@ body::after {                               /* blueprint glow — light from abo
 /* Typewriter cursor — near-instant opacity jump (block-cursor feel) with a
    0.4s visible/hidden rhythm, matching the Framer source's motion variants. */
 @keyframes nw-tw-blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
-.nw-tw-cursor { animation: nw-tw-blink 0.8s steps(1) infinite; margin-left: 0.15em; }
+.nw-tw-cursor {
+  animation: nw-tw-blink 0.8s steps(1) infinite;
+  margin-left: 0.15em;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .skeleton,
-  .nw-fade-up, .nw-scale-in, .nw-page-enter,
-  .nw-status-dot.is-running, .nw-status-dot.is-succeeded,
-  .nw-toast, .nw-copy-flash, .nw-card-hover, .nw-press,
-  .nw-thinking-dots > span, .nw-thinking-bar::before,
-  .nw-avatar-active, .nw-shiny-pill::after, .nw-tw-cursor,
-  .nw-orb-ring-a, .nw-orb-ring-b, .nw-orb-glow,
-  .nw-radial-bar, .nw-orb-scan, .nw-orb-pulse-out {
+  .nw-fade-up,
+  .nw-scale-in,
+  .nw-scale-out,
+  .nw-page-enter,
+  .nw-status-dot.is-running,
+  .nw-status-dot.is-succeeded,
+  .nw-toast,
+  .nw-copy-flash,
+  .nw-card-hover,
+  .nw-press,
+  .nw-thinking-dots > span,
+  .nw-thinking-bar::before,
+  .nw-avatar-active,
+  .nw-shiny-pill::after,
+  .nw-tw-cursor,
+  .nw-orb-ring-a,
+  .nw-orb-ring-b,
+  .nw-orb-glow,
+  .nw-radial-bar,
+  .nw-orb-scan,
+  .nw-orb-pulse-out {
     animation: none !important;
     transition: none !important;
   }
-  .skeleton { background: var(--c-ink-850); }
-  .nw-fade-up, .nw-scale-in, .nw-page-enter { opacity: 1 !important; transform: none !important; filter: none !important; }
+  .skeleton {
+    background: var(--c-ink-850);
+  }
+  .nw-fade-up,
+  .nw-scale-in,
+  .nw-page-enter {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
   /* Freeze the drifting background mesh for vestibular-sensitive users. */
-  body::before { animation: none !important; }
-  .noise-bg-pan { animation: none !important; }
+  body::before {
+    animation: none !important;
+  }
+  .noise-bg-pan {
+    animation: none !important;
+  }
 }
 
 /* Modal state - locks background scroll when an immersive modal is open */

@@ -29,6 +29,18 @@ const SENSITIVE_PATH_PATTERNS: { pattern: RegExp; reason: string }[] = [
   { pattern: /(?:^|[\\/])(?:Cookies|Login Data|Web Data|History|Bookmarks)$/i, reason: "Browser profile data (cookies, saved logins, history)" },
   { pattern: /(?:^|[\\/])(?:wallet|keystore)\.(?:dat|json)$/i, reason: "Crypto wallet file" },
   { pattern: /(?:^|[\\/])master\.key$/i, reason: "Application master key (Rails et al.)" },
+  // Operator-granted "whole machine minus secrets" reads (Telegram file
+  // delivery): credential/token/key filenames, password-manager stores, and
+  // browser profile DIRECTORIES (the filename gate above only caught single
+  // files like "Cookies" — a whole User Data dir must never be sendable).
+  { pattern: /(?:^|[\\/])credentials\.json$/i, reason: "OAuth/service-account credentials file" },
+  { pattern: /(?:^|[\\/])[^\\/]+\.(?:pem|key|pfx|p12)$/i, reason: "Private key / certificate file" },
+  { pattern: /(?:^|[\\/])[^\\/]*\.kdbx$/i, reason: "Password-manager database (KeePass)" },
+  { pattern: /[\\/]1password[\\/]/i, reason: "1Password store directory" },
+  { pattern: /bitwarden[\\/]/i, reason: "Bitwarden store" },
+  { pattern: /[\\/]user data[\\/]/i, reason: "Browser profile directory (Chromium)" },
+  { pattern: /[\\/]profiles[\\/][^\\/]+[\\/]/i, reason: "Browser profile directory (Firefox)" },
+  { pattern: /(?:^|[\\/])[^\\/]*\.token$/i, reason: "Token file" },
   // Windows system / credential paths
   { pattern: /[\\/]Windows[\\/]System32[\\/]config[\\/](?:SAM|SECURITY|SYSTEM)$/i, reason: "Windows registry hive (credentials)" },
   // macOS keychain

@@ -21,6 +21,9 @@
 // never sends a session token, so no auth wiring is needed here.
 
 import { config } from "../config.js";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const BASE = `http://127.0.0.1:${config.port}`;
 
@@ -32,6 +35,50 @@ const PENDING_TTL_MS = 10 * 60 * 1000;
 
 type PendingApproval = { jobId: string; label: string; expiresAt: number };
 const pending = new Map<string, PendingApproval>();
+
+// ── Persistence ─────────────────────────────────────────────────────────────
+// pending + escalations used to live purely in memory: every server restart
+// (deploy, tsx reload, nightly reboot) silently voided all presented
+// approvals — a "yes" reply afterwards fell through to normal chat routing
+// and the approval died unanswered (live 2026-10-09). Both maps now survive
+// in .naxion/telegram-approval-pending.json; expired entries are dropped on
+// load and the escalation sweep re-validates live status every tick.
+const APPROVAL_STATE_FILE = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.naxion/telegram-approval-pending.json");
+function persistApprovalState(): void {
+  try {
+    mkdirSync(dirname(APPROVAL_STATE_FILE), { recursive: true });
+    writeFileSync(APPROVAL_STATE_FILE, JSON.stringify({
+      pending: [...pending.entries()],
+      escalations: [...escalations.entries()],
+    }), "utf8");
+  } catch { /* best-effort — memory still works until restart */ }
+}
+function loadApprovalState(): void {
+  try {
+    if (!existsSync(APPROVAL_STATE_FILE)) return;
+    const raw = JSON.parse(readFileSync(APPROVAL_STATE_FILE, "utf8"));
+    const now = Date.now();
+    if (Array.isArray(raw?.pending)) {
+      for (const [chatId, p] of raw.pending) {
+        if (typeof chatId === "string" && p && typeof p.jobId === "string" && Number(p.expiresAt) > now) {
+          pending.set(chatId, { jobId: p.jobId, label: String(p.label ?? "this task"), expiresAt: Number(p.expiresAt) });
+        }
+      }
+    }
+    if (Array.isArray(raw?.escalations)) {
+      for (const [jobId, st] of raw.escalations) {
+        if (typeof jobId === "string" && st && typeof st.chatId === "string") {
+          escalations.set(jobId, {
+            chatId: st.chatId,
+            label: String(st.label ?? "this task"),
+            createdAt: Number(st.createdAt) || now,
+            level: Number(st.level) || 0,
+          });
+        }
+      }
+    }
+  } catch { /* corrupt file — start clean rather than crash */ }
+}
 
 // Escalation — an active sweep for approvals sitting unanswered too long.
 // Gates 1/2 above only react to what's already in front of the operator
@@ -46,6 +93,9 @@ const SWEEP_INTERVAL_MS = 5 * 60_000;
 
 type EscalationState = { chatId: string; label: string; createdAt: number; level: number };
 const escalations = new Map<string, EscalationState>(); // jobId -> state
+
+// Load persisted state AFTER both maps exist (module TDZ order matters).
+loadApprovalState();
 
 let sweepTimer: NodeJS.Timeout | null = null;
 
@@ -80,6 +130,7 @@ export async function presentApproval(chatId: string, jobId: string, fallbackTex
   const label = job?.id ? describeJob(job) : (fallbackText?.trim() || "this task");
   pending.set(chatId, { jobId, label, expiresAt: Date.now() + PENDING_TTL_MS });
   escalations.set(jobId, { chatId, label, createdAt: Date.now(), level: 0 });
+  persistApprovalState();
   return `This needs your sign-off before it runs:\n\n${label}\n\nReply *yes* to approve or *no* to reject.`;
 }
 
@@ -93,13 +144,14 @@ const NO = new Set(["no", "n", "nope", "nah", "reject", "rejected", "deny", "den
 export async function handleApprovalReply(chatId: string, text: string): Promise<string | null> {
   const p = pending.get(chatId);
   if (!p) return null;
-  if (Date.now() > p.expiresAt) { pending.delete(chatId); return null; }
+  if (Date.now() > p.expiresAt) { pending.delete(chatId); persistApprovalState(); return null; }
   const norm = text.trim().toLowerCase().replace(/[.!]+$/, "");
   const approve = YES.has(norm);
   const reject = !approve && NO.has(norm);
   if (!approve && !reject) return null;
   pending.delete(chatId);
   escalations.delete(p.jobId);
+  persistApprovalState();
   const r = await apiPost(`/api/templates/jobs/${p.jobId}/${approve ? "approve" : "reject"}`, {});
   if (!r.httpOk) {
     return `Couldn't ${approve ? "approve" : "reject"} "${p.label}": ${r.error ?? "unknown error"}`;
@@ -127,6 +179,7 @@ async function sweepOnce(): Promise<void> {
     const job = await apiGet(`/api/tasks/jobs/${jobId}`);
     if (job?.status !== "awaiting-approval") {
       escalations.delete(jobId);
+      persistApprovalState();
       continue;
     }
     const elapsed = now - st.createdAt;
@@ -141,6 +194,7 @@ async function sweepOnce(): Promise<void> {
     try {
       await sendTelegramMessage(`⏰ Still waiting on your approval (${waited}):\n\n${st.label}\n\nReply *yes* to approve or *no* to reject.`, st.chatId);
       pending.set(st.chatId, { jobId, label: st.label, expiresAt: now + PENDING_TTL_MS });
+      persistApprovalState();
     } catch (e: any) {
       console.warn(`[action-approvals] escalation nudge failed for job ${jobId}: ${e?.message ?? e}`);
     }

@@ -8,7 +8,8 @@
 //
 // Config (env):
 //   NAXION_TELEGRAM_MONITOR_GROUPS     comma-separated chat IDs to watch
-//   NAXION_TELEGRAM_NOTIFY_CHAT        your DM chat ID for notifications
+//   NAXION_TELEGRAM_GROUP_CHAT         news destination (the group)
+//   NAXION_TELEGRAM_NOTIFY_CHAT        fallback DM when no group is set
 //   NAXION_TELEGRAM_MONITOR_ENABLED    1/0 (default 0)
 //   NAXION_TELEGRAM_MONITOR_INTERVAL   minutes between batch scoring (default 5)
 //   NAXION_TELEGRAM_MONITOR_THRESHOLD  relevance score 0-10 to notify (default 7)
@@ -32,7 +33,13 @@ export function monitorGroups(): string[] {
 }
 
 function notifyChatId(): string {
-  return (process.env.NAXION_TELEGRAM_NOTIFY_CHAT ?? "").trim();
+  // Routing policy: news goes to the GROUP. Prefer the group chat, fall back
+  // to the operator DM only when no group is configured.
+  return (
+    process.env.NAXION_TELEGRAM_GROUP_CHAT ??
+    process.env.NAXION_TELEGRAM_NOTIFY_CHAT ??
+    ""
+  ).trim();
 }
 
 function scoreThreshold(): number {

@@ -26,6 +26,7 @@ export type Cadence = {
 export type ScheduleDelivery = {
   email?: string;          // address to email the finished result to
   telegramChatId?: string; // per-schedule Telegram chat/group override; otherwise global/default chat
+  voiceNote?: boolean;     // also send the result as a TTS voice note (read-aloud delivery)
 };
 
 export type Schedule = {
@@ -106,12 +107,37 @@ export function getSchedule(id: string): Schedule | undefined {
   return load().schedules.find(s => s.id === id);
 }
 
+// Late-fire note for delivery: a 08:00 briefing arriving at 11:20 without
+// context reads as a bug, not a catch-up. Empty unless >5 min late. Pure.
+export function formatLateNote(lateMs: number | undefined): string {
+  if (!lateMs || lateMs <= 5 * 60_000) return "";
+  return `_Running late (missed cadence by ${Math.round(lateMs / 60_000)} min)._ \n\n`;
+}
+
+// Schedule names reach the UI verbatim and are sometimes agent-generated
+// from raw task text — which may carry markdown (`** Naxie …`) or get cut
+// mid-word by a slice. Central sanitizer: strip markdown markers, collapse
+// whitespace, truncate at a word boundary. Pure — unit-tested without disk.
+export function sanitizeScheduleName(raw: string, maxLen = 80): string {
+  const s = String(raw ?? "")
+    .replace(/\[(.*?)\]\(.*?\)/g, "$1") // [text](url) → text
+    .replace(/[*_`~#]+/g, "")           // bold/italic/code/strike/headers
+    .replace(/^\s*>\s?/gm, "")          // blockquote markers
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s) return "Untitled schedule";
+  if (s.length <= maxLen) return s;
+  const cut = s.slice(0, maxLen);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > maxLen * 0.5 ? cut.slice(0, lastSpace) : cut).trimEnd() + "…";
+}
+
 export function createSchedule(input: Omit<Schedule, "id" | "createdAt" | "fireCount" | "enabled"> & { enabled?: boolean }): Schedule {
   const s = load();
   const id = `sched-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const fresh: Schedule = {
     id,
-    name: input.name,
+    name: sanitizeScheduleName(input.name),
     templateId: input.templateId,
     inputs: input.inputs ?? {},
     cadence: input.cadence,
@@ -131,7 +157,9 @@ export function updateSchedule(id: string, patch: Partial<Pick<Schedule, "name" 
   const s = load();
   const idx = s.schedules.findIndex(x => x.id === id);
   if (idx === -1) return null;
-  s.schedules[idx] = { ...s.schedules[idx], ...patch };
+  const applied: typeof patch = { ...patch };
+  if (typeof patch.name === "string") applied.name = sanitizeScheduleName(patch.name);
+  s.schedules[idx] = { ...s.schedules[idx], ...applied };
   persist();
   return s.schedules[idx];
 }
@@ -210,51 +238,80 @@ let timer: NodeJS.Timeout | null = null;
 // actual cycle protection (see fireSchedule below).
 const MAX_CHAIN_DEPTH = 10;
 
-async function fireSchedule(s: Schedule, visited: Set<string> = new Set([s.id])): Promise<void> {
+async function fireSchedule(s: Schedule, visited: Set<string> = new Set([s.id]), opts: { lateMs?: number } = {}): Promise<string | null> {
   const url = `http://127.0.0.1:${config.port}/api/templates/run/${encodeURIComponent(s.templateId)}`;
-  try {
-    const r = await fetch(url, {
-      method: "POST",
-      // Scheduled marker → run route tags the job (scheduledBy) → jobs.ts
-      // journals SCHEDULED reports to the vault while the ad-hoc clutter
-      // gate stays closed. force-approval → "needs my OK" schedules park
-      // the fired job for sign-off regardless of the template's own default.
-      headers: {
-        "Content-Type": "application/json",
-        "x-naxie-scheduled": s.id,
-        ...(s.requireApproval ? { "x-naxie-force-approval": "1" } : {}),
-      },
-      body: JSON.stringify(s.inputs ?? {}),
-    });
-    const body: any = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const msg = body?.error ? String(body.error) : `HTTP ${r.status}`;
-      console.warn(`[schedules] fire failed: ${s.id} (${s.name}) — ${msg}`);
-      recordFireError(s.id, msg);
-      void sendScheduleTelegram(s, `## ${s.name} could not start\n\n${msg}`, s.deliver?.telegramChatId);
-      return;
+  // One retry for transient failures (server just booting, 5xx) — never for
+  // 4xx validation errors, which would fail identically the second time.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        // Scheduled marker → run route tags the job (scheduledBy) → jobs.ts
+        // journals SCHEDULED reports to the vault while the ad-hoc clutter
+        // gate stays closed. force-approval → "needs my OK" schedules park
+        // the fired job for sign-off regardless of the template's own default.
+        headers: {
+          "Content-Type": "application/json",
+          "x-naxie-scheduled": s.id,
+          ...(s.requireApproval ? { "x-naxie-force-approval": "1" } : {}),
+        },
+        body: JSON.stringify(s.inputs ?? {}),
+      });
+      const body: any = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = body?.error ? String(body.error) : `HTTP ${r.status}`;
+        const retryable = r.status >= 500;
+        if (retryable && attempt === 0) {
+          console.warn(`[schedules] fire failed (retrying in 20s): ${s.id} (${s.name}) — ${msg}`);
+          await new Promise((rr) => setTimeout(rr, 20_000));
+          continue;
+        }
+        console.warn(`[schedules] fire failed: ${s.id} (${s.name}) — ${msg}`);
+        recordFireError(s.id, msg);
+        void sendScheduleTelegram(s, `## ${s.name} could not start\n\n${msg}`, s.deliver?.telegramChatId);
+        return null;
+      }
+      if (!body?.jobId) {
+        console.warn(`[schedules] fire returned no jobId: ${s.id} (${s.name})`);
+        recordFireError(s.id, "no jobId in response");
+        void sendScheduleTelegram(s, `## ${s.name} could not start\n\nNaxie did not return a job ID.`, s.deliver?.telegramChatId);
+        return null;
+      }
+      recordFire(s.id, body.jobId);
+      // One-off schedules fire exactly once — disable so the UI shows it as
+      // done rather than still-armed (nextFireAt already returns null for a
+      // past `once` date, but disabling makes that explicit, not just implicit).
+      if (s.cadence.once) updateSchedule(s.id, { enabled: false });
+      console.log(`[schedules] fired ${s.id} (${s.name}) → job ${String(body.jobId).slice(0, 8)}`);
+      // Deliver every scheduled result to Telegram (per-schedule override,
+      // configured group, then the connected Telegram integration's default).
+      // Wait in the background so slow jobs don't stall the scheduler tick.
+      void deliverScheduleResult(s, String(body.jobId), s.deliver?.email, s.deliver?.telegramChatId, s.chainTo, visited, { lateMs: opts.lateMs });
+      return String(body.jobId);
+    } catch (e: any) {
+      if (attempt === 0) {
+        console.warn(`[schedules] fire crashed (retrying in 20s): ${s.id} (${s.name}) — ${e?.message ?? e}`);
+        await new Promise((rr) => setTimeout(rr, 20_000));
+        continue;
+      }
+      console.warn(`[schedules] fire crashed: ${s.id} (${s.name}) — ${e?.message ?? e}`);
+      recordFireError(s.id, String(e?.message ?? e));
+      void sendScheduleTelegram(s, `## ${s.name} could not start\n\n${String(e?.message ?? e)}`, s.deliver?.telegramChatId);
+      return null;
     }
-    if (!body?.jobId) {
-      console.warn(`[schedules] fire returned no jobId: ${s.id} (${s.name})`);
-      recordFireError(s.id, "no jobId in response");
-      void sendScheduleTelegram(s, `## ${s.name} could not start\n\nNaxie did not return a job ID.`, s.deliver?.telegramChatId);
-      return;
-    }
-    recordFire(s.id, body.jobId);
-    // One-off schedules fire exactly once — disable so the UI shows it as
-    // done rather than still-armed (nextFireAt already returns null for a
-    // past `once` date, but disabling makes that explicit, not just implicit).
-    if (s.cadence.once) updateSchedule(s.id, { enabled: false });
-    console.log(`[schedules] fired ${s.id} (${s.name}) → job ${String(body.jobId).slice(0, 8)}`);
-    // Deliver every scheduled result to Telegram (per-schedule override,
-    // configured group, then the connected Telegram integration's default).
-    // Wait in the background so slow jobs don't stall the scheduler tick.
-    void deliverScheduleResult(s, String(body.jobId), s.deliver?.email, s.deliver?.telegramChatId, s.chainTo, visited);
-  } catch (e: any) {
-    console.warn(`[schedules] fire crashed: ${s.id} (${s.name}) — ${e?.message ?? e}`);
-    recordFireError(s.id, String(e?.message ?? e));
-    void sendScheduleTelegram(s, `## ${s.name} could not start\n\n${String(e?.message ?? e)}`, s.deliver?.telegramChatId);
   }
+  return null;
+}
+
+// Manual "Run now" — fire a schedule immediately, outside its cadence.
+// Returns the job id (poll /api/tasks/jobs/:id or open the job stream).
+export async function fireScheduleNow(id: string): Promise<{ jobId: string } | { error: string }> {
+  const s = getSchedule(id);
+  if (!s) return { error: "not found" };
+  if (!s.enabled) return { error: "schedule is paused — resume it first" };
+  const jobId = await fireSchedule(s);
+  if (jobId) return { jobId };
+  return { error: getSchedule(id)?.lastError ?? "fire failed" };
 }
 
 // Poll a fired job to completion, then (a) send the result to Telegram,
@@ -266,12 +323,18 @@ async function fireSchedule(s: Schedule, visited: Set<string> = new Set([s.id]))
 async function scheduleTelegramTarget(override?: string): Promise<string | undefined> {
   const perSchedule = (override ?? "").trim();
   if (perSchedule) return perSchedule;
-  const configuredGroup = (process.env.NAXION_TELEGRAM_GROUP_CHAT ?? "").trim();
-  if (configuredGroup) return configuredGroup;
+  // Routing policy: generic/system schedule results go to the operator DM
+  // (bot). News schedules (africa-ai-news / world-ai-news /
+  // super-intelligence-news) pass the group explicitly via their inputs,
+  // so they are unaffected.
+  const dm = (process.env.NAXION_TELEGRAM_NOTIFY_CHAT ?? "").trim();
+  if (dm) return dm;
   try {
     const { getConnectionByProvider } = await import("./integrations.js");
-    return getConnectionByProvider("telegram")?.config?.chatId?.trim() || undefined;
-  } catch { return undefined; }
+    const connChat = getConnectionByProvider("telegram")?.config?.chatId?.trim();
+    if (connChat) return connChat;
+  } catch { /* integrations optional */ }
+  return (process.env.NAXION_TELEGRAM_GROUP_CHAT ?? "").trim() || undefined;
 }
 
 async function sendScheduleTelegram(s: Schedule, text: string, override?: string): Promise<void> {
@@ -286,9 +349,10 @@ async function sendScheduleTelegram(s: Schedule, text: string, override?: string
   }
 }
 
-async function deliverScheduleResult(s: Schedule, jobId: string, to: string | undefined, telegramOverride: string | undefined, chainTo: string[] | undefined, visited: Set<string>): Promise<void> {
+async function deliverScheduleResult(s: Schedule, jobId: string, to: string | undefined, telegramOverride: string | undefined, chainTo: string[] | undefined, visited: Set<string>, opts: { lateMs?: number } = {}): Promise<void> {
   const base = `http://127.0.0.1:${config.port}`;
-  const deadline = Date.now() + 15 * 60_000;
+  const firedAt = Date.now();
+  const deadline = firedAt + 15 * 60_000;
   let answer = "";
   let result: any;
   try {
@@ -324,21 +388,73 @@ async function deliverScheduleResult(s: Schedule, jobId: string, to: string | un
         break;
       }
       if (j.status === "failed" || j.status === "rejected") {
-        answer = `The scheduled task "${s.name}" didn't complete (${j.status}${j.error ? `: ${String(j.error).slice(0, 160)}` : ""}).`;
+        answer = `The scheduled task "${s.name}" didn't complete (${j.status}${j.error ? `: ${String(j.error).slice(0, 160)}` : ""}). Job ${String(jobId).slice(0, 8)} — open it on the Tasks page to inspect or retry.`;
         break;
       }
     }
     if (!answer) answer = `Your scheduled task "${s.name}" is still running — check the Tasks page for the result.`;
 
+    // ── Slot guard ──
+    // A job that runs longer than the gap to the next scheduled fire bleeds
+    // into its slot (lived 2026-10-07: four LLM jobs piled at 08:00 on one
+    // CPU Ollama, queueing into the 09:00 news). Record the bleed as an
+    // audit warning so the pattern stays visible instead of silently
+    // queueing. Never breaks delivery.
+    try {
+      const durationMs = Date.now() - firedAt;
+      let minGapMs = Number.POSITIVE_INFINITY;
+      let nextName = "";
+      for (const other of listSchedules()) {
+        if (!other.enabled) continue;
+        const n = nextFireAt(other.cadence, new Date(firedAt));
+        if (n === null || n <= firedAt) continue;
+        const gap = n - firedAt;
+        if (gap < minGapMs) { minGapMs = gap; nextName = other.name; }
+      }
+      if (Number.isFinite(minGapMs) && durationMs > minGapMs) {
+        const msg = `"${s.name}" ran ${Math.round(durationMs / 60000)} min, overrunning the ${Math.round(minGapMs / 60000)}-min gap to "${nextName}" — consider staggering cadences`;
+        console.warn(`[schedules] slot bleed: ${msg}`);
+        const { logAudit } = await import("./audit-log.js");
+        logAudit({ level: "warn", actor: "scheduler", action: "schedule.slot_bleed", target: s.id, detail: msg, jobId, result: "pending" });
+      }
+    } catch { /* guard never breaks delivery */ }
+
     // Some templates (for example the news cards) send their result directly
     // to Telegram. Avoid posting the same completed result a second time.
     const directlyPosted = result?.posted === true || result?.result?.posted === true;
+    // Late fires (server was down at cadence time) say so up front — a 08:00
+    // briefing arriving at 11:20 without context reads as a bug, not a catch-up.
+    const latePrefix = formatLateNote(opts.lateMs);
     if (!directlyPosted) {
-      await sendScheduleTelegram(s, `## ${s.name}\n\n${answer}\n\n— Naxie`, telegramOverride);
+      await sendScheduleTelegram(s, `## ${s.name}\n\n${latePrefix}${answer}\n\n— Naxie`, telegramOverride);
     }
 
     if (directlyPosted) {
       console.log(`[schedules] ${s.id} (${s.name}) already posted its result to Telegram`);
+    }
+
+    // Read-aloud delivery — a TTS voice note of the finished answer, for
+    // schedules opted in via deliver.voiceNote (e.g. the morning briefing
+    // on the way to work). Best-effort: text delivery above already landed.
+    if (s.deliver?.voiceNote && answer && !answer.startsWith("Your scheduled task")) {
+      try {
+        const { markdownToSpeech, sendTelegramAudio } = await import("./telegram-bridge.js");
+        const { synthesizeWithVoice } = await import("./voice.js");
+        const speech = markdownToSpeech(`Naxie here with ${s.name}. ${answer}`);
+        if (speech.trim()) {
+          const { audio, contentType } = await synthesizeWithVoice(speech, "naxie", undefined, "readaloud");
+          const ext = contentType === "audio/wav" ? "wav" : "mp3";
+          const sent = await sendTelegramAudio(audio, {
+            chatId: telegramOverride,
+            title: s.name,
+            performer: "Naxie",
+            filename: `briefing.${ext}`,
+          });
+          console.log(`[schedules] voice note for ${s.id} (${s.name}): ${sent.ok ? "sent" : `skipped — ${sent.error}`}`);
+        }
+      } catch (e: any) {
+        console.warn(`[schedules] voice note failed for ${s.id} (${s.name}): ${e?.message ?? e}`);
+      }
     }
 
     if (to) {
@@ -361,11 +477,17 @@ function tick() {
     if (!s.enabled) continue;
     // Compute next fire from the last fire (or createdAt if never fired).
     // We only fire when next <= now. The 30s tick keeps lateness <= 30s.
+    // A late `next` means the server was down at cadence time — fire anyway
+    // (missed-fire recovery) but carry the lateness so delivery says so.
     const from = new Date(s.lastFiredAt ?? s.createdAt);
     const next = nextFireAt(s.cadence, from);
     if (next === null) continue;
     if (next <= now) {
-      void fireSchedule(s);
+      const lateMs = now - next;
+      if (lateMs > 5 * 60_000) {
+        console.warn(`[schedules] missed cadence for ${s.id} (${s.name}) by ${Math.round(lateMs / 60_000)} min — firing late`);
+      }
+      void fireSchedule(s, new Set([s.id]), { lateMs });
     }
   }
 }

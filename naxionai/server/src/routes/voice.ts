@@ -31,7 +31,7 @@ export const voiceRouter = Router();
 // meaningless across a restart), same ephemeral-map idiom
 // connectors.ts's OAuth device-code flow already uses.
 const TTS_STREAM_TOKEN_TTL_MS = 60_000;
-const ttsStreamTokens = new Map<string, { text: string; personaId?: string; createdAt: number }>();
+const ttsStreamTokens = new Map<string, { text: string; personaId?: string; purpose: "main" | "readaloud"; createdAt: number }>();
 function sweepExpiredTtsTokens() {
   const cutoff = Date.now() - TTS_STREAM_TOKEN_TTL_MS;
   for (const [token, entry] of ttsStreamTokens) if (entry.createdAt < cutoff) ttsStreamTokens.delete(token);
@@ -297,9 +297,12 @@ voiceRouter.post("/tts", async (req, res) => {
   const text = String(req.body?.text ?? "").trim();
   if (!text) return res.status(400).json({ error: "text is required" });
   // Persona-aware: each persona hashes to a stable local sidecar voice.
+  // purpose "readaloud" selects Naxie's af_heart (read-alouds/sent audios);
+  // anything else uses her bf_emma main voice. Defaults to main.
   try {
     const pid = req.body?.personaId ? String(req.body.personaId) : undefined;
-    const out = await synthesizeWithVoice(text, pid);
+    const purpose = req.body?.purpose === "readaloud" ? "readaloud" as const : "main" as const;
+    const out = await synthesizeWithVoice(text, pid, undefined, purpose);
     res.set("Content-Type", out.contentType);
     res.set("Cache-Control", "no-store");
     res.send(out.audio);
@@ -316,7 +319,8 @@ voiceRouter.post("/tts/token", (req, res) => {
   if (!text) return res.status(400).json({ error: "text is required" });
   sweepExpiredTtsTokens();
   const token = randomUUID();
-  ttsStreamTokens.set(token, { text, personaId: req.body?.personaId ? String(req.body.personaId) : undefined, createdAt: Date.now() });
+  const purpose = req.body?.purpose === "readaloud" ? "readaloud" as const : "main" as const;
+  ttsStreamTokens.set(token, { text, personaId: req.body?.personaId ? String(req.body.personaId) : undefined, purpose, createdAt: Date.now() });
   res.json({ streamUrl: `/api/voice/tts/stream/${token}` });
 });
 
@@ -331,7 +335,7 @@ voiceRouter.get("/tts/stream/:token", async (req, res) => {
   res.set("Content-Type", "audio/mpeg");
   res.set("Cache-Control", "no-store");
   try {
-    await synthesizeWithVoice(entry.text, entry.personaId, chunk => res.write(chunk));
+    await synthesizeWithVoice(entry.text, entry.personaId, chunk => res.write(chunk), entry.purpose ?? "main");
   } catch (e: any) {
     // Headers (audio/mpeg, 200) are already committed once the first chunk
     // writes — there's no clean way to switch to a JSON error mid-stream.

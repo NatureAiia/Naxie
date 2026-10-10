@@ -26,12 +26,15 @@ const vaultRepo = pick("VAULT_REPO", "");
 // your own knowledge folder to use one.
 const vaultPathRaw = pick("VAULT_PATH", "./vault");
 const vaultPath = resolve(vaultPathRaw);
+// Naxie's own folder — the ONLY place her file writes may land (reads may
+// come from anywhere minus the secrets denylist; writes are jailed here).
+// Override with NAXIE_HOME. D:\Naxie belongs to Naxie, per the operator.
+const naxieHomeRaw = pick("NAXIE_HOME", process.platform === "win32" ? "D:\\Naxie" : "Naxie");
+const naxieHome = resolve(naxieHomeRaw);
 // Dedicated local-disk folder for the Files explorer's "Local Files" pane —
-// deliberately NOT the whole C:\ drive. A sandboxed folder we own, so drag-
-// and-drop file management can't wander into system directories. Override
-// with LOCAL_FILES_PATH; default lands next to the vault convention but on
-// C:\ specifically, per the operator's request.
-const localFilesPathRaw = pick("LOCAL_FILES_PATH", "C:\\NaxieFiles");
+// deliberately Naxie's own folder, so the browser, her writes, and Telegram
+// uploads all share one visible home. Override with LOCAL_FILES_PATH.
+const localFilesPathRaw = pick("LOCAL_FILES_PATH", naxieHomeRaw);
 const localFilesPath = resolve(localFilesPathRaw);
 const ollamaHost = pick("OLLAMA_HOST", "http://127.0.0.1:11434");
 const ollamaModel = pick("OLLAMA_MODEL", "llama3.1:8b-instruct-q4_K_M");
@@ -240,6 +243,7 @@ export const config = {
   vaultRepo,
   vaultPath,
   localFilesPath,
+  naxieHome,
   ollamaHost,
   ollamaModel,
   googleClientId,

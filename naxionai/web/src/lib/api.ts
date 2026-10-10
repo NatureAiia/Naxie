@@ -243,6 +243,29 @@ export type QualityFlag = {
   ts: string;
 };
 
+export type DepartmentTemplate = {
+  id: string; name: string; tagline: string; description: string; icon: string; color: string;
+  agents: { name: string; role: string; jobDescription: string; tone?: string }[];
+  recommendedIntegrations: string[]; recommendedTemplates: string[];
+  schedule?: { name: string; templateId: string; cadence: { daysOfWeek: number[]; hour: number; minute: number } };
+  workflow: { persona: string; task: string }[];
+};
+export type DepartmentApplyResult = {
+  department: string; departmentName: string;
+  personas: { name: string; role: string; id: string }[];
+  starterTemplatesCreated: number;
+  recommendedIntegrations: string[]; recommendedTemplates: string[];
+  workflow: DepartmentTemplate["workflow"];
+  schedule: DepartmentTemplate["schedule"] | null;
+  scheduleCreated: { id: string; name: string } | null;
+  message: string;
+};
+
+export type TeamTemplate = {
+  id: string; name: string; description?: string; teamId?: string;
+  tasks: { persona: string; content: string }[];
+};
+
 export const api = {
   health: () => req<{ ok: boolean; name: string; version: string; model: string; port: number; ready: boolean; missing: string[]; inflightJobs?: number; peers?: string[] }>("/api/health"),
   listRepos: () => req<{ repos: any[] }>("/api/repos"),
@@ -595,6 +618,8 @@ export const api = {
   getGovernance: (name: string) => req<{ name: string; path: string; body: string }>(`/api/governance/${encodeURIComponent(name)}`),
   deleteGovernance: (name: string) => req<{ ok: true; deleted: string }>(`/api/governance/${encodeURIComponent(name)}`, { method: "DELETE" }),
   invalidateGovernance: () => req<{ ok: true }>("/api/governance/invalidate", { method: "POST" }),
+  uploadGovernance: (body: { filename: string; contentBase64: string }) => req<{ ok: true; name: string; path: string; bytes: number }>(
+    "/api/governance/upload", { method: "POST", body: JSON.stringify(body) }),
   // Relative URL — the browser downloads it through the Vite proxy (same-origin).
   governanceDownloadUrl: (name: string) => `/api/governance/${encodeURIComponent(name)}/download`,
   // Constraint extraction & review.
@@ -606,9 +631,13 @@ export const api = {
     req<{ constraint: ExtractedConstraint }>(`/api/governance/${encodeURIComponent(name)}/constraints/${encodeURIComponent(constraintId)}`, { method: "PUT", body: JSON.stringify(patch) }),
   checkAction: (action: string, policy?: string) => req<{ action: string; violations: any[]; constrained: boolean; summary: string }>(
     "/api/governance/check-action", { method: "POST", body: JSON.stringify({ action, policy }) }),
-  // Department listing — Office.tsx reads this for room names/colors; Naxie
-  // owns hiring/apply decisions, so there's no client-side apply/create/delete.
+  // Department reads power Office and the department catalog. Apply is an
+  // admin-only deployment action; the server creates drafts for Team review.
   listDepartments: () => req<{ departments: any[] }>("/api/departments"),
+  getDepartment: (id: string) => req<{ department: DepartmentTemplate }>(`/api/departments/${encodeURIComponent(id)}`),
+  applyDepartment: (id: string) => req<DepartmentApplyResult>(`/api/departments/${encodeURIComponent(id)}/apply`, { method: "POST", body: JSON.stringify({}) }),
+  listTeams: () => req<{ teams: { id: string; name: string; description: string; members: { personaId: string; role: string }[] }[]; templates: TeamTemplate[] }>("/api/teams"),
+  dispatchTeamTemplate: (templateId: string, objective: string) => req<{ kind: "team-dispatch"; label: string; [key: string]: unknown }>("/api/teams/dispatch", { method: "POST", body: JSON.stringify({ templateId, objective }) }),
   listSchedules: () => req<{ schedules: Schedule[] }>("/api/schedules"),
   // Either `templateId` (run an existing template) or `task` (free text —
   // the server auto-creates a hidden one-off custom template from it, the
@@ -627,6 +656,8 @@ export const api = {
   updateSchedule: (id: string, patch: Partial<Pick<Schedule, "name" | "templateId" | "inputs" | "cadence" | "enabled" | "deliver" | "requireApproval" | "chainTo">>) =>
     req<{ schedule: Schedule }>(`/api/schedules/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteSchedule: (id: string) => req<{ ok: true }>(`/api/schedules/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  fireScheduleNow: (id: string) => req<{ jobId: string }>(`/api/schedules/${encodeURIComponent(id)}/fire`, { method: "POST" }),
+  getScheduleRuns: (id: string) => req<{ runs: ScheduleRun[] }>(`/api/schedules/${encodeURIComponent(id)}/runs`),
 
   // Office dashboard — manual, per-department stat lines (not computed).
   listOfficeNotes: () => req<{ notes: Record<string, string[]> }>("/api/office-notes"),
@@ -668,12 +699,12 @@ export const api = {
   // circuits instantly with no job at all.
   voiceConverse: (messages: { role: "user" | "assistant"; content: string }[]) =>
     req<{ jobId?: string; text?: string; delegated?: { taskId: string; role: string } }>("/api/voice/converse", { method: "POST", body: JSON.stringify({ messages }) }),
-  voiceTts: async (text: string, personaId?: string): Promise<Blob> => {
+  voiceTts: async (text: string, personaId?: string, purpose?: "main" | "readaloud"): Promise<Blob> => {
     const token = getToken();
     const r = await fetch("/api/voice/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ text, personaId }),
+      body: JSON.stringify({ text, personaId, purpose }),
     });
     if (!r.ok) throw new Error(`tts ${r.status}`);
     return r.blob();
@@ -682,8 +713,8 @@ export const api = {
   // URL an <audio> element can point its `src` at directly (see
   // useNaxieAssistant.ts's speak()). The GET itself isn't fetched through
   // this client — the browser streams it natively via the audio element.
-  voiceTtsToken: (text: string, personaId?: string) =>
-    req<{ streamUrl: string }>("/api/voice/tts/token", { method: "POST", body: JSON.stringify({ text, personaId }) }),
+  voiceTtsToken: (text: string, personaId?: string, purpose?: "main" | "readaloud") =>
+    req<{ streamUrl: string }>("/api/voice/tts/token", { method: "POST", body: JSON.stringify({ text, personaId, purpose }) }),
   // jobId is optional — omit it for a live call with Naxie herself (no
   // report to ground in), pass it for a report-discussion call (unchanged
   // VoiceDiscussion.tsx behavior).
@@ -1436,7 +1467,8 @@ export type Cadence = {
   once?: string;
 };
 
-export type ScheduleDelivery = { email?: string; telegramChatId?: string };
+export type ScheduleDelivery = { email?: string; telegramChatId?: string; voiceNote?: boolean };
+export type ScheduleRun = { id: string; title: string; status: string; startedAt: string; finishedAt?: string };
 export type Schedule = {
   id: string;
   name: string;

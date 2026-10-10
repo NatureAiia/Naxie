@@ -87,9 +87,6 @@ export async function runWeeklyRollup(): Promise<WeeklyRollupResult> {
     const refs = collectReflections(start, end, vaultPath);
     const scans = collectScans(start, end, vaultPath);
     const latestReview = latestImprovementReview(vaultPath);
-    let weatherBlock = "";
-    try { const { getWeather } = await import("./host-tools.js"); weatherBlock = await getWeather("auto"); } catch {}
-
     let streakBlock = "";
     try {
       const { calculateStreakStats, syncStreaksToVault } = await import("./streaks.js");
@@ -116,7 +113,6 @@ generated: ${new Date().toISOString()}
 
 > _Naxie's Sunday digest · ${fmtNice(today)}_
 
-${weatherBlock ? weatherBlock+"\n" : ""}
 ## ✅ Todos — Week ${start} → ${end}
 
 | Metric | Count |

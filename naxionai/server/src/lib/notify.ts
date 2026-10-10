@@ -10,9 +10,10 @@
 //                       default ON — display-only, no OS mutation, so it
 //                       doesn't carry system_control/clipboard's risk).
 //   urgent               email to the operator, best-effort, only when
-//                       email is configured. Reserved for things §2.3 calls
-//                       "time-sensitive": an approval that sat unanswered
-//                       past its TTL, a scheduled digest/brief firing.
+//                       email is configured + Telegram DM to the operator.
+//                       Reserved for things §2.3 calls "time-sensitive": an
+//                       approval that sat unanswered past its TTL, a scheduled
+//                       digest/brief firing.
 //
 // Every tier also writes an audit-log entry — the dispatch itself is a fact
 // worth having in the record, independent of whether the toast/email
@@ -24,18 +25,25 @@ import { logAudit } from "./audit-log.js";
 export type NotifySeverity = "attention" | "urgent";
 
 export type NotifyOptions = {
-  actor?: string;      // audit actor, e.g. an OrgRole — defaults to "naxie"
+  actor?: string;      // audit actor, e.g. an OrgRole - defaults to "naxie"
   target?: string;      // audit target, e.g. the task title
   jobId?: string;
+  keyboard?: any[][];  // Telegram inline keyboard (one-tap actions) — toast ignores it
 };
 
-// "attention" tier: desktop toast, gated by the notifications toggle.
+// "attention" tier: desktop toast, gated by the notifications toggle,
+// PLUS a Telegram DM to the operator (routing policy: system → bot DM).
 // Always audits the attempt, whether or not the toggle let the toast fire.
 export async function notifyAttention(title: string, message: string, opts: NotifyOptions = {}): Promise<void> {
   const allowed = isNotificationsAllowed();
   if (allowed) {
     await notifyToast(title, message).catch(() => { /* toast is best-effort */ });
   }
+  // System → Telegram bot DM (best-effort, never throws).
+  try {
+    const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    await sendTelegramMessage(`?? **${title}**\n${message}`.slice(0, 3800), undefined, opts.keyboard).catch(() => {});
+  } catch { /* telegram is best-effort */ }
   try {
     logAudit({
       level: "info",
@@ -68,9 +76,14 @@ export async function notifyUrgent(subject: string, body: string, opts: NotifyOp
   } catch { /* email is best-effort — never let a notification failure break the caller */ }
   // Urgent items also get the desktop toast (if allowed) — email may sit
   // unread for a while, and this tier is exactly the "don't miss it" case.
+  // Plus a Telegram DM (routing policy: system → bot DM).
   if (isNotificationsAllowed()) {
     await notifyToast(subject, body.slice(0, 200)).catch(() => { /* best-effort */ });
   }
+  try {
+    const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    await sendTelegramMessage(`🚨 **${subject}**\n${body}`.slice(0, 3800)).catch(() => {});
+  } catch { /* telegram is best-effort */ }
   try {
     logAudit({
       level: sent ? "info" : "warn",
