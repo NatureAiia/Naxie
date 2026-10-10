@@ -193,9 +193,9 @@ extensionsRouter.get("/webhooks", (_req, res) => {
 extensionsRouter.post("/webhooks", (req, res) => {
   if (!requireWebhookAdmin(req, res)) return;
   const targetId = String(req.body?.targetId ?? "").trim();
-  const targetKind = String(req.body?.targetKind ?? "connector").trim() as "connector" | "integration" | "extension" | "task";
+  const targetKind = String(req.body?.targetKind ?? "connector").trim() as "connector" | "integration" | "extension" | "task" | "flow";
   if (!targetId) return res.status(400).json({ error: "targetId required" });
-  if (!["connector", "integration", "extension", "task"].includes(targetKind)) return res.status(400).json({ error: "invalid targetKind" });
+  if (!["connector", "integration", "extension", "task", "flow"].includes(targetKind)) return res.status(400).json({ error: "invalid targetKind" });
   const existed = listWebhooks().some(w => w.targetId === targetId && w.targetKind === targetKind);
   const wh = createWebhook(targetId, targetKind);
   logAudit({ level: "info", actor: (req as any).user?.email ?? "system", action: "webhook.create", target: `${targetKind}:${targetId}`, detail: wh.id, result: "success" });
@@ -245,6 +245,23 @@ extensionsRouter.post("/webhook/:id", async (req, res) => {
   // Audit the payload shape, not full secrets
   const preview = JSON.stringify(payload).slice(0, 2000);
   logAudit({ level: "info", actor: "webhook", action: "webhook.hit", target: `${wh?.targetKind ?? "unknown"}:${wh?.targetId ?? id}`, detail: preview, result: "success" });
+
+  // Webhook → Flow: a targetKind "flow" entry fires a Flow Automation
+  // (Trigger → Steps) instead of the generic task-text job below.
+  if (wh?.targetKind === "flow") {
+    if (idempotencyKey) {
+      const prev = findIdempotentJob(id, idempotencyKey);
+      if (prev) return res.json({ ok: true, received: true, duplicate: true, target: `flow:${wh.targetId}`, jobId: prev });
+    }
+    const { executeFlowRun } = await import("../lib/flow-automations.js");
+    const r = await executeFlowRun(wh.targetId, payload);
+    if ("error" in r) {
+      const code = r.error === "not found" ? 404 : r.error === "flow is paused" ? 409 : 502;
+      return res.status(code).json({ ok: false, error: r.error });
+    }
+    if (idempotencyKey) recordIdempotentJob(id, idempotencyKey, r.runId);
+    return res.status(202).json({ ok: true, received: true, duplicate: false, target: `flow:${wh.targetId}`, runId: r.runId });
+  }
 
   // Webhook → Job: if payload carries a task/text/objective, auto-create a PA job
   const rawTask = payload.task ?? payload.text ?? payload.objective ?? payload.prompt;

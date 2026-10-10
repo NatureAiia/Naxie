@@ -11,7 +11,7 @@ const STORE_PATH = resolve(STORE_DIR, "extension-webhooks.json");
 export type WebhookEntry = {
   id: string;
   targetId: string; // connector/integration id or core extension id
-  targetKind: "connector" | "integration" | "extension" | "task";
+  targetKind: "connector" | "integration" | "extension" | "task" | "flow";
   secret: string;
   urlPath: string; // e.g. /api/extensions/webhook/<id>
   createdAt: string;
@@ -45,7 +45,7 @@ function save(list: WebhookEntry[]) {
 export function listWebhooks(): WebhookEntry[] { return load(); }
 export function getWebhook(id: string): WebhookEntry | undefined { return load().find(w => w.id === id); }
 
-export function createWebhook(targetId: string, targetKind: "connector" | "integration" | "extension" | "task"): WebhookEntry {
+export function createWebhook(targetId: string, targetKind: "connector" | "integration" | "extension" | "task" | "flow"): WebhookEntry {
   const list = load();
   const existing = list.find(w => w.targetId === targetId && w.targetKind === targetKind);
   if (existing) return existing;

@@ -58,6 +58,7 @@ import { startApprovalEscalationSweep, stopApprovalEscalationSweep } from "./lib
 import { hostToolsRouter } from "./routes/host-tools.js";
 import { daemonSettingsRouter } from "./routes/daemon-settings.js";
 import { toolDnaRouter } from "./routes/tool-dna.js";
+import { flowsRouter } from "./routes/flow-automations.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { companyLinksRouter } from "./routes/company-links.js";
 import { registerEngine } from "./lib/scheduler-registry.js";
@@ -305,6 +306,7 @@ app.use("/api/host-tools", hostToolsRouter);
 app.use("/api/daemon-settings", daemonSettingsRouter);
 app.use("/api/tool-dna", toolDnaRouter);
 app.use("/api/webhooks", webhooksRouter);
+app.use("/api/flows", flowsRouter); // Flow Automations: Trigger → Steps over connectors/webhooks/agent
 app.use("/api/company-links", companyLinksRouter);
 app.use("/api/offline-mode", offlineModeRouter);
 app.use("/api/org-tasks", orgTasksRouter);
@@ -738,6 +740,13 @@ const server = app.listen(config.port, config.bindHost, async () => {
       registerEngine({ name: "webhook-retry", intervalSeconds: 300, run: async () => { await retryFailedDeliveries(); } });
       console.log("  ⓘ webhook retry engine armed (300s interval)");
     } catch (e: any) { console.warn(`  ⚠ webhook retry engine failed: ${e?.message ?? e}`); }
+    // Flow Automations engines — retry due runs (60s) + schedule triggers (30s).
+    try {
+      const { ensureFlowRetryEngine, ensureFlowScheduleEngine } = await import("./lib/flow-automations.js");
+      ensureFlowRetryEngine();
+      ensureFlowScheduleEngine();
+      console.log("  ⓘ flow engines armed (retry 60s, schedule 30s)");
+    } catch (e: any) { console.warn(`  ⚠ flow engines failed: ${e?.message ?? e}`); }
   }
 
   // MAG memory wipe-recovery (docs/naxie-storage-architecture.md §5) — only

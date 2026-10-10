@@ -14,6 +14,8 @@ type OutboundTarget = { id: string; label: string; url: string; events: string[]
 type DeliveryStatus = "pending" | "success" | "failed" | "dead_letter";
 type Delivery = { id: string; targetId: string; event: string; status: DeliveryStatus; attempts: number; lastAttemptAt?: string; nextAttemptAt?: string; lastError?: string; createdAt: string };
 type InboundTarget = { id: string; targetId: string; targetKind: string; urlPath: string; secretConfigured: boolean; createdAt: string; lastHitAt?: string; hitCount: number; recentJobIds: string[] };
+type Flow = { id: string; name: string; enabled: boolean; trigger: { kind: string }; steps: { id: string; kind: string; ref: string }[]; createdAt: string; invokeUrl?: string };
+type FlowRun = { id: string; flowId: string; status: string; attempts: number; lastError?: string; startedAt: string; finishedAt?: string; jobId?: string; stepResults: { stepId: string; status: string; error?: string }[] };
 type InboundSecret = { label: string; secret: string; url: string; sampleTask: string };
 type Recipe = { id: string; label: string; task: string; help: string };
 
@@ -45,7 +47,16 @@ async function copy(text: string, label: string) {
 }
 
 export function Automation() {
-  const [tab, setTab] = useState<"incoming" | "outgoing">("incoming");
+  const [tab, setTab] = useState<"incoming" | "outgoing" | "flows">("incoming");
+  const [flows, setFlows] = useState<Flow[] | null>(null);
+  const [flowRuns, setFlowRuns] = useState<FlowRun[] | null>(null);
+  const [createFlow, setCreateFlow] = useState(false);
+  const [flowName, setFlowName] = useState("");
+  const [flowTrigger, setFlowTrigger] = useState<"webhook" | "schedule">("webhook");
+  const [flowStepKind, setFlowStepKind] = useState("connector.call");
+  const [flowStepRef, setFlowStepRef] = useState("");
+  const [flowTemplate, setFlowTemplate] = useState('{\n  "method": "GET",\n  "path": "/"\n}');
+  const [deleteFlow, setDeleteFlow] = useState<Flow | null>(null);
   const [incoming, setIncoming] = useState<InboundTarget[] | null>(null);
   const [outgoing, setOutgoing] = useState<OutboundTarget[] | null>(null);
   const [deliveries, setDeliveries] = useState<Delivery[] | null>(null);
@@ -69,13 +80,15 @@ export function Automation() {
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
-    const [inRes, outRes, deliveryRes, catalogRes] = await Promise.all([
+    const [inRes, outRes, deliveryRes, catalogRes, flowRes] = await Promise.all([
       apiResult<{ webhooks: InboundTarget[] }>("/api/extensions/webhooks"),
       apiResult<{ targets: OutboundTarget[] }>("/api/webhooks/targets"),
       apiResult<{ deliveries: Delivery[] }>("/api/webhooks/deliveries"),
       apiResult<{ events: EventOption[] }>("/api/webhooks/catalog"),
+      apiResult<{ flows: Flow[] }>("/api/flows"),
     ]);
     if (inRes.ok) { setIncoming(inRes.webhooks); setError(""); } else setError(inRes.error);
+    if (flowRes.ok) setFlows(flowRes.flows);
     if (outRes.ok) setOutgoing(outRes.targets);
     if (deliveryRes.ok) setDeliveries(deliveryRes.deliveries);
     if (catalogRes.ok) setEvents(catalogRes.events);
@@ -166,6 +179,53 @@ export function Automation() {
     showToast(`Replay ${response.delivery.status}`, response.delivery.status === "success" ? "success" : "error"); await refresh();
   }
 
+  async function addFlow() {
+    if (!flowName.trim() || !flowStepRef.trim()) return;
+    let template: unknown = {};
+    try { template = flowTemplate.trim() ? JSON.parse(flowTemplate) : {}; }
+    catch { return showToast("Step template is not valid JSON", "error"); }
+    setBusy(true);
+    const trigger = flowTrigger === "webhook" ? { kind: "webhook" } : { kind: "schedule", cadence: { daysOfWeek: [], hour: 8, minute: 0 } };
+    const response = await apiResult<{ flow: Flow; invokeUrl?: string; secret?: string }>("/api/flows", {
+      method: "POST", body: JSON.stringify({ name: flowName.trim(), trigger, steps: [{ kind: flowStepKind, ref: flowStepRef.trim(), template }] }),
+    });
+    setBusy(false);
+    if (!response.ok) return showToast(response.error, "error");
+    setCreateFlow(false); setFlowName(""); setFlowStepRef("");
+    if (response.secret && response.invokeUrl) setSecretNotice({ label: response.flow.name, secret: response.secret, url: `${window.location.origin}${response.invokeUrl}`, sampleTask: "Flow trigger payload, e.g. {\"body\":{\"email\":\"a@x.com\"}}" });
+    else showToast("Flow created", "success");
+    await refresh();
+  }
+
+  async function toggleFlow(flow: Flow) {
+    const response = await apiResult<{ flow: Flow }>(`/api/flows/${encodeURIComponent(flow.id)}`, {
+      method: "PATCH", body: JSON.stringify({ enabled: !flow.enabled }),
+    });
+    if (!response.ok) return showToast(response.error, "error");
+    await refresh();
+  }
+
+  async function removeFlow() {
+    if (!deleteFlow) return;
+    const response = await apiResult(`/api/flows/${encodeURIComponent(deleteFlow.id)}`, { method: "DELETE" });
+    if (!response.ok) return showToast(response.error, "error");
+    setDeleteFlow(null); showToast("Flow removed", "success"); await refresh();
+  }
+
+  async function fireFlow(flow: Flow) {
+    const response = await apiResult<{ runId: string }>(`/api/flows/${encodeURIComponent(flow.id)}/fire`, { method: "POST", body: JSON.stringify({ payload: {} }) });
+    if (!response.ok) return showToast(response.error, "error");
+    showToast(`Flow fired (run ${response.runId.slice(0, 8)})`, "success");
+    const runs = await apiResult<{ runs: FlowRun[] }>(`/api/flows/${encodeURIComponent(flow.id)}/runs`);
+    if (runs.ok) setFlowRuns(runs.runs);
+  }
+
+  async function testFlow(flow: Flow) {
+    const response = await apiResult<{ resolved: unknown[]; warnings: string[] }>(`/api/flows/${encodeURIComponent(flow.id)}/test`, { method: "POST", body: JSON.stringify({ sample: { body: {} } }) });
+    if (!response.ok) return showToast(response.error, "error");
+    showToast(response.warnings.length ? `Mapper warnings: ${response.warnings.join("; ").slice(0, 200)}` : "Mapper resolved cleanly", response.warnings.length ? "info" : "success");
+  }
+
   const readinessLabel = executor?.hermes.readiness === "ready" ? "Ready" : executor?.hermes.readiness === "install" ? "Install Hermes" : executor ? "Needs setup" : "Checking…";
   const bridgeLabel = !bridge ? "Checking…" : bridge.registered && bridge.enabled ? `${bridge.toolCount} Naxie tools connected` : "Naxie tools not connected";
 
@@ -181,13 +241,16 @@ export function Automation() {
       <div className="flex gap-2 border-b border-ink-800 pb-2">
         <button onClick={() => setTab("incoming")} className={`px-3 py-2 rounded-lg text-sm ${tab === "incoming" ? "bg-violet-500/15 text-violet-200" : "text-cream-300/60 hover:text-cream-100"}`}>Incoming task triggers</button>
         <button onClick={() => setTab("outgoing")} className={`px-3 py-2 rounded-lg text-sm ${tab === "outgoing" ? "bg-violet-500/15 text-violet-200" : "text-cream-300/60 hover:text-cream-100"}`}>Outgoing event destinations</button>
+        <button onClick={() => setTab("flows")} className={`px-3 py-2 rounded-lg text-sm ${tab === "flows" ? "bg-violet-500/15 text-violet-200" : "text-cream-300/60 hover:text-cream-100"}`}>Flows</button>
       </div>
 
       {error && <ErrorState body={error} onRetry={() => void refresh()} />}
       {tab === "incoming" ? (
         <IncomingSection items={incoming} recipe={recipe} recipeId={recipeId} onRecipe={setRecipeId} onAdd={() => setCreateIncoming(true)} onRotate={rotateIncoming} onDelete={setDeleteInbound} />
-      ) : (
+      ) : tab === "outgoing" ? (
         <OutgoingSection items={outgoing} deliveries={deliveries} events={events} onAdd={() => setCreateOutgoing(true)} onRotate={rotateOutgoing} onToggle={toggleOutgoing} onDelete={setDeleteOutbound} onTest={testOutgoing} onReplay={replay} />
+      ) : (
+        <FlowsSection items={flows} runs={flowRuns} onAdd={() => setCreateFlow(true)} onToggle={toggleFlow} onDelete={setDeleteFlow} onTest={testFlow} onFire={fireFlow} />
       )}
 
       {secretNotice && <Modal open onClose={() => setSecretNotice(null)} title="Copy this secret now">
@@ -216,10 +279,42 @@ export function Automation() {
         </div>
       </Modal>
 
+      <Modal open={createFlow} onClose={() => setCreateFlow(false)} title="Create flow">
+        <div className="space-y-3">
+          <p className="text-xs text-cream-300/60">A flow runs ordered steps when its trigger fires. Tokens like <code>{"{{$.trigger.body.email}}"}</code> map trigger data into step inputs without the LLM.</p>
+          <label className="block text-xs text-cream-300/60">Flow name<input value={flowName} onChange={e => setFlowName(e.target.value)} placeholder="Stripe → CRM" className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100" /></label>
+          <label className="block text-xs text-cream-300/60">Trigger<select value={flowTrigger} onChange={e => setFlowTrigger(e.target.value as "webhook" | "schedule")} className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100"><option value="webhook">Webhook (per-flow URL + secret)</option><option value="schedule">Schedule (daily 08:00, editable via API)</option></select></label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-xs text-cream-300/60">First step<select value={flowStepKind} onChange={e => setFlowStepKind(e.target.value)} className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100"><option value="connector.call">Connector call</option><option value="webhook.publish">Publish event</option><option value="agent.task">Agent task</option></select></label>
+            <label className="block text-xs text-cream-300/60">Ref (connector / event / task)<input value={flowStepRef} onChange={e => setFlowStepRef(e.target.value)} placeholder="crm" className="mt-1 w-full bg-ink-900 border border-ink-800 rounded-md px-3 py-2 text-sm text-cream-100" /></label>
+          </div>
+          <label className="block text-xs text-cream-300/60">Step template (JSON, {"{{$.trigger…}}"} tokens)<textarea value={flowTemplate} onChange={e => setFlowTemplate(e.target.value)} rows={5} spellCheck={false} className="mt-1 w-full bg-ink-950 border border-ink-800 rounded-md px-3 py-2 text-xs font-mono text-cream-100" /></label>
+          <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setCreateFlow(false)}>Cancel</Button><Button disabled={busy || !flowName.trim() || !flowStepRef.trim()} onClick={() => void addFlow()}>{busy ? "Creating…" : "Create flow"}</Button></div>
+        </div>
+      </Modal>
+
+      <ConfirmDialog open={deleteFlow !== null} title="Remove flow?" body="Its trigger URL stops working and scheduled fires stop. Run history stays on disk." rows={deleteFlow ? [["Name", deleteFlow.name], ["Steps", String(deleteFlow.steps.length)]] : []} confirmLabel="Remove flow" danger onConfirm={() => void removeFlow()} onCancel={() => setDeleteFlow(null)} />
       <ConfirmDialog open={deleteInbound !== null} title="Remove incoming trigger?" body="The endpoint secret will stop working and future requests will be rejected." rows={deleteInbound ? [["Name", deleteInbound.targetId], ["Requests received", String(deleteInbound.hitCount)]] : []} confirmLabel="Remove trigger" danger onConfirm={() => void removeIncoming()} onCancel={() => setDeleteInbound(null)} />
       <ConfirmDialog open={deleteOutbound !== null} title="Remove event destination?" body="Naxie will stop sending events to this endpoint. Delivery history remains available." rows={deleteOutbound ? [["Name", deleteOutbound.label], ["URL", deleteOutbound.url]] : []} confirmLabel="Remove destination" danger onConfirm={() => void removeOutgoing()} onCancel={() => setDeleteOutbound(null)} />
     </div>
   );
+}
+
+function FlowsSection({ items, runs, onAdd, onToggle, onDelete, onTest, onFire }: {
+  items: Flow[] | null; runs: FlowRun[] | null; onAdd: () => void;
+  onToggle: (flow: Flow) => void; onDelete: (flow: Flow) => void;
+  onTest: (flow: Flow) => void; onFire: (flow: Flow) => void;
+}) {
+  return <div className="space-y-4">
+    <div className="flex items-center justify-between gap-3"><div><h2 className="font-medium text-cream-50">Trigger → steps automations</h2><p className="text-xs text-cream-300/50 mt-1">Deterministic field mapping first; the agent only runs on agent.task steps.</p></div><Button onClick={onAdd}><Plus size={13} /> Create flow</Button></div>
+    {items === null ? <div className="text-sm text-cream-300/50">Loading flows…</div> : items.length === 0 ? <EmptyState icon={Workflow} title="No flows" body="Create one: a webhook trigger plus a connector call with {{$.trigger…}} tokens." action={<Button onClick={onAdd}><Plus size={13} /> Create flow</Button>} /> : <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">{items.map(flow => <Card key={flow.id} className={flow.enabled ? "" : "opacity-60"}>
+      <div className="flex items-start justify-between gap-3"><div><div className="font-medium text-cream-50">{flow.name}</div><div className="text-[11px] text-cream-300/45 mt-1">{flow.trigger.kind} · {flow.steps.length} step{flow.steps.length === 1 ? "" : "s"} · {flow.steps.map(s => s.kind).join(" → ")}</div></div><span className={`text-[10px] h-fit rounded-full px-2 py-1 ${flow.enabled ? "bg-leaf-500/10 text-leaf-300" : "bg-ink-800 text-cream-300/55"}`}>{flow.enabled ? "enabled" : "paused"}</span></div>
+      {flow.invokeUrl && <code className="block text-[11px] text-cream-200 bg-ink-950 p-2 rounded mt-3 break-all">{window.location.origin}{flow.invokeUrl}</code>}
+      <div className="flex flex-wrap gap-1.5 mt-3"><Button variant="subtle" onClick={() => onFire(flow)}><Send size={12} /> Run now</Button><Button variant="subtle" onClick={() => onTest(flow)}><ShieldCheck size={12} /> Test mapper</Button><Button variant="subtle" onClick={() => onToggle(flow)}><RotateCw size={12} /> {flow.enabled ? "Pause" : "Enable"}</Button><Button variant="ghost" onClick={() => onDelete(flow)}><Trash2 size={12} /> Remove</Button></div>
+    </Card>)}</div>}
+    {runs && runs.length > 0 && <section><h3 className="text-sm font-medium text-cream-100 mb-2">Latest runs</h3><div className="space-y-1.5 max-h-64 overflow-y-auto">{runs.map(run => <div key={run.id} className="rounded-md bg-ink-950/50 border border-ink-800 px-3 py-2 text-xs"><span className={`text-[9px] px-1.5 py-0.5 rounded-full ${run.status === "succeeded" ? "bg-leaf-500/15 text-leaf-400" : run.status === "failed" ? "bg-coral-500/15 text-coral-400" : "bg-ink-800 text-cream-300/60"}`}>{run.status}</span><span className="ml-2 text-cream-300/60">attempt {run.attempts} · {run.stepResults.map(s => `${s.stepId}:${s.status}`).join(", ")}</span>{run.lastError && <span className="block text-[10px] text-coral-300/80 break-all mt-1">{run.lastError}</span>}</div>)}</div></section>}
+    <Notice tone="info">Webhook flows answer in under 50 ms with a run ID and execute async. Step outputs are previewed (2 KB) on the run — full bodies stay server-side.</Notice>
+  </div>;
 }
 
 function IncomingSection({ items, recipe, recipeId, onRecipe, onAdd, onRotate, onDelete }: {
