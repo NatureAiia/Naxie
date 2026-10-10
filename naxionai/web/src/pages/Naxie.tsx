@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Mic, MicOff, Loader2, VolumeX, Sparkles, ChevronDown, Bot, Activity as ActivityIcon, DollarSign, Phone, PhoneOff, Share2, MessageSquare, TerminalSquare, BrainCircuit, Trash2 } from "lucide-react";
 import { AgentStepFeed } from "../components/AgentStepFeed";
@@ -9,7 +9,7 @@ import { NaxieResultCard } from "../components/NaxieResultCard";
 import { ToggleRow } from "../components/ToggleRow";
 import { CapabilityToggles } from "../components/CapabilityToggles";
 import { MicLevelMeter } from "../components/MicLevelMeter";
-import { ChatClarificationCard, ChatDayPill } from "../components/ChatClarificationCard";
+import { ChatClarificationCard } from "../components/ChatClarificationCard";
 import { KuwanaBottomComposer } from "../components/KuwanaBottomComposer";
 import { useNaxieAssistant, type Turn } from "../lib/useNaxieAssistant";
 import { useRealtimeCall } from "../lib/useRealtimeCall";
@@ -70,7 +70,7 @@ function useAmbientStatus() {
 
 export function Naxie() {
   const {
-    turns, chatTurns, lastExchange, sourceNoteId, busy, speaking, liveCaption, mic, orbState, alwaysListening, setAlwaysListening,
+     turns, lastExchange, sourceNoteId, busy, speaking, liveCaption, mic, orbState, alwaysListening, setAlwaysListening,
     requireWakeWord, setRequireWakeWord, voice,
     waitingTasks, resolveWaitingTask, briefing, dismissBriefing,
     onboardingNudge, dismissOnboardingNudge,
@@ -97,7 +97,6 @@ export function Naxie() {
   // exclusive — only one of the three is shown at a time.
   const [view, setView] = useState<"chat" | "graph" | "workbench">("chat");
   const showGraph = view === "graph";
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [liveCallCaption, setLiveCallCaption] = useState("");
@@ -133,7 +132,25 @@ export function Naxie() {
     meta: { taskId: t.id, diff: t.pendingApproval?.diff, actionKind: t.pendingApproval?.kind },
   }));
   const resultTurns = [...waitingCards, ...turns.filter(t => t.kind === "delegation")].slice(-3);
-  const recentChat = chatTurns.slice(-10);
+  // Landing prompts are derived from what actually exists right now (pending
+  // approvals, the most recent delegated job, agent count, today's spend) plus a
+  // time-of-day opener — never a static list handed to everyone the same.
+  const quickPrompts = useMemo(() => {
+    const prompts: string[] = [];
+    if (waitingTasks.length > 0) prompts.push(`Review ${waitingTasks.length} pending approval${waitingTasks.length === 1 ? "" : "s"}`);
+    if (recentJobs.length > 0) {
+      const j = recentJobs[0];
+      const label = j.title ?? j.template ?? j.kind ?? "recent task";
+      prompts.push(`Update me on "${label}"`);
+    }
+    if (personaCount != null && personaCount > 0) prompts.push(`Status report on my ${personaCount} agent${personaCount === 1 ? "" : "s"}`);
+    if (todaySpend != null) prompts.push(`Break down today's $${todaySpend.toFixed(2)} spend`);
+    const h = new Date().getHours();
+    const tod = h < 12 ? "this morning" : h < 18 ? "this afternoon" : "this evening";
+    prompts.push(`What should I focus on ${tod}?`);
+    prompts.push("Summarize my latest vault notes");
+    return prompts.slice(0, 6);
+  }, [waitingTasks, recentJobs, personaCount, todaySpend]);
   const micLevel = useMicLevel(mic.active);
 
   return (
@@ -198,7 +215,7 @@ export function Naxie() {
             <ActivityIcon size={11} className={runningCount > 0 ? "text-emerald-400" : "text-cream-300/50"} /> {runningCount} running
           </Link>
           {todaySpend !== null && (
-            <Link to="/cost" className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-ink-800/70 border border-ink-700 text-[11px] text-cream-300 hover:bg-ink-800 transition-colors">
+            <Link to="/command?tab=models-cost" className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-ink-800/70 border border-ink-700 text-[11px] text-cream-300 hover:bg-ink-800 transition-colors">
               <DollarSign size={11} className="text-coral-400" /> ${todaySpend.toFixed(2)} today
             </Link>
           )}
@@ -327,10 +344,10 @@ export function Naxie() {
           </div>
 
           <div className="space-y-3 pb-4">
-            {recentChat.length === 0 && resultTurns.length === 0 && !briefing && !onboardingNudge && !busy && (
+            {turns.length === 0 && resultTurns.length === 0 && !briefing && !onboardingNudge && !busy && (
               <div className="py-6 text-center">
                 <div className="inline-flex flex-wrap gap-1.5 justify-center max-w-sm">
-                  {["Summarize my latest vault notes", "What did my team ship today?", "Draft a follow-up email to a client", "Show system health"].map(p => (
+                  {quickPrompts.map(p => (
                     <button key={p} type="button" onClick={() => { setInput(p); void ask(p); setInput(""); }} className="text-xs px-3 py-1.5 rounded-full bg-ink-800 border border-ink-700 text-cream-300 hover:bg-ink-700 hover:text-cream-100 hover:border-violet-500/30 transition-colors">
                       {p}
                     </button>
@@ -349,7 +366,6 @@ export function Naxie() {
                 </div>
               </div>
             )}
-            {recentChat.length > 0 && <ChatDayPill />}
             {onboardingNudge && (
               <NaxieResultCard turn={{ role: "assistant", text: t("onboarding.nudge.text"), kind: "onboarding" }} onDismiss={dismissOnboardingNudge} />
             )}
@@ -359,13 +375,6 @@ export function Naxie() {
             {resultTurns.length > 0 && (
               <div className="space-y-2">
                 {resultTurns.map((t, i) => <NaxieResultCard key={i} turn={t} onReplay={speak} onApprove={id => resolveWaitingTask(id, true)} onReject={id => resolveWaitingTask(id, false)} />)}
-              </div>
-            )}
-            {recentChat.length > 0 && (
-              <div className="space-y-3">
-                {recentChat.map((t, i) => (
-                  <NaxieResultCard key={i} turn={t} onReplay={speak} />
-                ))}
               </div>
             )}
             {turns.length > 0 && (
@@ -378,15 +387,6 @@ export function Naxie() {
                   <Trash2 size={11} /> Clear chat history
                 </button>
               </div>
-            )}
-            {recentChat.length > 5 && (
-              <details open={historyOpen} onToggle={e => setHistoryOpen((e.target as HTMLDetailsElement).open)} className="rounded-xl border border-ink-800 bg-ink-900/30 p-3">
-                <summary className="flex items-center gap-1.5 text-[11px] font-medium text-cream-300/70 hover:text-cream-300 cursor-pointer select-none list-none">
-                  <ChevronDown size={12} className={`transition-transform ${historyOpen ? "" : "-rotate-90"}`} />
-                  Older exchanges
-                </summary>
-                <div className="mt-3 text-[11px] text-cream-300/40">All recent chats already shown above — this keeps the view tidy.</div>
-              </details>
             )}
             {recentJobs.length > 0 && (
               <details open={activityOpen} onToggle={e => setActivityOpen((e.target as HTMLDetailsElement).open)} className="rounded-xl border border-ink-800 bg-ink-900/30 p-3">
