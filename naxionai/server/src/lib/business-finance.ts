@@ -1,4 +1,4 @@
-// "Business Finance" — Variety & Co's business books: a product price book
+// "Business Finance" — the operator's business books: a product price book
 // (cost vs sell, margin), business income/expense tracking, deterministic
 // leakage detection (recurring drains + category spikes), cash runway
 // forecasting, and approval-gated big spends (IntelliRevenue-inspired set:
@@ -37,6 +37,7 @@ export function _setStateFileForTests(path: string): void {
 export type Product = {
   id: string;
   ownerEmail: string;
+  businessId: string;
   name: string;
   category: string;
   costPrice: number;
@@ -51,6 +52,7 @@ export type Product = {
 export type BizTxn = {
   id: string;
   ownerEmail: string;
+  businessId: string;
   type: "income" | "expense";
   label: string;
   category: string;
@@ -63,6 +65,7 @@ export type BizTxn = {
 export type PendingSpend = {
   id: string;
   ownerEmail: string;
+  businessId: string;
   label: string;
   category: string;
   amount: number;
@@ -72,8 +75,18 @@ export type PendingSpend = {
 };
 
 export type BusinessSettings = {
+  businessName: string;
+  currency: string;
   approvalThreshold: number; // expenses >= this park for approval (0 disables)
   cashOnHand: number;
+};
+
+export type BusinessWorkspace = {
+  id: string;
+  ownerEmail: string;
+  name: string;
+  currency: string;
+  createdAt: string;
 };
 
 export const BIZ_CATEGORIES = [
@@ -86,25 +99,47 @@ export const PRODUCT_CATEGORIES = [
 ] as const;
 
 type Store = {
+  businesses: BusinessWorkspace[];
   products: Product[];
   txns: BizTxn[];
   pending: PendingSpend[];
-  settingsByOwner: Record<string, BusinessSettings>;
+  settingsByBusiness: Record<string, BusinessSettings>;
 };
 
-const DEFAULT_SETTINGS: BusinessSettings = { approvalThreshold: 200, cashOnHand: 0 };
+const DEFAULT_SETTINGS: BusinessSettings = { businessName: "Varity Vault", currency: "USD", approvalThreshold: 200, cashOnHand: 0 };
+const DEFAULT_BUSINESS_ID = "default";
+const businessKey = (ownerEmail: string, businessId: string) => `${ownerEmail}::${businessId}`;
 
 function load(): Store {
   try {
-    if (!existsSync(CONFIG_PATH)) return { products: [], txns: [], pending: [], settingsByOwner: {} };
+    if (!existsSync(CONFIG_PATH)) return { businesses: [], products: [], txns: [], pending: [], settingsByBusiness: {} };
     const parsed = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+    const products = Array.isArray(parsed?.products) ? parsed.products : [];
+    const txns = Array.isArray(parsed?.txns) ? parsed.txns : [];
+    const pending = Array.isArray(parsed?.pending) ? parsed.pending : [];
+    const oldSettings = parsed?.settingsByOwner && typeof parsed.settingsByOwner === "object" ? parsed.settingsByOwner : {};
+    const businesses: BusinessWorkspace[] = Array.isArray(parsed?.businesses) ? parsed.businesses : [];
+    const owners = new Set<string>([
+      ...products.map((row: Product) => row.ownerEmail), ...txns.map((row: BizTxn) => row.ownerEmail),
+      ...pending.map((row: PendingSpend) => row.ownerEmail), ...Object.keys(oldSettings),
+    ]);
+    for (const ownerEmail of owners) {
+      if (!businesses.some(b => b.ownerEmail === ownerEmail && b.id === DEFAULT_BUSINESS_ID)) {
+        const legacy = oldSettings[ownerEmail] ?? {};
+        businesses.push({ id: DEFAULT_BUSINESS_ID, ownerEmail, name: legacy.businessName || "Varity Vault", currency: legacy.currency || "USD", createdAt: new Date(0).toISOString() });
+      }
+    }
+    const settingsByBusiness: Record<string, BusinessSettings> = parsed?.settingsByBusiness && typeof parsed.settingsByBusiness === "object"
+      ? parsed.settingsByBusiness
+      : Object.fromEntries(Object.entries(oldSettings).map(([owner, settings]) => [businessKey(owner, DEFAULT_BUSINESS_ID), { ...DEFAULT_SETTINGS, ...(settings as Partial<BusinessSettings>) }]));
     return {
-      products: Array.isArray(parsed?.products) ? parsed.products : [],
-      txns: Array.isArray(parsed?.txns) ? parsed.txns : [],
-      pending: Array.isArray(parsed?.pending) ? parsed.pending : [],
-      settingsByOwner: parsed?.settingsByOwner && typeof parsed.settingsByOwner === "object" ? parsed.settingsByOwner : {},
+      businesses,
+      products: products.map((row: Product) => ({ ...row, businessId: row.businessId || DEFAULT_BUSINESS_ID })),
+      txns: txns.map((row: BizTxn) => ({ ...row, businessId: row.businessId || DEFAULT_BUSINESS_ID })),
+      pending: pending.map((row: PendingSpend) => ({ ...row, businessId: row.businessId || DEFAULT_BUSINESS_ID })),
+      settingsByBusiness,
     };
-  } catch { return { products: [], txns: [], pending: [], settingsByOwner: {} }; }
+  } catch { return { businesses: [], products: [], txns: [], pending: [], settingsByBusiness: {} }; }
 }
 
 function save(store: Store): void {
@@ -121,33 +156,85 @@ export function marginOf(costPrice: number, sellPrice: number): { amount: number
 
 // ─── settings ─────────────────────────────────────────────────────────
 
-export function getSettings(ownerEmail: string): BusinessSettings {
-  return { ...DEFAULT_SETTINGS, ...(load().settingsByOwner[ownerEmail] ?? {}) };
+function ensureOwnerWorkspace(store: Store, ownerEmail: string): BusinessWorkspace {
+  let business = store.businesses.find(b => b.ownerEmail === ownerEmail && b.id === DEFAULT_BUSINESS_ID);
+  if (!business) {
+    business = { id: DEFAULT_BUSINESS_ID, ownerEmail, name: DEFAULT_SETTINGS.businessName, currency: DEFAULT_SETTINGS.currency, createdAt: new Date().toISOString() };
+    store.businesses.push(business);
+    store.settingsByBusiness[businessKey(ownerEmail, DEFAULT_BUSINESS_ID)] ??= { ...DEFAULT_SETTINGS };
+    save(store);
+  }
+  return business;
 }
 
-export function updateSettings(ownerEmail: string, patch: Partial<BusinessSettings>): BusinessSettings {
+export function listBusinesses(ownerEmail: string): BusinessWorkspace[] {
   const store = load();
-  const next = { ...DEFAULT_SETTINGS, ...(store.settingsByOwner[ownerEmail] ?? {}) };
+  ensureOwnerWorkspace(store, ownerEmail);
+  return store.businesses.filter(b => b.ownerEmail === ownerEmail).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function getBusiness(ownerEmail: string, businessId: string): BusinessWorkspace | null {
+  return listBusinesses(ownerEmail).find(b => b.id === businessId) ?? null;
+}
+
+export function selectBusinessForAgent(ownerEmail: string, name?: string): { business?: BusinessWorkspace; error?: string } {
+  const businesses = listBusinesses(ownerEmail);
+  if (name?.trim()) {
+    const business = businesses.find(b => b.name.toLowerCase() === name.trim().toLowerCase());
+    return business ? { business } : { error: `No business named "${name}". Available: ${businesses.map(b => b.name).join(", ")}` };
+  }
+  if (businesses.length === 1) return { business: businesses[0] };
+  return { error: `Choose a business workspace. Available: ${businesses.map(b => b.name).join(", ")}` };
+}
+
+export function createBusiness(ownerEmail: string, input: { name: string; currency?: string }): BusinessWorkspace {
+  const store = load();
+  ensureOwnerWorkspace(store, ownerEmail);
+  const business: BusinessWorkspace = {
+    id: randomUUID(), ownerEmail, name: input.name.trim().slice(0, 100),
+    currency: (input.currency || DEFAULT_SETTINGS.currency).toUpperCase(), createdAt: new Date().toISOString(),
+  };
+  store.businesses.push(business);
+  store.settingsByBusiness[businessKey(ownerEmail, business.id)] = { ...DEFAULT_SETTINGS, businessName: business.name, currency: business.currency };
+  save(store);
+  return business;
+}
+
+export function getSettings(ownerEmail: string, businessId = DEFAULT_BUSINESS_ID): BusinessSettings {
+  const store = load();
+  ensureOwnerWorkspace(store, ownerEmail);
+  return { ...DEFAULT_SETTINGS, ...(store.settingsByBusiness[businessKey(ownerEmail, businessId)] ?? {}) };
+}
+
+export function updateSettings(ownerEmail: string, patch: Partial<BusinessSettings>, businessId = DEFAULT_BUSINESS_ID): BusinessSettings {
+  const store = load();
+  ensureOwnerWorkspace(store, ownerEmail);
+  const key = businessKey(ownerEmail, businessId);
+  const next = { ...DEFAULT_SETTINGS, ...(store.settingsByBusiness[key] ?? {}) };
+  if (patch.businessName !== undefined) next.businessName = String(patch.businessName).trim().slice(0, 100) || DEFAULT_SETTINGS.businessName;
+  if (patch.currency !== undefined) next.currency = String(patch.currency).toUpperCase();
   if (patch.approvalThreshold !== undefined) next.approvalThreshold = Math.max(0, Number(patch.approvalThreshold) || 0);
   if (patch.cashOnHand !== undefined) next.cashOnHand = Math.max(0, Number(patch.cashOnHand) || 0);
-  store.settingsByOwner[ownerEmail] = next;
+  store.settingsByBusiness[key] = next;
+  const business = store.businesses.find(b => b.ownerEmail === ownerEmail && b.id === businessId);
+  if (business) { business.name = next.businessName; business.currency = next.currency; }
   save(store);
   return { ...next };
 }
 
 // ─── products (price book) ────────────────────────────────────────────
 
-export function listProducts(ownerEmail: string, opts: { includeInactive?: boolean } = {}): Product[] {
+export function listProducts(ownerEmail: string, opts: { includeInactive?: boolean; businessId?: string } = {}): Product[] {
   return load().products
-    .filter(p => p.ownerEmail === ownerEmail && (opts.includeInactive || p.active))
+    .filter(p => p.ownerEmail === ownerEmail && p.businessId === (opts.businessId ?? DEFAULT_BUSINESS_ID) && (opts.includeInactive || p.active))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function createProduct(ownerEmail: string, input: { name: string; category?: string; costPrice: number; sellPrice: number; unit?: string; notes?: string }): Product {
+export function createProduct(ownerEmail: string, input: { name: string; category?: string; costPrice: number; sellPrice: number; unit?: string; notes?: string }, businessId = DEFAULT_BUSINESS_ID): Product {
   const store = load();
   const now = new Date().toISOString();
   const product: Product = {
-    id: randomUUID(), ownerEmail,
+    id: randomUUID(), ownerEmail, businessId,
     name: input.name.trim().slice(0, 120),
     category: input.category?.trim().slice(0, 60) || "Other",
     costPrice: Math.max(0, Number(input.costPrice) || 0),
@@ -162,9 +249,9 @@ export function createProduct(ownerEmail: string, input: { name: string; categor
   return product;
 }
 
-export function updateProduct(ownerEmail: string, id: string, patch: Partial<Pick<Product, "name" | "category" | "costPrice" | "sellPrice" | "unit" | "active" | "notes">>): Product | null {
+export function updateProduct(ownerEmail: string, id: string, patch: Partial<Pick<Product, "name" | "category" | "costPrice" | "sellPrice" | "unit" | "active" | "notes">>, businessId = DEFAULT_BUSINESS_ID): Product | null {
   const store = load();
-  const idx = store.products.findIndex(p => p.id === id && p.ownerEmail === ownerEmail);
+  const idx = store.products.findIndex(p => p.id === id && p.ownerEmail === ownerEmail && p.businessId === businessId);
   if (idx === -1) return null;
   const cur = store.products[idx];
   store.products[idx] = {
@@ -182,14 +269,14 @@ export function updateProduct(ownerEmail: string, id: string, patch: Partial<Pic
   return store.products[idx];
 }
 
-export function deleteProduct(ownerEmail: string, id: string): boolean {
+export function deleteProduct(ownerEmail: string, id: string, businessId = DEFAULT_BUSINESS_ID): boolean {
   const store = load();
   const before = store.products.length;
-  store.products = store.products.filter(p => !(p.id === id && p.ownerEmail === ownerEmail));
+  store.products = store.products.filter(p => !(p.id === id && p.ownerEmail === ownerEmail && p.businessId === businessId));
   if (store.products.length === before) return false;
   // Keep history intact — sale rows keep their label, just lose the link.
   for (const t of store.txns) {
-    if (t.ownerEmail === ownerEmail && t.productId === id) delete t.productId;
+    if (t.ownerEmail === ownerEmail && t.businessId === businessId && t.productId === id) delete t.productId;
   }
   save(store);
   return true;
@@ -197,16 +284,16 @@ export function deleteProduct(ownerEmail: string, id: string): boolean {
 
 // ─── transactions ─────────────────────────────────────────────────────
 
-export function listTxns(ownerEmail: string, opts: { from?: string; to?: string } = {}): BizTxn[] {
+export function listTxns(ownerEmail: string, opts: { from?: string; to?: string; businessId?: string } = {}): BizTxn[] {
   return load().txns
-    .filter(t => t.ownerEmail === ownerEmail && (!opts.from || t.date >= opts.from) && (!opts.to || t.date <= opts.to))
+    .filter(t => t.ownerEmail === ownerEmail && t.businessId === (opts.businessId ?? DEFAULT_BUSINESS_ID) && (!opts.from || t.date >= opts.from) && (!opts.to || t.date <= opts.to))
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
 }
 
-export function addTxn(ownerEmail: string, input: { type: BizTxn["type"]; label: string; category: string; amount: number; date: string; productId?: string }): BizTxn {
+export function addTxn(ownerEmail: string, input: { type: BizTxn["type"]; label: string; category: string; amount: number; date: string; productId?: string }, businessId = DEFAULT_BUSINESS_ID): BizTxn {
   const store = load();
   const txn: BizTxn = {
-    id: randomUUID(), ownerEmail,
+    id: randomUUID(), ownerEmail, businessId,
     type: input.type,
     label: input.label.trim().slice(0, 120),
     category: input.category.trim().slice(0, 60) || "Other",
@@ -220,10 +307,10 @@ export function addTxn(ownerEmail: string, input: { type: BizTxn["type"]; label:
   return txn;
 }
 
-export function deleteTxn(ownerEmail: string, id: string): boolean {
+export function deleteTxn(ownerEmail: string, id: string, businessId = DEFAULT_BUSINESS_ID): boolean {
   const store = load();
   const before = store.txns.length;
-  store.txns = store.txns.filter(t => !(t.id === id && t.ownerEmail === ownerEmail));
+  store.txns = store.txns.filter(t => !(t.id === id && t.ownerEmail === ownerEmail && t.businessId === businessId));
   if (store.txns.length === before) return false;
   save(store);
   return true;
@@ -243,16 +330,16 @@ export function parseFinancePendingRef(detail: string): string | null {
   return id || null;
 }
 
-export function listPending(ownerEmail: string): PendingSpend[] {
+export function listPending(ownerEmail: string, businessId?: string): PendingSpend[] {
   return load().pending
-    .filter(p => p.ownerEmail === ownerEmail)
+    .filter(p => p.ownerEmail === ownerEmail && (!businessId || p.businessId === businessId))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function createPendingSpend(ownerEmail: string, input: { label: string; category: string; amount: number; date: string; taskId: string }): PendingSpend {
+export function createPendingSpend(ownerEmail: string, input: { label: string; category: string; amount: number; date: string; taskId: string }, businessId = DEFAULT_BUSINESS_ID): PendingSpend {
   const store = load();
   const pending: PendingSpend = {
-    id: randomUUID(), ownerEmail,
+    id: randomUUID(), ownerEmail, businessId,
     label: input.label.trim().slice(0, 120),
     category: input.category.trim().slice(0, 60) || "Other",
     amount: Math.max(0, Number(input.amount) || 0),
@@ -269,14 +356,15 @@ export function createPendingSpend(ownerEmail: string, input: { label: string; c
 // real expense row; reject drops it. Returns the posted txn (approve) or
 // null (reject / unknown id). Never throws on unknown ids — the approval
 // inbox must stay usable even if the finance row was cleaned up first.
-export function settlePendingSpend(ownerEmail: string, pendingId: string, approved: boolean): BizTxn | null {  const store = load();
+export function settlePendingSpend(ownerEmail: string, pendingId: string, approved: boolean): BizTxn | null {
+  const store = load();
   const idx = store.pending.findIndex(p => p.id === pendingId && p.ownerEmail === ownerEmail);
   if (idx === -1) return null;
   const [pending] = store.pending.splice(idx, 1);
   let posted: BizTxn | null = null;
   if (approved) {
     posted = {
-      id: randomUUID(), ownerEmail, type: "expense",
+      id: randomUUID(), ownerEmail, businessId: pending.businessId, type: "expense",
       label: pending.label, category: pending.category,
       amount: pending.amount, date: pending.date,
       createdAt: new Date().toISOString(),
@@ -297,9 +385,9 @@ export type BusinessSummary = {
   topProducts: { productId: string; name: string; revenue: number; estMargin: number }[];
 };
 
-export function summarizeBiz(ownerEmail: string, opts: { from?: string; to?: string } = {}): BusinessSummary {
+export function summarizeBiz(ownerEmail: string, opts: { from?: string; to?: string; businessId?: string } = {}): BusinessSummary {
   const txns = listTxns(ownerEmail, opts);
-  const products = new Map(listProducts(ownerEmail, { includeInactive: true }).map(p => [p.id, p]));
+  const products = new Map(listProducts(ownerEmail, { includeInactive: true, businessId: opts.businessId }).map(p => [p.id, p]));
   const income = txns.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const expenses = txns.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
   const byCategoryMap = new Map<string, number>();
@@ -345,8 +433,8 @@ function monthsBetween(a: string, b: string): number {
   return (by - ay) * 12 + (bm - am);
 }
 
-export function findLeaks(ownerEmail: string): Leak[] {
-  const expenses = listTxns(ownerEmail).filter(t => t.type === "expense");
+export function findLeaks(ownerEmail: string, businessId = DEFAULT_BUSINESS_ID): Leak[] {
+  const expenses = listTxns(ownerEmail, { businessId }).filter(t => t.type === "expense");
   if (expenses.length === 0) return [];
   const leaks: Leak[] = [];
 
@@ -379,12 +467,12 @@ export function findLeaks(ownerEmail: string): Leak[] {
       kind: "recurring", label: sorted[sorted.length - 1].label, category: sorted[sorted.length - 1].category,
       monthlyEstimate: Math.round(monthlyEstimate * 100) / 100,
       occurrences: rows.length,
-      detail: `${rows.length} charges across ${months.length} months (~$${Math.round(monthlyEstimate)}/mo)`,
+      detail: `${rows.length} charges across ${months.length} months`,
     });
   }
 
   // Spikes: this month's category total ≥ 2× the prior-3-month average,
-  // minimum $20 movement so small-number noise never flags.
+  // with a minimum 20-unit movement in this workspace's currency.
   const cur = todayStr.slice(0, 7);
   const prior: string[] = [];
   {
@@ -408,7 +496,7 @@ export function findLeaks(ownerEmail: string): Leak[] {
         kind: "spike", label: `${category} spending`, category,
         monthlyEstimate: Math.round((thisMonth - avg) * 100) / 100,
         occurrences: expenses.filter(t => monthKey(t.date) === cur && t.category === category).length,
-        detail: `$${Math.round(thisMonth)} this month vs $${Math.round(avg)}/mo average`,
+        detail: `This month's spend is at least twice the recent average`,
       });
     }
   }
@@ -428,9 +516,9 @@ export type Forecast = {
   projection: { month: string; income: number; burn: number; cash: number }[];
 };
 
-export function forecastBiz(ownerEmail: string): Forecast {
-  const txns = listTxns(ownerEmail);
-  const { cashOnHand } = getSettings(ownerEmail);
+export function forecastBiz(ownerEmail: string, businessId = DEFAULT_BUSINESS_ID): Forecast {
+  const txns = listTxns(ownerEmail, { businessId });
+  const { cashOnHand } = getSettings(ownerEmail, businessId);
   const byMonth = new Map<string, { income: number; burn: number }>();
   for (const t of txns) {
     const k = monthKey(t.date);
