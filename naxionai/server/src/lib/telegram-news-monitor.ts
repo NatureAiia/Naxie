@@ -284,6 +284,7 @@ export async function scoreAndNotifyBatch(now = Date.now()): Promise<number> {
 
     // Send notifications for relevant posts
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    const { card: newsCard } = await import("./telegram-format.js");
     const targetChat = notifyChatId();
 
     for (let i = 0; i < batch.length; i++) {
@@ -292,17 +293,12 @@ export async function scoreAndNotifyBatch(now = Date.now()): Promise<number> {
       if (!s || typeof s.score !== "number") continue;
 
       if (s.score >= threshold) {
-        const notification = [
-          `📰 **${post.source === "external" ? "News Alert" : "Telegram News Alert"}** (score: ${s.score}/10)`,
-          ``,
-          `From: ${post.chatName} (via ${post.senderName})`,
-          `Time: ${post.timestamp}`,
-          ...(post.url ? [`Link: ${post.url}`] : []),
-          ``,
-          s.summary || post.text.slice(0, 300),
-          ``,
-          `_Why: ${s.reason}_`,
-        ].join("\n");
+        const notification = newsCard({
+          icon: "📰",
+          title: `${post.source === "external" ? "News Alert" : "Telegram News Alert"} — score ${s.score}/10`,
+          meta: `From: ${post.chatName} (via ${post.senderName}) · ${post.timestamp}${post.url ? ` · ${post.url}` : ""}`,
+          body: `${s.summary || post.text.slice(0, 300)}\n\nWhy: ${s.reason}`,
+        });
 
         if (targetChat) {
           await sendTelegramMessage(notification, targetChat).catch(e =>

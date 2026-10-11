@@ -911,8 +911,14 @@ export async function processInboundEmail(account: EmailAccount, global: GlobalE
       reason = c.oneLinerReason;
     } catch {}
 
+    const { card } = await import("./telegram-format.js");
     await sendTelegramMessage(
-      `📧 *New Email Triage* — ${badge}\n\n*From:* ${sender}\n*Subject:* ${subject}\n\n💡 _${reason}_\n\n${prompt.slice(0, 200)}${prompt.length > 200 ? "..." : ""}`,
+      card({
+        icon: "📧",
+        title: `New Email Triage — ${badge}`,
+        meta: `From: ${sender} · Subject: ${subject}`,
+        body: `💡 ${reason}\n\n${prompt.slice(0, 200)}${prompt.length > 200 ? "…" : ""}`,
+      }),
       undefined,
       [
         [
@@ -1101,8 +1107,13 @@ export async function checkSnoozedEmails(): Promise<{ reminded: number }> {
   const { sendTelegramMessage } = await import("./telegram-bridge.js");
   const list = snoozed.map(([id, e]) => `• ${e.sender} (${e.subject}) [${id}]`).join("\n");
 
+  const { card: snoozeCard } = await import("./telegram-format.js");
   await sendTelegramMessage(
-    `⏰ *Snoozed Email Reminder*\n\nYou have ${snoozed.length} emails waiting in triage:\n\n${list}\n\nUse \`email.list_triage\` to see details.`,
+    snoozeCard({
+      icon: "⏰",
+      title: "Snoozed Email Reminder",
+      body: `You have ${snoozed.length} emails waiting in triage:\n\n${list}\n\nUse email.list_triage to see details.`,
+    }),
     undefined,
     [[{ text: "Handle Now", callback_data: "email:handle_all" }]],
   );

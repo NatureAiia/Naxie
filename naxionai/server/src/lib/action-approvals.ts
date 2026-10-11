@@ -192,7 +192,8 @@ async function sweepOnce(): Promise<void> {
     const mins = Math.round(elapsed / 60_000);
     const waited = mins < 60 ? `${mins}m` : `${Math.round(mins / 60)}h`;
     try {
-      await sendTelegramMessage(`⏰ Still waiting on your approval (${waited}):\n\n${st.label}\n\nReply *yes* to approve or *no* to reject.`, st.chatId);
+      const { card: escCard } = await import("./telegram-format.js");
+      await sendTelegramMessage(escCard({ icon: "⏳", title: `Still waiting on your approval (${waited})`, body: `${st.label}\n\nReply yes to approve or no to reject.` }), st.chatId);
       pending.set(st.chatId, { jobId, label: st.label, expiresAt: now + PENDING_TTL_MS });
       persistApprovalState();
     } catch (e: any) {

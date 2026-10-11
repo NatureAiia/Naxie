@@ -625,7 +625,7 @@ async function handleEmailCallback(token: string, allow: Set<string>, cb: any): 
       await tg(token, "answerCallbackQuery", { callback_query_id: cbId, text: "Draft generated" });
       await tg(token, "sendMessage", { 
         chat_id: chatId, 
-        text: `📝 *Draft Response to ${entry.sender}:*\n\n${draft}\n\nShall I send this?`,
+        text: `📝 <b>Draft Response to ${entry.sender}:</b>\n\n${draft}\n\nShall I send this?`,
         parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [[
