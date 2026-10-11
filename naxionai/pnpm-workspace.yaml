@@ -20,9 +20,13 @@ allowBuilds:
   keytar: true
   msgpackr-extract: true
   node-pty: true
+  onnxruntime-node@file:onnxruntime-node.tgz: true
   protobufjs: true
   puppeteer: false
   ssh2: false
   tesseract.js: true
 overrides:
   drivelist: "file:theia/packages/app/shims/drivelist-mock"
+  # onnxruntime-node tarball is fetched chunk-wise (npm CDN route is
+  # unusable from here) — point every consumer (kokoro-js included) at it.
+  "onnxruntime-node": "file:./onnxruntime-node.tgz"

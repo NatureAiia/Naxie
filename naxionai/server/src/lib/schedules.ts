@@ -268,13 +268,13 @@ async function fireSchedule(s: Schedule, visited: Set<string> = new Set([s.id]),
         }
         console.warn(`[schedules] fire failed: ${s.id} (${s.name}) — ${msg}`);
         recordFireError(s.id, msg);
-        void sendScheduleTelegram(s, `## ${s.name} could not start\n\n${msg}`, s.deliver?.telegramChatId);
+        void failNotice(s, msg, s.deliver?.telegramChatId);
         return null;
       }
       if (!body?.jobId) {
         console.warn(`[schedules] fire returned no jobId: ${s.id} (${s.name})`);
         recordFireError(s.id, "no jobId in response");
-        void sendScheduleTelegram(s, `## ${s.name} could not start\n\nNaxie did not return a job ID.`, s.deliver?.telegramChatId);
+        void failNotice(s, "Naxie did not return a job ID.", s.deliver?.telegramChatId);
         return null;
       }
       recordFire(s.id, body.jobId);
@@ -296,7 +296,7 @@ async function fireSchedule(s: Schedule, visited: Set<string> = new Set([s.id]),
       }
       console.warn(`[schedules] fire crashed: ${s.id} (${s.name}) — ${e?.message ?? e}`);
       recordFireError(s.id, String(e?.message ?? e));
-      void sendScheduleTelegram(s, `## ${s.name} could not start\n\n${String(e?.message ?? e)}`, s.deliver?.telegramChatId);
+      void failNotice(s, String(e?.message ?? e), s.deliver?.telegramChatId);
       return null;
     }
   }
@@ -347,6 +347,13 @@ async function sendScheduleTelegram(s: Schedule, text: string, override?: string
   } catch (e: any) {
     console.warn(`[schedules] Telegram delivery failed for ${s.id} (${s.name}): ${e?.message ?? e}`);
   }
+}
+
+// Failure notice for fires that never produced a job — same card shape as
+// results, flagged failed (no footer, nothing to file).
+async function failNotice(s: Schedule, reason: string, override?: string): Promise<void> {
+  const { deliveryCard } = await import("./telegram-format.js");
+  await sendScheduleTelegram(s, deliveryCard({ name: `${s.name} — could not start`, answer: reason, failed: true }), override);
 }
 
 async function deliverScheduleResult(s: Schedule, jobId: string, to: string | undefined, telegramOverride: string | undefined, chainTo: string[] | undefined, visited: Set<string>, opts: { lateMs?: number } = {}): Promise<void> {
@@ -424,9 +431,10 @@ async function deliverScheduleResult(s: Schedule, jobId: string, to: string | un
     const directlyPosted = result?.posted === true || result?.result?.posted === true;
     // Late fires (server was down at cadence time) say so up front — a 08:00
     // briefing arriving at 11:20 without context reads as a bug, not a catch-up.
-    const latePrefix = formatLateNote(opts.lateMs);
+    // (Rendered by deliveryCard below as the body's lead line.)
     if (!directlyPosted) {
-      await sendScheduleTelegram(s, `## ${s.name}\n\n${latePrefix}${answer}\n\n— Naxie`, telegramOverride);
+      const { deliveryCard } = await import("./telegram-format.js");
+      await sendScheduleTelegram(s, deliveryCard({ name: s.name, answer, lateNote: formatLateNote(opts.lateMs) || undefined }), telegramOverride);
     }
 
     if (directlyPosted) {

@@ -1125,14 +1125,20 @@ let lastRunDate: string | null = null;
 async function deliverToTelegram(result: SystemAuditResult): Promise<void> {
   try {
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    const { digestCard } = await import("./telegram-format.js");
     const niceDate = new Date(result.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     const s = result.stats;
-    const header = `🏢 *MD System Audit — ${niceDate}*\nHealth ${s.health.score}/100 — ${s.health.summary}`;
-    const line = `📄 ${s.inventory.pages.length} pages · 🔌 ${s.inventory.routes.length} routes · 📦 ${s.inventory.templates.length} templates · 👥 ${s.inventory.personas.length} personas`;
-    const line2 = `💤 ${s.dormant.length} dormant · 🗑️ ${s.useless.length} useless · 🔧 ${s.improvements.length} improvements`;
-    const body = result.report.slice(0, 3300);
-    const footer = `\n\n— _Full report in vault: ${result.path}_`;
-    const text = `${header}\n${line}\n${line2}\n\n${body}${footer}`;
+    const text = digestCard({
+      icon: "🏢",
+      title: `MD System Audit — ${niceDate}`,
+      meta: `Health ${s.health.score}/100 — ${s.health.summary}`,
+      body: [
+        `${s.inventory.pages.length} pages · ${s.inventory.routes.length} routes · ${s.inventory.templates.length} templates · ${s.inventory.personas.length} personas`,
+        `${s.dormant.length} dormant · ${s.useless.length} useless · ${s.improvements.length} improvements`,
+        result.report.slice(0, 3000),
+      ].join("\n"),
+      vaultPath: result.path,
+    });
     const r = await sendTelegramMessage(text);
     if (!r.ok) console.warn(`[system-audit] Telegram delivery skipped: ${r.error}`);
   } catch (e: any) { console.warn(`[system-audit] Telegram delivery failed: ${e?.message ?? e}`); }
@@ -1187,7 +1193,8 @@ export async function triggerVoiceBriefing(): Promise<{ ok: boolean; text?: stri
     // Try TTS — best-effort, falls back to Telegram text only
     try {
       const { synthesizeWithVoice } = await import("./voice.js");
-      const out = await synthesizeWithVoice(script, "naxie");
+      const { digestCard } = await import("./telegram-format.js");
+      const out = await synthesizeWithVoice(script, "naxie", undefined, "readaloud");
       // Persist BOTH the audio (so the UI has something to play) and the
       // script text next to it — previously only the .txt was written and
       // the synthesized audio was silently discarded.
@@ -1201,12 +1208,15 @@ export async function triggerVoiceBriefing(): Promise<{ ok: boolean; text?: stri
         writeFileSync(join(mediaDir, `${s.date}.${ext}`), out.audio);
         audioRel = `_naxion/md-briefings/${s.date}.${ext}`;
       } catch { /* ignore */ }
-      void import("./telegram-bridge.js").then(m => m.sendTelegramMessage(`🎙️ *MD Voice Briefing — ${s.date}*\n${script}`).catch(() => {}));
+      void import("./telegram-bridge.js").then(m => m.sendTelegramMessage(digestCard({ icon: "🎙️", title: `MD Voice Briefing — ${s.date}`, body: script })).catch(() => {}));
       return { ok: true, text: script, audioPath: audioRel };
     } catch {
       // TTS is best-effort — fall back to the same plain text message the
       // success path sends, no error caption cluttering the briefing.
-      void import("./telegram-bridge.js").then(m => m.sendTelegramMessage(`🎙️ *MD Voice Briefing — ${s.date}*\n${script}`).catch(() => {}));
+      void import("./telegram-bridge.js").then(async (m) => {
+        const { digestCard: dc } = await import("./telegram-format.js");
+        m.sendTelegramMessage(dc({ icon: "🎙️", title: `MD Voice Briefing — ${s.date}`, body: script })).catch(() => {});
+      });
       return { ok: true, text: script };
     }
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }

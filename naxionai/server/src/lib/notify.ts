@@ -42,7 +42,8 @@ export async function notifyAttention(title: string, message: string, opts: Noti
   // System → Telegram bot DM (best-effort, never throws).
   try {
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
-    await sendTelegramMessage(`?? **${title}**\n${message}`.slice(0, 3800), undefined, opts.keyboard).catch(() => {});
+    const { card } = await import("./telegram-format.js");
+    await sendTelegramMessage(card({ icon: "🔔", title, body: message }).slice(0, 3800), undefined, opts.keyboard).catch(() => {});
   } catch { /* telegram is best-effort */ }
   try {
     logAudit({
@@ -82,7 +83,8 @@ export async function notifyUrgent(subject: string, body: string, opts: NotifyOp
   }
   try {
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
-    await sendTelegramMessage(`🚨 **${subject}**\n${body}`.slice(0, 3800)).catch(() => {});
+    const { card } = await import("./telegram-format.js");
+    await sendTelegramMessage(card({ icon: "🚨", title: subject, body }).slice(0, 3800)).catch(() => {});
   } catch { /* telegram is best-effort */ }
   try {
     logAudit({

@@ -685,12 +685,15 @@ let lastRunDate: string | null = null;
 async function deliverToTelegram(result: InnovationScanResult): Promise<void> {
   try {
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    const { digestCard } = await import("./telegram-format.js");
     const niceDate = new Date(result.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    const header = `🔭 *Innovation Scan — ${niceDate}*\n✨ Naxie's morning scan\n`;
-    const stats = `🔧 ${result.targeted.length} weak spot(s) · 📦 ${result.broad.repos.length} repo(s) · 📰 ${result.broad.news.length} news`;
-    const body = result.digest.slice(0, 3300);
-    const footer = `\n\n— _Full report in vault: ${result.path}_`;
-    const text = `${header}\n${stats}\n\n${body}${footer}`;
+    const text = digestCard({
+      icon: "🔭",
+      title: `Innovation Scan — ${niceDate}`,
+      meta: `✨ Naxie's morning scan · 🔧 ${result.targeted.length} weak spot(s) · 📦 ${result.broad.repos.length} repo(s) · 📰 ${result.broad.news.length} news`,
+      body: result.digest.slice(0, 3300),
+      vaultPath: result.path,
+    });
     const r = await sendTelegramMessage(text);
     if (!r.ok) console.warn(`[innovation-scan] Telegram delivery skipped: ${r.error}`);
   } catch (e: any) { console.warn(`[innovation-scan] Telegram delivery failed: ${e?.message ?? e}`); }

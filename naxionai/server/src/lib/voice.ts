@@ -23,7 +23,7 @@
 // (Kokoro) rather than the persona hash, so she always sounds like herself.
 
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, unlinkSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -341,6 +341,29 @@ export async function synthesizeWithVoice(
 let kokoroTts: any = null;
 let kokoroLoadFailed = false;
 
+// kokoro-js resolves voice packs from ./voices relative to the process CWD.
+// Ensure the two voices Naxie needs are there, self-healing from the package
+// bundle (pnp/pnpm layouts, services started from another cwd) instead of
+// failing at speak time.
+function ensureKokoroVoices(): void {
+  try {
+    const dir = resolve(process.cwd(), "voices");
+    const needed = [NAXIE_MAIN_VOICE, NAXIE_READALOUD_VOICE].map((v) => `${v}.bin`);
+    if (needed.every((f) => existsSync(join(dir, f)))) return;
+    const candidates = [
+      resolve(__dirname, "../../node_modules/kokoro-js/voices"),
+      resolve(process.cwd(), "node_modules/kokoro-js/voices"),
+      resolve(process.cwd(), "server/node_modules/kokoro-js/voices"),
+    ];
+    const src = candidates.find((d) => { try { return readdirSync(d).length > 0; } catch { return false; } });
+    if (!src) return;
+    mkdirSync(dir, { recursive: true });
+    for (const f of needed) {
+      try { if (!existsSync(join(dir, f))) copyFileSync(join(src, f), join(dir, f)); } catch { /* next */ }
+    }
+  } catch { /* best-effort — generate() surfaces the real error */ }
+}
+
 async function loadKokoro(): Promise<any> {
   if (kokoroTts) return kokoroTts;
   if (kokoroLoadFailed) throw new Error("kokoro-js unavailable (previous load failed)");
@@ -365,6 +388,7 @@ async function loadKokoro(): Promise<any> {
     kokoroLoadFailed = true;
     throw new Error(`Kokoro model load failed: ${String(e?.message ?? e).slice(0, 160)}`);
   }
+  ensureKokoroVoices();
   return kokoroTts;
 }
 
@@ -382,10 +406,36 @@ export async function synthesizeKokoroVoice(
       tts.generate(speak, { voice: v }),
       new Promise((_res, rej) => setTimeout(() => rej(new Error("Kokoro timed out after 180s")), 180_000)),
     ]);
-    const wav: Blob = await audio.toWav();
-    const buf = Buffer.from(await wav.arrayBuffer());
-    if (buf.length < 100 || buf.toString("ascii", 0, 4) !== "RIFF") throw new Error("Kokoro produced no usable audio");
-    return buf;
+    // kokoro-js yields a transformers RawAudio (not a Blob) — persist via
+    // its own .save(), with a manual float-to-WAV wrap as fallback.
+    const tmp = join(tmpdir(), `naxie-kokoro-${randomUUID()}.wav`);
+    try {
+      if (typeof audio?.save === "function") {
+        await audio.save(tmp);
+      } else if (audio?.audio) {
+        const samples = Float32Array.from(audio.audio);
+        const rate = Number(audio.sampling_rate ?? audio.samplingRate ?? 24000) || 24000;
+        const data = Buffer.alloc(44 + samples.length * 2);
+        data.write("RIFF", 0); data.writeUInt32LE(36 + samples.length * 2, 4); data.write("WAVE", 8);
+        data.write("fmt ", 12); data.writeUInt32LE(16, 16); data.writeUInt16LE(1, 20);
+        data.writeUInt16LE(1, 22); data.writeUInt32LE(rate, 24);
+        data.writeUInt32LE(rate * 2, 28); data.writeUInt16LE(2, 32);
+        data.writeUInt16LE(16, 34); data.write("data", 36); data.writeUInt32LE(samples.length * 2, 40);
+        for (let i = 0; i < samples.length; i++) {
+          const s = Math.max(-1, Math.min(1, samples[i]));
+          data.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
+        }
+        const { writeFileSync: wfs } = await import("node:fs");
+        wfs(tmp, data);
+      } else {
+        throw new Error("Kokoro returned an unrecognised audio shape");
+      }
+      const buf = readFileSync(tmp);
+      if (buf.length < 100 || buf.toString("ascii", 0, 4) !== "RIFF") throw new Error("Kokoro produced no usable audio");
+      return buf;
+    } finally {
+      try { unlinkSync(tmp); } catch { /* best-effort */ }
+    }
   };
   try {
     const audio = await attempt(voice);

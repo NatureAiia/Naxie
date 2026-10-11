@@ -777,11 +777,17 @@ async function getTomorrowPreview(): Promise<string> {
 async function deliverToTelegram(result: ReflectionResult): Promise<void> {
   try {
     const { sendTelegramMessage } = await import("./telegram-bridge.js");
+    const { digestCard } = await import("./telegram-format.js");
     const s = result.stats;
     const niceDate = new Date(s.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    const header = `🌙 *Daily Reflection — ${niceDate}*\n📊 ${s.totalTasks} task(s): ✅ ${s.succeeded} ok · ❌ ${s.failed} failed · 🚫 ${s.rejected} rejected (${Math.round(s.successRate * 100)}% success)`;
     const preview = await getTomorrowPreview();
-    const text = `${header}\n\n${result.reflection.slice(0, 2800)}${preview.slice(0, 900)}\n\n— _Full report in vault: ${result.path}_`;
+    const text = digestCard({
+      icon: "🌙",
+      title: `Daily Reflection — ${niceDate}`,
+      meta: `${s.totalTasks} task(s): ✅ ${s.succeeded} ok · ❌ ${s.failed} failed · 🚫 ${s.rejected} rejected (${Math.round(s.successRate * 100)}% success)`,
+      body: `${result.reflection.slice(0, 2800)}${preview.slice(0, 900)}`,
+      vaultPath: result.path,
+    });
     const r = await sendTelegramMessage(text);
     if (!r.ok) console.warn(`[reflection] Telegram delivery skipped: ${r.error}`);
   } catch (e: any) { console.warn(`[reflection] Telegram delivery failed: ${e?.message ?? e}`); }

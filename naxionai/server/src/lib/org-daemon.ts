@@ -179,7 +179,8 @@ export async function maybeGenerateBriefing(now = Date.now()): Promise<boolean> 
     latestBriefing = { text, generatedAt: new Date(now).toISOString() };
     void notifyAttention("Naxie — morning briefing ready", text.slice(0, 200), { actor: "naxie" });
     void import("./telegram-bridge.js").then(async ({ sendTelegramMessage }) => {
-      const sent = await sendTelegramMessage(`## Naxie — morning briefing\n\n${text}`);
+      const { digestCard } = await import("./telegram-format.js");
+      const sent = await sendTelegramMessage(digestCard({ icon: "☀️", title: "Naxie — morning briefing", body: text }));
       if (!sent.ok) console.warn(`[org-daemon] morning briefing Telegram delivery failed: ${sent.error ?? "unknown error"}`);
     }).catch(e => console.warn(`[org-daemon] morning briefing Telegram delivery failed: ${e?.message ?? e}`));
     try { logAudit({ level: "info", actor: "naxie", action: "briefing.generated", target: "daily-briefing", detail: `${text.length} chars`, result: "success" }); } catch { /* best-effort */ }

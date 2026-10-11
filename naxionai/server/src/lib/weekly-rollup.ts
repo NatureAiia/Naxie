@@ -155,7 +155,14 @@ ${latestReview ? `Latest self-improvement review: \`${latestReview}\` — propos
     void (async () => {
       try {
         const { sendTelegramMessage, stripVaultFrontmatterForTelegram } = await import("./telegram-bridge.js");
-        const text = `🗓️ *Weekly Rollup — ${label}*\n✅ ${todo.completed} done · 📋 ${todo.open} open · ⚠️ ${todo.overdue} overdue\n🔭 ${scans.length} scans · 🌙 ${refs.length} reflections\n\n${stripVaultFrontmatterForTelegram(markdown).slice(0,3200)}\n\n— _Full: ${path}_`;
+        const { digestCard } = await import("./telegram-format.js");
+        const text = digestCard({
+          icon: "🗓️",
+          title: `Weekly Rollup — ${label}`,
+          meta: `✅ ${todo.completed} done · 📋 ${todo.open} open · ⚠️ ${todo.overdue} overdue · 🔭 ${scans.length} scans · 🌙 ${refs.length} reflections`,
+          body: stripVaultFrontmatterForTelegram(markdown).slice(0, 3200),
+          vaultPath: path,
+        });
         const kb = (predictiveSuggestions ?? []).slice(0, 3).map((s: any) => {
           const shortTitle = String(s.title ?? "").slice(0, 18).replace(/"/g, "");
           return [

@@ -293,7 +293,13 @@ async function deliverToTelegram(result: TodoBriefResult, streakBadge?: string):
     const niceDate = fmtNice(result.date);
     const body = stripVaultFrontmatterForTelegram(result.markdown).slice(0, 3300);
     const streakLine = streakBadge ? `${streakBadge}\n` : "";
-    const text = `☀️ *Todo Brief — ${niceDate}*\n${streakLine}📋 ${result.todayCount} today · ⚠️ ${result.overdueCount} overdue · 📅 ${result.weekCount} rest-of-week · 📦 ${result.openCount} open\n\n${body}\n\n📄 _Full brief in vault:_ ${result.path}`;
+    const { digestCard } = await import("./telegram-format.js");
+    const text = digestCard({
+      icon: "☀️",
+      title: `Todo Brief — ${niceDate}`,
+      meta: `${streakLine}📋 ${result.todayCount} today · ⚠️ ${result.overdueCount} overdue · 📅 ${result.weekCount} rest-of-week · 📦 ${result.openCount} open`,
+      body: `${body}\n\nFull brief in vault: ${result.path}`,
+    });
     const kb = (result.top3 ?? []).slice(0, 3).map((p: any) => {
       const t = String(p.task.title ?? "").slice(0, 22).replace(/"/g, "");
       return [
