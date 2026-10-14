@@ -352,6 +352,20 @@ export function structurallyReferencedTemplates(): Set<string> {
       if (typeof t === "string" && t) ids.add(t);
     }
   } catch { /* ignore */ }
+  // Chat intent routes ("browse my vault" -> browse-vault) and UI launchers
+  // (BoardMeeting.tsx posts templateId "board-meeting") are entry points too —
+  // missing them flagged both as unreferenced on 2026-10-14.
+  try {
+    const chat = readFileSync(join(SERVER_ROOT, "routes/chat.ts"), "utf8");
+    for (const m of chat.matchAll(/templateId:\s*"([^"]+)"/g)) ids.add(m[1]);
+  } catch { /* ignore */ }
+  try {
+    for (const f of listFilesRecursive(WEB_SRC, [".tsx", ".ts"])) {
+      let code = "";
+      try { code = readFileSync(join(WEB_SRC, f), "utf8"); } catch { continue; }
+      for (const m of code.matchAll(/templateId:\s*["']([^"']+)["']/g)) ids.add(m[1]);
+    }
+  } catch { /* ignore */ }
   return ids;
 }
 
@@ -472,7 +486,7 @@ export function deriveFindings(inventory: FileInventory, usage: UsageSignals): {
       dormant.push({
         kind: "template", name: `${t.id} — ${t.title}`,
         reason: referenced.has(t.id)
-          ? `No runs in last 30 days (role: ${t.role}) — but structurally referenced (department/sector/schedule); keep, do not retire`
+          ? `No runs in last 30 days (role: ${t.role}) — but structurally referenced (department/sector/schedule/chat intent/UI launcher); keep, do not retire`
           : `No runs in last 30 days (role: ${t.role})`,
         severity: "dormant",
       });

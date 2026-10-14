@@ -37,6 +37,13 @@ describe("structurallyReferencedTemplates", () => {
       expect(refs.has(id), id).toBe(true);
     }
   });
+
+  it("includes chat-intent and UI-launched templates", () => {
+    const refs = structurallyReferencedTemplates();
+    for (const id of ["browse-vault", "board-meeting"]) {
+      expect(refs.has(id), id).toBe(true);
+    }
+  });
 });
 
 describe("deriveFindings template dormancy", () => {
