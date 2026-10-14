@@ -63,8 +63,13 @@ export const BUILTIN_TEAMS: PreorgTeam[] = [
 ];
 
 export function listTeams(): PreorgTeam[] {
+  // Every team must be fully staffed by installed personas. insurance-desk
+  // (insurance-sales-agent/underwriter) and research-gtm (head-of-ai) went
+  // dark with the 2026-09-21 persona prune — they reappear automatically if
+  // personas with those ids are hired again. Dispatching to ghost members
+  // would fail at persona-lookup time, so hiding is the fail-safe.
   const installedIds = new Set(loadPersonas().personas.map(p => p.id));
-  return BUILTIN_TEAMS.filter(team => team.id !== "business-ops" || team.members.every(m => installedIds.has(m.personaId)));
+  return BUILTIN_TEAMS.filter(team => team.members.every(m => installedIds.has(m.personaId)));
 }
 export function getTeam(id: string): PreorgTeam | undefined {
   return listTeams().find(t => t.id === id);
@@ -143,9 +148,12 @@ function persist() {
   catch (e) { console.warn(`[teams] persist failed: ${(e as Error).message}`); }
 }
 
-// Built-in seeds first, then the user's saved templates.
+// Built-in seeds first, then the user's saved templates. Seeds whose team is
+// currently unlisted (ghost members — see listTeams) are hidden too, so a
+// template can never dispatch to personas that don't exist.
 export function listTeamTemplates(): TeamTemplate[] {
-  return [...SEED_TEMPLATES, ...load().templates].filter(t => t.teamId !== "business-ops" || !!getTeam("business-ops"));
+  const listed = new Set(listTeams().map(t => t.id));
+  return [...SEED_TEMPLATES, ...load().templates].filter(t => !t.teamId || listed.has(t.teamId));
 }
 
 export function getTeamTemplate(id: string): TeamTemplate | undefined {

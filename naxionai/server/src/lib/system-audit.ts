@@ -18,6 +18,7 @@ import { enqueueVaultCommit } from "./commit-queue.js";
 import { llmGenerateWithMeta } from "./llm.js";
 import { config } from "../config.js";
 import { logAudit } from "./audit-log.js";
+import { BUILTIN_PERSONAS } from "./personas.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../../../..");
@@ -332,17 +333,57 @@ async function collectUsage(): Promise<UsageSignals> {
 }
 
 // ── 3. Dormant / useless / improvements heuristics ────────────────────────
-function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dormant: DormantItem[]; useless: UselessItem[]; improvements: ImprovementItem[]; health: SystemAuditStats["health"] } {
+// Template ids that must survive zero-usage: referenced by department
+// bundles, sector packs, or stored schedules. Parsed from source (same
+// regex style as scanInventory) so the detector never recommends retiring
+// something another subsystem depends on. Exported for tests.
+export function structurallyReferencedTemplates(): Set<string> {
+  const ids = new Set<string>();
+  try {
+    const dt = readFileSync(join(SERVER_ROOT, "lib/department-templates.ts"), "utf8");
+    for (const m of dt.matchAll(/templateId:\s*"([^"]+)"/g)) ids.add(m[1]);
+    for (const arr of dt.matchAll(/recommendedTemplates:\s*\[([\s\S]*?)\]/g)) {
+      for (const s of arr[1].matchAll(/"([^"]+)"/g)) ids.add(s[1]);
+    }
+  } catch { /* ignore */ }
+  try {
+    const sp = readFileSync(join(SERVER_ROOT, "lib/sector-packs.ts"), "utf8");
+    for (const arr of sp.matchAll(/suggestedTemplates:\s*\[([\s\S]*?)\]/g)) {
+      for (const s of arr[1].matchAll(/"([^"]+)"/g)) ids.add(s[1]);
+    }
+  } catch { /* ignore */ }
+  try {
+    for (const s of readSchedulesArray()) {
+      const t = (s as any)?.templateId;
+      if (typeof t === "string" && t) ids.add(t);
+    }
+  } catch { /* ignore */ }
+  return ids;
+}
+
+export function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dormant: DormantItem[]; useless: UselessItem[]; improvements: ImprovementItem[]; health: SystemAuditStats["health"] } {
   const dormant: DormantItem[] = [];
   const useless: UselessItem[] = [];
   const improvements: ImprovementItem[] = [];
   const risks: string[] = [];
 
   // — Dormant templates (no runs in 30d) —
+  // Zero template-jobs ≠ unused: on-demand templates (search-brain, add-note)
+  // execute inside general-task agent plans and never produce template jobs,
+  // and scheduled/infrequent ones (run-digest, email-to-vault) are referenced
+  // structurally. A dormant-but-referenced template is Keep, never retire —
+  // retiring one breaks department/sector/schedule references (2026-10-12).
+  const referenced = structurallyReferencedTemplates();
   for (const t of inventory.templates) {
     const u = usage.byTemplate[t.id];
     if (!u || u.total === 0) {
-      dormant.push({ kind: "template", name: `${t.id} — ${t.title}`, reason: `No runs in last 30 days (role: ${t.role})`, severity: "dormant" });
+      dormant.push({
+        kind: "template", name: `${t.id} — ${t.title}`,
+        reason: referenced.has(t.id)
+          ? `No runs in last 30 days (role: ${t.role}) — but structurally referenced (department/sector/schedule); keep, do not retire`
+          : `No runs in last 30 days (role: ${t.role})`,
+        severity: "dormant",
+      });
     } else if (u.failed > 0 && u.ok === 0) {
       improvements.push({ area: `Template: ${t.id}`, issue: `100% failure rate (${u.failed}/${u.total}) in last 30d`, evidence: `byTemplate[${t.id}] failed=${u.failed} ok=${u.ok}`, recommendation: `Review runner for ${t.id}, check error logs, fix or deprecate.`, effort: "M", priority: "high" });
     } else if (u.failed / u.total > 0.4) {
@@ -354,16 +395,26 @@ function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dorman
   // Only flag individual personas when there were actual user-facing jobs that could have used them.
   // System jobs (reflection:daily, innovation-scan, system-audit) don't attribute personas, so flagging
   // all 50 personas as dormant when only system jobs ran is noise — not signal.
+  // Built-ins are infrastructure (router, classifier, board council, lane
+  // checks depend on them) — flag for review, never auto-retire.
+  const builtinNames = new Set(BUILTIN_PERSONAS.flatMap(p => [p.id.toLowerCase(), (p.name ?? "").toLowerCase()]));
   const hasUserFacingJobs = (usage.byTemplate["general-task"]?.total ?? 0) > 0 || Object.keys(usage.byPersona).length > 0;
   if (hasUserFacingJobs) {
     const activePersonaNames = new Set(Object.keys(usage.byPersona));
     for (const p of inventory.personas) {
       if (!activePersonaNames.has(p)) {
-        dormant.push({ kind: "persona", name: p, reason: "No tasks attributed in last 30 days", severity: "dormant" });
+        const builtin = builtinNames.has(String(p).toLowerCase());
+        dormant.push({
+          kind: "persona", name: p,
+          reason: builtin
+            ? "No tasks attributed in last 30 days — built-in infrastructure (routing/council/classifier); review, never auto-retire"
+            : "No tasks attributed in last 30 days",
+          severity: "dormant",
+        });
       }
     }
     if (inventory.personas.length > 20 && dormant.filter(d => d.kind === "persona").length > inventory.personas.length * 0.5) {
-      improvements.push({ area: "Personas", issue: `${dormant.filter(d => d.kind === "persona").length}/${inventory.personas.length} personas dormant — roster may be bloated`, evidence: `personas=${inventory.personas.length}, dormant=${dormant.filter(d=>d.kind==="persona").length}`, recommendation: "Review personas catalog and retire unused personas; keep roster lean so Naxie's routing stays precise.", effort: "S", priority: "medium" });
+      improvements.push({ area: "Personas", issue: `${dormant.filter(d => d.kind === "persona").length}/${inventory.personas.length} personas dormant — roster may be bloated`, evidence: `personas=${inventory.personas.length}, dormant=${dormant.filter(d=>d.kind==="persona").length}`, recommendation: "Review custom hires for real redundancy (built-ins are infrastructure — keep); retire only operator-confirmed duplicates.", effort: "S", priority: "medium" });
     }
   } else if (inventory.personas.length > 0) {
     dormant.push({ kind: "feature", name: "Personas (user-facing)", reason: "No user-facing tasks in last 30 days — personas not exercised (only system jobs ran)", severity: "dormant" });
@@ -388,16 +439,49 @@ function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dorman
       dormant.push({ kind: "page", name: pg.route, reason: "No page views in last 30 days", severity: "dormant" });
     }
   }
-  // — Pages vs routes coverage (secondary signal — a page whose route
-  // pattern doesn't even match any registered route is likely leftover UI
-  // from a renamed/removed route) —
-  const routeSet = new Set(inventory.routes.map(r => r.toLowerCase().replace(/[^a-z]/g, "")));
-  for (const pg of inventory.pages) {
-    const norm = pg.route.replace(/[^a-z]/g, "");
-    if (norm.length > 2 && !routeSet.has(norm) && !["dailyreports", "naxie", "board", "orgdashboard"].some(k => norm.includes(k))) {
-      dormant.push({ kind: "route", name: pg.route, reason: "Page's route pattern doesn't match any registered route — possibly leftover from a rename", severity: "stale" });
+  // — Stale routes / unrouted pages (same-namespace checks ONLY) —
+  // A web page slug can never equal a server API filename — different
+  // namespaces — so the old cross-comparison hallucinated "decoupling"
+  // (20 false positives on 2026-10-12). Instead:
+  //   server: a route file nothing in src references is a dead endpoint;
+  //   web: a page file no router file references is an unrouted page.
+  try {
+    const srcFiles = listFilesRecursive(SERVER_ROOT, [".ts"])
+      .filter(f => !f.endsWith(".d.ts") && !f.includes("node_modules"))
+      .map(f => join(SERVER_ROOT, f));
+    let haystack = "";
+    for (const abs of srcFiles) { try { haystack += "\n" + readFileSync(abs, "utf8"); } catch { /* skip */ } }
+    for (const r of inventory.routes) {
+      const base = (r.split("/").pop() ?? r).replace(/\.ts$/, "");
+      if (!base) continue;
+      if (!haystack.includes(`routes/${base}`)) {
+        dormant.push({ kind: "route", name: r, reason: "Route file not referenced anywhere in src (not mounted in index.ts?) — dead endpoint?", severity: "stale" });
+      }
     }
-  }
+  } catch { /* ignore */ }
+  try {
+    // Whole-web reference check: pages in this app are often embedded as
+    // components/tabs (Council renders BoardMeeting, MyWork renders
+    // AgentApprovals) rather than top-level routes, so checking only the
+    // router files false-flags them. A page referenced NOWHERE in web/src —
+    // outside its own file, comments stripped — is genuinely unreachable.
+    const stripComments = (s: string) =>
+      s.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|\s)\/\/.*$/gm, "$1");
+    const webFiles = listFilesRecursive(WEB_SRC, [".tsx", ".ts"])
+      .map(f => {
+        try { return { f, code: stripComments(readFileSync(join(WEB_SRC, f), "utf8")).toLowerCase() }; }
+        catch { return { f, code: "" }; }
+      });
+    for (const pg of inventory.pages) {
+      const base = (pg.file.split("/").pop() ?? "").replace(/\.tsx?$/, "");
+      if (!base) continue;
+      const needle = base.toLowerCase();
+      const referenced = webFiles.some(w => w.f !== pg.file && w.code.includes(needle));
+      if (!referenced) {
+        dormant.push({ kind: "page", name: pg.route, reason: `Page file ${pg.file} not referenced anywhere in web/src — unreachable UI?`, severity: "stale" });
+      }
+    }
+  } catch { /* ignore */ }
 
   // — Schedules health —
   if (usage.schedulesDisabled > usage.schedulesEnabled && usage.schedulesDisabled > 3) {
@@ -727,7 +811,10 @@ export function getPersonaMergeCandidates(): PersonaMergeCandidate[] {
         for (const t of aTokens) if (bTokens.has(t)) inter++;
         const uni = aTokens.size + bTokens.size - inter;
         const sim = uni ? inter / uni : 0;
-        if (sim > 0.35) out.push({ a: a.name ?? a.id, b: b.name ?? b.id, similarity: Math.round(sim * 100) / 100, reason: `role/description overlap ${(sim * 100).toFixed(0)}%` });
+        // 0.5 floor: same-role hires across different brands/clients
+        // legitimately read similar (the 86% social-manager pair), so only
+        // near-duplicates qualify — and even then as review, never auto-merge.
+        if (sim > 0.5) out.push({ a: a.name ?? a.id, b: b.name ?? b.id, similarity: Math.round(sim * 100) / 100, reason: `role/description overlap ${(sim * 100).toFixed(0)}%` });
       }
     }
     return out.sort((x, y) => y.similarity - x.similarity).slice(0, 10);
@@ -797,6 +884,8 @@ Rules:
 - Numbers always. "4 of 12 templates dormant" beats "some templates unused".
 - No filler ("In today's fast-paced environment..."). No emoji outside headings.
 - Keep headings exactly as specified — the UI renders them.
+- Removal/retire/merge directives need structural evidence (zero importers AND zero references AND owner sign-off). Zero usage alone means "review", never "delete" — dormant infrastructure (built-ins, scheduled/referenced templates) is Keep by default. Never direct mass retirement.
+- MD Directives must be reversible, evidence-backed, and few (2-4). Clearing queues and reviewing flags are fine; deleting features is not a directive without the structural proof above.
 - If stats are thin, say so honestly — don't pad.`;
 
   const prompt = `Date: ${stats.date}
@@ -1007,7 +1096,7 @@ export async function runSystemAudit(): Promise<SystemAuditResult> {
       findings.improvements.push({ area: "Vault hygiene", issue: `Stale note ${stale.path} untouched ${stale.daysOld}d`, evidence: `mtime ${stale.daysOld}d`, recommendation: `Review — archive or refresh if still relevant`, effort: "S", priority: "low" });
     }
     for (const pm of personaMerges.slice(0, 3)) {
-      findings.improvements.push({ area: "Personas", issue: `Overlap: ${pm.a} ↔ ${pm.b} (${pm.similarity * 100 | 0}% similar)`, evidence: pm.reason, recommendation: `Consider merging into one persona to reduce roster bloat`, effort: "S", priority: "low" });
+      findings.improvements.push({ area: "Personas", issue: `Overlap: ${pm.a} ↔ ${pm.b} (${pm.similarity * 100 | 0}% similar)`, evidence: pm.reason, recommendation: `Review for genuine redundancy — same-role hires across brands/clients legitimately overlap; merge only with operator confirmation`, effort: "S", priority: "low" });
     }
     for (const ih of integrationHealth.filter(h => !h.ok).slice(0, 3)) {
       findings.improvements.push({ area: "Integrations", issue: `Unhealthy: ${ih.label} — ${ih.detail}`, evidence: `health ok=${ih.ok}`, recommendation: `Test credentials / endpoint for ${ih.label}, rotate if needed`, effort: "M", priority: "high" });

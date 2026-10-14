@@ -30,6 +30,28 @@ export const templatesRouter = Router();
 
 const NEEDS_GITHUB = new Set(["summarize-repo", "run-digest", "publish-folder"]);
 
+// ── Telegram chatId resolution ──
+// Every Telegram-posting runner (africa/world/si/events/deadline-recap/
+// evening/weekend) used to throw "missing 'chatId' input" when the caller
+// didn't pass one. Schedules fired without inputs then failed outright.
+// Now: explicit input wins, otherwise fall back to the configured default
+// (integration's chatId, then NAXION_TELEGRAM_GROUP_CHAT /
+// NAXION_TELEGRAM_NOTIFY_CHAT) — the same order telegram-bridge uses.
+// Throws only when NO destination exists at all.
+async function resolveTemplateChatId(inputs: Record<string, unknown>): Promise<string> {
+  const explicit = String((inputs as any)?.chatId ?? "").trim();
+  if (explicit) return explicit;
+  try {
+    const { getConnectionByProvider } = await import("../lib/integrations.js");
+    const connChat = (getConnectionByProvider("telegram") as any)?.config?.chatId?.trim?.() ?? "";
+    const group = (process.env.NAXION_TELEGRAM_GROUP_CHAT ?? "").trim();
+    const notify = (process.env.NAXION_TELEGRAM_NOTIFY_CHAT ?? "").trim();
+    const resolved = group || notify || connChat;
+    if (resolved) return resolved;
+  } catch { /* integrations optional */ }
+  throw new Error("missing 'chatId' input (no Telegram default chat configured — set one on the Integrations page or via NAXION_TELEGRAM_GROUP_CHAT)");
+}
+
 // ── News config API (per-feed tuning, history, threshold) ───────────────
 // GET /api/templates/news/config — effective config (env + file + defaults)
 // PATCH /api/templates/news/config — admin UI writes .naxion/news-config.json
@@ -39,7 +61,6 @@ templatesRouter.get("/news/config", (req, res) => {
     effective: {
       africaQueries: effectiveAfricaQueries(),
       worldQueries: effectiveWorldQueries(),
-      siQueries: effectiveSiQueries(),
       authorityDomains: [...effectiveAuthorityDomains()],
       breakingThreshold: effectiveBreakingThreshold(),
       historyDays: effectiveHistoryDays(),
@@ -48,12 +69,11 @@ templatesRouter.get("/news/config", (req, res) => {
     env: {
       NEWS_AFRICA_QUERIES: process.env.NEWS_AFRICA_QUERIES ?? null,
       NEWS_WORLD_QUERIES: process.env.NEWS_WORLD_QUERIES ?? null,
-      NEWS_SI_QUERIES: process.env.NEWS_SI_QUERIES ?? null,
       NEWS_AUTHORITY_DOMAINS: process.env.NEWS_AUTHORITY_DOMAINS ?? null,
       NEWS_BREAKING_THRESHOLD: process.env.NEWS_BREAKING_THRESHOLD ?? null,
       NEWS_HISTORY_DAYS: process.env.NEWS_HISTORY_DAYS ?? null,
     },
-    defaults: { africaQueries: DEFAULT_AFRICA_QUERIES, worldQueries: DEFAULT_WORLD_QUERIES, siQueries: DEFAULT_SI_QUERIES, authorityDomains: DEFAULT_HIGH_AUTHORITY, breakingThreshold: 8, historyDays: 7 },
+    defaults: { africaQueries: DEFAULT_AFRICA_QUERIES, worldQueries: DEFAULT_WORLD_QUERIES, authorityDomains: DEFAULT_HIGH_AUTHORITY, breakingThreshold: 8, historyDays: 7 },
     feeds: { curated: 22, africaHints: AFRICA_TECH_RSS_HINTS }, // 17 global + 5 Africa
   });
 });
@@ -62,7 +82,6 @@ templatesRouter.patch("/news/config", requireLayer("admin"), (req, res) => {
   const patch: any = {};
   if (Array.isArray(body.africaQueries)) patch.africaQueries = body.africaQueries.map((s:any)=>String(s).trim()).filter(Boolean).slice(0,20);
   if (Array.isArray(body.worldQueries)) patch.worldQueries = body.worldQueries.map((s:any)=>String(s).trim()).filter(Boolean).slice(0,20);
-  if (Array.isArray(body.siQueries)) patch.siQueries = body.siQueries.map((s:any)=>String(s).trim()).filter(Boolean).slice(0,20);
   if (Array.isArray(body.authorityDomains)) patch.authorityDomains = body.authorityDomains.map((s:any)=>String(s).trim().toLowerCase()).filter(Boolean).slice(0,50);
   if (body.breakingThreshold !== undefined) { const n=Number(body.breakingThreshold); if (Number.isFinite(n)) patch.breakingThreshold = Math.max(0, Math.min(10, n)); }
   if (body.historyDays !== undefined) { const n=Number(body.historyDays); if (Number.isFinite(n)) patch.historyDays = Math.max(1, Math.min(30, Math.round(n))); }
@@ -72,7 +91,6 @@ templatesRouter.patch("/news/config", requireLayer("admin"), (req, res) => {
   // allow clearing a field by sending null
   if (body.africaQueries === null) delete (merged as any).africaQueries;
   if (body.worldQueries === null) delete (merged as any).worldQueries;
-  if (body.siQueries === null) delete (merged as any).siQueries;
   if (body.authorityDomains === null) delete (merged as any).authorityDomains;
   try {
     const p = NEWS_CONFIG_FILE;
@@ -81,7 +99,7 @@ templatesRouter.patch("/news/config", requireLayer("admin"), (req, res) => {
     // also clear alt path if exists to avoid divergence
     try { if (_exs(NEWS_CONFIG_FILE_ALT) && NEWS_CONFIG_FILE_ALT !== p) _wfs(NEWS_CONFIG_FILE_ALT, JSON.stringify(merged, null, 2)); } catch {}
   } catch (e:any) { return res.status(500).json({ error: String(e?.message ?? e) }); }
-  res.json({ ok: true, config: merged, effective: { africaQueries: effectiveAfricaQueries(), worldQueries: effectiveWorldQueries(), siQueries: effectiveSiQueries(), authorityDomains: [...effectiveAuthorityDomains()], breakingThreshold: effectiveBreakingThreshold(), historyDays: effectiveHistoryDays() } });
+  res.json({ ok: true, config: merged, effective: { africaQueries: effectiveAfricaQueries(), worldQueries: effectiveWorldQueries(), authorityDomains: [...effectiveAuthorityDomains()], breakingThreshold: effectiveBreakingThreshold(), historyDays: effectiveHistoryDays() } });
 });
 templatesRouter.get("/news/metrics", (req, res) => {
   try {
@@ -552,12 +570,12 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
     case "innovation-scan": return innovationScanRunner(inputs, push, progress);
     case "africa-ai-news":   return africaAiNewsRunner(inputs, push, progress);
     case "world-ai-news":    return worldAiNewsRunner(inputs, push, progress);
-    case "super-intelligence-news": return superIntelligenceNewsRunner(inputs, push, progress);
+    case "super-intelligence-news": throw new Error("template 'super-intelligence-news' was removed — use 'africa-ai-news' or 'world-ai-news' instead");
     case "events-competition-scan": return eventsCompetitionScanRunner(inputs, push, progress);
     case "deadline-reminders": return deadlineRemindersRunner(inputs, push, progress);
     case "evening-recap": return eveningRecapRunner(inputs, push, progress);
     case "weekend-digest": return weekendDigestRunner(inputs, push, progress);
-    case "brand-signal-scan": return brandSignalScanRunner(inputs, push);
+    case "brand-signal-scan": return brandSignalScanRunner(inputs, push, progress);
     case "general-task":   return generalTaskRunner(inputs, push, progress);
     case "board-meeting":  return boardMeetingRunner(inputs, push, progress, meta);
     default: throw new Error(`no runner for ${templateId}`);
@@ -571,64 +589,133 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
 // stage tabs, rankings — needs Board Meeting's own page, not the generic
 // Tasks/Reports view; still fully runnable through this same pipeline.
 async function boardMeetingRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void, meta?: { jobId?: string; scheduledBy?: string }) {
-  const topic = String(inputs.topic ?? "").trim();
+  const topic = String(inputs.topic ?? "").trim().slice(0, 2000);
   if (!topic) throw new Error("missing 'topic' input");
-  const personaIds = typeof inputs.personaIds === "string" && inputs.personaIds.trim()
-    ? inputs.personaIds.split(",").map(s => s.trim()).filter(Boolean)
-    : undefined;
+  if (topic.length < 10) throw new Error("'topic' too short — describe the decision in 10+ characters");
+  const rawIds: string[] = Array.isArray((inputs as any).personaIds)
+    ? (inputs as any).personaIds.map((s: unknown) => String(s ?? "").trim()).filter(Boolean)
+    : (typeof inputs.personaIds === "string" && inputs.personaIds.trim()
+      ? inputs.personaIds.split(",").map(s => s.trim()).filter(Boolean)
+      : []);
+  let personaIds: string[] | undefined = rawIds.length ? rawIds : undefined;
+  try {
+    const known = new Set((loadPersonas().personas ?? []).flatMap((p: any) => [p.id, String(p.name ?? "").toLowerCase()]));
+    const dropped = (personaIds ?? []).filter(id => !known.has(id) && !known.has(id.toLowerCase()));
+    if (dropped.length) push(`⚠ unknown council member(s) ignored: ${dropped.join(", ").slice(0, 160)}`);
+  } catch { /* persona list optional */ }
   const run = createBoardRun({ topic, personaIds, jobId: meta?.jobId, scheduleId: meta?.scheduledBy });
   if (run.roster.length < MIN_MEMBERS) {
     failBoardRun(run, `need at least ${MIN_MEMBERS} valid council members`);
-    throw new Error(`need at least ${MIN_MEMBERS} valid council members`);
+    return { kind: "board-meeting", boardRunId: run.id, status: "failed" as const, error: `need at least ${MIN_MEMBERS} valid council members`, answer: `Board meeting could not start — need at least ${MIN_MEMBERS} valid council members.` };
   }
-  const finished = await executeBoardRun(run, push);
+  progress?.({ boardRunId: run.id, status: "running" });
+  let finished;
+  try {
+    finished = await executeBoardRun(run, push);
+  } catch (e: any) {
+    return { kind: "board-meeting", boardRunId: run.id, status: "failed" as const, error: String(e?.message ?? e).slice(0, 300), answer: `Board meeting failed: ${String(e?.message ?? e).slice(0, 160)}` };
+  }
   progress?.({ boardRunId: finished.id, status: finished.status });
   return { kind: "board-meeting", boardRunId: finished.id, status: finished.status, answer: finished.chairmanSynthesis };
 }
 
 async function summarizeRepoRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
-  const repo = String(inputs.repo);
-  const [owner, name] = repo.includes("/") ? repo.split("/") : [config.githubOwner, repo];
+  const rawRepo = String(inputs.repo ?? "").trim();
+  if (!rawRepo) throw new Error("missing 'repo' input (owner/name or repo name)");
+  const [ownerRaw, nameRaw] = rawRepo.includes("/") ? rawRepo.split("/", 2) : [config.githubOwner, rawRepo];
+  const owner = ownerRaw.trim();
+  const name = (nameRaw ?? "").trim();
+  if (!/^[a-z0-9_.-]+$/i.test(owner) || !/^[a-z0-9_.-]+$/i.test(name)) {
+    throw new Error(`invalid 'repo' "${rawRepo.slice(0, 120)}" — expected owner/name`);
+  }
+  const sinceDays = Math.min(90, Math.max(1, parseInt(String((inputs as any).sinceDays ?? "90"), 10) || 90));
   push(`fetching activity for ${owner}/${name}`);
-  const since = new Date(Date.now() - 90 * 86400_000).toISOString();
-  const [rd, commits, prs, issues] = await Promise.all([
+  const since = new Date(Date.now() - sinceDays * 86400_000).toISOString();
+  const settled = await Promise.allSettled([
     readme(owner, name), recentCommits(owner, name, since), openPRs(owner, name), openIssues(owner, name),
   ]);
+  const [rd, commits, prs, issues] = settled.map((s, i) => {
+    if (s.status === "fulfilled") return (s as any).value;
+    push(`⚠ source ${["readme", "commits", "PRs", "issues"][i]} unavailable: ${String((s as any).reason?.message ?? (s as any).reason).slice(0, 120)}`);
+    return i === 0 ? "" : [];
+  }) as [string, any[], any[], any[]];
   const parts: string[] = [`Repository: ${owner}/${name}`];
-  if (rd) parts.push(`\nREADME (truncated):\n${rd.slice(0, 4000)}`);
+  if (rd) parts.push(`\nREADME (truncated):\n${String(rd).slice(0, 4000)}`);
   if (commits.length) parts.push(`\nRecent commits (${commits.length}):\n` + commits.slice(0, 30).map(c => `- ${c.sha} ${c.message}`).join("\n"));
   if (prs.length) parts.push(`\nOpen PRs (${prs.length}):\n` + prs.slice(0, 20).map(p => `- #${p.number} ${p.title}`).join("\n"));
   if (issues.length) parts.push(`\nOpen issues (${issues.length}):\n` + issues.slice(0, 20).map(i => `- #${i.number} ${i.title}`).join("\n"));
   push(`calling ollama (${config.ollamaModel})`);
-  const summary = await ollamaGenerate(parts.join("\n"),
-    "You are a senior engineer summarizing a repository for an Obsidian second brain. Output concise markdown with sections: ## Purpose (one sentence), ## Stack, ## State, ## Recent direction, ## Notable open work. No filler."
-  );
+  let summary: string;
+  try {
+    summary = await ollamaGenerate(parts.join("\n"),
+      "You are a senior engineer summarizing a repository for an Obsidian second brain. Output concise markdown with sections: ## Purpose (one sentence), ## Stack, ## State, ## Recent direction, ## Notable open work. No filler."
+    );
+  } catch (e: any) {
+    const partial = parts.join("\n").slice(0, 4000);
+    return { path: null, error: `summarizer unavailable: ${String(e?.message ?? e).slice(0, 160)}`, answer: `Could not summarize ${owner}/${name} — model unavailable. Activity fetched (${commits.length} commits, ${prs.length} PRs, ${issues.length} issues).`, partial };
+  }
   const today = new Date().toISOString().slice(0, 10);
   const md = `---\nrepo: ${owner}/${name}\ngenerated: ${today}\nmodel: ${config.ollamaModel}\n---\n\n# ${owner}/${name}\n\n${summary}\n`;
   const rel = `_naxie/summaries/${owner}-${name}.md`;
   push(`writing ${rel}`);
   writeVaultFile(rel, md);
   push("committing + pushing vault");
-  const r = await commitAndPush(`naxie: summary ${owner}/${name}`);
-  return { path: rel, ...r };
+  try {
+    const r = await commitAndPush(`naxie: summary ${owner}/${name}`);
+    return { path: rel, answer: `Summarized ${owner}/${name} → ${rel}`, ...r };
+  } catch (e: any) {
+    push(`commit failed (summary kept at ${rel}): ${String(e?.message ?? e).slice(0, 120)}`);
+    return { path: rel, commitOk: false, error: String(e?.message ?? e).slice(0, 200), answer: `Summarized ${owner}/${name} → ${rel} (commit failed)` };
+  }
 }
 
 async function runDigestRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
-  const lookback = String(inputs.lookbackDays ?? 7);
+  const lookbackDays = Math.min(90, Math.max(1, parseInt(String(inputs.lookbackDays ?? "7"), 10) || 7));
+  const lookback = String(lookbackDays);
   push(`dispatching daily-digest workflow (lookback=${lookback})`);
-  await dispatchWorkflow(config.githubOwner, "NaxionAI-Powered-by-Neuroworks", "daily-digest.yml", "main", { lookback_days: lookback });
+  try {
+    await dispatchWorkflow(config.githubOwner, "NaxionAI-Powered-by-Neuroworks", "daily-digest.yml", "main", { lookback_days: lookback });
+  } catch (e: any) {
+    const msg = `GitHub dispatch failed: ${String(e?.message ?? e).slice(0, 200)}`;
+    push(`⚠ ${msg}`);
+    return { dispatched: false, lookbackDays, error: msg, answer: msg };
+  }
   push("workflow_dispatch sent — track progress on GitHub Actions");
-  return { dispatched: true, lookbackDays: lookback };
+  const answer = `Digest dispatched (last ${lookback} days) — track it on GitHub Actions.`;
+  return { dispatched: true, lookbackDays, answer };
 }
 
 async function publishFolderRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
-  const path = String(inputs.path).trim();
+  const path = String((inputs as any).path ?? "").trim();
   const isPublic = Boolean(inputs.public);
   let repoName = String(inputs.name ?? "").trim();
   if (!path) throw new Error("missing 'path'");
   const full = resolve(path);
   if (!existsSync(full)) throw new Error(`folder not found: ${full}`);
   if (!repoName) repoName = sanitizeName(basename(full));
+  if (!/^[a-z0-9._-]{1,100}$/i.test(repoName)) throw new Error(`invalid repo name "${repoName.slice(0, 60)}" — use letters/numbers/.-_ (max 100)`);
+  // Publish-roots allowlist: when NAXION_PUBLISH_ROOTS is set (comma list),
+  // the source must sit inside one entry. Refuse system/secret locations always.
+  const _lower = full.toLowerCase().replace(/\//g, "\\");
+  if (_lower.includes("\\windows\\system32") || _lower.endsWith("\\windows") || _lower.includes("\\.ssh\\") || /(^|\\)\.env$/i.test(full)) {
+    throw new Error(`refusing to publish system/secret location: ${full.slice(0, 160)}`);
+  }
+  const _roots = String(process.env.NAXION_PUBLISH_ROOTS ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  if (_roots.length) {
+    const _ok = _roots.some(r => {
+      try {
+        const _rr = resolve(r).toLowerCase();
+        return _lower === _rr || _lower.startsWith(_rr.endsWith("\\") ? _rr : _rr + "\\");
+      } catch { return false; }
+    });
+    if (!_ok) throw new Error(`source outside NAXION_PUBLISH_ROOTS: ${full.slice(0, 160)}`);
+  }
+  try {
+    const { statSync: _st } = await import("node:fs");
+    if (!_st(full).isDirectory()) throw new Error(`not a folder: ${full}`);
+  } catch (e: any) {
+    if (String(e?.message ?? "").startsWith("not a folder")) throw e;
+  }
   push(`target: ${full} → ${config.githubOwner}/${repoName} (${isPublic ? "public" : "private"})`);
 
   const git = simpleGit(full);
@@ -668,23 +755,34 @@ async function publishFolderRunner(inputs: Record<string, unknown>, push: (m: st
   await git.addRemote("origin", remoteUrl);
   const branch = (await git.branchLocal()).current || "main";
   push(`pushing ${branch} to origin`);
-  await git.push(["-u", "origin", branch]);
-  return { repo: `${config.githubOwner}/${repoName}`, branch, public: isPublic };
+  try {
+    await git.push(["-u", "origin", branch]);
+  } finally {
+    // Never leave the token in .git/config
+    try { await git.remote(["set-url", "origin", cloneUrl]); } catch { /* best-effort */ }
+  }
+  const answer = `Published ${basename(full)} → ${config.githubOwner}/${repoName} (${branch})`;
+  return { repo: `${config.githubOwner}/${repoName}`, branch, public: isPublic, answer };
 }
 
 async function searchBrainRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
-  const q = String(inputs.query);
-  push(`searching vault for "${q}"`);
+  const q = String(inputs.query ?? "").trim().slice(0, 500);
+  if (!q) throw new Error("missing 'query' input");
+  const limit = Math.min(50, Math.max(1, parseInt(String((inputs as any).limit ?? "50"), 10) || 50));
+  push(`searching vault for "${q.slice(0, 120)}"`);
+  const esc = (s: string) => String(s ?? "").replace(/[*_`[\]]/g, "").slice(0, 200);
   let results;
   try {
-    results = searchVault(q);
+    results = searchVault(q).slice(0, limit);
   } catch (e: any) {
     if (e instanceof VaultUnreachable) {
       push(`vault unreachable: ${e.vaultPath}`);
       const answer = `I couldn't search your vault — the configured path **${e.vaultPath}** doesn't resolve on this machine. Common causes: the drive is unmounted (e.g. D: was unplugged on Windows), the folder was renamed, or \`VAULT_PATH\` in \`.env\` doesn't match your actual vault. Mount the drive (or fix the path) and try again.`;
       return { query: q, results: [], count: 0, vaultUnreachable: true, vaultPath: e.vaultPath, answer };
     }
-    throw e;
+    const msg = `Search failed: ${String(e?.message ?? e).slice(0, 160)}`;
+    push(`⚠ ${msg}`);
+    return { query: q, results: [], count: 0, error: msg, answer: msg };
   }
   push(`${results.length} match${results.length === 1 ? "" : "es"}`);
   // Build a human-readable `answer` so consumers (chat UI, harness, journal)
@@ -693,37 +791,51 @@ async function searchBrainRunner(inputs: Record<string, unknown>, push: (m: stri
   // "On it — running..." chat ack.
   let answer: string;
   if (results.length === 0) {
-    answer = `No notes in your vault match **${q}**. Try a broader term, check the spelling, or add a note on this topic and search again.`;
+    answer = `No notes in your vault match **${esc(q)}**. Try a broader term, check the spelling, or add a note on this topic and search again.`;
   } else {
     const top = results.slice(0, 8);
     const list = top.map((r, i) => {
-      const preview = r.preview.replace(/\s+/g, " ").trim().slice(0, 160);
-      return `${i + 1}. **${r.path}**${r.line ? ` (line ${r.line})` : ""} — ${preview}`;
+      const preview = esc(String((r as any).preview ?? "").replace(/\s+/g, " ").trim().slice(0, 160));
+      return `${i + 1}. **${esc((r as any).path)}**${(r as any).line ? ` (line ${(r as any).line})` : ""} — ${preview}`;
     }).join("\n");
     const remaining = results.length - top.length;
     const more = remaining > 0 ? `\n\n_… and ${remaining} more match${remaining === 1 ? "" : "es"}._` : "";
-    answer = `Found **${results.length}** note${results.length === 1 ? "" : "s"} mentioning **${q}**:\n\n${list}${more}`;
+    answer = `Found **${results.length}** note${results.length === 1 ? "" : "s"} mentioning **${esc(q)}**:\n\n${list}${more}`;
   }
-  return { query: q, results, answer };
+  return { query: q, results, count: results.length, answer };
 }
 
 async function addNoteRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
-  const title = String(inputs.title);
-  const body = String(inputs.body);
+  const title = String(inputs.title ?? "").trim().slice(0, 200);
+  const body = String(inputs.body ?? "").trim().slice(0, 50000);
+  if (!title) throw new Error("missing 'title' input");
+  if (!body) throw new Error("missing 'body' input");
   const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "note";
-  const rel = `0-Inbox/${stamp}-${slug}.md`;
+  let rel = `0-Inbox/${stamp}-${slug}.md`;
+  try {
+    const { existsSync: _ex } = await import("node:fs");
+    const { resolve: _res } = await import("node:path");
+    if (_ex(_res(config.vaultPath, rel))) rel = `0-Inbox/${stamp}-${slug}-${Date.now().toString(36)}.md`;
+  } catch { /* dedupe best-effort */ }
   const today = new Date().toISOString().slice(0, 10);
-  const md = `---\ntitle: ${title}\ncreated: ${today}\nsource: neuroworks\n---\n\n# ${title}\n\n${body}\n`;
+  const safeTitle = JSON.stringify(title);
+  const md = `---\ntitle: ${safeTitle}\ncreated: ${today}\nsource: neuroworks\n---\n\n# ${title.replace(/[\r\n]+/g, " ")}\n\n${body}\n`;
   push(`writing ${rel}`);
   writeVaultFile(rel, md);
   push("committing vault");
-  const r = await commitAndPush(`note: ${title}`);
-  return { path: rel, ...r };
+  const answer = `Saved note "${title.slice(0, 80)}" → ${rel}`;
+  try {
+    const r = await commitAndPush(`note: ${title.slice(0, 80)}`);
+    return { path: rel, answer, ...r };
+  } catch (e: any) {
+    push(`commit failed (note kept at ${rel}): ${String(e?.message ?? e).slice(0, 120)}`);
+    return { path: rel, commitOk: false, error: String(e?.message ?? e).slice(0, 200), answer: `${answer} (commit failed)` };
+  }
 }
 
 export async function generalTaskRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void) {
-  const task = String(inputs.task ?? "").trim();
+  const task = String(inputs.task ?? "").trim().slice(0, 8000);
   if (!task) throw new Error("missing 'task' input");
   const saveAs = inputs.save_as_template !== false;
   const testMode = inputs.testMode === true;
@@ -757,18 +869,23 @@ export async function generalTaskRunner(inputs: Record<string, unknown>, push: (
   let savedTemplateId: string | undefined;
   const allOk = r.runs.length > 0 && r.runs.every(x => x.ok);
   if (saveAs && allOk && r.plan.steps.length > 0) {
-    const id = `custom-${slugify(task)}`;
-    const tpl: CustomTemplate = {
-      id, role: "Custom",
-      title: r.plan.summary || task.slice(0, 80),
-      description: `Saved from chat: "${task}"`,
-      origin: { task, createdAt: new Date().toISOString() },
-      plan: r.plan,
-      runCount: 1, lastRunAt: new Date().toISOString(),
-    };
-    saveCustomTemplate(tpl);
-    savedTemplateId = id;
-    push(`Saved this workflow as a reusable template: ${id}.`);
+    let id = `custom-${slugify(task).slice(0, 60) || "task"}`;
+    try {
+      if (findCustomTemplate(id)) id = `${id}-${Date.now().toString(36)}`;
+      const tpl: CustomTemplate = {
+        id, role: "Custom",
+        title: r.plan.summary || task.slice(0, 80),
+        description: `Saved from chat: "${task.slice(0, 200)}"`,
+        origin: { task, createdAt: new Date().toISOString() },
+        plan: r.plan,
+        runCount: 1, lastRunAt: new Date().toISOString(),
+      };
+      saveCustomTemplate(tpl);
+      savedTemplateId = id;
+      push(`Saved this workflow as a reusable template: ${id}.`);
+    } catch (e: any) {
+      push(`Template autosave skipped (non-fatal): ${String(e?.message ?? e).slice(0, 120)}`);
+    }
   }
 
   return {
@@ -873,7 +990,7 @@ function gatherRecentNotesUnder(roots: string[], sinceMs: number, cap = 10): { p
 }
 
 async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
-  const focus = String(inputs.focus ?? "").trim();
+  const focus = String(inputs.focus ?? "").trim().slice(0, 300);
   const today = new Date().toISOString().slice(0, 10);
   const staged = stagedProgress(progress, ["Read inbox signal", "Read session signal", "Write report", "Story leads"]);
 
@@ -882,7 +999,7 @@ async function innovationScanRunner(inputs: Record<string, unknown>, push: (m: s
   // web search (which returned nothing for our private product name — the "zero
   // results" failure the last scan hit). Window: last 10 days by default, which
   // covers the inbox files the briefing flagged as unread.
-  const sinceDays = Number(inputs.inboxDays ?? 10);
+  const sinceDays = Math.min(30, Math.max(1, Number(inputs.inboxDays ?? 10) || 10));
   let inboxBlock = "";
   try {
     const notes = gatherRecentInboxNotes(Date.now() - sinceDays * 86400_000, 10);
@@ -1004,6 +1121,10 @@ const DEFAULT_AFRICA_QUERIES = [
   "African machine learning research healthcare agriculture fintech",
   "Africa artificial intelligence breakthrough funding 2026",
 ];
+// NOTE: SI coverage lives here, inside global AI news — the standalone
+// super-intelligence-news feed was removed 2026-10-12. The first query below
+// keeps frontier/SI stories surfacing in the World AI edition, and existing
+// `_naxion/news/<date>-si.md` vault cards are kept as history.
 const DEFAULT_WORLD_QUERIES = [
   '"Super Intelligence" SI AI technology news policy',
   "AI breakthrough model release 2026",
@@ -1013,14 +1134,7 @@ const DEFAULT_WORLD_QUERIES = [
   "global AI regulation policy",
   "tech AI product launch enterprise",
 ];
-const DEFAULT_SI_QUERIES = [
-  '"Super Intelligence" SI breakthrough research 2026',
-  "superintelligence AI model capability advance",
-  "AGI superintelligence lab OpenAI DeepMind Anthropic",
-  "superintelligence safety alignment policy regulation",
-  "AI superintelligence investment funding startup",
-  "artificial general intelligence milestone progress",
-];
+
 const DEFAULT_EVENTS_QUERIES = [
   "site:devpost.com hackathon AI",
   "site:lablab.ai hackathon",
@@ -1049,7 +1163,6 @@ const SPAM_HINTS = ["seo","content farm","sponsored","clickbait","/tag/","/categ
 // Env overrides (deployment-level):
 //   NEWS_AFRICA_QUERIES="q1|q2|q3"  (pipe-separated, or JSON array)
 //   NEWS_WORLD_QUERIES="q1|q2"
-//   NEWS_SI_QUERIES="q1|q2"
 //   NEWS_AUTHORITY_DOMAINS="arxiv.org,openai.com,..." (comma or |)
 //   NEWS_BREAKING_THRESHOLD=8
 //   NEWS_HISTORY_DAYS=7
@@ -1066,7 +1179,7 @@ function envList(name: string): string[] | null {
   if (v.startsWith("[")) { try { const arr = JSON.parse(v); if (Array.isArray(arr)) return arr.map(String).map(s=>s.trim()).filter(Boolean); } catch {} }
   return v.split(/[|,]/).map(s=>s.trim()).filter(Boolean);
 }
-function loadNewsFileConfig(): { africaQueries?: string[]; worldQueries?: string[]; siQueries?: string[]; eventsQueries?: string[]; authorityDomains?: string[]; breakingThreshold?: number; historyDays?: number } {
+function loadNewsFileConfig(): { africaQueries?: string[]; worldQueries?: string[]; eventsQueries?: string[]; authorityDomains?: string[]; breakingThreshold?: number; historyDays?: number } {
   for (const p of [NEWS_CONFIG_FILE, NEWS_CONFIG_FILE_ALT]) {
     try { if (_exs(p)) return JSON.parse(_rfs(p, "utf8")); } catch {}
   }
@@ -1084,12 +1197,7 @@ function effectiveWorldQueries(): string[] {
   const e = envList("NEWS_WORLD_QUERIES"); if (e?.length) return e;
   return DEFAULT_WORLD_QUERIES;
 }
-function effectiveSiQueries(): string[] {
-  const f = loadNewsFileConfig();
-  if (f.siQueries?.length) return f.siQueries;
-  const e = envList("NEWS_SI_QUERIES"); if (e?.length) return e;
-  return DEFAULT_SI_QUERIES;
-}
+
 function effectiveEventsQueries(): string[] {
   const f = loadNewsFileConfig();
   if (f.eventsQueries?.length) return f.eventsQueries;
@@ -1120,7 +1228,7 @@ const WORLD_NEWS_QUERIES = effectiveWorldQueries();
 const HIGH_AUTHORITY_DOMAINS = effectiveAuthorityDomains();
 
 // ── Cross-feed dedupe (shared picked-today memory) ────────────────────────
-// Africa/World/SI/Events must never post the same story on the same day.
+// Africa/World/Events must never post the same story on the same day.
 // Each runner claims its picked URLs into a per-day file; dedupeAndFilter
 // below honours every feed's claims, so whichever edition runs first wins
 // and later editions pick something else.
@@ -1419,7 +1527,7 @@ async function scoreStoriesQuality(stories: StorySource[], push: (m:string)=>voi
   }
 }
 
-function logNewsMetrics(feed: "africa"|"world"|"si"|"events"|"weekend", candidates: StorySource[], picked: StorySource | null, push?: (m:string)=>void) {
+  function logNewsMetrics(feed: "africa"|"world"|"events"|"weekend", candidates: StorySource[], picked: StorySource | null, push?: (m:string)=>void) {
   const breakdown = candidates.slice(0, 8).map((c,i)=> ({ idx:i+1, domain: domainOf(c.url), score: c.score, title: c.title.slice(0,60) }));
   const detail = `${feed} candidates=${candidates.length} picked=${picked?.url ?? "none"} score=${picked?.score ?? "?"} domains=${breakdown.map(b=>b.domain).join(",")}`;
   try { logAudit({ level: "info", actor: "news", action: `${feed}.pick`, target: picked?.url ?? "none", detail, result: picked ? "success" : "failure" }); } catch {}
@@ -1433,7 +1541,7 @@ function logNewsMetrics(feed: "africa"|"world"|"si"|"events"|"weekend", candidat
   if (push) push(`[metrics] ${detail}`);
 }
 
-function writeNewsVault(feed: "africa"|"world"|"si"|"events"|"weekend", card: { postText: string; story: string }, picked: StorySource) {
+function writeNewsVault(feed: "africa"|"world"|"events"|"weekend", card: { postText: string; story: string }, picked: StorySource) {
   try {
     const date = new Date().toISOString().slice(0, 10);
     const stamp = new Date().toISOString().slice(0, 16).replace(/:/, "");
@@ -1444,7 +1552,7 @@ function writeNewsVault(feed: "africa"|"world"|"si"|"events"|"weekend", card: { 
     // also append to drafts history for dedupe already covers this path
   } catch (e:any) { console.warn(`[news] vault write failed: ${e?.message}`); }
 }
-function writeNewsDraft(feed: "africa"|"world"|"si"|"events"|"weekend", candidates: StorySource[], reason: string) {
+function writeNewsDraft(feed: "africa"|"world"|"events"|"weekend", candidates: StorySource[], reason: string) {
   try {
     const stamp = new Date().toISOString().slice(0, 16).replace(/:/, "");
     const path = `_naxion/news/drafts/${stamp}-${feed}-below-threshold.md`;
@@ -1531,7 +1639,7 @@ async function gatherWorldStories(push: (m: string) => void, onStage?: (stage: "
   push("[world] quality pipeline: RSS (≤48h) + web search → dedupe → enrich → quality rank");
   const [rss, web] = await Promise.all([
     fetchRssTier(push, false),
-    scrapeStoriesForQueries([...new Set([...effectiveWorldQueries(), '"Super Intelligence" SI AI technology news policy'])], push, "world"),
+    scrapeStoriesForQueries([...new Set(effectiveWorldQueries())], push, "world"),
   ]);
   onStage?.("sweep");
   let merged: StorySource[] = [...rss, ...web];
@@ -1543,22 +1651,7 @@ async function gatherWorldStories(push: (m: string) => void, onStage?: (stage: "
   onStage?.("rank");
   return merged.slice(0, 12);
 }
-async function gatherSiStories(push: (m: string) => void, onStage?: (stage: "sweep" | "dedupe" | "enrich" | "rank") => void): Promise<StorySource[]> {
-  push("[si] quality pipeline: RSS (≤48h) + SI web search → dedupe → enrich → quality rank");
-  const [rss, web] = await Promise.all([
-    fetchRssTier(push, false),
-    scrapeStoriesForQueries([...new Set(effectiveSiQueries())], push, "si"),
-  ]);
-  onStage?.("sweep");
-  let merged: StorySource[] = [...rss, ...web];
-  merged = await dedupeAndFilter(merged, push);
-  onStage?.("dedupe");
-  merged = await enrichTopStories(merged, push, 6);
-  onStage?.("enrich");
-  merged = await scoreStoriesQuality(merged, push, false);
-  onStage?.("rank");
-  return merged.slice(0, 12);
-}
+
 
 async function gatherEventsStories(push: (m: string) => void, onStage?: (stage: "sweep" | "dedupe" | "enrich") => void): Promise<StorySource[]> {
   push("[events] pipeline: RSS (≤48h) + events web search → dedupe → enrich");
@@ -1621,7 +1714,10 @@ async function buildBreakingNewsCard(opts: {
   let hashtags = grab("HASHTAGS") || opts.defaultHashtags;
   if (hashtags && !hashtags.includes("#")) hashtags = hashtags.split(/\s+/).filter(Boolean).map(h => `#${h.replace(/^#/, "")}`).join(" ");
   const videoScript = grab("VIDEO_SCRIPT") || toVideoScript(summary);
-  const readMore = chosen.url ?? "";
+  const rawUrl = String((chosen as any)?.url ?? "");
+  // Innovation-lead pseudo-URLs ("lead:0") are not postable — drop them so
+  // cards never print "Read more: lead:0" and never pollute claimed-*.json.
+  const readMore = /^https?:\/\//i.test(rawUrl) ? rawUrl : "";
   const lines: string[] = [];
   lines.push(opts.header);
   lines.push("");
@@ -1638,193 +1734,120 @@ async function buildBreakingNewsCard(opts: {
   if (opts.videoUrl) { lines.push(""); lines.push(`\uD83C\uDFAC Video: ${opts.videoUrl}`); }
   lines.push("");
   lines.push(`Source: ${opts.sourceLabel}`);
-  const storyLine = `**${title}:** ${(chosen.text ?? summary).slice(0, 160).replace(/\s+/g, " ").trim()} — ${chosen.url ?? readMore}`;
+  const storyLine = `**${title}:** ${(chosen.text ?? summary).slice(0, 160).replace(/\s+/g, " ").trim()} — ${readMore || "(no link)"}`;
   lines.push(`Story: ${storyLine}`);
   const postText = lines.join("\n");
-  const story = `${title} — ${chosen.url ?? readMore}`.slice(0, 220);
-  return { postText, story, videoScript, raw: { pickN, title, summary, why, hashtags, chosenUrl: chosen.url } };
+  const story = `${title} — ${readMore || (chosen as any)?.title}`.slice(0, 220);
+  return { postText, story, videoScript, raw: { pickN, title, summary, why, hashtags, chosenUrl: readMore || undefined } };
+}
+
+// Shared breaking-news pipeline — africa/world/si differ only in feed config
+// (queries, headers, prompts). Single place for gate → card → vault → post → claim.
+type BreakingFeed = "africa" | "world";
+async function breakingNewsPipeline(opts: {
+  kind: string; feed: BreakingFeed; chatId: string; videoUrl?: string; dailyDigest: boolean;
+  stages: string[]; sweepMessage: string;
+  gather: (push: (m: string) => void, onStage: (s: string) => void) => Promise<any[]>;
+  emptyNote: string; headerBreaking: string; headerDaily: string;
+  whyHeader: string; hashtagsBreaking: string; hashtagsDaily: string;
+  sourceLabel: string; systemPrompt: string; postedMessage: string;
+  push: (m: string) => void; progress?: ProgressFn;
+}) {
+  const staged = stagedProgress(opts.progress, opts.stages as any);
+  const stageToStep: Record<string, number> = { sweep: 0, dedupe: 1, enrich: 1, rank: 2 };
+  opts.push(opts.sweepMessage);
+  const stories = await opts.gather(opts.push, (s) => staged.completeStep((stageToStep as any)[s] ?? 0));
+  if (!stories.length) {
+    opts.push(opts.emptyNote);
+    logNewsMetrics(opts.feed as any, stories, null, opts.push);
+    return { kind: opts.kind, posted: false, note: opts.emptyNote };
+  }
+  const threshold = effectiveBreakingThreshold();
+  const topScore = stories[0]?.score ?? 5;
+  if (topScore < threshold && !opts.dailyDigest) {
+    const reason = `top score ${topScore} < threshold ${threshold} — not breaking enough`;
+    opts.push(`[gate] ${reason} — queuing as draft, not posting to Telegram`);
+    writeNewsDraft(opts.feed as any, stories, reason);
+    logNewsMetrics(opts.feed as any, stories, stories[0] ?? null, opts.push);
+    return { kind: opts.kind, posted: false, draft: true, note: reason, topScore, threshold };
+  }
+  opts.push(opts.dailyDigest
+    ? `Picked ${stories.length} fresh candidates (top score ${topScore}) — drafting the daily card.`
+    : `Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
+  const card = await buildBreakingNewsCard({
+    stories,
+    header: opts.dailyDigest ? opts.headerDaily : opts.headerBreaking,
+    whyHeader: opts.whyHeader,
+    defaultHashtags: opts.dailyDigest ? opts.hashtagsDaily : opts.hashtagsBreaking,
+    sourceLabel: opts.sourceLabel,
+    videoUrl: opts.videoUrl,
+    push: opts.push,
+    systemPrompt: opts.systemPrompt,
+  });
+  staged.completeStep(3);
+  const pickedIdx = (card.raw?.pickN ?? 1) - 1;
+  const picked = stories[Math.min(Math.max(0, pickedIdx), stories.length - 1)] ?? stories[0];
+  logNewsMetrics(opts.feed as any, stories, picked, opts.push);
+  writeNewsVault(opts.feed as any, card, picked);
+  const tg = findPrimitive("telegram.send");
+  if (!tg) throw new Error("telegram.send primitive unavailable");
+  staged.setPhase("posting");
+  const sent = await tg.handler({ text: card.postText, chatId: opts.chatId });
+  staged.completeStep(4);
+  staged.setPhase("done");
+  if (sent?.ok) claimUrlsToday([picked?.url, (card as any)?.raw?.chosenUrl, ...[...card.postText.matchAll(/https?:\/\/[^\s)>\]]+/g)].map((m: any) => m[0].replace(/[.,;]+$/, ""))]);
+  opts.push(sent?.ok ? `${opts.postedMessage} Telegram chat ${opts.chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
+  return { kind: opts.kind, posted: !!sent?.ok, chatId: opts.chatId, answer: card.postText, story: card.story, videoScript: card.videoScript, topScore, threshold, error: sent?.ok ? undefined : sent?.error };
 }
 
 // Africa news — BREAKING NEWS card for AI Institute Africa (with urgency gate + metrics + vault)
 async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
-  const chatId = String(inputs.chatId ?? "").trim();
-  if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
+  const chatId = await resolveTemplateChatId(inputs);
   const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
   const dailyDigest = inputs.dailyDigest === true;
-  const staged = stagedProgress(progress, ["Sweep RSS + web + leads", "Dedupe + enrich", "Quality rank", "Build news card", "Post to Telegram"]);
-  const stageToStep: Record<string, number> = { sweep: 0, dedupe: 1, enrich: 1, rank: 2 };
-
-  push("Sweeping for today's Africa/AI news (web + innovation leads).");
-  const stories = await gatherAfricaStories(push, (s) => staged.completeStep(stageToStep[s]));
-  if (!stories.length) {
-    const skip = "No fresh Africa/AI news found today — skipping the post.";
-    push(skip);
-    logNewsMetrics("africa", stories, null, push);
-    return { kind: "africa-ai-news", posted: false, note: skip };
-  }
-
-  // Urgency gate: only BREAKING if top score ≥ threshold
-  const threshold = effectiveBreakingThreshold();
-  const topScore = stories[0]?.score ?? 5;
-  if (topScore < threshold && !dailyDigest) {
-    const reason = `top score ${topScore} < threshold ${threshold} — not breaking enough`;
-    push(`[gate] ${reason} — queuing as draft, not posting to Telegram`);
-    writeNewsDraft("africa", stories, reason);
-    logNewsMetrics("africa", stories, stories[0] ?? null, push);
-    return { kind: "africa-ai-news", posted: false, draft: true, note: reason, topScore, threshold };
-  }
-
-  push(dailyDigest
-    ? `Picked ${stories.length} fresh candidates (top score ${topScore}) — drafting the daily Africa AI news card.`
-    : `Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
-  const card = await buildBreakingNewsCard({
-    stories,
-    header: dailyDigest ? "🧠 DAILY AI NEWS — Africa" : "🚨 BREAKING NEWS — Africa AI 🚨",
+  return breakingNewsPipeline({
+    kind: "africa-ai-news", feed: "africa", chatId, videoUrl, dailyDigest, push, progress,
+    stages: ["Sweep RSS + web + leads", "Dedupe + enrich", "Quality rank", "Build news card", "Post to Telegram"],
+    sweepMessage: "Sweeping for today's Africa/AI news (web + innovation leads).",
+    gather: gatherAfricaStories,
+    emptyNote: "No fresh Africa/AI news found today — skipping the post.",
+    headerBreaking: "🚨 BREAKING NEWS — Africa AI 🚨", headerDaily: "🧠 DAILY AI NEWS — Africa",
     whyHeader: "Why it matters for Africa",
-    defaultHashtags: "#AI #Africa #AINews",
+    hashtagsBreaking: "#AI #Africa #AINews", hashtagsDaily: "#AI #Africa #AINews",
     sourceLabel: "web + innovation leads (RSS ≤48h + web + leads)",
-    videoUrl,
-    push,
     systemPrompt: "You are the editor for an Africa AI and Super Intelligence news channel. Pick a fresh, newsworthy Africa/technology story and write a factual Telegram card. Use 'Super Intelligence (SI)' when reporting the US executive-branch terminology in Executive Order 14434; for the broader global field, keep the terminology used by the source (often AI/artificial intelligence). Do not imply the US directive renames technology or usage outside its stated executive-branch scope. No hype or invented facts/links; keep it warm and credible.",
+    postedMessage: "Posted Africa BREAKING NEWS to",
   });
-
-  // Resolve picked story for metrics/vault (card.raw picks idx)
-  staged.completeStep(3);
-  const pickedIdx = (card.raw?.pickN ?? 1) - 1;
-  const picked = stories[Math.min(Math.max(0, pickedIdx), stories.length-1)] ?? stories[0];
-  logNewsMetrics("africa", stories, picked, push);
-  writeNewsVault("africa", card, picked);
-
-  const tg = findPrimitive("telegram.send");
-  if (!tg) throw new Error("telegram.send primitive unavailable");
-  staged.setPhase("posting");
-  const sent = await tg.handler({ text: card.postText, chatId });
-  staged.completeStep(4);
-  staged.setPhase("done");
-  if (sent?.ok && picked?.url) claimUrlsToday([picked.url]);
-  push(sent?.ok ? `Posted Africa BREAKING NEWS to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
-  return { kind: "africa-ai-news", posted: !!sent?.ok, chatId, answer: card.postText, story: card.story, videoScript: card.videoScript, topScore, threshold, error: sent?.ok ? undefined : sent?.error };
 }
 
 // World news — BREAKING NEWS card for global AI/world stories (with urgency gate + metrics + vault)
 async function worldAiNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
-  const chatId = String(inputs.chatId ?? "").trim();
-  if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
+  const chatId = await resolveTemplateChatId(inputs);
   const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
   const dailyDigest = inputs.dailyDigest === true;
-  const staged = stagedProgress(progress, ["Sweep RSS + web", "Dedupe + enrich", "Quality rank", "Build news card", "Post to Telegram"]);
-  const stageToStep: Record<string, number> = { sweep: 0, dedupe: 1, enrich: 1, rank: 2 };
-
-  push("Sweeping for today's World AI news (RSS + web search).");
-  const stories = await gatherWorldStories(push, (s) => staged.completeStep(stageToStep[s]));
-  if (!stories.length) {
-    const skip = "No fresh World news found today — skipping the post.";
-    push(skip);
-    logNewsMetrics("world", stories, null, push);
-    return { kind: "world-ai-news", posted: false, note: skip };
-  }
-
-  const threshold = effectiveBreakingThreshold();
-  const topScore = stories[0]?.score ?? 5;
-  if (topScore < threshold && !dailyDigest) {
-    const reason = `top score ${topScore} < threshold ${threshold} — not breaking enough`;
-    push(`[gate] ${reason} — queuing as draft, not posting to Telegram`);
-    writeNewsDraft("world", stories, reason);
-    logNewsMetrics("world", stories, stories[0] ?? null, push);
-    return { kind: "world-ai-news", posted: false, draft: true, note: reason, topScore, threshold };
-  }
-
-  push(dailyDigest
-    ? `Picked ${stories.length} fresh candidates (top score ${topScore}) — drafting the daily world AI news card.`
-    : `Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
-  const card = await buildBreakingNewsCard({
-    stories,
-    header: dailyDigest ? "🧠 DAILY SUPER INTELLIGENCE / AI NEWS — World" : "\uD83D\uDEA8 BREAKING NEWS - World News \uD83D\uDEA8",
+  const _worldCfg = {
+    kind: "world-ai-news", feed: "world" as BreakingFeed, chatId, videoUrl, dailyDigest, push, progress,
+    stages: ["Sweep RSS + web", "Dedupe + enrich", "Quality rank", "Build news card", "Post to Telegram"],
+    sweepMessage: "Sweeping for today's World AI news (RSS + web search).",
+    gather: gatherWorldStories,
+    emptyNote: "No fresh World news found today — skipping the post.",
     whyHeader: "Why it matters",
-    defaultHashtags: dailyDigest ? "#WorldNews #AI #AINews" : "#WorldNews #AI #BreakingNews",
     sourceLabel: "RSS ≤48h + web search",
-    videoUrl,
-    push,
-    systemPrompt: "You are a world news editor covering AI, technology and Super Intelligence. Pick a fresh, newsworthy global story and write a factual Telegram card. Use 'Super Intelligence (SI)' when reporting the US executive-branch terminology in Executive Order 14434; for the broader global field, keep the terminology used by the source (often AI/artificial intelligence). Do not imply the US directive renames technology or usage outside its stated executive-branch scope. No hype or invented facts/links; keep it concise and credible.",
+    postedMessage: "Posted World BREAKING NEWS to",
+  };
+  const _worldCard = await breakingNewsPipeline({
+    ..._worldCfg,
+    headerBreaking: "🚨 BREAKING NEWS - World News 🚨", headerDaily: "🧠 DAILY SUPER INTELLIGENCE / AI NEWS — World",
+    hashtagsBreaking: "#WorldNews #AI #BreakingNews", hashtagsDaily: "#WorldNews #AI #AINews",
+    systemPrompt: "You are a world news editor covering AI, technology and Super Intelligence. Pick a fresh, newsworthy global story and write a factual Telegram card.",
   });
-
-  const pickedIdx = (card.raw?.pickN ?? 1) - 1;
-  staged.completeStep(3);
-  const picked = stories[Math.min(Math.max(0, pickedIdx), stories.length-1)] ?? stories[0];
-  logNewsMetrics("world", stories, picked, push);
-  writeNewsVault("world", card, picked);
-
-  const tg = findPrimitive("telegram.send");
-  if (!tg) throw new Error("telegram.send primitive unavailable");
-  staged.setPhase("posting");
-  const sent = await tg.handler({ text: card.postText, chatId });
-  staged.completeStep(4);
-  staged.setPhase("done");
-  if (sent?.ok && picked?.url) claimUrlsToday([picked.url]);
-  push(sent?.ok ? `Posted World BREAKING NEWS to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
-  return { kind: "world-ai-news", posted: !!sent?.ok, chatId, answer: card.postText, story: card.story, videoScript: card.videoScript, topScore, threshold, error: sent?.ok ? undefined : sent?.error };
+  return _worldCard;
 }
 
-// Super Intelligence news — daily GLOBAL SI card (same quality pipeline +
-// urgency gate as the Africa/World editions, SI-tuned queries + SI editor
-// prompt). Posts to the Telegram group like the other news editions.
-async function superIntelligenceNewsRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
-  const chatId = String(inputs.chatId ?? "").trim();
-  if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
-  const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
-  const dailyDigest = inputs.dailyDigest === true;
-  const staged = stagedProgress(progress, ["Sweep RSS + SI web", "Dedupe + enrich", "Quality rank", "Build news card", "Post to Telegram"]);
-  const stageToStep: Record<string, number> = { sweep: 0, dedupe: 1, enrich: 1, rank: 2 };
-
-  push("Sweeping for today's global Super Intelligence news (RSS + SI web search).");
-  const stories = await gatherSiStories(push, (s) => staged.completeStep(stageToStep[s]));
-  if (!stories.length) {
-    const skip = "No fresh Super Intelligence news found today — skipping the post.";
-    push(skip);
-    logNewsMetrics("si", stories, null, push);
-    return { kind: "super-intelligence-news", posted: false, note: skip };
-  }
-
-  const threshold = effectiveBreakingThreshold();
-  const topScore = stories[0]?.score ?? 5;
-  if (topScore < threshold && !dailyDigest) {
-    const reason = `top score ${topScore} < threshold ${threshold} — not breaking enough`;
-    push(`[gate] ${reason} — queuing as draft, not posting to Telegram`);
-    writeNewsDraft("si", stories, reason);
-    logNewsMetrics("si", stories, stories[0] ?? null, push);
-    return { kind: "super-intelligence-news", posted: false, draft: true, note: reason, topScore, threshold };
-  }
-
-  push(dailyDigest
-    ? `Picked ${stories.length} fresh candidates (top score ${topScore}) — drafting the daily Super Intelligence card.`
-    : `Picked ${stories.length} candidates (top score ${topScore}) — drafting the BREAKING NEWS card.`);
-  const card = await buildBreakingNewsCard({
-    stories,
-    header: dailyDigest ? "🧠 DAILY SUPER INTELLIGENCE NEWS — Global" : "🚨 BREAKING NEWS — Super Intelligence 🚨",
-    whyHeader: "Why it matters on the path to SI",
-    defaultHashtags: dailyDigest ? "#SuperIntelligence #SI #AI" : "#SuperIntelligence #SI #BreakingNews",
-    sourceLabel: "RSS ≤48h + SI web search",
-    videoUrl,
-    push,
-    systemPrompt: "You are a Super Intelligence desk editor covering the global path to SI: frontier-model capability jumps, AGI/superintelligence research, lab announcements, safety/alignment work, and SI policy. Pick a fresh, newsworthy story and write a factual Telegram card. Use 'Super Intelligence (SI)' when reporting the US executive-branch terminology in Executive Order 14434; for the broader global field, keep the terminology used by the source (often AI/artificial intelligence). Do not imply the US directive renames technology or usage outside its stated executive-branch scope. No hype or invented facts/links; keep it sharp and credible.",
-  });
-
-  const pickedIdx = (card.raw?.pickN ?? 1) - 1;
-  staged.completeStep(3);
-  const picked = stories[Math.min(Math.max(0, pickedIdx), stories.length-1)] ?? stories[0];
-  logNewsMetrics("si", stories, picked, push);
-  writeNewsVault("si", card, picked);
-
-  const tg = findPrimitive("telegram.send");
-  if (!tg) throw new Error("telegram.send primitive unavailable");
-  staged.setPhase("posting");
-  const sent = await tg.handler({ text: card.postText, chatId });
-  staged.completeStep(4);
-  staged.setPhase("done");
-  if (sent?.ok && picked?.url) claimUrlsToday([picked.url]);
-  push(sent?.ok ? `Posted Super Intelligence news to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
-  return { kind: "super-intelligence-news", posted: !!sent?.ok, chatId, answer: card.postText, story: card.story, videoScript: card.videoScript, topScore, threshold, error: sent?.ok ? undefined : sent?.error };
-}
+// REMOVED: super-intelligence-news — standalone SI feed deleted per operator
+// request ("just keep AI news"). The `case` above throws a clear error so old
+// schedules/jobs fail loudly instead of 404ing. Africa + World remain via
+// breakingNewsPipeline; weekend/evening now cover Africa + World only.
 
 // Events & Competition Scan — daily table of tech events, hackathons,
 // innovation challenges/expos, startup pitch and corporate software
@@ -1834,8 +1857,7 @@ async function superIntelligenceNewsRunner(inputs: Record<string, unknown>, push
 // Posts wherever the caller points it (the 07:30 schedule targets the
 // operator DM, not the news group).
 async function eventsCompetitionScanRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
-  const chatId = String(inputs.chatId ?? "").trim();
-  if (!chatId) throw new Error("missing 'chatId' input (the Telegram chat to post into)");
+  const chatId = await resolveTemplateChatId(inputs);
   const staged = stagedProgress(progress, ["Sweep event sources", "Dedupe + enrich", "Build events table", "Post to Telegram"]);
   const stageToStep: Record<string, number> = { sweep: 0, dedupe: 1, enrich: 1 };
 
@@ -1860,7 +1882,7 @@ async function eventsCompetitionScanRunner(inputs: Record<string, unknown>, push
     `- Mix: roughly 80% free, 20% paid. Mark each Free or Paid (verify from the text; when unsure say Free).\n` +
     `- For EVERY entry dig out: organiser/host, deadline (registration or event date), prize or stakes if any (cash, funding, trip, exposure), who it's for (students, founders, developers…), and one punchy WHY-ATTEND line (what you concretely get: money, network, skills, visibility).\n` +
     `- Dates are URGENT info: today is ${date}. Write every date/deadline as "Oct 30 (23 days left)" — count the days from today, never write a bare date. Skip entries already over before today.\n` +
-    `- Drop candidates with no usable detail (no date AND no prize AND no clear venue/audience) unless Zimbabwe-based. Up to 4 entries may carry TBA dates when dated ones are scarce — but a card of all-TBA rows is a failure: prefer entries with money, deadlines and names attached.\n` +
+    `- Drop candidates with no usable detail (no date AND no prize AND no clear venue/audience) unless Zimbabwe-based. At most 2 entries may carry TBA dates; a card of all-TBA rows is a failure: prefer entries with money, deadlines and names attached.\n` +
     `- Lead each row with the category emoji: 💻 hackathon/coding challenge, 🚀 pitch/startup competition, 🎪 conference/summit/expo, 🌍 fully-remote global hackathon.\n` +
     `- Use ONLY facts from the candidate texts — never invent dates, venues, links, prizes or deadlines. If a detail is absent, write "TBA" rather than guessing. Drop candidates with no usable detail instead of guessing.\n\n` +
     `Output EXACTLY these labelled sections (plain text, no markdown, no angle brackets):\n` +
@@ -1901,6 +1923,7 @@ async function eventsCompetitionScanRunner(inputs: Record<string, unknown>, push
   // Machine-readable deadline tracker (powers the deadline-reminders
   // schedule). Parsed strictly — bad lines are dropped, never posted.
   const tracker: { name: string; deadline: string; url: string }[] = [];
+  const _todayNoon = new Date(date + "T12:00:00").getTime();
   for (const line of grab("TRACKER").split("\n")) {
     const parts = line.split("|").map(s => s.trim());
     if (parts.length < 3) continue;
@@ -1908,6 +1931,10 @@ async function eventsCompetitionScanRunner(inputs: Record<string, unknown>, push
     if (!name || !/^20\d{2}-\d{2}-\d{2}$/.test(deadline)) continue;
     const t = new Date(deadline + "T12:00:00").getTime();
     if (!Number.isFinite(t)) continue;
+    // Drop past deadlines (LLM hallucinates last year's dates) and absurdly
+    // far futures (>400d — usually a year typo). Computed in code, not LLM.
+    const daysOut = Math.round((t - _todayNoon) / 86400_000);
+    if (daysOut < 0 || daysOut > 400) continue;
     if (!/^https?:\/\//i.test(url)) continue;
     tracker.push({ name: name.slice(0, 120), deadline, url });
   }
@@ -1949,8 +1976,7 @@ async function eventsCompetitionScanRunner(inputs: Record<string, unknown>, push
 // card for anything due in 7, 3 or 1 days. Quiet (posted:false) when nothing
 // is due, so the schedule never spams. Urgency ordering: due-tomorrow first.
 async function deadlineRemindersRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
-  const chatId = String(inputs.chatId ?? "").trim();
-  if (!chatId) throw new Error("missing 'chatId' input (the Telegram chat to post into)");
+  const chatId = await resolveTemplateChatId(inputs);
   const staged = stagedProgress(progress, ["Read deadline tracker", "Post reminders"]);
   const tracked = loadEventsTracker();
   staged.completeStep(0);
@@ -1962,8 +1988,25 @@ async function deadlineRemindersRunner(inputs: Record<string, unknown>, push: (m
     const daysLeft = Math.round((t - today.getTime()) / 86400_000);
     if (daysLeft === 7 || daysLeft === 3 || daysLeft === 1 || daysLeft === 0) due.push({ entry: e, daysLeft });
   }
+  // Same-day dedupe: a retry/re-fire must not double-post. Marker file
+  // _naxion/news/reminded-<date>.json holds already-sent name|deadline keys.
+  const dateKey = today.toISOString().slice(0, 10);
+  const remindedPath = resolve(config.vaultPath, "_naxion/news", `reminded-${dateKey}.json`);
+  let reminded: Set<string> = new Set();
+  try {
+    if (_exs(remindedPath)) {
+      const arr = JSON.parse(_rfs(remindedPath, "utf8"));
+      if (Array.isArray(arr)) reminded = new Set(arr.map(String));
+    }
+  } catch { /* best-effort */ }
+  const fresh = due.filter(d => !reminded.has(`${d.entry.name}|${d.entry.deadline}`));
+  if (fresh.length !== due.length) push(`[reminders] skipped ${due.length - fresh.length} already sent today`);
+  due.length = 0; due.push(...fresh);
+  if (!tracked.length) push(`[tracker] empty — events scan hasn't produced machine-readable deadlines yet`);
   if (!due.length) {
-    const skip = `No event deadlines due in 7/3/1 days (${tracked.length} tracked) — staying quiet.`;
+    const skip = reminded.size
+      ? `All due reminders already sent today (${reminded.size} sent, ${tracked.length} tracked) — staying quiet.`
+      : `No event deadlines due in 7/3/1 days (${tracked.length} tracked) — staying quiet.`;
     push(skip);
     return { kind: "deadline-reminders", posted: false, note: skip, tracked: tracked.length };
   }
@@ -1983,20 +2026,26 @@ async function deadlineRemindersRunner(inputs: Record<string, unknown>, push: (m
   const sent = await tg.handler({ text: postText, chatId });
   staged.completeStep(1);
   staged.setPhase("done");
+  if (sent?.ok) {
+    try {
+      for (const d of due) reminded.add(`${d.entry.name}|${d.entry.deadline}`);
+      _mks(resolve(remindedPath, ".."), { recursive: true } as any);
+      _wfs(remindedPath, JSON.stringify([...reminded].slice(-200), null, 1));
+    } catch { /* marker best-effort */ }
+  }
   push(sent?.ok ? `Posted ${due.length} deadline reminder(s) to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
   return { kind: "deadline-reminders", posted: !!sent?.ok, chatId, answer: postText, error: sent?.ok ? undefined : sent?.error };
 }
 
-// Evening recap — stitches today's edition cards (Africa, World, SI,
+// Evening recap — stitches today's edition cards (Africa, World,
 // events) into one "Today in AI" digest. No web sweep: it reuses the vault
 // cards the morning pipeline already wrote, so it costs one LLM call.
 async function eveningRecapRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
-  const chatId = String(inputs.chatId ?? "").trim();
-  if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
+  const chatId = await resolveTemplateChatId(inputs);
   const staged = stagedProgress(progress, ["Read today's cards", "Stitch evening digest", "Post to Telegram"]);
   const date = new Date().toISOString().slice(0, 10);
   const sections: { feed: string; body: string }[] = [];
-  for (const feed of ["africa", "world", "si", "events"]) {
+  for (const feed of ["africa", "world", "events"]) {
     try {
       const p = resolve(config.vaultPath, "_naxion/news", `${date}-${feed}.md`);
       if (!_exs(p)) { push(`[recap] no ${feed} card today — skipping section`); continue; }
@@ -2017,7 +2066,6 @@ async function eveningRecapRunner(inputs: Record<string, unknown>, push: (m: str
     `HEADER: 🌙 TODAY IN AI — ${date}\n` +
     `AFRICA: one line (top Africa story + link)\n` +
     `WORLD: one line (top world story + link)\n` +
-    `SI: one line (top SI story + link)\n` +
     `EVENTS: one line (most urgent deadline/event + link), or "no events today"\n` +
     `SIGNOFF: one short warm line (e.g. see you tomorrow 07:30)\n\n` +
     `Keep every URL exactly as given — never invent or shorten links.\n\n` +
@@ -2026,13 +2074,13 @@ async function eveningRecapRunner(inputs: Record<string, unknown>, push: (m: str
     { maxTokens: 800 },
   )).trim();
   const grab = (label: string) => {
-    const m = digest.match(new RegExp(`^[\\s>*#-]*${label}\\s*:?\\s*([\\s\\S]*?)(?=\\n[\\s>*#-]*(?:HEADER|AFRICA|WORLD|SI|EVENTS|SIGNOFF)\\s*:|$)`, "im"));
+    const m = digest.match(new RegExp(`^[\\s>*#-]*${label}\\s*:?\\s*([\\s\\S]*?)(?=\\n[\\s>*#-]*(?:HEADER|AFRICA|WORLD|EVENTS|SIGNOFF)\\s*:|$)`, "im"));
     return (m?.[1] ?? "").replace(/```[a-z]*\n?/gi, "").trim().replace(/^["']|["']$/g, "").trim();
   };
-  const clean = (t: string) => t.split("\n").map(l => l.replace(/^\s*(?:HEADER|AFRICA|WORLD|SI|EVENTS|SIGNOFF)\s*:?\s*/i, "").trimEnd()).filter(l => !/^\s*(?:HEADER|AFRICA|WORLD|SI|EVENTS|SIGNOFF)\s*:?\s*$/i.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const clean = (t: string) => t.split("\n").map(l => l.replace(/^\s*(?:HEADER|AFRICA|WORLD|EVENTS|SIGNOFF)\s*:?\s*/i, "").trimEnd()).filter(l => !/^\s*(?:HEADER|AFRICA|WORLD|EVENTS|SIGNOFF)\s*:?\s*$/i.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
   const postText = clean([
     grab("HEADER") || `🌙 TODAY IN AI — ${date}`, "",
-    grab("AFRICA"), grab("WORLD"), grab("SI"), grab("EVENTS"), "",
+    grab("AFRICA"), grab("WORLD"), grab("EVENTS"), "",
     grab("SIGNOFF"),
   ].filter(Boolean).join("\n"));
   staged.completeStep(1);
@@ -2040,27 +2088,45 @@ async function eveningRecapRunner(inputs: Record<string, unknown>, push: (m: str
     push("Digest came back empty — skipping the post.");
     return { kind: "evening-recap", posted: false, note: "empty digest" };
   }
+  // Drop hallucinated links: only URLs already present in this morning's
+  // cards may go out (and into tomorrow's dedupe). Extras are stripped.
+  const knownUrls = new Set([...sections.map(s => s.body).join("\n").matchAll(/https?:\/\/[^\s)>\]]+/g)].map(m => m[0].replace(/[.,;]+$/, "")));
+  let safeText = postText;
+  const found = [...postText.matchAll(/https?:\/\/[^\s)>\]]+/g)].map(m => m[0].replace(/[.,;]+$/, ""));
+  const unknown = found.filter(u => !knownUrls.has(u));
+  if (unknown.length) {
+    push(`[recap] stripped ${unknown.length} hallucinated link(s)`);
+    for (const u of unknown) safeText = safeText.split(u).join("(link in morning card)");
+  }
   const tg = findPrimitive("telegram.send");
   if (!tg) throw new Error("telegram.send primitive unavailable");
   staged.setPhase("posting");
-  const sent = await tg.handler({ text: postText, chatId });
+  const sent = await tg.handler({ text: safeText, chatId });
   staged.completeStep(2);
   staged.setPhase("done");
-  if (sent?.ok) claimUrlsToday([...postText.matchAll(/https?:\/\/[^\s)>\]]+/g)].map(m => m[0].replace(/[.,;]+$/, "")));
+  if (sent?.ok) {
+    claimUrlsToday([...safeText.matchAll(/https?:\/\/[^\s)>\]]+/g)].map(m => m[0].replace(/[.,;]+$/, "")));
+    try { writeVaultFile(`_naxion/news/${date}-evening.md`, `---\nkind: evening-recap\ndate: ${date}\n---\n\n${safeText}\n`); } catch { /* audit best-effort */ }
+  }
   push(sent?.ok ? `Posted evening recap to Telegram chat ${chatId}.` : `Telegram post failed: ${sent?.error ?? "unknown error"}`);
-  return { kind: "evening-recap", posted: !!sent?.ok, chatId, answer: postText, error: sent?.ok ? undefined : sent?.error };
+  return { kind: "evening-recap", posted: !!sent?.ok, chatId, answer: safeText, error: sent?.ok ? undefined : sent?.error };
 }
 
-// Weekend digest — ONE combined Africa + World + SI card for Saturday/Sunday
-// mornings, replacing the three weekday editions (which run Mon–Fri only).
+// Weekend digest — ONE combined Africa + World AI card for Saturday/Sunday
+// mornings, replacing the two weekday editions (which run Mon–Fri only).
 async function weekendDigestRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
-  const chatId = String(inputs.chatId ?? "").trim();
-  if (!chatId) throw new Error("missing 'chatId' input (the Telegram group to post into)");
+  const chatId = await resolveTemplateChatId(inputs);
   const staged = stagedProgress(progress, ["Sweep all feeds", "Dedupe + rank", "Build weekend card", "Post to Telegram"]);
-  push("Weekend sweep: Africa + World + SI queries in one pass.");
+  push("Weekend sweep: Africa + World queries in one pass.");
+  // Round-robin across the two AI feeds, capped at 12 queries.
+  const _aq = effectiveAfricaQueries(); const _wq = effectiveWorldQueries();
+  const _mixed: string[] = [];
+  for (let i = 0; i < Math.max(_aq.length, _wq.length) && _mixed.length < 12; i++) {
+    for (const q of [_aq[i], _wq[i]]) if (q && !_mixed.includes(q) && _mixed.length < 12) _mixed.push(q);
+  }
   const [rss, web] = await Promise.all([
     fetchRssTier(push, false),
-    scrapeStoriesForQueries([...new Set([...effectiveAfricaQueries(), ...effectiveWorldQueries(), ...effectiveSiQueries()])].slice(0, 12), push, "weekend"),
+    scrapeStoriesForQueries(_mixed, push, "weekend"),
   ]);
   staged.completeStep(0);
   let merged: StorySource[] = [...rss, ...web];
@@ -2121,14 +2187,26 @@ async function weekendDigestRunner(inputs: Record<string, unknown>, push: (m: st
 // Thin wrapper so brand-signal scanning (lib/brand-signals.ts) is reachable
 // through the normal template/schedule pipeline — schedule.create can point a
 // recurring cadence at this the same way it already does for buffer-story-post.
-async function brandSignalScanRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
-  const brandId = String(inputs.brandId ?? "").trim();
+async function brandSignalScanRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
+  const brandId = String(inputs.brandId ?? "").trim().slice(0, 80);
   if (!brandId) return { answer: "brandId is required", ok: false };
+  const staged = stagedProgress(progress, ["Load brand", "Scan signals", "File drafts"]);
   push(`Scanning brand signals for "${brandId}"…`);
-  const run = await runBrandSignalScan(brandId);
+  staged.completeStep(0);
+  let run: any;
+  try {
+    run = await runBrandSignalScan(brandId);
+  } catch (e: any) {
+    const msg = `Brand scan failed: ${String(e?.message ?? e).slice(0, 200)}`;
+    push(`⚠ ${msg}`);
+    return { answer: msg, ok: false, error: msg };
+  }
+  staged.completeStep(1);
   if (run.error) { push(`Scan refused: ${run.error}`); return { answer: run.error, ok: false, run }; }
   const answer = `Scanned ${run.candidateCount} candidate${run.candidateCount === 1 ? "" : "s"} for "${brandId}" — ${run.signalCount} new draft signal${run.signalCount === 1 ? "" : "s"} filed, ${run.refusedCount} refused. Review with GET /api/brand-signals?brandId=${brandId}&status=draft or the Signals panel on the Brands page.`;
   push(answer);
+  staged.completeStep(2);
+  staged.setPhase("done");
   return { answer, ok: true, run };
 }
 
@@ -2151,16 +2229,20 @@ async function emailToVaultRunner(inputs: Record<string, unknown>, push: (m: str
 
   let filed = 0;
   let skipped = 0;
-  for (const e of emails) {
+  let readFailed = 0;
+  let unclassified = 0;
+  // Phase 1 — classify concurrently (pool of 3): read + LLM verdict per
+  // message. Phase 2 below files serially (vault writes must stay ordered).
+  // Time budget: 8 min total for the classify phase so a 50-mail run can't
+  // hang the schedule slot.
+  const classifyOne = async (e: any): Promise<{ e: any; body: string; v: MailVerdict; readError?: string }> => {
     let body = "";
     try {
       const full = await readEmail(e.accountId, e.uid);
       body = full.body;
     } catch (err: any) {
-      push(`⚠ Could not read "${String(e.subject).slice(0, 50)}": ${String(err?.message ?? err).slice(0, 120)}`);
-      continue;
+      return { e, body: "", v: {}, readError: `Could not read "${String(e.subject).slice(0, 50)}": ${String(err?.message ?? err).slice(0, 120)}` };
     }
-
     let v: MailVerdict = {};
     try {
       const raw = await llmGenerate(
@@ -2176,27 +2258,52 @@ async function emailToVaultRunner(inputs: Record<string, unknown>, push: (m: str
       const end = raw.lastIndexOf("}");
       if (start >= 0 && end > start) v = JSON.parse(raw.slice(start, end + 1));
     } catch { /* fall through to the heuristic below */ }
-
     if (!v || typeof v !== "object" || Object.keys(v).length === 0) {
       // Deterministic fallback so an unparseable verdict never silently
       // becomes "no reply needed" for a real person's message.
       const automated = /no[-_]?reply|noreply|notification|newsletter|mailer|do[-_]?not[-_]?reply|billing|receipt/i.test(`${e.sender} ${e.subject}`);
       v = { who: e.sender, wants: e.subject, urgency: "normal", needsReply: !automated, _unclassified: true };
     }
-
+    return { e, body, v };
+  };
+  const classified: { e: any; body: string; v: MailVerdict; readError?: string }[] = new Array(emails.length);
+  const deadline = Date.now() + 8 * 60_000;
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(3, emails.length) }, async () => {
+    while (cursor < emails.length && Date.now() < deadline) {
+      const i = cursor++;
+      try {
+        classified[i] = await classifyOne(emails[i]);
+      } catch (err: any) {
+        classified[i] = { e: emails[i], body: "", v: {}, readError: String(err?.message ?? err).slice(0, 120) };
+      }
+    }
+  });
+  await Promise.all(workers);
+  // Phase 2 — file serially, in original order.
+  for (let i = 0; i < emails.length; i++) {
+    const c = classified[i];
+    if (!c) { readFailed++; continue; } // hit the time budget
+    if (c.readError) { readFailed++; push(`⚠ ${c.readError}`); continue; }
+    const { e, body, v } = c;
+    if ((v as any)?._unclassified) unclassified++;
     const decision = shouldKeep(v);
     if (!decision.keep) { skipped++; continue; }
-
-    const note: MailForNote = { from: e.sender, identity: e.accountId, subject: e.subject, date: String(e.date ?? new Date().toISOString()), body };
-    const rel = emailNotePath(note.date, note.subject, slugify);
-    // Never overwrite: a second message with the same subject on the same
-    // day is a different message, and the first one is somebody's evidence.
-    const path = existsSync(resolve(config.vaultPath, rel)) ? rel.replace(/\.md$/, `-${String(e.uid)}.md`) : rel;
-    writeVaultFile(path, renderEmailNote(note, v, decision.why));
-    filed++;
+    try {
+      const note: MailForNote = { from: e.sender, identity: e.accountId, subject: e.subject, date: String(e.date ?? new Date().toISOString()), body };
+      const rel = emailNotePath(note.date, note.subject, slugify);
+      // Never overwrite: a second message with the same subject on the same
+      // day is a different message, and the first one is somebody's evidence.
+      const path = existsSync(resolve(config.vaultPath, rel)) ? rel.replace(/\.md$/, `-${String(e.uid)}.md`) : rel;
+      writeVaultFile(path, renderEmailNote(note, v, decision.why));
+      filed++;
+    } catch (err: any) {
+      readFailed++;
+      push(`⚠ Could not file "${String(e.subject).slice(0, 50)}": ${String(err?.message ?? err).slice(0, 120)}`);
+    }
   }
 
-  const summary = `Filed ${filed} of ${emails.length} message${emails.length === 1 ? "" : "s"} to ${EMAIL_NOTES_DIR}/ (${skipped} skipped as automated/informational).`;
+  const summary = `Filed ${filed} of ${emails.length} message${emails.length === 1 ? "" : "s"} to ${EMAIL_NOTES_DIR}/ (${skipped} skipped, ${readFailed} failed${unclassified ? `, ${unclassified} unclassified` : ""}).`;
   push(summary);
   if (filed > 0) {
     try {
@@ -2204,7 +2311,7 @@ async function emailToVaultRunner(inputs: Record<string, unknown>, push: (m: str
       void enqueueVaultCommit(`chore(email): file ${filed} triaged message(s)`);
     } catch { /* commit queue optional */ }
   }
-  return { answer: summary, filed, skipped, scanned: emails.length };
+  return { answer: summary, filed, skipped, readFailed, unclassified, scanned: emails.length };
 }
 
 // Daily briefing — a thin wrapper over the general-task agent with a fixed,
@@ -2213,7 +2320,7 @@ async function emailToVaultRunner(inputs: Record<string, unknown>, push: (m: str
 // a built-in) and never re-asks for clarification — it's a scheduled, headless
 // run. The optional `focus` input narrows the briefing to one area.
 async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void) {
-  const focus = String(inputs.focus ?? "").trim();
+  const focus = String(inputs.focus ?? "").trim().slice(0, 300);
   const now = new Date();
   const today = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -2401,12 +2508,39 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
 }
 
 async function syncDownloadsRunner(inputs: Record<string, unknown>, push: (m: string) => void) {
-  const source = (inputs.source as string | undefined) ?? "";
+  const source = String((inputs as any).source ?? "").trim();
+  if (source) {
+    try {
+      const { existsSync: _ex2, statSync: _st2 } = await import("node:fs");
+      if (!_ex2(source)) throw new Error(`source folder not found: ${source.slice(0, 160)}`);
+      if (!_st2(source).isDirectory()) throw new Error(`source is not a folder: ${source.slice(0, 160)}`);
+    } catch (e: any) {
+      if (/source (folder not found|is not a folder)/.test(String(e?.message ?? ""))) throw e;
+    }
+  }
   push("running download sync (read-only on sources)");
-  const r = syncDownloads({ source }, push);
+  let r: any;
+  try {
+    r = syncDownloads({ source }, push);
+  } catch (e: any) {
+    const msg = `Download sync failed: ${String(e?.message ?? e).slice(0, 200)}`;
+    push(`⚠ ${msg}`);
+    return { error: msg, answer: msg, copiedThisRun: [], copyErrors: [] };
+  }
+  const copied = (r as any)?.copiedThisRun?.length ?? 0;
+  if (!copied) {
+    const answer = `Downloads in sync — 0 new files.`;
+    push(answer);
+    return { ...r, answer, commit: { ok: true, skipped: true } as any };
+  }
   push("committing inventory + state to vault");
-  const commit = await commitAndPush(`naxie: downloads sync (${r.copiedThisRun.length} new)`);
-  return { ...r, commit };
+  try {
+    const commit = await commitAndPush(`naxie: downloads sync (${copied} new)`);
+    return { ...r, commit, answer: `Synced ${copied} new file(s) from Downloads.` };
+  } catch (e: any) {
+    push(`commit failed (files kept): ${String(e?.message ?? e).slice(0, 120)}`);
+    return { ...r, commitOk: false, error: String(e?.message ?? e).slice(0, 200), answer: `Synced ${copied} file(s) (commit failed)` };
+  }
 }
 
 function sanitizeName(name: string): string {

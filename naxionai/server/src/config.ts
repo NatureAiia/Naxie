@@ -131,16 +131,21 @@ const supabaseSecretKey = pick("SUPABASE_SECRET_KEY", "");
 // optional integration in this file).
 const supabaseDbUrl = pick("SUPABASE_DB_URL", "");
 
-// OpenAI — used ONLY for embeddings (text-embedding-3-small, 1536 dims) to
-// back the pgvector RAG store above. Deliberately independent of whichever
-// provider is active for chat (Gemini by default) since OpenAI's embeddings
-// endpoint is the one clearly OpenAI-compatible embeddings API wired into
-// this codebase today. Blank = lib/embeddings.ts throws a clear error that
-// callers (rag.ts, the re-embed job) catch and treat as "semantic search
+// OpenAI — preferred embeddings backend (text-embedding-3-small, 1536 dims)
+// for the pgvector RAG store above. Deliberately independent of whichever
+// provider is active for chat (Gemini by default). Blank key = falls back to
+// local Ollama (OLLAMA_EMBEDDING_MODEL, nomic-embed-text, 768 dims); if that
+// is unreachable too, lib/embeddings.ts throws a clear error that callers
+// (rag.ts, the re-embed job) catch and treat as "semantic search
 // unavailable" — never a hard failure.
 const openaiEmbeddingApiKey = pick("OPENAI_EMBEDDING_API_KEY", "");
 const openaiEmbeddingBaseUrl = pick("OPENAI_EMBEDDING_BASE_URL", "https://api.openai.com/v1");
 const openaiEmbeddingModel = pick("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small");
+// Local fallback for embeddings when no OpenAI key is set: Ollama's /api/embed
+// with nomic-embed-text (768 dims — NOT interchangeable with the 1536-dim
+// OpenAI model above; lib/embeddings.ts labels rows so stores never mix them
+// silently, and the pgvector vector(1536) column rejects mismatched dims).
+const ollamaEmbeddingModel = pick("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text");
 
 // MiniMax removed — image generation goes through OpenRouter (Gemini flash);
 // video/music/tts have no configured provider (see media.* primitives).
@@ -287,6 +292,7 @@ export const config = {
   openaiEmbeddingBaseUrl,
   openaiEmbeddingModel,
   openaiEmbeddingEnabled: openaiEmbeddingApiKey.length > 0,
+  ollamaEmbeddingModel,
   openrouterImageModel,
   ideogramApiKey,
   ideogramBaseUrl,

@@ -13,6 +13,9 @@ export type Sector = {
   nameNdebele?: string;
   description: string;
   icon: string;
+  // Built-in TEMPLATE ids only (see lib/templates.ts) — NOT skill ids. Two
+  // skill ids (compliance-check, research-deep) lived here until 2026-10-12
+  // and matched nothing runnable; pinned by templates-integrity.test.ts.
   suggestedTemplates: string[];
   suggestedIntegrations: string[];
   // Department-template ids (see lib/department-templates.ts DEPARTMENT_TEMPLATES)
@@ -66,7 +69,7 @@ export const SECTORS: Sector[] = [
     nameNdebele: "Imali lamaBhangi",
     description: "Digital payments, microfinance, banking operations, and financial inclusion",
     icon: "Building2",
-    suggestedTemplates: ["summarize-repo", "run-digest", "compliance-check", "publish-folder"],
+    suggestedTemplates: ["summarize-repo", "run-digest", "search-brain", "publish-folder"],
     suggestedIntegrations: ["slack", "github", "google"],
     suggestedDepartments: ["finance-legal", "business-administration"],
     contextNote: "Zimbabwe's FinTech sector is growing rapidly with mobile money (EcoCash, OneMoney) leading digital payments. Regulatory compliance with RBZ (Reserve Bank of Zimbabwe) is critical. Common pain points: transaction reconciliation, agent network management, and financial literacy content.",
@@ -78,7 +81,7 @@ export const SECTORS: Sector[] = [
     nameNdebele: "Ezezolimo",
     description: "Farming operations, supply chain, crop monitoring, and market access",
     icon: "Sprout",
-    suggestedTemplates: ["run-digest", "summarize-repo", "research-deep"],
+    suggestedTemplates: ["run-digest", "summarize-repo", "general-task"],
     suggestedIntegrations: ["slack", "webhook"],
     suggestedDepartments: ["business-administration"],
     contextNote: "Agriculture employs ~70% of Zimbabwe's workforce. Key challenges: climate-smart practices, input financing, market linkages, and extension services. The Pfumvudza/Intwasa program is a major government initiative for smallholder farmers.",
@@ -90,7 +93,7 @@ export const SECTORS: Sector[] = [
     nameNdebele: "Ezempilo",
     description: "Healthcare delivery, patient records, telemedicine, and public health monitoring",
     icon: "HeartPulse",
-    suggestedTemplates: ["compliance-check", "run-digest", "summarize-repo"],
+    suggestedTemplates: ["search-brain", "run-digest", "summarize-repo"],
     suggestedIntegrations: ["slack", "google", "webhook"],
     suggestedDepartments: ["business-administration", "finance-legal"],
     contextNote: "Zimbabwe's health system faces challenges with infectious diseases (HIV/TB/malaria), maternal health, and a growing NCD burden. The MOHCC (Ministry of Health) drives digital health through DHIS2. Key opportunities: stock-out prediction for essential medicines, patient journey tracking, and community health worker coordination.",
@@ -102,7 +105,7 @@ export const SECTORS: Sector[] = [
     nameNdebele: "Imfundo",
     description: "Online learning, school management, curriculum development, and exam analytics",
     icon: "GraduationCap",
-    suggestedTemplates: ["run-digest", "summarize-repo", "research-deep", "publish-folder"],
+    suggestedTemplates: ["run-digest", "summarize-repo", "general-task", "publish-folder"],
     suggestedIntegrations: ["slack", "google", "webhook"],
     suggestedDepartments: ["business-administration"],
     contextNote: "Zimbabwe's education system follows a 2-7-4-2-4 structure (M-P-C-A). The curriculum was reformed in 2017 to include STEM and vocational subjects. Key challenges: teacher shortages, infrastructure gaps in rural areas, and exam leak management. O-level and A-level exams are administered by ZIMSEC.",
@@ -126,7 +129,7 @@ export const SECTORS: Sector[] = [
     nameNdebele: "Izinhlangano eztithuthukisa",
     description: "Program management, grant reporting, beneficiary tracking, and M&E",
     icon: "HandHeart",
-    suggestedTemplates: ["run-digest", "compliance-check", "research-deep", "publish-folder"],
+    suggestedTemplates: ["run-digest", "search-brain", "general-task", "publish-folder"],
     suggestedIntegrations: ["slack", "google", "github", "webhook"],
     suggestedDepartments: ["business-administration", "finance-legal"],
     contextNote: "Zimbabwe hosts a large development sector with UN agencies, INGOs, and CBOs. Key focus areas: food security (WFP), health (WHO/CDC), education (UNICEF), and governance (UNDP). Reporting requirements are stringent — donors expect quarterly narrative+financial reports with verifiable indicators.",
@@ -138,7 +141,7 @@ export const SECTORS: Sector[] = [
     nameNdebele: "Izimayini",
     description: "Mining operations, mineral tracking, safety compliance, and supply chain",
     icon: "Pickaxe",
-    suggestedTemplates: ["compliance-check", "run-digest", "summarize-repo"],
+    suggestedTemplates: ["search-brain", "run-digest", "summarize-repo"],
     suggestedIntegrations: ["slack", "webhook"],
     suggestedDepartments: ["business-administration", "finance-legal"],
     contextNote: "Zimbabwe is rich in minerals: gold (the largest producer after SA), platinum group metals (Zimplats, Mimosa, Unki), diamonds (Marange), lithium (Arcadian, Kamativi), and chrome. The mining sector is a major foreign currency earner. Key challenges: artisanal mining regulation, royalty compliance (ZIMRA), and community development agreements.",
@@ -162,7 +165,7 @@ export const SECTORS: Sector[] = [
     nameNdebele: "Uhulumende",
     description: "Public service delivery, municipal operations, and policy administration",
     icon: "Landmark",
-    suggestedTemplates: ["compliance-check", "run-digest", "research-deep"],
+    suggestedTemplates: ["search-brain", "run-digest", "general-task"],
     suggestedIntegrations: ["slack", "webhook"],
     suggestedDepartments: ["finance-legal", "business-administration"],
     contextNote: "Zimbabwe's public sector spans central ministries, ZIMRA (revenue), RBZ (monetary policy), and devolved local authorities under the devolution agenda. E-Government initiatives are expanding digital service delivery. Key challenges: procurement compliance (PRAZ), records management across paper and digital systems, and citizen-facing service turnaround times.",
@@ -174,7 +177,7 @@ export const SECTORS: Sector[] = [
     nameNdebele: "Ubuchwepheshe",
     description: "Software, telecoms, digital services, and the local start-up ecosystem",
     icon: "Cpu",
-    suggestedTemplates: ["summarize-repo", "run-digest", "compliance-check"],
+    suggestedTemplates: ["summarize-repo", "run-digest", "search-brain"],
     suggestedIntegrations: ["slack", "github", "webhook"],
     suggestedDepartments: ["it-devops", "business-administration"],
     contextNote: "Zimbabwe's tech sector is regulated by POTRAZ (telecoms/postal) and anchored by players like Econet/Cassava and a growing fintech-adjacent start-up scene. Mobile penetration outpaces fixed broadband, so mobile-first product design matters. Key challenges: forex access for cloud/SaaS spend, data protection compliance under the Data Protection Act, and load-shedding-resilient infrastructure.",
@@ -198,7 +201,7 @@ export const SECTORS: Sector[] = [
     nameNdebele: "Okuzenzakalelayo",
     description: "Tell us about your sector — we'll still tune the workforce for Zimbabwe",
     icon: "MoreHorizontal",
-    suggestedTemplates: ["run-digest", "summarize-repo", "research-deep"],
+    suggestedTemplates: ["run-digest", "summarize-repo", "general-task"],
     suggestedIntegrations: ["slack", "webhook"],
     suggestedDepartments: ["business-administration", "finance-legal"],
     contextNote: "Operating in Zimbabwe generally means planning around forex access (USD/ZWL dual pricing), variable power availability (load-shedding), and mobile-first connectivity. Regulatory touchpoints most businesses share: ZIMRA (tax), RBZ (forex/banking), and the Data Protection Act for anything handling personal data. Set a specific sector name during onboarding and this note can be refined further.",

@@ -6,6 +6,7 @@ import { addPersona, slugifyId, type Persona } from "./personas.js";
 import { buildStarterTemplates, listPersonaTemplates } from "./persona-templates.js";
 import { saveCustomTemplate } from "./custom-templates.js";
 import { createSchedule, listSchedules } from "./schedules.js";
+import { templates } from "./templates.js";
 
 export type DepartmentTemplateStep = {
   persona: string;         // persona role name
@@ -214,8 +215,19 @@ export function applyResolvedTemplate(tpl: DepartmentTemplate): {
     }
     created.push({ name: persona.name, role: persona.role, id: persona.id });
   }
+  // Validate template references up front so a renamed/removed built-in
+  // (e.g. super-intelligence-news, deleted 2026-10-12) fails loudly here
+  // instead of creating a schedule that errors at fire time.
+  const knownIds = new Set(templates.map(t => t.id));
+  const badRecommended = (tpl.recommendedTemplates ?? []).filter(id => !knownIds.has(id));
+  if (badRecommended.length) {
+    throw new Error(`department "${tpl.id}" references unknown template(s): ${badRecommended.join(", ")}`);
+  }
   let scheduleCreated: { id: string; name: string } | null = null;
   if (tpl.schedule) {
+    if (!knownIds.has(tpl.schedule.templateId)) {
+      throw new Error(`department "${tpl.id}" schedule points at unknown template "${tpl.schedule.templateId}"`);
+    }
     const existing = listSchedules().find(s => s.name === tpl.schedule!.name && s.inputs?.department === tpl.id);
     if (existing) scheduleCreated = { id: existing.id, name: existing.name };
     else {

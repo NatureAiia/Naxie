@@ -17,24 +17,19 @@ export type TemplateRole = "Engineering" | "Knowledge" | "Operations" | "Insight
 
 // Map known built-in persona-ids to their natural template lane. Extended over
 // time as new personas appear. Personas not in this map fall through to the
-// keyword pass.
-// Pruned 2026-09-21 alongside personas.ts's own prune (all built-ins had zero
-// recorded activity in 30 days) — entries for now-deleted persona ids were
-// removed; a template id can never carry one of those prefixes again.
-const PERSONA_ID_TO_ROLE: Record<string, TemplateRole> = {
+// keyword pass. Keys must stay ⊆ BUILTIN_PERSONAS ids (pinned by
+// templates-integrity.test.ts) — prune here whenever personas.ts prunes.
+export const PERSONA_ID_TO_ROLE: Record<string, TemplateRole> = {
   // Engineering lane
   "software-engineer": "Engineering",
-  "head-of-ai": "Engineering",
 
   // Knowledge lane (writing, docs, research)
   "researcher": "Knowledge",
 
-  // Operations lane (admin, coordination, customer-facing ops, legal review)
-  "insurance-sales-agent": "Operations",
-  "insurance-underwriter": "Operations",
-
-  // Insights lane (analysis, strategy, design, finance)
-  "designer": "Insights",
+  // Operations lane (admin, coordination, customer-facing ops)
+  "it-support": "Operations",
+  "accountant": "Operations",
+  "social-media-manager": "Operations",
 
   // Meta / unattributed
   "naxie-agent": "Custom",
@@ -58,7 +53,6 @@ const KEYWORD_TO_ROLE: { re: RegExp; role: TemplateRole }[] = [
   { re: /\b(invoice|reconciliation|expense|vendor|procurement|policy|compliance|SOC[- ]?2|GDPR|HIPAA|audit)\b/i, role: "Operations" },
   { re: /\b(customer (?:reply|email|complaint|message|outreach)|support ticket|ticket triage|case (?:management|escalation))\b/i, role: "Operations" },
   { re: /\b(calendar|schedule|meeting (?:notes?|brief)|agenda|onboarding|offboarding|JD|job description|interview loop|resume screen)\b/i, role: "Operations" },
-  { re: /\b(insurance|underwriting|claim|premium|broker)\b/i, role: "Operations" },
   // Insights
   { re: /\b(PRD|product (?:requirements?|spec)|RICE|ICE|kano|jobs[- ]?to[- ]?be[- ]?done|JTBD)\b/i, role: "Insights" },
   { re: /\b(forecast|variance|scenario|unit economics|CAC|LTV|payback|board pack|board deck|one[- ]?pager|exec summary)\b/i, role: "Insights" },

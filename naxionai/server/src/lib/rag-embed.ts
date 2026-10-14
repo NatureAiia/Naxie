@@ -13,7 +13,7 @@
 // mid-chat.
 
 import { chunkVaultAsync, type VaultChunk } from "./rag-chunk.js";
-import { embedText, EmbeddingsUnavailable } from "./embeddings.js";
+import { embedText, EmbeddingsUnavailable, embeddingModelInUse, embeddingsConfigured } from "./embeddings.js";
 import { getPgPool, isPgAvailable, type Pool } from "./pg-client.js";
 import { config } from "../config.js";
 
@@ -29,7 +29,7 @@ let lastRun: { at: number; chunks: number; ok: boolean; error?: string } | null 
 // cache. Cheap no-op when neither pgvector nor embeddings is configured, so
 // callers don't need to gate the call themselves.
 export function scheduleReembed(): void {
-  if ((!config.pgvectorEnabled && !config.mongodbVectorEnabled) || !config.openaiEmbeddingEnabled) return;
+  if ((!config.pgvectorEnabled && !config.mongodbVectorEnabled) || !embeddingsConfigured()) return;
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => { void runReembed(); }, DEBOUNCE_MS);
 }
@@ -42,8 +42,8 @@ export function reembedStats() {
 // run as the debounced scheduler, but fires immediately and reports whether
 // it could even start (vs. scheduleReembed's silent no-op when unconfigured).
 export async function runReembedNow(): Promise<{ ok: boolean; error?: string }> {
-  if ((!config.pgvectorEnabled && !config.mongodbVectorEnabled) || !config.openaiEmbeddingEnabled) {
-    return { ok: false, error: "not configured — set a vector store (Supabase DB URL or MongoDB Atlas) and an OpenAI embedding API key" };
+  if ((!config.pgvectorEnabled && !config.mongodbVectorEnabled) || !embeddingsConfigured()) {
+    return { ok: false, error: "not configured — set a vector store (Supabase DB URL or MongoDB Atlas) and embeddings (OpenAI key or local Ollama with an embedding model)" };
   }
   if (timer) { clearTimeout(timer); timer = null; }
   await runReembed();
@@ -99,6 +99,11 @@ async function doRun(): Promise<void> {
       if (available) {
         const pool = getPgPool();
         if (pool) {
+          // Label rows with the model that actually produced them (OpenAI vs
+          // local Ollama have different dims — never mix silently). The
+          // vector(1536) column rejects mismatched dims; that is expected for
+          // Ollama rows, so it logs at debug, not warn.
+          const modelLabel = embeddingModelInUse();
           for (let i = 0; i < chunks.length; i++) {
             const c = chunks[i];
             const vec = allVectors[i];
@@ -112,7 +117,7 @@ async function doRun(): Promise<void> {
                  do update set heading = excluded.heading, title = excluded.title,
                    content = excluded.content, embedding = excluded.embedding,
                    embedding_model = excluded.embedding_model, updated_at = now()`,
-                [c.path, c.heading, c.title, c.chunkIndex, c.content, vecLiteral, config.openaiEmbeddingModel],
+                [c.path, c.heading, c.title, c.chunkIndex, c.content, vecLiteral, modelLabel],
               );
               // Best-effort entity sidecar
               try {
@@ -123,7 +128,12 @@ async function doRun(): Promise<void> {
                 );
               } catch { /* pre-0003 schema — content+embedding already saved */ }
             } catch (e: any) {
-              console.warn(`[rag-embed] pg upsert failed for ${c.path}#${c.chunkIndex} (tolerated): ${e?.message ?? e}`);
+              const msg = String(e?.message ?? e);
+              if (/dimension|vector/i.test(msg)) {
+                console.debug(`[rag-embed] pg skipped for ${c.path}#${c.chunkIndex} (${vec.length}d vs vector(1536) column, model ${modelLabel})`);
+              } else {
+                console.warn(`[rag-embed] pg upsert failed for ${c.path}#${c.chunkIndex} (tolerated): ${msg}`);
+              }
             }
           }
         }
@@ -153,7 +163,7 @@ async function doRun(): Promise<void> {
                   chunk_index: c.chunkIndex,
                   content: c.content,
                   embedding: allVectors[i],
-                  embedding_model: config.openaiEmbeddingModel,
+                  embedding_model: embeddingModelInUse(),
                   entities: c.entities ?? {},
                   keywords: c.keywords ?? [],
                   source_kind: c.sourceKind ?? "md",

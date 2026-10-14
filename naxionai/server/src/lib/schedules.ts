@@ -82,6 +82,17 @@ function load(): Store {
     const raw = readFileSync(FILE, "utf8").replace(/^﻿/, "");
     const parsed = JSON.parse(raw);
     cache = { schedules: Array.isArray(parsed.schedules) ? parsed.schedules : [] };
+    // One-time migration (2026-10-12): super-intelligence-news was removed —
+    // only AI news (africa-ai-news / world-ai-news) remains. Purge any stored
+    // SI schedules so they never fire again.
+    {
+      const before = cache.schedules.length;
+      cache.schedules = cache.schedules.filter(s => (s as any)?.templateId !== "super-intelligence-news");
+      if (cache.schedules.length !== before) {
+        console.warn(`[schedules] removed ${before - cache.schedules.length} super-intelligence-news schedule(s) (feed deleted)`);
+        try { writeFileSync(FILE, JSON.stringify(cache, null, 2)); } catch { /* persist best-effort */ }
+      }
+    }
   } catch (e) {
     console.warn(`[schedules] failed to read ${FILE}: ${(e as Error).message}. Starting empty.`);
     cache = { schedules: [] };
@@ -324,9 +335,8 @@ async function scheduleTelegramTarget(override?: string): Promise<string | undef
   const perSchedule = (override ?? "").trim();
   if (perSchedule) return perSchedule;
   // Routing policy: generic/system schedule results go to the operator DM
-  // (bot). News schedules (africa-ai-news / world-ai-news /
-  // super-intelligence-news) pass the group explicitly via their inputs,
-  // so they are unaffected.
+  // (bot). News schedules (africa-ai-news / world-ai-news) pass the group
+  // explicitly via their inputs, so they are unaffected.
   const dm = (process.env.NAXION_TELEGRAM_NOTIFY_CHAT ?? "").trim();
   if (dm) return dm;
   try {

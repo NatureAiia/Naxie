@@ -159,7 +159,7 @@ export const templates: Template[] = [
     icon: "broadcast",
     agent: "naxie-agent",
     inputs: [
-      { name: "chatId", label: "Telegram group chat ID to post into", type: "text", required: true, placeholder: "-1004307136262" },
+      { name: "chatId", label: "Telegram chat ID (blank = default chat)", type: "text", required: false, placeholder: "-1004307136262" },
       { name: "videoUrl", label: "HeyGen video URL (optional)", type: "text", placeholder: "https://files2.heygen.ai/... .mp4" },
     ],
     requiresApproval: false,
@@ -173,26 +173,13 @@ export const templates: Template[] = [
     icon: "broadcast",
     agent: "naxie-agent",
     inputs: [
-      { name: "chatId", label: "Telegram group chat ID to post into", type: "text", required: true, placeholder: "-1001234567890" },
+      { name: "chatId", label: "Telegram chat ID (blank = default chat)", type: "text", required: false, placeholder: "-1001234567890" },
       { name: "videoUrl", label: "HeyGen video URL (optional)", type: "text", placeholder: "https://files2.heygen.ai/... .mp4" },
     ],
     requiresApproval: false,
     estimateSeconds: 90,
   },
-  {
-    id: "super-intelligence-news",
-    role: "Operations",
-    title: "Super Intelligence news — daily",
-    description: "Picks the strongest fresh global Super Intelligence story (RSS + web search), then posts a sourced card to Telegram. Manual runs use the breaking-news gate; daily schedules post a digest even when the story is not breaking news.",
-    icon: "broadcast",
-    agent: "naxie-agent",
-    inputs: [
-      { name: "chatId", label: "Telegram group chat ID to post into", type: "text", required: true, placeholder: "-1004307136262" },
-      { name: "videoUrl", label: "HeyGen video URL (optional)", type: "text", placeholder: "https://files2.heygen.ai/... .mp4" },
-    ],
-    requiresApproval: false,
-    estimateSeconds: 90,
-  },
+
   {
     id: "events-competition-scan",
     role: "Operations",
@@ -201,7 +188,7 @@ export const templates: Template[] = [
     icon: "broadcast",
     agent: "naxie-agent",
     inputs: [
-      { name: "chatId", label: "Telegram chat ID to post into", type: "text", required: true, placeholder: "-1004307136262" },
+      { name: "chatId", label: "Telegram chat ID (blank = default chat)", type: "text", required: false, placeholder: "-1004307136262" },
     ],
     requiresApproval: false,
     estimateSeconds: 90,
@@ -214,7 +201,7 @@ export const templates: Template[] = [
     icon: "broadcast",
     agent: "naxie-agent",
     inputs: [
-      { name: "chatId", label: "Telegram chat ID to post into", type: "text", required: true, placeholder: "8767926406" },
+      { name: "chatId", label: "Telegram chat ID (blank = default chat)", type: "text", required: false, placeholder: "8767926406" },
     ],
     requiresApproval: false,
     estimateSeconds: 30,
@@ -227,7 +214,7 @@ export const templates: Template[] = [
     icon: "broadcast",
     agent: "naxie-agent",
     inputs: [
-      { name: "chatId", label: "Telegram group chat ID to post into", type: "text", required: true, placeholder: "-1004307136262" },
+      { name: "chatId", label: "Telegram chat ID (blank = default chat)", type: "text", required: false, placeholder: "-1004307136262" },
     ],
     requiresApproval: false,
     estimateSeconds: 60,
@@ -240,7 +227,7 @@ export const templates: Template[] = [
     icon: "broadcast",
     agent: "naxie-agent",
     inputs: [
-      { name: "chatId", label: "Telegram group chat ID to post into", type: "text", required: true, placeholder: "-1004307136262" },
+      { name: "chatId", label: "Telegram chat ID (blank = default chat)", type: "text", required: false, placeholder: "-1004307136262" },
     ],
     requiresApproval: false,
     estimateSeconds: 90,

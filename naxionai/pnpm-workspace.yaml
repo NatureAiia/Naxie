@@ -23,6 +23,7 @@ allowBuilds:
   onnxruntime-node@file:onnxruntime-node.tgz: true
   protobufjs: true
   puppeteer: false
+  sharp: true
   ssh2: false
   tesseract.js: true
 overrides:

@@ -14,7 +14,7 @@ import { searchIndex } from "./vault-index.js";
 import { searchMemory, datedFactsInWindow } from "./memory.js";
 import { config } from "../config.js";
 import { getPgPool, isPgAvailable } from "./pg-client.js";
-import { embedText } from "./embeddings.js";
+import { embedText, embeddingsConfigured } from "./embeddings.js";
 import { graphNeighbors } from "./vault-graph.js";
 import { recordRagQuery } from "./rag-telemetry.js";
 import { isOffline } from "./offline-mode.js";
@@ -64,7 +64,7 @@ function withRelatedNotes(hits: RagHit[]): RagHit[] {
 // (Postgres unreachable, embeddings unavailable, table missing, etc.) — this
 // is an additive retrieval path, never a hard dependency for chat.
 async function pgvectorSearch(query: string, limit: number): Promise<RagHit[]> {
-  if (isOffline() || !config.pgvectorEnabled || !config.openaiEmbeddingEnabled) return [];
+  if (isOffline() || !config.pgvectorEnabled || !embeddingsConfigured()) return [];
   try {
     const available = await isPgAvailable();
     if (!available) return [];
@@ -110,7 +110,7 @@ async function pgvectorSearch(query: string, limit: number): Promise<RagHit[]> {
 // Embeds the query, then nearest-neighbour searches via Atlas Vector Search.
 // Returns [] on ANY failure — additive retrieval path, never a hard dependency.
 async function mongodbVectorSearch(query: string, limit: number): Promise<RagHit[]> {
-  if (isOffline() || !config.mongodbVectorEnabled || !config.openaiEmbeddingEnabled) return [];
+  if (isOffline() || !config.mongodbVectorEnabled || !embeddingsConfigured()) return [];
   try {
     const [vec] = await embedText([query]);
     if (!vec) return [];
@@ -307,7 +307,7 @@ export async function ragSearch(query: string, limit = 8, opts: { sessionId?: st
       },
       topScore: reused[0]?.score ?? 0,
       ms: Date.now() - t0,
-      vectorEnabled: (config.pgvectorEnabled || config.mongodbVectorEnabled) && config.openaiEmbeddingEnabled && !isOffline(),
+      vectorEnabled: (config.pgvectorEnabled || config.mongodbVectorEnabled) && embeddingsConfigured() && !isOffline(),
     });
     return reused;
   }
@@ -418,7 +418,7 @@ export async function ragSearch(query: string, limit = 8, opts: { sessionId?: st
     },
     topScore: noted[0]?.score ?? 0,
     ms: Date.now() - t0,
-    vectorEnabled: (config.pgvectorEnabled || config.mongodbVectorEnabled) && config.openaiEmbeddingEnabled && !isOffline(),
+    vectorEnabled: (config.pgvectorEnabled || config.mongodbVectorEnabled) && embeddingsConfigured() && !isOffline(),
   });
   ragCache.set(ck, { at: Date.now(), hits: noted });
   // Bound cache size (avoid unbounded growth on long uptime)

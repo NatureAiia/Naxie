@@ -95,9 +95,10 @@ export type TemplateInput = {
   required?: boolean; default?: string | number | boolean; placeholder?: string;
 };
 export type Template = {
-  id: string; role: "Engineering" | "Knowledge" | "Operations" | "Insights";
+  id: string; role: "Engineering" | "Knowledge" | "Operations" | "Insights" | "Custom";
   title: string; description: string; icon: string;
   inputs: TemplateInput[]; requiresApproval: boolean; estimateSeconds: number; agent: string;
+  runCount?: number; lastRunAt?: string; hidden?: boolean;
 };
 export type Role = { id: string; label: string; description: string; count: number };
 
