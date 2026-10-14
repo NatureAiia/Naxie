@@ -73,6 +73,25 @@ describe("deriveFindings persona dormancy", () => {
   });
 });
 
+describe("deriveFindings page dormancy", () => {
+  it("counts an embedded tab as used when its host page was visited", () => {
+    // Real web tree: MyWork.tsx does `import { Runs } from "./Runs"` (capital
+    // R) — the import-graph match was case-sensitive and never fired.
+    const inv = baseInventory();
+    inv.pages = [
+      { file: "pages/MyWork.tsx", route: "mywork" },
+      { file: "pages/Runs.tsx", route: "runs" },
+      { file: "pages/AgentApprovals.tsx", route: "agentapprovals" },
+    ];
+    const usage = baseUsage();
+    usage.pageViewPaths = new Set(["/my-work"]);
+    const { dormant } = deriveFindings(inv, usage);
+    const pages = dormant.filter(d => d.kind === "page").map(d => d.name);
+    expect(pages).not.toContain("runs");
+    expect(pages).not.toContain("agentapprovals");
+  });
+});
+
 describe("deriveFindings route checks", () => {
   it("never flags cross-namespace page-vs-API mismatches", () => {
     const inv = baseInventory();

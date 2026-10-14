@@ -19,6 +19,8 @@ import { llmGenerateWithMeta } from "./llm.js";
 import { config } from "../config.js";
 import { logAudit } from "./audit-log.js";
 import { BUILTIN_PERSONAS } from "./personas.js";
+import { listConnectors } from "./connectors.js";
+import { listConnections } from "./integrations.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../../../..");
@@ -207,20 +209,11 @@ export function scanInventory(): FileInventory {
   try {
     schedules = readSchedulesArray().length;
   } catch { /* 0 */ }
-  try {
-    const cRaw = readFileSync(join(REPO_ROOT, ".naxion/connectors.json"), "utf8");
-    connectors = (JSON.parse(cRaw)?.connectors ?? JSON.parse(cRaw) ?? []).length ?? 0;
-    if (typeof connectors !== "number") connectors = 0;
-  } catch {
-    try {
-      const files = readdirSync(join(REPO_ROOT, ".naxion"));
-      connectors = files.filter(f => f.includes("connector")).length;
-    } catch { /* 0 */ }
-  }
-  try {
-    const cRaw = readFileSync(join(REPO_ROOT, ".naxion/integrations.json"), "utf8");
-    integrations = (JSON.parse(cRaw)?.connections ?? []).length ?? 0;
-  } catch { /* 0 */ }
+  // Count via the stores' own readers — they live in naxionai/.naxion, not
+  // REPO_ROOT/.naxion, so the old direct file read always reported 0 while
+  // getIntegrationHealth (which uses these same readers) listed live entries.
+  try { connectors = listConnectors().length; } catch { /* 0 */ }
+  try { integrations = listConnections().length; } catch { /* 0 */ }
 
   return { pages, routes, libFiles, components, templates, personas, schedules, connectors, integrations, totalServerFiles, totalWebFiles };
 }
@@ -262,10 +255,11 @@ async function collectUsage(): Promise<UsageSignals> {
   let auditByActor: Record<string, number> = {};
   try {
     const { queryAudit } = await import("./audit-log.js");
-    // pull last 500 and filter to 30d — queryAudit has no window param
+    // Count from `total` (the full 30d match count) — events.length is capped
+    // by `limit`, which pinned this stat at exactly 500 (2026-10-14).
     const since = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
-    const { events } = queryAudit({ limit: 500, since });
-    auditEvents30d = events.length;
+    const { events, total } = queryAudit({ limit: 50_000, since });
+    auditEvents30d = total;
     for (const e of events) auditByActor[e.actor] = (auditByActor[e.actor] ?? 0) + 1;
   } catch { /* tolerate */ }
 
@@ -361,6 +355,104 @@ export function structurallyReferencedTemplates(): Set<string> {
   return ids;
 }
 
+// ── Web page → URL resolution ──────────────────────────────────────────────
+// The page inventory is a FILE listing (`pages/*.tsx`) but "was it used?" is
+// answered by URL beacons (page.view carries location.pathname). Those two
+// only agree for a page that IS its own route: CommandCenter.tsx lives at
+// `/command`, NaxieMemory.tsx at `/naxie/memory`, and 14 of the 42 files are
+// embedded tabs (AgentApprovals inside MyWork, AuditLog inside Extensions,
+// CalendarPage inside Planner …) whose URL belongs to their HOST page, so a
+// pathname beacon can never attribute them at all. Both cases read as
+// "dormant" and inflated the 47% overgrowth figure reported on 2026-10-14 —
+// of its 12 "dormant" pages, 2 were actually visited that very day
+// (`/command`, `/naxie/memory`) and 9 were embedded tabs of visited pages.
+//
+// So read the ROUTER for the component→path mapping, and use the static
+// import graph for pages with no route of their own (an embedded tab counts
+// as used when a page that renders it was used). Every step is best-effort:
+// any parse failure yields an empty map and the caller falls back to the old
+// bare-slug comparison, i.e. today's behaviour.
+type WebIndex = {
+  // page file basename, lowercased ("/command") — not the inventory slug
+  routePaths: Map<string, string[]>;
+  // page/component basename -> basenames that statically import it
+  importBy: Map<string, string[]>;
+};
+
+let webIndexCache: WebIndex | null = null;
+
+function loadWebIndex(): WebIndex {
+  if (webIndexCache) return webIndexCache;
+  const empty: WebIndex = { routePaths: new Map(), importBy: new Map() };
+  try {
+    const appTsx = readFileSync(join(WEB_SRC, "App.tsx"), "utf8");
+    // const CommandCenter = lazy(() => import("./pages/CommandCenter")…
+    const compToFile = new Map<string, string>();
+    for (const m of appTsx.matchAll(/const\s+(\w+)\s*=\s*lazy\(\(\)\s*=>\s*import\(["']\.\/pages\/([\w-]+)["']\)/g)) {
+      compToFile.set(m[1], m[2].toLowerCase());
+    }
+    // <Route path="/command" element={<CommandCenter />} />  (redirect-only
+    // routes resolve to <Navigate/>, which isn't a page — correctly skipped)
+    const routePaths = new Map<string, string[]>();
+    for (const m of appTsx.matchAll(/<Route\s+path=["']([^"']+)["']\s+element=\{<(\w+)/g)) {
+      const file = compToFile.get(m[2]);
+      if (!file) continue;
+      const list = routePaths.get(file) ?? [];
+      if (!list.includes(m[1])) list.push(m[1]);
+      routePaths.set(file, list);
+    }
+    // Static import graph. Deliberately NOT dynamic `import(…)`: those are
+    // route entries (already covered) and would let a mere code-split link
+    // count as "rendered". A <Link to="/edit/…"> creates no import either,
+    // so a deep link alone can't mark its target as used.
+    const files = listFilesRecursive(WEB_SRC, [".tsx", ".ts"]);
+    const basenames = new Set<string>();
+    for (const f of files) {
+      const b = (f.split("/").pop() ?? "").replace(/\.tsx?$/, "").toLowerCase();
+      if (b) basenames.add(b);
+    }
+    const importBy = new Map<string, Set<string>>();
+    for (const f of files) {
+      const me = (f.split("/").pop() ?? "").replace(/\.tsx?$/, "").toLowerCase();
+      if (!me) continue;
+      let code = "";
+      try { code = readFileSync(join(WEB_SRC, f), "utf8"); } catch { continue; }
+      for (const b of basenames) {
+        if (b === me) continue;
+        // Case-insensitive: `b` is lowercased but sources import "./Runs" —
+        // a case-sensitive match never fired, so every embedded tab (Runs,
+        // AgentApprovals, AuditLog …) read dormant despite a visited host (2026-10-14).
+        if (new RegExp(`\\bimport\\b[^;]*?\\bfrom\\s*["'][^"']*\\/${b}(?:\\.tsx?)?["']`, "i").test(code)) {
+          const set = importBy.get(b) ?? new Set<string>();
+          set.add(me);
+          importBy.set(b, set);
+        }
+      }
+    }
+    const importByOut = new Map<string, string[]>();
+    for (const [k, v] of importBy) importByOut.set(k, [...v]);
+    webIndexCache = { routePaths, importBy: importByOut };
+  } catch { webIndexCache = empty; }
+  return webIndexCache;
+}
+
+// Persona name -> whole days since createdAt (personas without one are omitted).
+function personaAgeDays(): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const rel of [".naxion/personas.json", "naxionai/.naxion/personas.json"]) {
+    try {
+      const parsed = JSON.parse(readFileSync(join(REPO_ROOT, rel), "utf8"));
+      const arr = Array.isArray(parsed) ? parsed : (parsed.personas ?? []);
+      for (const p of arr) {
+        const name = p.name ?? p.id;
+        const ts = Date.parse(p.createdAt ?? "");
+        if (name && Number.isFinite(ts) && !out.has(name)) out.set(name, Math.floor((Date.now() - ts) / 86_400_000));
+      }
+    } catch { /* missing store */ }
+  }
+  return out;
+}
+
 export function deriveFindings(inventory: FileInventory, usage: UsageSignals): { dormant: DormantItem[]; useless: UselessItem[]; improvements: ImprovementItem[]; health: SystemAuditStats["health"] } {
   const dormant: DormantItem[] = [];
   const useless: UselessItem[] = [];
@@ -401,14 +493,21 @@ export function deriveFindings(inventory: FileInventory, usage: UsageSignals): {
   const hasUserFacingJobs = (usage.byTemplate["general-task"]?.total ?? 0) > 0 || Object.keys(usage.byPersona).length > 0;
   if (hasUserFacingJobs) {
     const activePersonaNames = new Set(Object.keys(usage.byPersona));
+    const ageDays = personaAgeDays();
     for (const p of inventory.personas) {
       if (!activePersonaNames.has(p)) {
         const builtin = builtinNames.has(String(p).toLowerCase());
+        // A hire younger than the 30d window hasn't had 30 days to be used —
+        // say so, or "0 tasks in 30d" reads as a month of disuse (2026-10-14:
+        // all 8 flagged custom hires were 8-11 days old).
+        const age = ageDays.get(p);
         dormant.push({
           kind: "persona", name: p,
           reason: builtin
             ? "No tasks attributed in last 30 days — built-in infrastructure (routing/council/classifier); review, never auto-retire"
-            : "No tasks attributed in last 30 days",
+            : age !== undefined && age < 30
+              ? `No tasks attributed since it was created ${age}d ago — too new to judge; revisit after 30d`
+              : "No tasks attributed in last 30 days",
           severity: "dormant",
         });
       }
@@ -423,21 +522,51 @@ export function deriveFindings(inventory: FileInventory, usage: UsageSignals): {
   // — Dormant pages (no page.view in 30d) —
   // Route patterns (e.g. "/runs/:id") never literally appear in the beacon
   // data — the browser reports the CONCRETE path it's actually on
-  // ("/runs/abc123"). Match by regex (":param" -> "[^/]+"), not exact
-  // string equality, or every dynamic route would be falsely flagged
-  // dormant regardless of real traffic.
+  // ("/runs/abc123"). Match by regex (":param" -> "[^/]+", "*" -> ".*"), not
+  // exact string equality, or every dynamic/splat route would be falsely
+  // flagged dormant regardless of real traffic.
   // Normalise BOTH sides first: the beacon sends real URL paths
-  // ("/mcp-servers" — leading slash, dashes) while inventory routes are
+  // ("/mcp-servers" — leading slash, dashes) while inventory entries are
   // bare slugs ("mcpservers"). Without this every visited page mismatched
   // and all 32 pages read dormant (2026-09-28).
-  const normPath = (p: string) => p.toLowerCase().replace(/[^a-z0-9/:]/g, "");
+  const normPath = (p: string) => p.toLowerCase().replace(/[^a-z0-9/:*]/g, "");
+  const routePattern = (route: string): RegExp => {
+    let r = normPath(route).replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+    r = r.replace(/:[^/]+/g, "\u0000").replace(/\*/g, ".*").replace(/\u0000/g, "[^/]+");
+    return new RegExp(`^/?${r}/?$`);
+  };
+  const seenPaths = [...usage.pageViewPaths].map(normPath);
+  const index = loadWebIndex();
+  const seenPages = new Set<string>();
+  const pageBase = (file: string) => (file.split("/").pop() ?? "").replace(/\.tsx?$/, "").toLowerCase();
   for (const pg of inventory.pages) {
-    const routeNorm = normPath(pg.route).replace(/:[^/]+/g, "\u0000");
-    const pattern = new RegExp("^/?" + routeNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\u0000/g, "[^/]+") + "/?$");
-    const seen = [...usage.pageViewPaths].some(p => pattern.test(normPath(p)));
-    if (!seen) {
-      dormant.push({ kind: "page", name: pg.route, reason: "No page views in last 30 days", severity: "dormant" });
+    const paths = index.routePaths.get(pageBase(pg.file));
+    const seen = paths
+      ? paths.some((rt) => seenPaths.some((p) => routePattern(rt).test(p)))
+      : seenPaths.some((p) => routePattern(pg.route).test(p));
+    if (seen) seenPages.add(pageBase(pg.file));
+  }
+  // An embedded tab has no URL of its own — it counts as used when a page
+  // that renders it was used. Fixed-point over the import graph so a tab
+  // inside a tab (CalendarPage ← MyTasks ← Planner) still resolves.
+  for (let pass = 0; pass < 5; pass++) {
+    let grew = false;
+    for (const [base, importers] of index.importBy) {
+      if (seenPages.has(base)) continue;
+      if (importers.some((i) => seenPages.has(i))) { seenPages.add(base); grew = true; }
     }
+    if (!grew) break;
+  }
+  for (const pg of inventory.pages) {
+    if (seenPages.has(pageBase(pg.file))) continue;
+    dormant.push({
+      kind: "page",
+      name: pg.route,
+      reason: index.routePaths.has(pageBase(pg.file))
+        ? "No page views in last 30 days"
+        : "Embedded component with no route of its own, and no visited page renders it (a pathname beacon can't attribute a tab to its host)",
+      severity: "dormant",
+    });
   }
   // — Stale routes / unrouted pages (same-namespace checks ONLY) —
   // A web page slug can never equal a server API filename — different
@@ -800,10 +929,22 @@ export function getPersonaMergeCandidates(): PersonaMergeCandidate[] {
       } catch { /* ignore */ }
     }
     const tokenSet = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2));
+    // Brand-generated personas come from ONE generator — ensureBrandPersona()
+    // (lib/brands.ts) mints a "Social Media Manager" per brand from the same
+    // template, differing only in the brand scope baked into
+    // systemPromptOverride ("speaks ONLY for X"). Any two of them are ~86%
+    // similar BY DESIGN, so comparing them reports the cross-brand isolation
+    // the Brands feature exists for as a redundancy. This exact directive has
+    // now fired twice — the first merge was executed on 2026-09-21, then
+    // silently undone when seedDefaultBrands() recreated both on 2026-10-03
+    // (see the history comment in personas.ts). Never a merge candidate.
+    const brandGenerated = (p: any) =>
+      /^social-media-manager-/i.test(String(p.id ?? "")) || /^brand-/i.test(String(p.department ?? ""));
     const out: PersonaMergeCandidate[] = [];
     for (let i = 0; i < personas.length; i++) {
       for (let j = i + 1; j < personas.length; j++) {
         const a = personas[i], b = personas[j];
+        if (brandGenerated(a) && brandGenerated(b)) continue;
         const aTokens = tokenSet(`${a.role ?? ""} ${a.description ?? ""} ${a.tone ?? ""}`);
         const bTokens = tokenSet(`${b.role ?? ""} ${b.description ?? ""} ${b.tone ?? ""}`);
         if (aTokens.size === 0 || bTokens.size === 0) continue;
@@ -811,9 +952,11 @@ export function getPersonaMergeCandidates(): PersonaMergeCandidate[] {
         for (const t of aTokens) if (bTokens.has(t)) inter++;
         const uni = aTokens.size + bTokens.size - inter;
         const sim = uni ? inter / uni : 0;
-        // 0.5 floor: same-role hires across different brands/clients
-        // legitimately read similar (the 86% social-manager pair), so only
-        // near-duplicates qualify — and even then as review, never auto-merge.
+        // 0.5 floor: same-role hires across different clients legitimately
+        // read similar, so only near-duplicates qualify — and even then as
+        // review, never auto-merge. (The remaining similarity here is genuine
+        // overlap, not the brand-generated pair — that one never reaches this
+        // line, it's skipped above.)
         if (sim > 0.5) out.push({ a: a.name ?? a.id, b: b.name ?? b.id, similarity: Math.round(sim * 100) / 100, reason: `role/description overlap ${(sim * 100).toFixed(0)}%` });
       }
     }
@@ -852,6 +995,21 @@ export function logPageView(page: string, userId?: string): void {
   try { logAudit({ level: "info", actor: userId ?? "web", action: "page.view", target: page, detail: page, result: "success" }); } catch { /* best-effort */ }
 }
 
+// The Executive Summary must quote the computed score. Local models have
+// invented one (gemma4 wrote "73/100" on an 82 day, 2026-10-14), so the
+// first "NN/100" in that section is pinned to the real score; if none is
+// present the score is prepended. Other sections are left untouched — they
+// may legitimately cite past scores from the trend.
+export function enforceHealthScore(text: string, score: number): string {
+  const m = text.match(/(## 🏢 Executive Summary\s*\n)([\s\S]*?)(?=\n## |$)/);
+  if (!m) return text;
+  const [whole, heading, body] = m;
+  const fixed = /\b\d{1,3}\s*\/\s*100\b/.test(body)
+    ? body.replace(/\b\d{1,3}\s*\/\s*100\b/, `${score}/100`)
+    : `Health ${score}/100. ${body}`;
+  return text.replace(whole, () => heading + fixed);
+}
+
 // ── 4. LLM synthesis — Managing Director voice ────────────────────────────
 async function synthesizeReport(stats: SystemAuditStats): Promise<{ text: string; modelUsed?: string }> {
   if (stats.inventory.totalServerFiles === 0 && stats.inventory.totalWebFiles === 0) {
@@ -886,12 +1044,20 @@ Rules:
 - Keep headings exactly as specified — the UI renders them.
 - Removal/retire/merge directives need structural evidence (zero importers AND zero references AND owner sign-off). Zero usage alone means "review", never "delete" — dormant infrastructure (built-ins, scheduled/referenced templates) is Keep by default. Never direct mass retirement.
 - MD Directives must be reversible, evidence-backed, and few (2-4). Clearing queues and reviewing flags are fine; deleting features is not a directive without the structural proof above.
-- If stats are thin, say so honestly — don't pad.`;
+- If stats are thin, say so honestly — don't pad.
+- Today's health score is the "Health:" line, verbatim. Never compute, average, or substitute another score, and state the trend direction exactly as the "Direction vs previous audit" line gives it.`;
+
+  const prev = stats.healthTrend?.[stats.healthTrend.length - 1];
+  const direction = !prev ? "no previous audit"
+    : stats.health.score > prev.healthScore ? `UP from ${prev.healthScore} (${prev.date})`
+    : stats.health.score < prev.healthScore ? `DOWN from ${prev.healthScore} (${prev.date})`
+    : `FLAT at ${prev.healthScore} (${prev.date})`;
 
   const prompt = `Date: ${stats.date}
 Health: ${stats.health.score}/100 — ${stats.health.summary}
+Direction vs previous audit: ${direction}
 Risks: ${stats.health.risks.join("; ") || "(none)"}
-Health trend (last 30 audits): ${stats.healthTrend?.map(h => `${h.date}:${h.healthScore}`).join(", ") || "(no history)"}
+Health trend (previous audits, oldest first): ${stats.healthTrend?.map(h => `${h.date}:${h.healthScore}`).join(", ") || "(no history)"}
 
 ## Inventory
 Pages: ${stats.inventory.pages.length}  (sample: ${stats.inventory.pages.slice(0, 8).map(p => p.file).join(", ") || "(none)"})
@@ -950,7 +1116,7 @@ Write the Managing Director's system update.`;
     // timeout fix (caught live 2026-09-30).
     try {
       const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high", timeoutMs } as any);
-      return { text: meta.text.trim(), modelUsed: meta.model };
+      return { text: enforceHealthScore(meta.text.trim(), stats.health.score), modelUsed: meta.model };
     } catch (e: any) {
       lastErr = e;
     }
@@ -1079,7 +1245,10 @@ export async function runSystemAudit(): Promise<SystemAuditResult> {
     const usage = await collectUsage();
     const findings = deriveFindings(inventory, usage);
     // Extended signals — all 12 innovations
-    const healthTrend = getHealthTrend();
+    // Drop today's entry: it's an earlier run this audit is about to overwrite,
+    // and feeding it in let the LLM quote that stale score as today's (2026-10-14).
+    const today = new Date().toISOString().slice(0, 10);
+    const healthTrend = getHealthTrend().filter(h => h.date !== today);
     const costCorrelation = getCostCorrelation(usage);
     const vaultHygiene = getVaultHygiene();
     const deadCode = getDeadCode(inventory);
