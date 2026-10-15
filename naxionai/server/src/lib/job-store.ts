@@ -242,11 +242,20 @@ export function loadJobsInWindow(windowStartMs: number, windowEndMs: number): Pe
 // Latest finished run of a given template inside a lookback window — newest
 // first by finishedAt. Powers the daily briefing's "innovation scout" pickup
 // (latest innovation-scan report) without a vault-search round trip.
+//
+// Matches `template` OR `kind`. Innovation scans are registered with
+// newJob("innovation-scan") (lib/innovation-scan.ts), which sets Job.kind and
+// never Job.template — so a template-only match silently returned undefined
+// for every run, the briefing's "### Innovation scan (job …)" block never
+// attached, and it fell back to guessing the latest scan date from activity
+// job titles (it cited "Oct 10" all day on 2026-10-14 even though today's
+// 11:04 report was already in the vault). Same broken pickup in
+// primitives.ts's calendar.plan_day.
 export function latestJobByTemplate(templateId: string, sinceMs: number): PersistedJob | undefined {
   const now = Date.now();
   let best: PersistedJob | undefined;
   for (const rec of loadJobsInWindow(sinceMs, now)) {
-    if (rec.template !== templateId) continue;
+    if (rec.template !== templateId && rec.kind !== templateId) continue;
     if (rec.status !== "succeeded" || !rec.answer) continue;
     const at = rec.finishedAt ?? rec.startedAt;
     if (!best || at > (best.finishedAt ?? best.startedAt)) best = rec;

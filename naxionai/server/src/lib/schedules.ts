@@ -489,6 +489,47 @@ async function deliverScheduleResult(s: Schedule, jobId: string, to: string | un
   }
 }
 
+// Two enabled, non-one-off schedules collide when they share an exact
+// hour:minute and at least one day-of-week in common (empty daysOfWeek means
+// every day). Caught live 2026-10-14: two "Events & Competition Scan"
+// schedules both fired at 07:30 daily to the same chat, undetected until a
+// manual audit. This doesn't block creation (a deliberate same-time fire to
+// different chats is legitimate) — it only surfaces the pattern on boot so
+// an accidental duplicate doesn't run silently for weeks.
+function cadenceOverlaps(a: Cadence, b: Cadence): boolean {
+  if (a.once || b.once) return false; // one-offs are rare enough to eyeball manually
+  if (a.hour !== b.hour || a.minute !== b.minute) return false;
+  const aDays = a.daysOfWeek.length ? a.daysOfWeek : [0, 1, 2, 3, 4, 5, 6];
+  const bDays = b.daysOfWeek.length ? b.daysOfWeek : [0, 1, 2, 3, 4, 5, 6];
+  return aDays.some(d => bDays.includes(d));
+}
+
+export function findCadenceCollisions(): { a: Schedule; b: Schedule }[] {
+  const enabled = listSchedules().filter(s => s.enabled);
+  const collisions: { a: Schedule; b: Schedule }[] = [];
+  for (let i = 0; i < enabled.length; i++) {
+    for (let j = i + 1; j < enabled.length; j++) {
+      if (cadenceOverlaps(enabled[i].cadence, enabled[j].cadence)) {
+        collisions.push({ a: enabled[i], b: enabled[j] });
+      }
+    }
+  }
+  return collisions;
+}
+
+async function auditCadenceCollisions(): Promise<void> {
+  const collisions = findCadenceCollisions();
+  if (!collisions.length) return;
+  for (const { a, b } of collisions) {
+    const msg = `"${a.name}" (${a.id}) and "${b.name}" (${b.id}) both fire at ${String(a.cadence.hour).padStart(2, "0")}:${String(a.cadence.minute).padStart(2, "0")} on overlapping days — check this is intentional`;
+    console.warn(`[schedules] cadence collision: ${msg}`);
+    try {
+      const { logAudit } = await import("./audit-log.js");
+      logAudit({ level: "warn", actor: "scheduler", action: "schedule.cadence_collision", target: a.id, detail: msg, result: "pending" });
+    } catch { /* audit log optional */ }
+  }
+}
+
 function tick() {
   const now = Date.now();
   for (const s of listSchedules()) {
@@ -520,6 +561,7 @@ export function startScheduleScheduler() {
   // One immediate tick on boot so a schedule that was due during downtime
   // fires within seconds instead of waiting up to 30s.
   setTimeout(tick, 2_000);
+  void auditCadenceCollisions();
 }
 
 export function stopScheduleScheduler() {

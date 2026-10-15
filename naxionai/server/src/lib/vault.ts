@@ -9,6 +9,7 @@ import { scanForSecurityRisks } from "./security.js";
 import { buildIndex, invalidateIndex, searchIndex, indexStats, isBuildInProgress } from "./vault-index.js";
 import { scheduleReembed } from "./rag-embed.js";
 import { recordCustody } from "./file-governance.js";
+import { registerEngine, unregisterEngine } from "./scheduler-registry.js";
 
 const VAULT = config.vaultPath;
 
@@ -768,7 +769,7 @@ export function stopVaultWatcher(): void {
 //
 // The pull itself is time-boxed at 10s — a stalled remote shouldn't block
 // the scheduler from running again.
-let vaultPullTimer: NodeJS.Timeout | null = null;
+const VAULT_PULL_ENGINE_NAME = "vault-pull";
 let lastPullAt = 0;
 let lastPullResult: { ok: boolean; at: string; details?: string } = { ok: false, at: "never" };
 const PULL_TIMEOUT_MS = 10_000;
@@ -802,24 +803,19 @@ export async function pullFromOrigin(): Promise<{ ok: boolean; reason?: string; 
 }
 
 export function startVaultPullScheduler(): void {
-  if (vaultPullTimer) return;
   if (process.env.NAXION_VAULT_PULL === "0") {
     console.log("[vault] periodic pull disabled via NAXION_VAULT_PULL=0");
     return;
   }
   const minutes = Math.max(1, Number(process.env.NAXION_VAULT_PULL_MIN ?? "5"));
-  const ms = minutes * 60_000;
-  vaultPullTimer = setInterval(() => {
-    void pullFromOrigin().catch((e: any) => console.warn(`[vault] pull error: ${e?.message ?? e}`));
-  }, ms);
-  vaultPullTimer.unref?.();
-  // Fire one immediately so a fresh-start server catches up before doing work.
-  void pullFromOrigin().catch(() => { /* logged inside */ });
+  // registerEngine's own 5s-delayed catch-up run replaces the old immediate
+  // pullFromOrigin() call — a fresh-start server still catches up in seconds.
+  registerEngine({ name: VAULT_PULL_ENGINE_NAME, intervalSeconds: minutes * 60, run: async () => { await pullFromOrigin(); } });
   console.log(`[vault] periodic pull armed (every ${minutes}m, opt out with NAXION_VAULT_PULL=0)`);
 }
 
 export function stopVaultPullScheduler(): void {
-  if (vaultPullTimer) { clearInterval(vaultPullTimer); vaultPullTimer = null; }
+  unregisterEngine(VAULT_PULL_ENGINE_NAME);
 }
 
 export function getVaultPullStatus(): { lastPullAt: number; lastPullResult: typeof lastPullResult } {

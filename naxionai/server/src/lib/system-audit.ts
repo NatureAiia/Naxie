@@ -70,7 +70,7 @@ export type UsageSignals = {
   byPersona: Record<string, number>;
   auditEvents30d: number;
   auditByActor: Record<string, number>;
-  orgTasks: { total: number; byStatus: Record<string, number>; byRole: Record<string, number>; staleApprovals: number; blocked: number };
+  orgTasks: { total: number; byStatus: Record<string, number>; byRole: Record<string, number>; blockedByRole: Record<string, number>; staleApprovals: number; blocked: number };
   schedulesEnabled: number;
   schedulesDisabled: number;
   vaultNotes: number;
@@ -87,7 +87,12 @@ export type DormantItem = {
   name: string;
   reason: string;
   lastSeen?: string;
-  severity: "dormant" | "stale" | "unused";
+  // "dormant-keep" is a dormant item the heuristics themselves already judged
+  // safe to keep (structurally referenced template, built-in persona,
+  // too-new-to-judge hire) — still shown in the report, but excluded from the
+  // health-score penalty at deriveFindings' score calc (an item the audit
+  // itself says is fine shouldn't also tank the score for being fine).
+  severity: "dormant" | "dormant-keep" | "stale" | "unused";
 };
 
 export type ImprovementItem = {
@@ -276,7 +281,7 @@ async function collectUsage(): Promise<UsageSignals> {
     for (const e of events) pageViewPaths.add(e.target);
   } catch { /* tolerate */ }
 
-  let orgTasks: UsageSignals["orgTasks"] = { total: 0, byStatus: {}, byRole: {}, staleApprovals: 0, blocked: 0 };
+  let orgTasks: UsageSignals["orgTasks"] = { total: 0, byStatus: {}, byRole: {}, blockedByRole: {}, staleApprovals: 0, blocked: 0 };
   try {
     const { listOrgTasks } = await import("./org-tasks.js");
     const tasks = listOrgTasks();
@@ -284,6 +289,13 @@ async function collectUsage(): Promise<UsageSignals> {
     for (const t of tasks) {
       orgTasks.byStatus[t.status] = (orgTasks.byStatus[t.status] ?? 0) + 1;
       orgTasks.byRole[t.role] = (orgTasks.byRole[t.role] ?? 0) + 1;
+      // Separate from the overall byRole totals above — those count ALL tasks
+      // per role, which an LLM synthesising "clear the blocked task (owner: X)"
+      // can't use to attribute ownership. Without this, the prompt's own
+      // example text ("owner: Admin") gets echoed verbatim regardless of which
+      // role actually owns the blocked task (caught live 2026-10-15: a
+      // role:"scheduler" task got reported as "(admin role)").
+      if (t.status === "blocked") orgTasks.blockedByRole[t.role] = (orgTasks.blockedByRole[t.role] ?? 0) + 1;
     }
     orgTasks.blocked = orgTasks.byStatus["blocked"] ?? 0;
     orgTasks.staleApprovals = (orgTasks.byStatus["waiting-on-approval"] ?? 0);
@@ -488,7 +500,7 @@ export function deriveFindings(inventory: FileInventory, usage: UsageSignals): {
         reason: referenced.has(t.id)
           ? `No runs in last 30 days (role: ${t.role}) — but structurally referenced (department/sector/schedule/chat intent/UI launcher); keep, do not retire`
           : `No runs in last 30 days (role: ${t.role})`,
-        severity: "dormant",
+        severity: referenced.has(t.id) ? "dormant-keep" : "dormant",
       });
     } else if (u.failed > 0 && u.ok === 0) {
       improvements.push({ area: `Template: ${t.id}`, issue: `100% failure rate (${u.failed}/${u.total}) in last 30d`, evidence: `byTemplate[${t.id}] failed=${u.failed} ok=${u.ok}`, recommendation: `Review runner for ${t.id}, check error logs, fix or deprecate.`, effort: "M", priority: "high" });
@@ -515,14 +527,17 @@ export function deriveFindings(inventory: FileInventory, usage: UsageSignals): {
         // say so, or "0 tasks in 30d" reads as a month of disuse (2026-10-14:
         // all 8 flagged custom hires were 8-11 days old).
         const age = ageDays.get(p);
+        const tooNew = !builtin && age !== undefined && age < 30;
         dormant.push({
           kind: "persona", name: p,
           reason: builtin
             ? "No tasks attributed in last 30 days — built-in infrastructure (routing/council/classifier); review, never auto-retire"
-            : age !== undefined && age < 30
+            : tooNew
               ? `No tasks attributed since it was created ${age}d ago — too new to judge; revisit after 30d`
               : "No tasks attributed in last 30 days",
-          severity: "dormant",
+          // Built-in and too-new hires are "keep" verdicts, not retire
+          // candidates — don't let them eat into the health-score penalty.
+          severity: builtin || tooNew ? "dormant-keep" : "dormant",
         });
       }
     }
@@ -1050,7 +1065,7 @@ Features/pages/templates/personas that exist but haven't been used in 30 days. E
 Candidates for removal / merge / deprecation. Be conservative — flag for human review, never declare "delete this" as fact. Cite the evidence (empty store for 30d, 0 runs, etc.). If nothing, say so.
 
 ## ✅ MD Directives
-2-4 crisp directives from the MD: what the team should do this week, who owns it (role), and by when ("this week" is fine). Example: "Clear the 4 blocked OrgTasks (owner: Admin) — this week."
+2-4 crisp directives from the MD: what the team should do this week, who owns it, and by when ("this week" is fine). Owner MUST come from the "OrgTasks" line's blockedByRole data below — never guess or default to "Admin". Example shape only (fill in the real role and count): "Clear the N blocked OrgTasks (owner: <role from blockedByRole>) — this week."
 
 Rules:
 - Numbers always. "4 of 12 templates dormant" beats "some templates unused".
@@ -1089,7 +1104,7 @@ Jobs: ${stats.usage.totalJobs30d} total, ${stats.usage.succeeded30d} succeeded, 
 By template: ${Object.entries(stats.usage.byTemplate).map(([k, v]) => `${k}: ${v.total} (${v.ok} ok, ${v.failed} failed)`).join(" | ") || "(none)"}
 By persona: ${Object.entries(stats.usage.byPersona).map(([k, v]) => `${k}: ${v}`).join(" | ") || "(none)"}
 Audit events 30d: ${stats.usage.auditEvents30d} — by actor: ${Object.entries(stats.usage.auditByActor).map(([k, v]) => `${k}:${v}`).join(", ") || "(none)"}
-OrgTasks: total ${stats.usage.orgTasks.total} — byStatus ${JSON.stringify(stats.usage.orgTasks.byStatus)} — byRole ${JSON.stringify(stats.usage.orgTasks.byRole)}
+OrgTasks: total ${stats.usage.orgTasks.total} — byStatus ${JSON.stringify(stats.usage.orgTasks.byStatus)} — byRole ${JSON.stringify(stats.usage.orgTasks.byRole)} — blockedByRole ${JSON.stringify(stats.usage.orgTasks.blockedByRole)}
 Schedules: enabled ${stats.usage.schedulesEnabled}, disabled ${stats.usage.schedulesDisabled}
 Cost correlation (top spend): ${stats.costCorrelation?.map(c => `${c.template ?? c.persona}: $${c.costUsd} ${c.dormant ? "(dormant!)" : ""}`).join(", ") || "(none)"}
 Vault hygiene: duplicates ${stats.vaultHygiene?.duplicates.length ?? 0}, stale ${stats.vaultHygiene?.staleNotes.length ?? 0}/${stats.vaultHygiene?.totalNotes ?? 0}

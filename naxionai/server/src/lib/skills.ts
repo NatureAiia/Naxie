@@ -201,6 +201,11 @@ const SKILL_KEYWORDS: { skill: string; patterns: RegExp[] }[] = [
   { skill: "meeting-agenda",         patterns: [/\b(?:meeting\s+)?agenda\b/i] },
   { skill: "meeting-notes",          patterns: [/\bmeeting\s+notes\b/i, /\bminutes\s+of\s+the\s+meeting\b/i] },
   { skill: "announcement-writing",   patterns: [/\bannouncement\b/i, /\bannounce\b/i] },
+  // brand-voice fires on explicit brand-language asks. Deliberately narrow:
+  // a bare "brand" (brand deal, brand partnership) must not hijack it —
+  // the +6-per-distinct-hit scoring would otherwise out-vote writing skills
+  // on business-meaningful uses of the word.
+  { skill: "brand-voice",            patterns: [/\bbrand\s+voice\b/i, /\bon[-\s]?brand\b/i, /\bsound\s+like\s+(?:us|our)\b/i, /\bvoice\s+and\s+audience\b/i, /\bpost\s+for\s+(?:personal|work|business|variety\s*vault)\b/i] },
   { skill: "image-prompting",        patterns: [/\b(?:generate|make|create|design|render|produce)\s+(?:an?\s+|me\s+an?\s+)?(?:image|logo|poster|banner|hero\s+image|illustration|artwork|graphic|mockup|visual|picture)\b/i, /\btext[\s-]to[\s-]image\b/i, /\bimage\s+of\b/i] },
   { skill: "feedback-giving",        patterns: [/\b(?:give|deliver|share)\s+(?:some\s+)?feedback\b/i, /\bfeedback\s+for\b/i] },
   { skill: "risk-assessment",        patterns: [/\brisk\s+(?:assessment|analysis|register)\b/i, /\bidentify\s+risks?\b/i] },

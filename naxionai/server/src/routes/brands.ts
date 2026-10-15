@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { listBrands, getBrand, createBrand, updateBrand, deleteBrand, addBrandChannel } from "../lib/brands.js";
+import { getBrandContextStatus, compactBrandContext } from "../lib/brand-context.js";
 import { requireLayer, callerOf } from "../lib/access.js";
 import { logAudit } from "../lib/audit-log.js";
 import { listConnections } from "../lib/integrations.js";
@@ -12,13 +13,41 @@ import { listConnections } from "../lib/integrations.js";
 export const brandsRouter = Router();
 
 brandsRouter.get("/", (_req, res) => {
-  res.json({ brands: listBrands() });
+  // Context status rides along (mtime stats only — no LLM) so the card can
+  // show "compaction pending" without N extra round-trips.
+  const brands = listBrands().map(b => {
+    let context: ReturnType<typeof getBrandContextStatus> | undefined;
+    try { context = getBrandContextStatus(b.id); } catch { /* vault unreachable — omit */ }
+    return { ...b, ...(context ? { context } : {}) };
+  });
+  res.json({ brands });
 });
 
 brandsRouter.get("/:id", (req, res) => {
   const b = getBrand(req.params.id);
   if (!b) return res.status(404).json({ error: "brand not found" });
-  res.json({ brand: b });
+  // Context status rides along so the Brands page can show the dump path,
+  // last compaction time, and whether a compaction is pending — without a
+  // second endpoint.
+  let context: ReturnType<typeof getBrandContextStatus> | undefined;
+  try { context = getBrandContextStatus(b.id); } catch { /* vault unreachable — omit */ }
+  res.json({ brand: b, ...(context ? { context } : {}) });
+});
+
+// POST /api/brands/:id/compact — manual "Compact now" for this brand's
+// context dump. force=true bypasses the settle gate (the operator clicked
+// the button, they're not mid-sentence). The hourly scheduler compacts
+// pending brands automatically; this is the on-demand path.
+brandsRouter.post("/:id/compact", requireLayer("admin"), async (req, res) => {
+  const b = getBrand(req.params.id);
+  if (!b) return res.status(404).json({ error: "brand not found" });
+  try {
+    const r = await compactBrandContext(b.id, { force: req.body?.force !== false });
+    logAudit({ level: "info", actor: callerOf(req)?.email ?? "system", action: "brand.compact-context", target: b.id, detail: r.changed ? "compacted" : (r.skipped ?? "no change"), result: r.changed ? "success" : "pending" });
+    res.json({ result: r, context: getBrandContextStatus(b.id) });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
 });
 
 brandsRouter.post("/", requireLayer("admin"), (req, res) => {

@@ -1,12 +1,16 @@
-// Minimal orchestration core — a shared registry new background engines
+// Minimal orchestration core — a shared registry background engines
 // register into, so there's one place to list "what's running" instead of
-// each engine being an invisible standalone setInterval. This does NOT
-// replace the existing independent schedulers (org-daemon.ts, schedules.ts,
-// reflection.ts, innovation-scan.ts, wiki-compile.ts, extension-scheduler.ts,
-// vault.ts's pull scheduler) — those keep their own proven
-// setInterval(...).unref() idiom untouched; migrating them here is a
-// separate future cleanup once this registry is proven with new engines
-// (starting with github-watcher.ts).
+// each engine being an invisible standalone setInterval. Proven first with
+// github-watcher.ts, then migrated (2026-10-14) onto org-daemon.ts,
+// reflection.ts, innovation-scan.ts, weekly-rollup.ts, todo-brief.ts,
+// wiki-compile.ts (both its schedulers) and vault.ts's pull scheduler — each
+// keeps its own tick()/run logic and public startX()/stopX() API, just
+// delegating the actual setInterval bookkeeping here. schedules.ts (the
+// user-facing schedule engine, 30s tick) and extension-scheduler.ts stay on
+// their own standalone timers: schedules.ts needs sub-10-minute precision
+// this registry doesn't offer, and extension-scheduler.ts's env-toggle
+// (NAXION_EXTENSION_HEALTH_SCHEDULER=0) doesn't fit the registry's
+// always-on-register shape.
 
 export type Engine = {
   name: string;
@@ -47,6 +51,16 @@ export function registerEngine(engine: Engine): void {
 
 export function listEngines(): { name: string; intervalSeconds: number; lastRunAt?: string; lastError?: string }[] {
   return [...engines.values()].map(({ name, intervalSeconds, lastRunAt, lastError }) => ({ name, intervalSeconds, lastRunAt, lastError }));
+}
+
+// Stops and forgets one engine — the graceful-shutdown counterpart to
+// registerEngine. Each migrated scheduler's own stopX() delegates here so
+// callers (index.ts's shutdown handler) keep working unchanged.
+export function unregisterEngine(name: string): void {
+  const state = engines.get(name);
+  if (!state) return;
+  if (state.timer) clearInterval(state.timer);
+  engines.delete(name);
 }
 
 // Test-only — clears every registered engine's timer so a test suite can

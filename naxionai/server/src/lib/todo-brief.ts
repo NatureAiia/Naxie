@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeVaultFile } from "./vault.js";
+import { registerEngine, unregisterEngine } from "./scheduler-registry.js";
 
 const TODO_DIR = "_naxion/todo-briefs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -313,11 +314,10 @@ async function deliverToTelegram(result: TodoBriefResult, streakBadge?: string):
 }
 
 // ─── Scheduler — 6am catch-up, mirrors reflection/innovation-scan ───
-let scheduler: NodeJS.Timeout | null = null;
+const ENGINE_NAME = "todo-brief";
 let lastRunDate: string | null = null;
 
 export function startTodoBriefScheduler(): void {
-  if (scheduler) return;
   const TODO_HOUR = Number(process.env.NAXION_TODO_BRIEF_HOUR ?? "6");
   const tick = async () => {
     const now = new Date();
@@ -341,10 +341,9 @@ export function startTodoBriefScheduler(): void {
     try { await runTodoBrief(); }
     catch (e: any) { console.warn(`[todo-brief] scheduler run failed: ${e?.message ?? e}`); }
   };
-  scheduler = setInterval(tick, 10 * 60_000);
-  void tick();
+  registerEngine({ name: ENGINE_NAME, intervalSeconds: 10 * 60, run: tick });
 }
 
 export function stopTodoBriefScheduler(): void {
-  if (scheduler) { clearInterval(scheduler); scheduler = null; }
+  unregisterEngine(ENGINE_NAME);
 }

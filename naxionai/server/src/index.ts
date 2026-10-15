@@ -95,7 +95,8 @@ import { primitivesRouter } from "./routes/primitives.js";
 import { hermesBridgeRouter } from "./routes/hermes-bridge.js";
 import { whatsappBridgeRouter } from "./routes/whatsapp-bridge.js";
 import { brandsRouter } from "./routes/brands.js";
-import { seedDefaultBrands } from "./lib/brands.js";
+import { seedDefaultBrands, ensureAllBrandContextFiles } from "./lib/brands.js";
+import { startBrandContextCompactionScheduler } from "./lib/brand-context.js";
 import { brandSignalsRouter } from "./routes/brand-signals.js";
 import { usersRouter } from "./routes/users.js";
 import { assignmentsRouter } from "./routes/assignments.js";
@@ -530,6 +531,14 @@ const server = app.listen(config.port, config.bindHost, async () => {
   } catch (e: any) {
     console.warn(`  ⚠ brand seeding failed: ${e?.message ?? e}`);
   }
+  // Backfill the context dump/profile vault files for brands that existed
+  // before the brand-context feature landed (seedDefaultBrands no-ops once
+  // brands.json exists). Idempotent — no-ops when the files are present.
+  try {
+    ensureAllBrandContextFiles();
+  } catch (e: any) {
+    console.warn(`  ⚠ brand context file backfill failed: ${e?.message ?? e}`);
+  }
 
   // Parent-death watchdog (managed workers only). worker-manager.ts sets
   // NAXION_PARENT_PID when it spawns us; if that primary process vanishes
@@ -606,6 +615,16 @@ const server = app.listen(config.port, config.bindHost, async () => {
   if (process.env.NAXION_REFLECTION !== "0" && config.role === "primary") {
     startReflectionScheduler();
     console.log(`  ⓘ daily reflection scheduler armed (hour=${process.env.NAXION_REFLECTION_HOUR ?? "20"}, delivers to Telegram if connected)`);
+  }
+
+  // Brand context compaction — hourly check that compacts any brand whose
+  // context-dump.md is newer than its compacted profile.md (and has
+  // settled, i.e. not edited in the last 5 min). Zero LLM calls on an
+  // unchanged dump. Primary-only like reflection. Disable with
+  // NAXION_BRAND_COMPACTION=0.
+  if (process.env.NAXION_BRAND_COMPACTION !== "0" && config.role === "primary") {
+    startBrandContextCompactionScheduler();
+    console.log(`  ⓘ brand context compaction armed (hourly, mtime-gated on _brands/*/context-dump.md)`);
   }
 
   // Innovation Scan at 8am — Naxie's morning scan with nicer headings & emojis.

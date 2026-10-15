@@ -822,9 +822,14 @@ export const api = {
   setExecutor: (body: { mode?: "naxie" | "hermes"; hermesModel?: string | null; hermesLocal?: boolean; crosscheck?: boolean; hermesCodeTasks?: boolean }) =>
     req<{ ok: true; mode: string; hermesModelOverride: string | null; hermesLocal: boolean; crosscheck: boolean; hermesCodeTasks: boolean }>("/api/executor", { method: "POST", body: JSON.stringify(body) }),
   listBrands: () => req<{ brands: Brand[] }>("/api/brands"),
-  getBrand: (id: string) => req<{ brand: Brand }>(`/api/brands/${encodeURIComponent(id)}`),
+  getBrand: (id: string) => req<{ brand: Brand; context?: BrandContextStatus }>(`/api/brands/${encodeURIComponent(id)}`),
   updateBrand: (id: string, patch: Partial<Omit<Brand, "id" | "createdAt" | "personaIds">>) =>
     req<{ brand: Brand }>(`/api/brands/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  // Manual "Compact now" — distills the brand's context-dump.md into
+  // profile.md immediately instead of waiting for the hourly scheduler.
+  compactBrandContext: (id: string) =>
+    req<{ result: { path: string; changed: boolean; skipped?: string; model?: string }; context: BrandContextStatus }>(
+      `/api/brands/${encodeURIComponent(id)}/compact`, { method: "POST", body: JSON.stringify({ force: true }) }),
   addBrandChannel: (id: string, channel: BrandChannel) =>
     req<{ brand: Brand }>(`/api/brands/${encodeURIComponent(id)}/channels`, { method: "POST", body: JSON.stringify(channel) }),
   listBrandSignals: (params: { brandId?: string; status?: string } = {}) => {
@@ -1127,6 +1132,19 @@ export type PlatformConnection = {
 };
 
 export type BrandChannel = { provider: string; connectionLabel: string; platforms?: string[] };
+// Status of a brand's context dump → compacted profile pair (see
+// server/lib/brand-context.ts). `pending` = the dump was edited after the
+// last compaction, so the profile is stale until the hourly scheduler (or
+// a manual "Compact now") catches up.
+export type BrandContextStatus = {
+  dumpPath: string;
+  profilePath: string;
+  dumpExists: boolean;
+  dumpMtimeMs?: number;
+  profileMtimeMs?: number;
+  pending: boolean;
+  lastCompactedAt?: string;
+};
 export type Brand = {
   id: string;
   name: string;
@@ -1144,6 +1162,7 @@ export type Brand = {
   watchTerms?: string[];
   riskTerms?: string[];
   ownDomains?: string[];
+  context?: BrandContextStatus;
 };
 
 export type BrandSignal = {

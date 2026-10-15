@@ -1,17 +1,20 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
-  Megaphone, User, Briefcase, Store, Loader2, Plug, X, Save, Radar, Check, Ban, type LucideIcon,
+  Megaphone, User, Briefcase, Store, Loader2, Plug, X, Save, Radar, Check, Ban, FileText, Sparkles, type LucideIcon,
 } from "lucide-react";
-import { api, type Brand, type BrandChannel, type BrandSignal } from "../lib/api";
+import { api, type Brand, type BrandChannel, type BrandSignal, type BrandContextStatus } from "../lib/api";
 import { Card, Button, showToast } from "../components/Card";
 import { Modal } from "../components/Modal";
 import { Input } from "../components/forms";
 
 // Brand registry — one card per marketing identity (Personal / Work /
 // Business=Variety Vault, seeded on server boot). Each brand owns a voice,
-// audience, values block, an optional vault guidelines doc, and one or more
-// channel bindings (which Buffer/social connection speaks for it). This is
-// deliberately lighter than a department-apply flow — a brand is
+// audience, values block, an optional vault guidelines doc, one or more
+// channel bindings (which Buffer/social connection speaks for it), and a
+// context dump → compacted profile pair (_brands/<id>/context-dump.md is
+// the operator's raw "pump info here" file; profile.md is the distilled
+// version injected into the brand persona — see server/lib/brand-context.ts).
+// This is deliberately lighter than a department-apply flow — a brand is
 // "one voice, one calendar, one set of channels," not a multi-agent workflow.
 
 const ICON_MAP: Record<string, LucideIcon> = { megaphone: Megaphone, user: User, briefcase: Briefcase, store: Store };
@@ -30,6 +33,7 @@ export function Brands() {
   const [editing, setEditing] = useState<Brand | null>(null);
   const [channelsFor, setChannelsFor] = useState<Brand | null>(null);
   const [signalsFor, setSignalsFor] = useState<Brand | null>(null);
+  const [contextFor, setContextFor] = useState<Brand | null>(null);
 
   async function refresh() {
     try { setBrands((await api.listBrands()).brands); }
@@ -60,7 +64,10 @@ export function Brands() {
               <Card key={b.id}>
                 <div className="flex items-start justify-between mb-3">
                   <div className={`p-2 rounded-lg border ${colors}`}><Icon size={20} /></div>
-                  {!filledIn && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-amber-500/30 text-amber-300">needs voice</span>}
+                  <div className="flex gap-1">
+                    {!filledIn && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-amber-500/30 text-amber-300">needs voice</span>}
+                    {b.context?.pending && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300">stale context</span>}
+                  </div>
                 </div>
                 <div className="font-display text-lg text-cream-50">{b.name}</div>
                 <div className="text-xs text-cream-300/70 mt-1">{b.tagline}</div>
@@ -74,7 +81,10 @@ export function Brands() {
                   <Button variant="subtle" className="flex-1" onClick={() => setEditing(b)}>Edit voice</Button>
                   <Button variant="subtle" className="flex-1" onClick={() => setChannelsFor(b)}>Channels</Button>
                 </div>
-                <Button variant="subtle" className="w-full mt-2" onClick={() => setSignalsFor(b)}><Radar size={13} /> Signals</Button>
+                <div className="flex gap-2 mt-2">
+                  <Button variant="subtle" className="flex-1" onClick={() => setContextFor(b)}><FileText size={13} /> Context</Button>
+                  <Button variant="subtle" className="flex-1" onClick={() => setSignalsFor(b)}><Radar size={13} /> Signals</Button>
+                </div>
               </Card>
             );
           })}
@@ -84,6 +94,7 @@ export function Brands() {
       {editing && <EditBrandModal brand={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void refresh(); }} />}
       {channelsFor && <ChannelsModal brand={channelsFor} onClose={() => setChannelsFor(null)} onSaved={() => { setChannelsFor(null); void refresh(); }} />}
       {signalsFor && <SignalsModal brand={signalsFor} onClose={() => setSignalsFor(null)} onBrandSaved={() => void refresh()} />}
+      {contextFor && <ContextModal brand={contextFor} onClose={() => setContextFor(null)} onSaved={() => { setContextFor(null); void refresh(); }} />}
     </div>
   );
 }
@@ -140,10 +151,6 @@ function EditBrandModal({ brand, onClose, onSaved }: { brand: Brand; onClose: ()
 }
 
 function ChannelsModal({ brand, onClose, onSaved }: { brand: Brand; onClose: () => void; onSaved: () => void }) {
-  // "buffer" only for now — social.ts (Ayrshare) reads a single global
-  // AYRSHARE_API_KEY env var and has no per-connection lookup at all, so
-  // there's genuinely nothing to bind per-brand there yet. Don't offer a
-  // choice that silently does nothing.
   const [provider] = useState<"buffer">("buffer");
   const [connectionLabel, setConnectionLabel] = useState("");
   const [platforms, setPlatforms] = useState("");
@@ -208,11 +215,6 @@ function ChannelsModal({ brand, onClose, onSaved }: { brand: Brand; onClose: () 
   );
 }
 
-// Phase 2 — own-brand mention/opportunity monitoring, MAIA-shaped (ingest ->
-// gate -> provenance-labelled draft -> human validate/reject -> gated export).
-// No dedicated review page by design (Telegram/email is the primary review
-// channel — see lib/brand-signals.ts); this modal is a lightweight secondary
-// way to act on drafts without leaving the Brands page.
 function SignalsModal({ brand, onClose, onBrandSaved }: { brand: Brand; onClose: () => void; onBrandSaved: () => void }) {
   const [watchTermsText, setWatchTermsText] = useState((brand.watchTerms ?? []).join(", "));
   const [riskTermsText, setRiskTermsText] = useState((brand.riskTerms ?? []).join(", "));
@@ -330,6 +332,79 @@ function SignalsModal({ brand, onClose, onBrandSaved }: { brand: Brand; onClose:
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ContextModal({ brand, onClose, onSaved }: { brand: Brand; onClose: () => void; onSaved: () => void }) {
+  const [dump, setDump] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [compacting, setCompacting] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const { content } = await api.brainFile(brand.context!.dumpPath);
+      setDump(content);
+    } catch (e: any) { showToast(e?.message ?? "Failed to load context dump", "error"); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, [brand.id]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.brainSave(brand.context!.dumpPath, dump);
+      showToast(`Saved context dump for ${brand.name}`, "success");
+      onSaved();
+    } catch (e: any) { showToast(e?.message ?? "Failed to save context dump", "error"); }
+    finally { setSaving(false); }
+  }
+
+  async function compact() {
+    setCompacting(true);
+    try {
+      const r = await api.compactBrandContext(brand.id);
+      if (r.changed) showToast(`Compacted ${brand.name} profile`, "success");
+      else showToast(r.skipped ?? "No changes found", "info");
+      onSaved();
+    } catch (e: any) { showToast(e?.message ?? "Compaction failed", "error"); }
+    finally { setCompacting(false); }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Context — ${brand.name}`} size="xl">
+      <div className="space-y-6">
+        <div className="p-4 rounded-xl bg-ink-950/50 border border-ink-800 text-xs text-cream-300/60 leading-relaxed">
+          <strong className="text-cream-100">Context Dump:</strong> Put raw info here (preferences, facts, stories, retractions).
+          Naxie compacts this into a canonical profile that is injected into the brand persona's prompt.
+          The dump is your append-only scratchpad; the profile is the distilled result.
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-[12px] font-medium text-cream-300/70">Raw Context Dump</label>
+            <span className="text-[10px] font-mono text-cream-300/40">{brand.context?.dumpPath}</span>
+          </div>
+          <textarea
+            value={dump}
+            onChange={(e) => setDump(e.target.value)}
+            rows={20}
+            placeholder="Dump info here... append dated entries for better tracking."
+            className={`${FIELD} font-mono text-[13px] leading-relaxed`}
+          />
+        </div>
+
+        <div className="flex justify-between items-center pt-2">
+          <Button variant="subtle" onClick={save} disabled={saving} className="px-6 py-2">
+            {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save Dump
+          </Button>
+          <Button onClick={compact} disabled={compacting} className="px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white">
+            {compacting ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} Compact Profile
+          </Button>
         </div>
       </div>
     </Modal>

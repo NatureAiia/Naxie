@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { ollamaGenerate } from "./ollama.js";
 import { personaLanguageDirective } from "./language-prompts.js";
 import { readPersonaProfileSuffix } from "./persona-profile.js";
+import { readBrandContextSuffix } from "./brand-context.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = resolve(__dirname, "../../../.naxion");
@@ -614,9 +615,19 @@ export function personaSystemSuffix(p: Persona | null): string {
   // Absent language = say nothing, inherit the org default untouched.
   const languageBlock = p.language ? "\n\n" + personaLanguageDirective(p.language) : "";
   const profileBlock = readPersonaProfileSuffix(p.id);
+  // Brand personas (department = "brand-<id>") also get the brand's
+  // COMPACTED profile — the distilled result of the operator pumping raw
+  // context into _brands/<id>/context-dump.md (see brand-context.ts).
+  // Unlike the voice/audience/values snapshot baked into a generated
+  // brand persona's systemPromptOverride at creation time, this is read
+  // live on every task, so fresh compactions take effect immediately.
+  // Returns "" for non-brand personas and brands with no profile yet.
+  const brandBlock = p.department?.startsWith("brand-")
+    ? readBrandContextSuffix(p.department.slice("brand-".length))
+    : "";
   // Naxie Agent is the catch-all generalist — no lane to police.
   if (p.id === "naxie-agent") return body + languageBlock + profileBlock;
-  return LANE_DISCIPLINE_PREAMBLE + body + languageBlock + profileBlock;
+  return LANE_DISCIPLINE_PREAMBLE + body + languageBlock + profileBlock + brandBlock;
 }
 
 function buildSuffixBody(p: Persona): string {

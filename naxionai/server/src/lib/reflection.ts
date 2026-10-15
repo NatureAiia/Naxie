@@ -19,6 +19,7 @@ import { llmGenerate } from "./llm.js";
 import { loadJobsInWindow, asJob, type PersistedJob } from "./job-store.js";
 import { config } from "../config.js";
 import { gradeDecision, type DecisionGrade } from "./decision-grader.js";
+import { registerEngine, unregisterEngine } from "./scheduler-registry.js";
 
 const REFLECTION_DIR = "_naxion/reflections";
 
@@ -693,6 +694,17 @@ export async function runReflection(opts: { windowHours?: number; force?: boolea
     } catch (e: any) {
       console.warn(`[reflection] persona profile update failed (non-fatal): ${e?.message ?? e}`);
     }
+    // Reflection -> operator memory. Distills durable facts about the
+    // operator out of their own recent chat history into memory.ts facts
+    // (subject "operator"), so Naxie learns how they work without them
+    // filling in any form. Watermarked — a quiet day is a no-op.
+    // See operator-learning.ts. Disable with NAXION_OPERATOR_LEARNING=0.
+    try {
+      const { maybeExtractOperatorFacts } = await import("./operator-learning.js");
+      await maybeExtractOperatorFacts();
+    } catch (e: any) {
+      console.warn(`[reflection] operator fact extraction failed (non-fatal): ${e?.message ?? e}`);
+    }
     const result: ReflectionResult = { date: stats.date, path, stats, reflection: text, generatedAt, modelUsed, qualityGrade };
     lastResult = result;
     // Surface the reflection on the Calendar by registering a Job record.
@@ -742,7 +754,7 @@ export async function reflectionStatus(): Promise<{ last: ReflectionResult | nul
 // AM local). We use setInterval (1h) plus a "have we run today?" guard so a
 // long-running server only runs the reflection once per day even if the
 // scheduler fires at non-precise intervals.
-let scheduler: NodeJS.Timeout | null = null;
+const ENGINE_NAME = "reflection";
 let lastRunDate: string | null = null;
 
 // Best-effort push of the finished reflection to Telegram — never throws,
@@ -794,7 +806,6 @@ async function deliverToTelegram(result: ReflectionResult): Promise<void> {
 }
 
 export function startReflectionScheduler(): void {
-  if (scheduler) return;
   // Default 8 PM local — end-of-day reflection for *that day's* report (user
   // request 2026-09-12). Innovation scan stays at 8am; todo brief at 6am.
   // They are offset so they don't compete for the LLM backend at once.
@@ -840,12 +851,11 @@ export function startReflectionScheduler(): void {
     catch (e: any) { console.warn(`[reflection] scheduler run failed: ${e?.message ?? e}`); }
   };
   // Check every 10 minutes; with catch-up the precise boot time no longer matters.
-  scheduler = setInterval(tick, 10 * 60_000);
-  void tick(); // also check immediately on boot
+  registerEngine({ name: ENGINE_NAME, intervalSeconds: 10 * 60, run: tick });
 }
 
 export function stopReflectionScheduler(): void {
-  if (scheduler) { clearInterval(scheduler); scheduler = null; }
+  unregisterEngine(ENGINE_NAME);
 }
 
 // Stay tree-shake-friendly — referenced only when the route imports it.

@@ -13,9 +13,12 @@ Every brand-facing piece of content sounds like it came from THAT brand, not a g
 ## Process
 
 1. **Identify the brand.** If the task names one ("post this for Work", "for Variety Vault") or a `brandId` input is present, use it. If it's genuinely ambiguous, ASK — never guess (see `cross-brand-isolation.md`).
-2. **Pull the brand's context**: `brand.voice`, `brand.audience`, `brand.values`, and — if `brand.guidelinesVaultPath` is set — read that vault doc directly for the full guidelines. `gatherBrandContext()` (routes/templates.ts) already does this for the two scheduled social templates; for anything else, read the `Brand` record via `GET /api/brands/:id` and the vault doc yourself.
+2. **Pull the brand's context** (in this order):
+   a. The `Brand` record via `GET /api/brands/:id` — `brand.voice`, `brand.audience`, `brand.values`.
+   b. The brand's COMPACTED profile — the response's `brand.context.profilePath` (e.g. `_brands/work/profile.md`). This is the distilled result of everything the operator has pumped into the brand's context dump; it is the freshest "what the operator actually said" signal. Read it with `vault.read` if it isn't already in context.
+   c. The full voice guidelines doc — `brand.guidelinesVaultPath`, when set. Read it with `vault.read` for long-form rules the profile doesn't cover.
 3. **Write in that voice.** Match tone AND substance to the brand — a fact-dense, credible Work post should not read like a punchy Variety Vault promo, and vice versa.
-4. **If voice/audience are empty** (a brand still has its placeholder stub filled in), say so plainly and ask the operator to fill in the Brands page or the vault doc — don't invent a voice for them.
+4. **If voice/audience are empty AND no compacted profile exists** (a brand still on its placeholder stubs), say so plainly and ask the operator to fill in the Brands page, the vault doc, or — best for ongoing learning — to pump raw context into the brand's `_brands/<id>/context-dump.md`, which Naxie compacts into the profile automatically. Don't invent a voice for them.
 
 ## Worked example
 

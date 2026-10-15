@@ -5,6 +5,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeVaultFile } from "./vault.js";
+import { registerEngine, unregisterEngine } from "./scheduler-registry.js";
 
 const ROLLUP_DIR = "_naxion/weekly-rollups";
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -179,10 +180,9 @@ ${latestReview ? `Latest self-improvement review: \`${latestReview}\` — propos
   try { return await inFlight; } finally { inFlight=null; }
 }
 
-let scheduler: NodeJS.Timeout|null=null;
+const ENGINE_NAME = "weekly-rollup";
 let lastRunWeek: string|null=null;
 export function startWeeklyRollupScheduler(): void {
-  if (scheduler) return;
   const HOUR = Number(process.env.NAXION_WEEKLY_ROLLUP_HOUR ?? "9");
   const DOW = Number(process.env.NAXION_WEEKLY_ROLLUP_DOW ?? "0"); // 0 Sun
   const tick = async () => {
@@ -203,7 +203,6 @@ export function startWeeklyRollupScheduler(): void {
     console.log(`[weekly-rollup] firing (dow=${DOW} hour>=${HOUR})`);
     try { await runWeeklyRollup(); } catch(e:any){ console.warn(`[weekly-rollup] failed: ${e?.message ?? e}`); }
   };
-  scheduler = setInterval(tick, 10*60_000);
-  void tick();
+  registerEngine({ name: ENGINE_NAME, intervalSeconds: 10 * 60, run: tick });
 }
-export function stopWeeklyRollupScheduler(): void { if(scheduler){ clearInterval(scheduler); scheduler=null; } }
+export function stopWeeklyRollupScheduler(): void { unregisterEngine(ENGINE_NAME); }

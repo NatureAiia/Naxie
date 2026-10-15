@@ -1,0 +1,389 @@
+// Per-brand context dump + compacted profile — the "pump info in, agent
+// distills it" loop for the operator's brands (personal / work / business).
+//
+// Two files per brand under _brands/<id>/:
+//
+//   context-dump.md  — the operator's RAW dump. Append/edit freely (in
+//                      Obsidian, the vault editor, wherever). The agent
+//                      NEVER rewrites or deletes this file — it is the
+//                      append-only source of truth for "what I said".
+//   profile.md       — the COMPACTED canonical context, rewritten by the
+//                      LLM compaction pass. This is what gets injected
+//                      into brand personas' system prompts (via
+//                      personas.ts's personaSystemSuffix). It carries a
+//                      dated change log so every compaction is auditable.
+//
+// Compaction is mtime-gated: the hourly scheduler (and the manual
+// "Compact now" button on the Brands page) compacts only when the dump is
+// newer than the profile AND has settled (not mid-edit). Blind weekly runs
+// are deliberately avoided — no LLM call fires on an unchanged dump.
+//
+// Mirrors persona-profile.ts's architecture (sync best-effort read at
+// prompt-build time + async LLM regeneration elsewhere) but is brand-
+// scoped and keeps the raw dump as a separate, never-rewritten file —
+// persona-profile regenerations lose history; here the dump preserves it.
+//
+// Dependency note: personas.ts imports readBrandContextSuffix from here at
+// load time, and brands.ts imports personas.ts — so this module must NOT
+// statically import brands.ts (that would be a load-time cycle). Brand
+// lookups happen via dynamic import inside the async compaction path only,
+// same idiom persona-profile.ts uses for its reflection-time update.
+
+import { readVaultFile, writeVaultFile, statVaultEntry, VaultUnreachable } from "./vault.js";
+import { llmGenerateWithMeta } from "./llm.js";
+import { enqueueVaultCommit } from "./commit-queue.js";
+import { registerEngine } from "./scheduler-registry.js";
+
+const BRANDS_DIR = "_brands";
+const DUMP_FILE = "context-dump.md";
+const PROFILE_FILE = "profile.md";
+
+// Don't compact a dump edited within the last N ms — the operator is
+// probably mid-sentence in Obsidian. The hourly tick will catch it later.
+const SETTLE_MS = 5 * 60_000;
+
+// Injection cap — brand personas get the compacted profile appended to
+// their system suffix; keep it a context block, not a document.
+const MAX_PROFILE_CHARS = 2400;
+
+// Compaction input caps — the dump is append-only and can grow large; the
+// LLM distills the most recent material (plus the existing profile, which
+// already carries durable older facts forward).
+const MAX_DUMP_CHARS = 6000;
+const MAX_GUIDELINES_CHARS = 2000;
+
+// Mirrors brands.ts's exported `slug` — duplicated (not imported) to keep
+// this module free of a static brands.ts dependency (see header). A
+// brandId is already slugged at creation, but sanitize anyway: paths built
+// from it must never allow traversal.
+const sanitizeBrandId = (s: string) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+
+export function contextDumpPath(brandId: string): string {
+  return `${BRANDS_DIR}/${sanitizeBrandId(brandId)}/${DUMP_FILE}`;
+}
+
+export function brandProfilePath(brandId: string): string {
+  return `${BRANDS_DIR}/${sanitizeBrandId(brandId)}/${PROFILE_FILE}`;
+}
+
+function stripFrontmatter(raw: string): string {
+  const m = raw.match(/^---\n[\s\S]*?\n---\n?/);
+  return m ? raw.slice(m[0].length) : raw;
+}
+
+function stripChangeLog(body: string): string {
+  return body.replace(/\n<!--\s*change log[\s\S]*$/i, "").trimEnd();
+}
+
+// The stub text seeded by ensureBrandContextFiles — a dump that still
+// contains only the seeded heading + this line has nothing to compact.
+const DUMP_STUB_MARK = "Pump raw context here";
+const DUMP_HEADING_MARK = "— raw context dump";
+
+// Placeholder phrases (seeded stub + the LLM-format-failure fallback) —
+// a profile still carrying one of these must never be injected as fact.
+const PROFILE_PLACEHOLDER_MARKS = ["not compacted yet", "nothing compacted yet"];
+
+/**
+ * Sync, best-effort read used inside personas.ts's personaSystemSuffix
+ * (itself sync, called on every task). Returns "" when the brand has no
+ * compacted profile yet or the vault is unreachable — a missing profile
+ * must never block or alter normal persona behavior (same contract as
+ * persona-profile.ts's readPersonaProfileSuffix).
+ */
+export function readBrandContextSuffix(brandId: string): string {
+  try {
+    const raw = readVaultFile(brandProfilePath(brandId));
+    const body = stripChangeLog(stripFrontmatter(raw)).trim();
+    if (!body || PROFILE_PLACEHOLDER_MARKS.some(mark => body.includes(mark))) return "";
+    const clipped = body.length > MAX_PROFILE_CHARS
+      ? body.slice(0, MAX_PROFILE_CHARS) + "\n\n_(truncated — full profile in the vault at " + brandProfilePath(brandId) + ")_"
+      : body;
+    return `\n\n---\n\n**Brand profile — ${sanitizeBrandId(brandId)}** (auto-compacted from the operator's context dump — use it, don't recite it):\n\n${clipped}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Idempotent — seeds the dump/profile stubs for a brand if they don't
+ * exist yet. Called from seedDefaultBrands for fresh brands and at boot
+ * for brands created before this feature landed. NEVER overwrites an
+ * existing file (the dump may hold operator-written content).
+ */
+export function ensureBrandContextFiles(brandId: string, displayName?: string): void {
+  const id = sanitizeBrandId(brandId);
+  const name = displayName || id;
+  try {
+    if (!readVaultFile(contextDumpPath(id))) throw new Error("empty");
+  } catch {
+    writeVaultFile(contextDumpPath(id),
+      `---\ntype: brand-context-dump\nbrand: ${id}\n---\n\n# ${name} — raw context dump\n\n` +
+      `_Pump raw context here: who you are, what you're building, audience notes, tone preferences, stories, facts, things that changed. Append freely — dated entries help. Naxie compacts this into \`profile.md\`; this file is never rewritten by the agent._\n`);
+  }
+  try {
+    if (!readVaultFile(brandProfilePath(id))) throw new Error("empty");
+  } catch {
+    writeVaultFile(brandProfilePath(id),
+      `---\ntype: brand-profile\nbrand: ${id}\n---\n\n` +
+      `_(not compacted yet — add to \`context-dump.md\` and run compaction)_\n`);
+  }
+}
+
+export type BrandContextStatus = {
+  dumpPath: string;
+  profilePath: string;
+  dumpExists: boolean;
+  dumpMtimeMs?: number;
+  profileMtimeMs?: number;
+  pending: boolean; // dump edited after the last compaction
+  lastCompactedAt?: string;
+};
+
+/** Status for the Brands page / GET /api/brands/:id. */
+export function getBrandContextStatus(brandId: string): BrandContextStatus {
+  const dumpPath = contextDumpPath(brandId);
+  const profilePath = brandProfilePath(brandId);
+  const st: BrandContextStatus = { dumpPath, profilePath, dumpExists: false, pending: false };
+  try {
+    const d = statVaultEntry(dumpPath);
+    st.dumpExists = d.exists;
+    st.dumpMtimeMs = d.mtimeMs;
+    const p = statVaultEntry(profilePath);
+    st.profileMtimeMs = p.exists ? p.mtimeMs : undefined;
+    st.pending = !!(d.exists && d.mtimeMs && (!p.exists || (p.mtimeMs ?? 0) < (d.mtimeMs ?? 0)));
+    try {
+      const m = readVaultFile(profilePath).match(/^compactedAt:\s*(.+)$/m);
+      if (m) st.lastCompactedAt = m[1].trim();
+    } catch { /* no profile yet */ }
+  } catch { /* vault unreachable — status stays all-false */ }
+  return st;
+}
+
+export type CompactResult = { path: string; changed: boolean; skipped?: string; model?: string };
+
+/**
+ * The compaction pass: read dump + existing profile (+ the brand record's
+ * voice/audience/values and the voice-guidelines doc) → LLM rewrite of
+ * profile.md ONLY. context-dump.md is never written here. The LLM must
+ * preserve durable facts, update changed ones, and drop retracted ones —
+ * it must NOT invent anything not present in the inputs.
+ */
+export async function compactBrandContext(brandId: string, opts: { force?: boolean } = {}): Promise<CompactResult> {
+  const id = sanitizeBrandId(brandId);
+  const profilePath = brandProfilePath(id);
+
+  let dumpRaw = "";
+  try { dumpRaw = readVaultFile(contextDumpPath(id)); } catch {
+    return { path: profilePath, changed: false, skipped: "no context dump found" };
+  }
+  const dumpBody = stripFrontmatter(dumpRaw).trim();
+  // A dump that's still (mostly) the seeded stub has nothing to compact:
+  // drop the seeded heading and any line carrying the stub marker, then
+  // see if real operator content remains. If the operator appended below
+  // the stub, the remainder is substantive and compaction proceeds.
+  const dumpContent = dumpBody
+    .split("\n")
+    .filter(line => !line.includes(DUMP_STUB_MARK) && !line.includes(DUMP_HEADING_MARK))
+    .join("\n")
+    .trim();
+  if (!dumpContent) {
+    return { path: profilePath, changed: false, skipped: "context dump is still the seeded stub" };
+  }
+
+  // Settle gate: skip when the dump was touched within SETTLE_MS unless
+  // this is a manual/forced run (the Brands page's "Compact now").
+  if (!opts.force) {
+    try {
+      const d = statVaultEntry(contextDumpPath(id));
+      if (d.mtimeMs && Date.now() - d.mtimeMs < SETTLE_MS) {
+        return { path: profilePath, changed: false, skipped: "dump was edited too recently — settling" };
+      }
+    } catch { /* stat failed — proceed; the read above already succeeded */ }
+  }
+
+  let existingBody = "";
+  try { existingBody = stripChangeLog(stripFrontmatter(readVaultFile(profilePath))).trim(); } catch { /* first compaction */ }
+
+  // Brand record + guidelines doc — dynamic import to avoid the static
+  // brands.ts ↔ personas.ts ↔ this-module cycle (see header).
+  let brandName = id;
+  let voice = "", audience = "", values = "", guidelines = "";
+  try {
+    const { getBrand } = await import("./brands.js");
+    const b = getBrand(id);
+    if (b) {
+      brandName = b.name || id;
+      voice = b.voice || ""; audience = b.audience || ""; values = b.values || "";
+      if (b.guidelinesVaultPath) {
+        try { guidelines = stripFrontmatter(readVaultFile(b.guidelinesVaultPath)).trim().slice(0, MAX_GUIDELINES_CHARS); } catch { /* no guidelines doc yet */ }
+      }
+    }
+  } catch { /* brands registry unavailable — compact from the dump alone */ }
+
+  const dumpExcerpt = dumpContent.slice(-MAX_DUMP_CHARS);
+
+  // Input sections are deliberately NOT "##" markdown headings — a weak
+  // model asked to "update" text framed with the same heading style as the
+  // requested output tends to echo the input structure back verbatim
+  // (the observed failure mode in persona-profile.ts). Reserving "##"
+  // exclusively for the output heading removes that imitation cue.
+  const sys = `You maintain the compacted brand profile for "${brandName}" — one of the operator's brands. A social/content agent reads this profile before every brand-facing task, so it must be a clean, current distillation, not a transcript.
+
+You will receive: the operator's RAW CONTEXT DUMP (newest material; the dump is append-only and the operator edits it freely), the EXISTING PROFILE (your last compaction), and the brand's voice/audience/values plus any voice guidelines.
+
+Rewrite the profile from these inputs:
+- KEEP facts that are still true (durable facts the operator stated once and never retracted — even if the recent dump doesn't repeat them).
+- UPDATE anything the dump contradicts (the dump wins over the existing profile).
+- REMOVE facts the dump explicitly retracts or replaces.
+- Never invent facts, audiences, or opinions not present in the inputs.
+- Never import context from any other brand.
+
+Your ENTIRE response must be plain markdown: a single "## Brand profile" heading followed by short, scannable bullet points grouped under ### sub-headings (Who / Audience / Voice / Priorities / Notes — use only the groups that have real content). No preamble, no sign-off, no input labels, nothing before the heading. If the inputs contain nothing useful, respond with exactly "## Brand profile" followed by "_(nothing compacted yet)_" under it.`;
+
+  const prompt = `BRAND RECORD — voice: ${voice || "(not set)"} | audience: ${audience || "(not set)"} | values: ${values || "(not set)"} (reference only — do not reprint this line)
+
+VOICE GUIDELINES DOC (reference only — do not reprint this label):
+${guidelines || "(none yet)"}
+
+EXISTING PROFILE (reference only — do not reprint this label):
+${existingBody || "(none yet — first compaction)"}
+
+OPERATOR'S RAW CONTEXT DUMP — newest last (reference only — do not reprint this label):
+${dumpExcerpt}
+
+Now write ONLY the "## Brand profile" section described in your instructions. Nothing else.`;
+
+  let text: string;
+  let modelUsed: string | undefined;
+  try {
+    const meta = await llmGenerateWithMeta(prompt, sys, { profile: "synthesis", complexity: "high" });
+    // Defense in depth against the imitation failure mode: if the response
+    // lacks the required heading, the model ignored the format — keep the
+    // existing profile rather than risk writing a prompt echo into what
+    // future tasks will read as fact (same guard as persona-profile.ts).
+    const m = meta.text.match(/##\s*Brand profile[\s\S]*/i);
+    text = m ? m[0].trim() : existingBody;
+    modelUsed = meta.model;
+  } catch (e: any) {
+    console.warn(`[brand-context] compaction LLM call failed for ${id}: ${e?.message ?? e}`);
+    return { path: profilePath, changed: false, skipped: "LLM call failed" };
+  }
+  if (!text) return { path: profilePath, changed: false, skipped: "empty LLM response" };
+
+  // Change log lives in an HTML comment so it never reaches the injected
+  // suffix (stripped by stripChangeLog) but stays auditable in the vault.
+  const prevLog = (() => {
+    try {
+      const raw = readVaultFile(profilePath);
+      const m = raw.match(/<!--\s*change log\n([\s\S]*?)-->/i);
+      return m ? m[1].trimEnd().split("\n").slice(-19) : [];
+    } catch { return []; }
+  })();
+  const now = new Date();
+  const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const logLines = [...prevLog, `- ${stamp} — compacted ${dumpContent.length.toLocaleString()} chars of dump${modelUsed ? ` (model: ${modelUsed})` : ""}`];
+
+  const doc = `---
+type: brand-profile
+brand: ${id}
+compactedAt: ${now.toISOString()}
+${modelUsed ? `model: ${modelUsed}\n` : ""}---
+
+${text}
+
+<!-- change log
+${logLines.join("\n")}
+-->
+`;
+  try {
+    writeVaultFile(profilePath, doc);
+    void enqueueVaultCommit(`chore(brand-context): compact ${id} profile`);
+  } catch (e: any) {
+    if (!(e instanceof VaultUnreachable)) console.warn(`[brand-context] profile write failed for ${id}: ${e?.message ?? e}`);
+    return { path: profilePath, changed: false, skipped: "profile write failed" };
+  }
+  console.log(`[brand-context] compacted ${id} profile (${dumpContent.length} chars of dump)`);
+  return { path: profilePath, changed: true, model: modelUsed };
+}
+
+/**
+ * Compacts every brand whose dump is newer than its profile (and old
+ * enough to have settled). Called by the hourly scheduler; safe to call
+ * concurrently with a manual compact (the settle gate and mtime check
+ * keep it idempotent in practice, and a double compaction is harmless —
+ * it just re-distills the same dump).
+ */
+export async function compactAllPendingBrandContexts(): Promise<{ compacted: string[]; skipped: { brand: string; reason: string }[] }> {
+  const compacted: string[] = [];
+  const skipped: { brand: string; reason: string }[] = [];
+  let brands: { id: string }[] = [];
+  try {
+    const { listBrands } = await import("./brands.js");
+    brands = listBrands();
+  } catch { return { compacted, skipped }; }
+  for (const b of brands) {
+    try {
+      const st = getBrandContextStatus(b.id);
+      if (!st.dumpExists) { skipped.push({ brand: b.id, reason: "no dump" }); continue; }
+      if (!st.pending) { skipped.push({ brand: b.id, reason: "profile already current" }); continue; }
+      if (st.dumpMtimeMs && Date.now() - st.dumpMtimeMs < SETTLE_MS) { skipped.push({ brand: b.id, reason: "settling" }); continue; }
+      const r = await compactBrandContext(b.id);
+      if (r.changed) compacted.push(b.id); else skipped.push({ brand: b.id, reason: r.skipped ?? "no change" });
+    } catch (e: any) {
+      skipped.push({ brand: b.id, reason: String(e?.message ?? e) });
+    }
+  }
+  return { compacted, skipped };
+}
+
+let compactionEngineRegistered = false;
+
+/**
+ * Hourly check via the scheduler registry. Gated on dump mtime, so an
+ * unchanged dump costs zero LLM calls — this is not a blind cadence run.
+ * Disable with NAXION_BRAND_COMPACTION=0.
+ */
+export function startBrandContextCompactionScheduler(): void {
+  if (compactionEngineRegistered) return;
+  compactionEngineRegistered = true;
+  registerEngine({
+    name: "brand-context-compaction",
+    intervalSeconds: 3600,
+    run: async () => {
+      if (process.env.NAXION_BRAND_COMPACTION === "0") return;
+      const { compacted, skipped } = await compactAllPendingBrandContexts();
+      if (compacted.length) console.log(`  ⓘ brand context compaction: ${compacted.join(", ")}`);
+      else if (skipped.length) console.log(`[brand-context] tick: nothing to compact (${skipped.map(s => `${s.brand}: ${s.reason}`).join("; ")})`);
+    },
+  });
+}
+
+
+
+export async function appendBrandContextDump(brandId: string, text: string, opts: { stamp?: boolean } = {}): Promise<string> {
+  const id = sanitizeBrandId(brandId);
+  ensureBrandContextFiles(id, id);
+  const dumpPath = contextDumpPath(id);
+  let toAppend = text.trim();
+  if (opts.stamp !== false) {
+    const d = new Date();
+    const stamp = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+    toAppend = '\n\n- ' + stamp + ' — ' + toAppend;
+  } else toAppend = '\n\n' + toAppend;
+  try {
+    const { appendFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { config } = await import('../config.js');
+    appendFileSync(join(config.vaultPath, dumpPath), toAppend, 'utf8');
+  } catch (e:any) {
+    try {
+      const existing = readVaultFile(dumpPath);
+      writeVaultFile(dumpPath, existing + toAppend);
+    } catch (e2:any) {
+      if (e2 instanceof VaultUnreachable) throw e2;
+      throw e2;
+    }
+  }
+  return dumpPath;
+}

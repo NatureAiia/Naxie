@@ -34,6 +34,7 @@ import { getOperatorIdentity } from "./mag.js";
 import { buildMagContext } from "./mag.js";
 import { isLoopEnabled } from "./daemon-settings.js";
 import { maybeExtractZettels } from "./zettel-extract.js";
+import { registerEngine, unregisterEngine } from "./scheduler-registry.js";
 
 // Desktop toast nudge — fires when an OrgTask sits in waiting-on-approval
 // past this threshold (docs/naxie-architecture.md §2.3 "needs your attention
@@ -167,10 +168,52 @@ const BRIEFING_THROTTLE_MS = Number(process.env.NAXION_ORG_BRIEFING_THROTTLE_MS)
 // this hour, then the throttle above keeps it to once a day.
 const BRIEFING_HOUR = Number(process.env.NAXION_ORG_BRIEFING_HOUR ?? "8");
 
+// Local calendar day (YYYY-MM-DD) — both sides of the comparison below must
+// use LOCAL days: the Schedule's lastFiredAt is a UTC ISO string while the
+// daemon thinks in local hours, and comparing UTC-to-local is exactly how a
+// 07:45 fire gets mistaken for yesterday's.
+const localYmd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+// Morning de-duplication. Two independent schedulers run the SAME
+// daily-briefing template: the operator's own "Morning briefing" Schedule
+// (07:45 — voice note + delivery card + job record) and this loop
+// (08:00 — proactive digest card). Nothing coordinated them, so any day the
+// server is up through both windows you get two briefings. They genuinely
+// disagreed on 2026-10-14: the 08:00 "Africa AI news - BREAKING" job landed
+// in the 15-minute gap, so the 07:46 run reported Breaking News "Dropped"
+// and the 08:01 run reported it "Carried".
+//
+// The Schedule owns the morning — it carries the delivery/voice/audit trail —
+// so this loop only runs when NO daily-briefing Schedule has fired today.
+// This is a PERSISTED check (schedules.json's lastFiredAt), unlike the
+// in-memory throttle below, which resets on every restart and let this loop
+// fire six times in one morning on 2026-10-12.
+async function dailyBriefingScheduleFiredToday(now: number): Promise<boolean> {
+  try {
+    const { listSchedules } = await import("./schedules.js");
+    const today = localYmd(new Date(now));
+    return listSchedules().some(
+      (s) => s.enabled && s.templateId === "daily-briefing" && !!s.lastFiredAt && localYmd(new Date(s.lastFiredAt)) === today,
+    );
+  } catch {
+    // schedules store unreadable — fall back to the old behaviour (fire)
+    // rather than silently losing the briefing entirely.
+    return false;
+  }
+}
+
 export async function maybeGenerateBriefing(now = Date.now()): Promise<boolean> {
   if (now - lastBriefingAt < BRIEFING_THROTTLE_MS) return false;
   if (new Date(now).getHours() !== BRIEFING_HOUR) return false;
+  // Claim the day BEFORE running so a slow/failed run can't loop, and so a
+  // skip due to the Schedule above also burns the throttle (no point
+  // re-checking every tick for the rest of the hour).
   lastBriefingAt = now;
+  if (await dailyBriefingScheduleFiredToday(now)) {
+    try { logAudit({ level: "info", actor: "naxie", action: "briefing.skipped", target: "daily-briefing", detail: "a daily-briefing Schedule already fired today", result: "success" }); } catch { /* best-effort */ }
+    return false;
+  }
   try {
     const { runFromChat } = await import("../routes/templates.js");
     const result: any = await runFromChat("daily-briefing", {}, () => { /* progress lines not needed for a headless run */ });
@@ -504,18 +547,14 @@ async function tick(): Promise<void> {
   } catch { /* ignore */ }
 }
 
-let timer: NodeJS.Timeout | null = null;
+const ENGINE_NAME = "org-daemon";
 
 export function startOrgDaemon(): void {
-  if (timer) return;
-  timer = setInterval(tick, DAEMON_CYCLE_SECONDS * 1000);
-  timer.unref?.();
-  // Immediate catch-up tick so anything overdue during downtime (a stale
-  // approval, an orphaned active task from before a restart) resolves within
-  // seconds rather than waiting a full cycle.
-  setTimeout(tick, 5_000);
+  // registerEngine is idempotent and fires its own 5s-delayed catch-up tick,
+  // same role as this module's old immediate setTimeout(tick, 5_000).
+  registerEngine({ name: ENGINE_NAME, intervalSeconds: DAEMON_CYCLE_SECONDS, run: tick });
 }
 
 export function stopOrgDaemon(): void {
-  if (timer) { clearInterval(timer); timer = null; }
+  unregisterEngine(ENGINE_NAME);
 }

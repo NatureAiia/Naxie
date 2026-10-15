@@ -25,7 +25,7 @@ import { sanitizeFetchedText } from "./injection-guard.js";
 import { fetchCuratedRss, type CuratedRssItem } from "./rss-client.js";
 import { searchTrendingRepos } from "./github.js";
 import type { FetchedSource, ValidatedSource } from "./source-validator-types.js";
-import { getCostSummary } from "./cost-tracker.js";
+import { getCostRecords } from "./cost-tracker.js";
 import { isFreeModelId } from "./model-policy.js";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
@@ -34,6 +34,7 @@ import { scanForSecurityRisks } from "./security.js";
 import { nextSkillVersion } from "./skill-version.js";
 import { logAudit } from "./audit-log.js";
 import { isOffline } from "./offline-mode.js";
+import { registerEngine, unregisterEngine } from "./scheduler-registry.js";
 import { withTimeout, cleanSectionText } from "./report-pipeline.js";
 import { localSynthBudget } from "./local-budget.js";
 import { llmLaneStatus } from "./llm-lane.js";
@@ -157,9 +158,11 @@ export function identifyOwnWeaknesses(): Weakness[] {
 // pipeline (a weak quality axis → go read about it). This reads our OWN
 // cost-tracker data directly — no research needed, the evidence already
 // exists — and is reported plainly in the digest, with an OrgTask for
-// anything concretely actionable so Naxie can propose a fix via
-// system.admin's "switch_model" action (approval-gated, same as every other
-// self-improvement loop this session wired up).
+// anything concretely actionable so Naxie can propose a fix (approval-gated,
+// same as every other self-improvement loop this session wired up). NOTE the
+// fix differs by lane: remote backends get a switch_model proposal, local
+// Ollama failures get an `ollama pull`/model-availability check instead —
+// switch_model only re-points remote tiers and is a no-op for local models.
 // `key` is the STABLE identity for OrgTask dedup below — unlike `issue`
 // (which embeds the live failure count/percentage and so is a different
 // string every day the rolling window shifts), `key` never changes for the
@@ -167,30 +170,86 @@ export function identifyOwnWeaknesses(): Weakness[] {
 // actually match day over day instead of re-triggering on every run.
 export type ModelHealthFinding = { area: string; issue: string; recommendation: string; evidence: string; actionable: boolean; key?: string };
 
+// ── Model health: a RECENT-WINDOW view of cost.jsonl ───────────────────
+//
+// This used to read getCostSummary(), which aggregates the ENTIRE cost.jsonl
+// and never decays. A model that had one bad week therefore kept re-firing an
+// "actionable, high-priority" OrgTask every single day, forever. On
+// 2026-10-14 three of the four models it flagged were already healthy:
+//   - qwen2.5:3b          135 failures, EVERY one 404 "model not found" from
+//                         a missing `ollama pull`; last failure 2026-10-09
+//   - gemma4:31b           6 failures, all 2026-10-04 OpenRouter baseUrl bug
+//                         (already fixed)
+//   - muse-glimmer:latest 19 failures, zero calls at all since 2026-10-06
+// Windowing to 7d drops the long-silent models entirely, and the recency
+// rule below demotes the ones whose streak ended a few days ago.
+export const MODEL_HEALTH_WINDOW_MS = 7 * 24 * 3600_000;
+// A failure only counts as an INCIDENT while it is recent. A streak that
+// stopped days ago is history: worth keeping in the digest for visibility
+// against a baseline, but it must never keep minting a "switch the model
+// NOW" OrgTask.
+const MODEL_HEALTH_RECENT_MS = 2 * 24 * 3600_000;
+
+type ModelWindowStats = { calls: number; failed: number; lastFailureAt?: string; lastError?: string; backend?: string };
+
 export function deriveModelHealthFindings(): ModelHealthFinding[] {
   const out: ModelHealthFinding[] = [];
-  const { byModel } = getCostSummary();
-  for (const m of byModel) {
-    if (m.calls < 5) continue; // too little signal to act on
-    if (m.failureRate >= 0.2) {
-      out.push({
-        area: "Model reliability",
-        issue: `"${m.model}" is failing ${Math.round(m.failureRate * 100)}% of calls (${m.failed}/${m.calls})`,
-        recommendation: `Switch the tier using "${m.model}" to a healthier model via system.admin's switch_model action — prefer a free one (isFreeModelId) unless paid models are separately approved.`,
-        evidence: `byModel["${m.model}"]: calls=${m.calls} failed=${m.failed} failureRate=${m.failureRate.toFixed(2)}`,
-        actionable: true,
-        key: `model-reliability:${m.model}`,
-      });
+  const since = new Date(Date.now() - MODEL_HEALTH_WINDOW_MS).toISOString();
+  const records = getCostRecords(since);
+  const byModel = new Map<string, ModelWindowStats>();
+  const paidByModel = new Map<string, number>();
+  for (const r of records) {
+    const m = byModel.get(r.model) ?? { calls: 0, failed: 0 };
+    m.calls++;
+    m.backend = r.backend;
+    if (r.ok === false) {
+      m.failed++;
+      if (!m.lastFailureAt || r.ts >= m.lastFailureAt) { m.lastFailureAt = r.ts; m.lastError = String(r.error ?? "unknown"); }
+    } else if (r.costUsd > 0 && !isFreeModelId(r.model)) {
+      paidByModel.set(r.model, (paidByModel.get(r.model) ?? 0) + r.costUsd);
     }
+    byModel.set(r.model, m);
   }
-  const paidSpend = byModel.filter(m => m.costUsd > 0 && !isFreeModelId(m.model));
-  const totalPaidUsd = paidSpend.reduce((s, m) => s + m.costUsd, 0);
+  const sorted = [...byModel.entries()].sort((a, b) => (b[1].failed / Math.max(1, b[1].calls)) - (a[1].failed / Math.max(1, a[1].calls)));
+  for (const [model, m] of sorted) {
+    if (m.calls < 5) continue; // too little signal to act on
+    const rate = m.failed / m.calls;
+    if (rate < 0.2) continue;
+    const live = !!m.lastFailureAt && Date.now() - new Date(m.lastFailureAt).getTime() <= MODEL_HEALTH_RECENT_MS;
+    // CostRecord.backend distinguishes "ollama" (the LOCAL install) from
+    // "ollama_cloud" and the other remote backends — and the two need
+    // DIFFERENT fixes. A local failure is a missing or broken model on this
+    // machine, and switch_model cannot reach it at all (it only re-points the
+    // remote provider tiers — see the switch_model action in primitives.ts).
+    // The old recommendation told the operator to run switch_model for every
+    // finding, which was silently a no-op for all 135 qwen2.5:3b failures.
+    const isLocal = m.backend === "ollama";
+    out.push({
+      area: "Model reliability",
+      issue: live
+        ? `"${model}" failed ${Math.round(rate * 100)}% of calls in the last 7d (${m.failed}/${m.calls}) — still failing as of ${m.lastFailureAt}`
+        : `"${model}" failed ${Math.round(rate * 100)}% of calls in the last 7d (${m.failed}/${m.calls}) — streak ENDED ${m.lastFailureAt}, nothing failing since`,
+      recommendation: live
+        ? (isLocal
+          ? `Local Ollama lane: "${model}" is unavailable or broken on this machine (last error: ${m.lastError}). Check \`ollama list\` / \`ollama pull ${model}\` and the runner's model id. switch_model will NOT fix this — it only re-points remote provider tiers.`
+          : `Remote provider: switch the tier using "${model}" via system.admin's switch_model action, or check that provider's quota/rate limits. Prefer a free model (isFreeModelId) unless paid models are separately approved.`)
+        : `Historical only — the failure streak stopped on ${m.lastFailureAt}. No action needed; kept in the digest so a recurrence is visible against this baseline.`,
+      evidence: `cost.jsonl ${since.slice(0, 10)}..now: model="${model}" backend=${m.backend ?? "?"} calls=${m.calls} failed=${m.failed} failureRate=${rate.toFixed(2)} lastFailureAt=${m.lastFailureAt ?? "none"} lastError=${m.lastError ?? "n/a"}`,
+      // Only a LIVE failure may generate an OrgTask. A resolved streak has
+      // nothing left to approve, and emitting one anyway is exactly the
+      // recurring false positive this replaced.
+      actionable: live,
+      key: `model-reliability:${model}`,
+    });
+  }
+
+  const totalPaidUsd = [...paidByModel.values()].reduce((s, v) => s + v, 0);
   if (totalPaidUsd > 0) {
     out.push({
       area: "Model cost",
-      issue: `$${totalPaidUsd.toFixed(4)} spent on paid models this window (${paidSpend.map(m => m.model).join(", ")})`,
+      issue: `$${totalPaidUsd.toFixed(4)} spent on paid models in the last 7d (${[...paidByModel.keys()].join(", ")})`,
       recommendation: "Review whether a free-tier model would serve these calls just as well — informational only, no auto-switch without checking output quality first.",
-      evidence: paidSpend.map(m => `${m.model}: $${m.costUsd.toFixed(4)} (${m.calls} calls)`).join("; "),
+      evidence: [...paidByModel.entries()].map(([model, c]) => `${model}: $${c.toFixed(4)}`).join("; "),
       actionable: false,
     });
   }
@@ -594,8 +653,29 @@ export async function runInnovationScan(opts: { force?: boolean } = {}): Promise
     // fix via system.admin's switch_model action and the operator approves
     // it, instead of the finding just sitting in a digest nobody acts on.
     try {
-      const { createOrgTask, listOrgTasks } = await import("./org-tasks.js");
-      const openTitles = new Set(listOrgTasks({ role: "admin" }).filter(t => t.status !== "done").map(t => t.title));
+      const { createOrgTask, listOrgTasks, updateOrgTaskStatus } = await import("./org-tasks.js");
+      const open = listOrgTasks({ role: "admin" }).filter(t => t.status !== "done");
+      // Match titles DASH-INSENSITIVELY. The separator in this title drifted
+      // from "-" to "—" at some point, so tasks written by an older build
+      // stopped matching and dedup silently broke — the next run created a
+      // fresh duplicate right beside the original. Four model-reliability
+      // tasks sat in backlog for a week because of it.
+      const normTitle = (s: string) => s.replace(/[\u2010-\u2015\u2212-]/g, "-").trim().toLowerCase();
+      const openTitles = new Set(open.map(t => normTitle(t.title)));
+      // Live = the finding is still actionable (its failure streak is still
+      // ongoing — see deriveModelHealthFindings). Anything else is history.
+      const liveKeys = new Set(modelHealth.filter(f => f.actionable && f.key).map(f => f.key!));
+      // Auto-resolve. A model-reliability task whose finding is no longer
+      // actionable is a false positive left standing — its underlying cause
+      // was fixed days ago and nothing is failing now. Close it (audited, via
+      // the normal status transition) instead of leaving an operator to
+      // discover the admin backlog is full of already-remediated problems.
+      for (const t of open) {
+        const key = /model-reliability:(.+)$/i.exec(t.title)?.[1];
+        if (!key || liveKeys.has(`model-reliability:${key}`)) continue;
+        updateOrgTaskStatus(t.id, "done");
+        console.log(`[innovation-scan] auto-resolved stale model-health task: ${t.title}`);
+      }
       for (const f of modelHealth) {
         if (!f.actionable) continue;
         // The title (the dedup key) must stay STABLE across runs — it used to
@@ -607,7 +687,7 @@ export async function runInnovationScan(opts: { force?: boolean } = {}): Promise
         // days' titles ever matched. f.key (e.g. "model-reliability:<model>")
         // is the same every day; the live numbers still show up in `detail`.
         const title = `Innovation Scan: ${f.area} — ${f.key ?? f.issue}`.slice(0, 160);
-        if (openTitles.has(title)) continue;
+        if (openTitles.has(normTitle(title))) continue;
         createOrgTask({ role: "admin", title, detail: `${f.issue}\n\n${f.recommendation}\n\nEvidence: ${f.evidence}`, priority: "high", createdBy: "daemon" });
       }
     } catch (e: any) {
@@ -676,7 +756,7 @@ export async function innovationScanStatus(): Promise<{ last: InnovationScanResu
 
 // ─── Hourly scheduler — mirrors reflection.ts's exactly, offset by a few
 // hours so the two nightly jobs don't compete for the LLM backend at once. ───
-let scheduler: NodeJS.Timeout | null = null;
+const ENGINE_NAME = "innovation-scan";
 let lastRunDate: string | null = null;
 
 // Best-effort push of the finished digest to Telegram — never throws, never
@@ -700,7 +780,6 @@ async function deliverToTelegram(result: InnovationScanResult): Promise<void> {
 }
 
 export function startInnovationScanScheduler(): void {
-  if (scheduler) return;
   // Default 8 AM local — innovation scan fires at 8am. The todo brief (6am) and
   // daily reflection (8pm) are offset so they don't compete for the LLM backend
   // at once. They may still land in the same catch-up tick; that's fine, each
@@ -735,12 +814,11 @@ export function startInnovationScanScheduler(): void {
     }
     catch (e: any) { console.warn(`[innovation-scan] scheduler run failed: ${e?.message ?? e}`); }
   };
-  scheduler = setInterval(tick, 10 * 60_000);
-  void tick();
+  registerEngine({ name: ENGINE_NAME, intervalSeconds: 10 * 60, run: tick });
 }
 
 export function stopInnovationScanScheduler(): void {
-  if (scheduler) { clearInterval(scheduler); scheduler = null; }
+  unregisterEngine(ENGINE_NAME);
 }
 
 // Stay tree-shake-friendly — referenced only when the route imports it.

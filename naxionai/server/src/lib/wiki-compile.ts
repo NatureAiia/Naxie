@@ -18,6 +18,7 @@ import { config } from "../config.js";
 import { readVaultFile, writeWikiFile, ARCHIVE_DIR, WIKI_DIR, getVaultHealth } from "./vault.js";
 import { enqueueVaultCommit } from "./commit-queue.js";
 import { llmGenerate } from "./llm.js";
+import { registerEngine, unregisterEngine } from "./scheduler-registry.js";
 
 const STATE_DIR = "_naxion/wiki-compile";
 const STATE_PATH = `${STATE_DIR}/state.json`;
@@ -136,8 +137,8 @@ export async function runWikiCompile(): Promise<CompileResult> {
 // day, so a server that was down at the exact hour still catches up instead
 // of silently skipping the day.
 
-let compileScheduler: NodeJS.Timeout | null = null;
-let digestScheduler: NodeJS.Timeout | null = null;
+const COMPILE_ENGINE_NAME = "wiki-compile";
+const DIGEST_ENGINE_NAME = "wiki-digest";
 let lastCompileRunDate: string | null = null;
 let lastDigestRunDate: string | null = null;
 
@@ -146,7 +147,6 @@ function localDateStr(d = new Date()): string {
 }
 
 export function startWikiCompileScheduler(): void {
-  if (compileScheduler) return;
   const HOUR = Number(process.env.NAXION_WIKI_COMPILE_HOUR ?? "3");
   const tick = async () => {
     const now = new Date();
@@ -166,18 +166,16 @@ export function startWikiCompileScheduler(): void {
     try { await runWikiCompile(); }
     catch (e: any) { console.warn(`[wiki-compile] scheduler run failed: ${e?.message ?? e}`); }
   };
-  compileScheduler = setInterval(tick, 10 * 60_000);
-  void tick();
+  registerEngine({ name: COMPILE_ENGINE_NAME, intervalSeconds: 10 * 60, run: tick });
 }
 
 export function stopWikiCompileScheduler(): void {
-  if (compileScheduler) { clearInterval(compileScheduler); compileScheduler = null; }
+  unregisterEngine(COMPILE_ENGINE_NAME);
 }
 
 // Later-hour digest — emails/toasts a summary of the most recent compile
 // (whether it ran just now or earlier tonight) once per day.
 export function startWikiDigestScheduler(): void {
-  if (digestScheduler) return;
   const HOUR = Number(process.env.NAXION_WIKI_DIGEST_HOUR ?? "7");
   const tick = async () => {
     const now = new Date();
@@ -205,10 +203,9 @@ export function startWikiDigestScheduler(): void {
     state.lastDigestSentDate = today;
     saveState(state);
   };
-  digestScheduler = setInterval(tick, 10 * 60_000);
-  void tick();
+  registerEngine({ name: DIGEST_ENGINE_NAME, intervalSeconds: 10 * 60, run: tick });
 }
 
 export function stopWikiDigestScheduler(): void {
-  if (digestScheduler) { clearInterval(digestScheduler); digestScheduler = null; }
+  unregisterEngine(DIGEST_ENGINE_NAME);
 }

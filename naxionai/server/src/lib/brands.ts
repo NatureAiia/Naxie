@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { addPersona, updatePersona, loadPersonas, type Persona } from "./personas.js";
 import { writeVaultFile, readVaultFile } from "./vault.js";
+import { ensureBrandContextFiles } from "./brand-context.js";
 
 // Brand registry — the marketing feature's first-class "which voice/audience/
 // channel am I speaking for" concept. Seeded with the 3 brands the operator
@@ -87,6 +88,10 @@ export function createBrand(input: {
   const id = input.id ? slug(input.id) : slug(input.name);
   if (!id) throw new Error("brand needs a name");
   if (list.some(b => b.id === id)) throw new Error(`brand "${id}" already exists`);
+  // Seed the brand's context dump + profile vault files (idempotent) so
+  // the compaction loop has somewhere to read from the moment the brand
+  // exists — not only for the three seeded defaults.
+  try { ensureBrandContextFiles(id, input.name); } catch { /* vault unreachable — compaction will surface it later */ }
   const brand: Brand = {
     id,
     name: input.name,
@@ -113,6 +118,21 @@ export function updateBrand(id: string, patch: Partial<Omit<Brand, "id" | "creat
   if (!b) return null;
   Object.assign(b, patch);
   save(list);
+  // Brand edits must reach the agent: ensureBrandPersona used to bake
+  // voice/audience/values into the persona's systemPromptOverride ONCE at
+  // brand creation, so later Brands-page edits silently never propagated
+  // (the persona kept talking to a stale audience in a stale voice). Now
+  // updateBrand re-syncs the generated persona's override whenever the
+  // prompt-relevant fields change. Only auto-generated personas
+  // (social-media-manager-<brandId>) are touched — a repurposed shared
+  // persona like Sasha keeps its own hand-authored prompt.
+  const promptFields: (keyof typeof patch)[] = ["name", "voice", "audience", "values"];
+  if (promptFields.some(f => f in patch)) {
+    const generatedId = `social-media-manager-${b.id}`;
+    if (b.personaIds.includes(generatedId)) {
+      try { updatePersona(generatedId, { systemPromptOverride: buildBrandPersonaPrompt(b) }); } catch { /* persona missing — non-fatal */ }
+    }
+  }
   return b;
 }
 
@@ -166,21 +186,33 @@ function ensureBrandPersona(brand: Brand, opts: { reuseSasha?: boolean }): strin
       "Read post analytics and report what's working",
       `Never reference another brand's audience, offer, or voice — see the cross-brand-isolation skill`,
     ],
-    systemPromptOverride:
-      `You are the Social Media Manager for ${brand.name}.\n\n` +
-      `Audience: ${brand.audience || "(not set yet — ask the operator before assuming one)"}\n` +
-      `Voice: ${brand.voice || "(not set yet)"}\n` +
-      (brand.values ? `\nValues:\n${brand.values}\n` : "") +
-      `\nHow you operate:\n` +
-      `- Platform-native: match length, tone, and hashtag/emoji norms per platform.\n` +
-      `- PUBLISHING is outward-facing: it PARKS FOR APPROVAL before going live — present the draft clearly for sign-off, never bypass it.\n` +
-      `- Never invent engagement numbers — pull real figures or say plainly that analytics aren't available.\n` +
-      `- This persona speaks ONLY for ${brand.name} — never blend in another brand's voice, audience, or offers.`,
+    systemPromptOverride: buildBrandPersonaPrompt(brand),
     department: `brand-${brand.id}`,
     createdAt: new Date().toISOString(),
   };
   addPersona(persona);
   return id;
+}
+
+// The generated brand persona's system prompt. Extracted from
+// ensureBrandPersona so updateBrand can re-sync it when voice/audience/
+// values change on the Brands page (it used to be a one-time snapshot at
+// brand creation — edits never reached the agent). Static operational
+// rules only; the living brand profile (compacted from context-dump.md)
+// is injected separately at prompt-build time via
+// brand-context.ts's readBrandContextSuffix (personas.ts).
+function buildBrandPersonaPrompt(brand: Brand): string {
+  return (
+    `You are the Social Media Manager for ${brand.name}.\n\n` +
+    `Audience: ${brand.audience || "(not set yet — ask the operator before assuming one)"}\n` +
+    `Voice: ${brand.voice || "(not set yet)"}\n` +
+    (brand.values ? `\nValues:\n${brand.values}\n` : "") +
+    `\nHow you operate:\n` +
+    `- Platform-native: match length, tone, and hashtag/emoji norms per platform.\n` +
+    `- PUBLISHING is outward-facing: it PARKS FOR APPROVAL before going live — present the draft clearly for sign-off, never bypass it.\n` +
+    `- Never invent engagement numbers — pull real figures or say plainly that analytics aren't available.\n` +
+    `- This persona speaks ONLY for ${brand.name} — never blend in another brand's voice, audience, or offers.`
+  );
 }
 
 // Idempotent — creates the 3 confirmed brands (personal / work /
@@ -258,4 +290,16 @@ export function seedDefaultBrands(): void {
   updateBrand(personal.id, { personaIds: [ensureBrandPersona(personal, {})] });
   updateBrand(work.id, { personaIds: [ensureBrandPersona(work, { reuseSasha: true })] });
   updateBrand(business.id, { personaIds: [ensureBrandPersona(business, {})] });
+}
+
+/**
+ * Backfill the context dump/profile vault files for brands that existed
+ * BEFORE the brand-context feature landed (seedDefaultBrands no-ops once
+ * brands.json exists, so those brands never went through createBrand's
+ * seeding). Idempotent and cheap — called at boot after seedDefaultBrands.
+ */
+export function ensureAllBrandContextFiles(): void {
+  for (const b of load()) {
+    try { ensureBrandContextFiles(b.id, b.name); } catch { /* vault unreachable — non-fatal at boot */ }
+  }
 }
