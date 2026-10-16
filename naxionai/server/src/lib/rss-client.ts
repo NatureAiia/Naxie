@@ -34,12 +34,15 @@ const CURATED_FEEDS: FeedSpec[] = [
   { url: "https://arstechnica.com/feed/", label: "Ars Technica" },
   { url: "https://www.wired.com/feed/tag/ai/latest/rss", label: "Wired AI" },
   { url: "https://www.theregister.com/software/ai_ml/headlines.atom", label: "The Register AI/ML" },
+  { url: "https://www.artificialintelligence-news.com/feed", label: "AI News" },
   // Africa Tech — added 2026-09-19 for quality Africa coverage (best-effort: feeds that 404 are silently skipped by fetchOneFeed)
   { url: "https://www.techzim.co.zw/feed", label: "TechZim" },
   { url: "https://disrupt-africa.com/feed/", label: "Disrupt Africa" },
   { url: "https://ventureburn.com/feed/", label: "Ventureburn" },
   { url: "https://techcabal.com/feed/", label: "TechCabal" },
   { url: "https://www.techinafrica.com/feed", label: "Tech in Africa" },
+  // Added 2026-10-16 after the Africa scan missed the iafrica.com ISS/North-Africa breach story
+  { url: "https://iafrica.com/feed", label: "iAfrica" },
 ];
 
 const FETCH_TIMEOUT_MS = 6_000;

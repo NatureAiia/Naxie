@@ -408,6 +408,8 @@ export const CONSEQUENTIAL_TOOLS = new Set([
   // routes them through the SAME governance gate as everything else here,
   // not a parallel check.
   "calendar.write_external_attendee",
+  "google.send_email", "microsoft.send_email",
+  "google.create_event", "google.update_event", "microsoft.create_event", "microsoft.update_event",
   "system_control", "manage_clipboard", "git_pull",
   // Naxie's own folder + Telegram file flow: local.write/delete are jailed to
   // D:\Naxie and local.send moves nothing until the Telegram tap, but they

@@ -309,8 +309,8 @@ export function maybeReportIdleActivity(now = Date.now()): boolean {
 // Chat-inactivity check-in — ports agency_daemon.py:_check_idle_chat_nudge.
 // Fires purely because *you* went quiet (not task state). Requires a persisted
 // lastInteractionAt (naxie-interactions.json); never fires if you've never chatted.
-const CHAT_IDLE_MS = Number(process.env.NAXION_CHAT_IDLE_MS) || 2 * 3600 * 1000;
-const CHAT_NUDGE_THROTTLE_MS = Number(process.env.NAXION_CHAT_NUDGE_THROTTLE_MS) || 2 * 3600 * 1000;
+const CHAT_IDLE_MS = Number(process.env.NAXION_CHAT_IDLE_MS) || 5 * 3600 * 1000;
+const CHAT_NUDGE_THROTTLE_MS = Number(process.env.NAXION_CHAT_NUDGE_THROTTLE_MS) || 24 * 3600 * 1000;
 
 export async function maybeNudgeChatInactivity(now = Date.now()): Promise<boolean> {
   if (process.env.NAXION_CHAT_NUDGE_ENABLED === "0") return false;

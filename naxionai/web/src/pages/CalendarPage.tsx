@@ -44,7 +44,7 @@ export function CalendarPage() {
   const [anchor, setAnchor] = useState(todayLocal());
   const [selected, setSelected] = useState(todayLocal());
   const [activity, setActivity] = useState<{ date: string; jobs: any[] }[]>([]);
-  const [agenda, setAgenda] = useState<{ date: string; activity: any[]; meetings: any[]; meetingsError?: string; schedules: any[]; events?: { date: string; title: string; subject: string }[] } | null>(null);
+  const [agenda, setAgenda] = useState<{ date: string; activity: any[]; meetings: any[]; meetingsError?: string; schedules: any[]; events?: { date: string; title: string; subject: string }[]; externalEvents?: { summary: string; start?: string; end?: string; account: string; source: "google" | "microsoft" }[]; conflicts?: { eventA: { summary: string }; eventB: { summary: string }; overlapMinutes: number }[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [personas, setPersonas] = useState<PersonaLite[]>([]);
   const [departments, setDepartments] = useState<DeptLite[]>([]);
@@ -267,6 +267,26 @@ export function CalendarPage() {
               <div className="text-sm text-cream-300/60">Loading…</div>
             ) : (
               <div className="space-y-4 text-sm">
+                {!!agenda.conflicts?.length && (
+                  <div className="flex items-start gap-1.5 text-[12px] text-coral-400 bg-coral-500/5 border border-coral-500/30 rounded px-2 py-1.5">
+                    <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                    <span>
+                      {agenda.conflicts.length} overlapping event{agenda.conflicts.length === 1 ? "" : "s"}:{" "}
+                      {agenda.conflicts.map((c, i) => (
+                        <span key={i}>{i > 0 ? "; " : ""}"{c.eventA.summary}" overlaps "{c.eventB.summary}" ({c.overlapMinutes}m)</span>
+                      ))}
+                    </span>
+                  </div>
+                )}
+                <AgendaSection
+                  icon={<CalendarDays size={14} />}
+                  title={`External Calendar (${agenda.externalEvents?.length ?? 0})`}
+                  empty="No Google/Microsoft events (connect an account under Settings > Connectors)."
+                  items={(agenda.externalEvents ?? []).map(e => ({
+                    title: e.summary,
+                    meta: `${e.start ? new Date(e.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "?"}${e.end ? `–${new Date(e.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""} · ${e.source === "google" ? "Google" : "Outlook"} · ${e.account}`,
+                  }))}
+                />
                 <AgendaSection
                   icon={<CalendarDays size={14} />}
                   title="Meetings"

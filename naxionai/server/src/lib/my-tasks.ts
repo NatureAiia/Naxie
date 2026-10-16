@@ -73,6 +73,11 @@ export type TaskItem = {
   // every task the operator created directly. Parent is folder-nesting's
   // flat-store equivalent: no separate tree, just this one id.
   parentId?: string;
+  // Present only on an item mirrored from/to Google Tasks or Microsoft To Do
+  // (see task-sync.ts) — absent on every task created purely locally. The
+  // (externalSource, externalId) pair is the sync engine's dedup key.
+  externalSource?: "google" | "microsoft";
+  externalId?: string;
 };
 
 export type TaskList = {
@@ -82,6 +87,10 @@ export type TaskList = {
   color?: string;
   order: number;
   createdAt: string;
+  // Opt-in only (per operator decision) — absent means this list stays
+  // purely local, same as every list before task-sync.ts existed. Present
+  // means task-sync.ts's engine pulls/pushes against this one external list.
+  syncExternal?: { source: "google" | "microsoft"; externalListId: string };
 };
 
 type Store = { lists: TaskList[]; items: TaskItem[] };
@@ -132,6 +141,26 @@ export function renameList(ownerEmail: string, id: string, name: string): TaskLi
   list.name = name.trim() || list.name;
   save(store);
   return list;
+}
+
+// Opt a list in/out of external sync (task-sync.ts). `sync: null` disables
+// it — existing mirrored items (externalSource/externalId) are left as-is,
+// they just stop getting updated by future sync ticks.
+export function setListSync(ownerEmail: string, id: string, sync: TaskList["syncExternal"] | null): TaskList | null {
+  const store = load();
+  const list = store.lists.find(l => l.id === id && l.ownerEmail === ownerEmail);
+  if (!list) return null;
+  if (sync) list.syncExternal = sync;
+  else delete list.syncExternal;
+  save(store);
+  return list;
+}
+
+// Every list, across all owners, currently opted into external sync — the
+// task-sync tick loop has no request/caller context, same reasoning as
+// listAllAutomations() above.
+export function listSyncedLists(): TaskList[] {
+  return load().lists.filter(l => !!l.syncExternal);
 }
 
 export function removeList(ownerEmail: string, id: string): boolean {
@@ -294,6 +323,66 @@ function findItemById(id: string): { store: Store; item: TaskItem } | null {
 
 export function getAutomationItem(id: string): TaskItem | null {
   return findItemById(id)?.item ?? null;
+}
+
+// ─── external task sync (task-sync.ts) ─────────────────────────────────────
+// Cross-owner direct-store helpers, same reasoning as the automation block
+// above: the sync tick has no request/caller context.
+
+export function findItemByExternalId(source: "google" | "microsoft", externalId: string): TaskItem | null {
+  return load().items.find(i => i.externalSource === source && i.externalId === externalId) ?? null;
+}
+
+// Creates a new local mirror of an external task (the "pull created a task
+// Naxie hasn't seen before" case).
+export function addExternalItem(listId: string, ownerEmail: string, input: {
+  title: string; notes?: string; dueDate?: string; completed?: boolean;
+  externalSource: "google" | "microsoft"; externalId: string;
+}): TaskItem {
+  const store = load();
+  const order = store.items.filter(i => i.ownerEmail === ownerEmail && i.listId === listId).length;
+  const item: TaskItem = {
+    id: randomUUID(), listId, ownerEmail,
+    title: input.title.trim() || "Untitled task",
+    notes: input.notes, steps: [], dueDate: input.dueDate,
+    repeat: null, important: false,
+    completed: input.completed === true,
+    completedAt: input.completed ? new Date().toISOString() : undefined,
+    createdAt: new Date().toISOString(), order,
+    externalSource: input.externalSource, externalId: input.externalId,
+  };
+  store.items.push(item);
+  save(store);
+  return item;
+}
+
+// Reflects the external service's current state onto an already-mirrored
+// local item (the "pull" direction for an item that already exists). Only
+// title/notes/dueDate/completed are tracked both ways — field-level edits
+// beyond that (e.g. notes formatting) aren't reconciled in this version.
+export function applyExternalUpdate(itemId: string, patch: { title?: string; notes?: string; dueDate?: string; completed?: boolean }): void {
+  const store = load();
+  const item = store.items.find(i => i.id === itemId);
+  if (!item) return;
+  if (patch.title !== undefined) item.title = patch.title;
+  if (patch.notes !== undefined) item.notes = patch.notes;
+  if (patch.dueDate !== undefined) item.dueDate = patch.dueDate;
+  if (patch.completed !== undefined && patch.completed !== item.completed) {
+    item.completed = patch.completed;
+    item.completedAt = patch.completed ? new Date().toISOString() : undefined;
+  }
+  save(store);
+}
+
+// Tags a purely-local item as now mirrored externally (the "push created it,
+// remember the id so we don't create it again next tick" case).
+export function tagExternalId(itemId: string, source: "google" | "microsoft", externalId: string): void {
+  const store = load();
+  const item = store.items.find(i => i.id === itemId);
+  if (!item) return;
+  item.externalSource = source;
+  item.externalId = externalId;
+  save(store);
 }
 
 // Merge-patches automation fields onto an item, creating `automation` (with

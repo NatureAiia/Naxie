@@ -33,6 +33,7 @@ import { startInnovationScanScheduler, stopInnovationScanScheduler } from "./lib
 import { startSystemAuditScheduler, stopSystemAuditScheduler, startWeeklyBoardScheduler, stopWeeklyBoardScheduler } from "./lib/system-audit.js";
 import { startTodoBriefScheduler, stopTodoBriefScheduler, runTodoBrief } from "./lib/todo-brief.js";
 import { startTaskAutomationScheduler, stopTaskAutomationScheduler, registerNativeHandler, seedAutomationIfMissing } from "./lib/my-tasks.js";
+import { startTaskSyncScheduler, stopTaskSyncScheduler } from "./lib/task-sync.js";
 import { startWeeklyRollupScheduler, stopWeeklyRollupScheduler } from "./lib/weekly-rollup.js";
 import { startWeeklyImprovementScheduler, stopWeeklyImprovementScheduler } from "./lib/weekly-improvement.js";
 import { startWikiCompileScheduler, stopWikiCompileScheduler, startWikiDigestScheduler, stopWikiDigestScheduler } from "./lib/wiki-compile.js";
@@ -608,6 +609,12 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // reads. Default every 5m; opt out with NAXION_VAULT_PULL=0.
   startVaultPullScheduler();
 
+  // Google Tasks / Microsoft To Do two-way sync for any personal task list
+  // the operator explicitly opted in (TaskList.syncExternal) — a no-op tick
+  // when nothing is opted in, same always-armed posture as the other
+  // schedulers here.
+  startTaskSyncScheduler();
+
   // End-of-day reflection at 8pm (20:00) — the day's report. Only the primary
   // runs the scheduler — secondary agents are workers and the reflection
   // covers the whole fleet from the primary's job list anyway. Disable with
@@ -847,6 +854,8 @@ async function gracefulExit(signal: string) {
   try { stopTodoBriefScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopTaskAutomationScheduler(); }
+  catch { /* never block shutdown on a scheduler stop */ }
+  try { stopTaskSyncScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }
   try { stopWeeklyRollupScheduler(); }
   catch { /* never block shutdown on a scheduler stop */ }

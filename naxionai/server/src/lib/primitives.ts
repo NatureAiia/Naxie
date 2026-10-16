@@ -4890,27 +4890,8 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     readonly: true,
     args: [{ name: "maxResults", type: "number", required: false, description: "Max events to return (default 10)" }],
     handler: async (args) => {
-      try {
-        const { getValidAccessTokens } = await import("./oauth-connectors.js");
-        const tokens = await getValidAccessTokens("google");
-        if (!tokens.length) return [];
-        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
-        const allEvents = [];
-        for (const { token, accountName } of tokens) {
-          const params = new URLSearchParams({ maxResults: String(maxPerAccount), singleEvents: "true", orderBy: "startTime", timeMin: new Date().toISOString() });
-          const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, { headers: { authorization: `Bearer ${token}` } });
-          if (!r.ok) continue;
-          const data: any = await r.json();
-          const events = (data.items ?? []).map((e: any) => ({ 
-            summary: e.summary, 
-            start: e.start?.dateTime ?? e.start?.date, 
-            end: e.end?.dateTime ?? e.end?.date,
-            account: accountName ?? "unknown"
-          }));
-          allEvents.push(...events);
-        }
-        return allEvents;
-      } catch { return []; }
+      const { listGoogleEvents } = await import("./external-calendar.js");
+      return await listGoogleEvents(Number(args.maxResults) || 10);
     },
   },
   {
@@ -4981,26 +4962,8 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
     readonly: true,
     args: [{ name: "maxResults", type: "number", required: false, description: "Max events to return (default 10)" }],
     handler: async (args) => {
-      try {
-        const { getValidAccessTokens } = await import("./oauth-connectors.js");
-        const tokens = await getValidAccessTokens("microsoft");
-        if (!tokens.length) return [];
-        const maxPerAccount = Math.min(Number(args.maxResults) || 10, 50);
-        const allEvents = [];
-        for (const { token, accountName } of tokens) {
-          const r = await fetch(`https://graph.microsoft.com/v1.0/me/events?$top=${maxPerAccount}&$select=subject,start,end&$orderby=start/dateTime`, { headers: { authorization: `Bearer ${token}` } });
-          if (!r.ok) continue;
-          const data: any = await r.json();
-          const events = (data.value ?? []).map((e: any) => ({ 
-            subject: e.subject, 
-            start: e.start?.dateTime, 
-            end: e.end?.dateTime,
-            account: accountName ?? "unknown"
-          }));
-          allEvents.push(...events);
-        }
-        return allEvents;
-      } catch { return []; }
+      const { listMicrosoftEvents } = await import("./external-calendar.js");
+      return await listMicrosoftEvents(Number(args.maxResults) || 10);
     },
   },
   {
@@ -5029,6 +4992,134 @@ When you're uncertain about citation_coverage, lean higher when you see [N] or [
         }
         return allFiles;
       } catch { return []; }
+    },
+  },
+  {
+    name: "google.send_email",
+    description: "Send an email from the connected Google account's own Gmail (as the operator, not Naxie's system mailbox). Requires the Google connector to have granted gmail.send (Settings > Connectors) — reconnect if it was linked before that scope existed.",
+    readonly: false,
+    args: [
+      { name: "to", type: "string", required: true, description: "Recipient email(s), comma-separated" },
+      { name: "subject", type: "string", required: true, description: "Email subject" },
+      { name: "body", type: "string", required: true, description: "Plain-text email body" },
+      { name: "accountName", type: "string", required: false, description: "Which connected Google account to send from, if more than one is connected" },
+    ],
+    handler: async (args) => {
+      const { getValidAccessTokens, pickAccount } = await import("./oauth-connectors.js");
+      const { sendGmailMessage } = await import("./external-mail.js");
+      const chosen = pickAccount("google", await getValidAccessTokens("google"), args.accountName ? String(args.accountName) : undefined);
+      return await sendGmailMessage(chosen.token, { to: String(args.to), subject: String(args.subject), body: String(args.body) });
+    },
+  },
+  {
+    name: "microsoft.send_email",
+    description: "Send an email from the connected Microsoft account's own Outlook (as the operator, not Naxie's system mailbox). Requires the Microsoft connector to have granted Mail.Send (Settings > Connectors) — reconnect if it was linked before that scope existed.",
+    readonly: false,
+    args: [
+      { name: "to", type: "string", required: true, description: "Recipient email(s), comma-separated" },
+      { name: "subject", type: "string", required: true, description: "Email subject" },
+      { name: "body", type: "string", required: true, description: "Plain-text email body" },
+      { name: "accountName", type: "string", required: false, description: "Which connected Microsoft account to send from, if more than one is connected" },
+    ],
+    handler: async (args) => {
+      const { getValidAccessTokens, pickAccount } = await import("./oauth-connectors.js");
+      const { sendOutlookMessage } = await import("./external-mail.js");
+      const chosen = pickAccount("microsoft", await getValidAccessTokens("microsoft"), args.accountName ? String(args.accountName) : undefined);
+      return await sendOutlookMessage(chosen.token, { to: String(args.to), subject: String(args.subject), body: String(args.body) });
+    },
+  },
+  {
+    name: "google.create_event",
+    description: "Create a new event on the connected Google account's Calendar. Requires calendar.events scope (Settings > Connectors) — reconnect if it was linked before that scope existed.",
+    readonly: false,
+    args: [
+      { name: "summary", type: "string", required: true, description: "Event title" },
+      { name: "start", type: "string", required: true, description: "Start time, ISO 8601 (e.g. 2026-10-20T14:00:00+02:00)" },
+      { name: "end", type: "string", required: true, description: "End time, ISO 8601" },
+      { name: "description", type: "string", required: false, description: "Event description/notes" },
+      { name: "attendees", type: "string", required: false, description: "Attendee email(s), comma-separated" },
+      { name: "accountName", type: "string", required: false, description: "Which connected Google account, if more than one is connected" },
+    ],
+    handler: async (args) => {
+      const { getValidAccessTokens, pickAccount } = await import("./oauth-connectors.js");
+      const { createGoogleEvent } = await import("./external-calendar.js");
+      const chosen = pickAccount("google", await getValidAccessTokens("google"), args.accountName ? String(args.accountName) : undefined);
+      const attendees = args.attendees ? String(args.attendees).split(",").map(s => s.trim()).filter(Boolean) : undefined;
+      return await createGoogleEvent(chosen.token, { summary: String(args.summary), start: String(args.start), end: String(args.end), description: args.description ? String(args.description) : undefined, attendees });
+    },
+  },
+  {
+    name: "google.update_event",
+    description: "Update an existing event on the connected Google account's Calendar (fields you omit are left unchanged). Find the eventId via google.list_upcoming_events.",
+    readonly: false,
+    args: [
+      { name: "eventId", type: "string", required: true, description: "The event's Google Calendar id, from google.list_upcoming_events" },
+      { name: "summary", type: "string", required: false, description: "New event title" },
+      { name: "start", type: "string", required: false, description: "New start time, ISO 8601" },
+      { name: "end", type: "string", required: false, description: "New end time, ISO 8601" },
+      { name: "description", type: "string", required: false, description: "New event description/notes" },
+      { name: "attendees", type: "string", required: false, description: "New attendee list, comma-separated (replaces the existing list)" },
+      { name: "accountName", type: "string", required: false, description: "Which connected Google account, if more than one is connected" },
+    ],
+    handler: async (args) => {
+      const { getValidAccessTokens, pickAccount } = await import("./oauth-connectors.js");
+      const { updateGoogleEvent } = await import("./external-calendar.js");
+      const chosen = pickAccount("google", await getValidAccessTokens("google"), args.accountName ? String(args.accountName) : undefined);
+      const attendees = args.attendees ? String(args.attendees).split(",").map(s => s.trim()).filter(Boolean) : undefined;
+      return await updateGoogleEvent(chosen.token, String(args.eventId), {
+        summary: args.summary ? String(args.summary) : undefined,
+        start: args.start ? String(args.start) : undefined,
+        end: args.end ? String(args.end) : undefined,
+        description: args.description ? String(args.description) : undefined,
+        attendees,
+      });
+    },
+  },
+  {
+    name: "microsoft.create_event",
+    description: "Create a new event on the connected Microsoft account's Outlook Calendar. Requires Calendars.ReadWrite scope (Settings > Connectors) — reconnect if it was linked before that scope existed.",
+    readonly: false,
+    args: [
+      { name: "summary", type: "string", required: true, description: "Event title" },
+      { name: "start", type: "string", required: true, description: "Start time, ISO 8601 UTC (e.g. 2026-10-20T14:00:00)" },
+      { name: "end", type: "string", required: true, description: "End time, ISO 8601 UTC" },
+      { name: "description", type: "string", required: false, description: "Event description/notes" },
+      { name: "attendees", type: "string", required: false, description: "Attendee email(s), comma-separated" },
+      { name: "accountName", type: "string", required: false, description: "Which connected Microsoft account, if more than one is connected" },
+    ],
+    handler: async (args) => {
+      const { getValidAccessTokens, pickAccount } = await import("./oauth-connectors.js");
+      const { createMicrosoftEvent } = await import("./external-calendar.js");
+      const chosen = pickAccount("microsoft", await getValidAccessTokens("microsoft"), args.accountName ? String(args.accountName) : undefined);
+      const attendees = args.attendees ? String(args.attendees).split(",").map(s => s.trim()).filter(Boolean) : undefined;
+      return await createMicrosoftEvent(chosen.token, { summary: String(args.summary), start: String(args.start), end: String(args.end), description: args.description ? String(args.description) : undefined, attendees });
+    },
+  },
+  {
+    name: "microsoft.update_event",
+    description: "Update an existing event on the connected Microsoft account's Outlook Calendar (fields you omit are left unchanged). Find the eventId via microsoft.list_recent_events.",
+    readonly: false,
+    args: [
+      { name: "eventId", type: "string", required: true, description: "The event's Microsoft Graph id, from microsoft.list_recent_events" },
+      { name: "summary", type: "string", required: false, description: "New event title" },
+      { name: "start", type: "string", required: false, description: "New start time, ISO 8601 UTC" },
+      { name: "end", type: "string", required: false, description: "New end time, ISO 8601 UTC" },
+      { name: "description", type: "string", required: false, description: "New event description/notes" },
+      { name: "attendees", type: "string", required: false, description: "New attendee list, comma-separated (replaces the existing list)" },
+      { name: "accountName", type: "string", required: false, description: "Which connected Microsoft account, if more than one is connected" },
+    ],
+    handler: async (args) => {
+      const { getValidAccessTokens, pickAccount } = await import("./oauth-connectors.js");
+      const { updateMicrosoftEvent } = await import("./external-calendar.js");
+      const chosen = pickAccount("microsoft", await getValidAccessTokens("microsoft"), args.accountName ? String(args.accountName) : undefined);
+      const attendees = args.attendees ? String(args.attendees).split(",").map(s => s.trim()).filter(Boolean) : undefined;
+      return await updateMicrosoftEvent(chosen.token, String(args.eventId), {
+        summary: args.summary ? String(args.summary) : undefined,
+        start: args.start ? String(args.start) : undefined,
+        end: args.end ? String(args.end) : undefined,
+        description: args.description ? String(args.description) : undefined,
+        attendees,
+      });
     },
   },
 
@@ -5455,6 +5546,12 @@ export function humanStepLabel(tool: string, args: Record<string, any> = {}): st
     case "microsoft.list_recent_emails": return "Reading Outlook mail";
     case "microsoft.list_recent_events": return "Reading Outlook Calendar";
     case "microsoft.list_recent_files":  return "Reading OneDrive files";
+    case "google.send_email":            return "Sending Gmail";
+    case "microsoft.send_email":         return "Sending Outlook email";
+    case "google.create_event":          return "Creating Google Calendar event";
+    case "google.update_event":          return "Updating Google Calendar event";
+    case "microsoft.create_event":       return "Creating Outlook Calendar event";
+    case "microsoft.update_event":       return "Updating Outlook Calendar event";
     case "clock.now":          return "Checking the clock";
     case "web.search":         return s("query") ? `Searching the web for "${s("query")}"` : "Searching the web";
     case "research.deep":      return s("query") ? `Researching "${s("query").slice(0, 80)}${s("query").length > 80 ? "Ã¢â‚¬Â¦" : ""}" Ã¢â‚¬â€ vault + web` : "Researching";

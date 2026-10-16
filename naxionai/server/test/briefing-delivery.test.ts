@@ -13,6 +13,15 @@ describe("markdownToSpeech", () => {
     expect(out).toContain("Call Sara");
   });
 
+  it("allows only comma and full-stop punctuation (TTS policy)", () => {
+    const out = markdownToSpeech('Really?! Read — this: "quoted" (words)… 94% & $5m — don\'t stop');
+    expect(out).not.toMatch(/[!?:;"'()…%&$]/);
+    expect(out).not.toMatch(/—/);
+    expect(out).toMatch(/,/);
+    expect(out).toMatch(/\./);
+    expect(out).toContain("dont stop");
+  });
+
   it("drops code and bare URLs (unpronounceable)", () => {
     const out = markdownToSpeech("Run `pnpm dev` then open https://example.com/x now");
     expect(out).toContain("pnpm dev");
@@ -20,8 +29,8 @@ describe("markdownToSpeech", () => {
     expect(out).not.toContain("`");
   });
 
-  it("caps length with an ellipsis", () => {
-    expect(markdownToSpeech("word ".repeat(2000), 100)).toMatch(/\.\.\.|…$/);
+  it("caps length with a full stop", () => {
+    expect(markdownToSpeech("word ".repeat(2000), 100)).toMatch(/\.+$/);
   });
 
   it("keeps link text, drops the URL", () => {

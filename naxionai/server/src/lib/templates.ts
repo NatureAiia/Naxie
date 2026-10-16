@@ -166,6 +166,20 @@ export const templates: Template[] = [
     estimateSeconds: 90,
   },
   {
+    id: "africa-tech-alerts",
+    role: "Operations",
+    title: "Africa Tech Alerts — BREAKING (threats & breakthroughs)",
+    description: "Picks the single most dangerous OR most amazing tech story in, around or to Africa (breaches, AI-enabled crime, surveillance scares — or breakthroughs, record funding, major rollouts), then posts a sourced card to Telegram.",
+    icon: "broadcast",
+    agent: "naxie-agent",
+    inputs: [
+      { name: "chatId", label: "Telegram chat ID (blank = default chat)", type: "text", required: false, placeholder: "-1004307136262" },
+      { name: "videoUrl", label: "HeyGen video URL (optional)", type: "text", placeholder: "https://files2.heygen.ai/... .mp4" },
+    ],
+    requiresApproval: false,
+    estimateSeconds: 90,
+  },
+  {
     id: "world-ai-news",
     role: "Operations",
     title: "World AI news — BREAKING",
@@ -210,7 +224,7 @@ export const templates: Template[] = [
     id: "evening-recap",
     role: "Operations",
     title: "Evening AI recap — daily",
-    description: "Stitches today's Africa, World, SI and events cards into one 'Today in AI' evening digest for the group. No web sweep — reuses the vault cards, so it's cheap.",
+    description: "Stitches today's Africa, Alerts, World and events cards into one 'Today in AI' evening digest for the group. No web sweep — reuses the vault cards, so it's cheap.",
     icon: "broadcast",
     agent: "naxie-agent",
     inputs: [

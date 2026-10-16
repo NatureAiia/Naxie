@@ -32,18 +32,21 @@ export function NaxiePersonalConnectors() {
       <div>
         <h2 className="font-display text-xl text-cream-50 flex items-center gap-2"><Plug size={18} /> Personal accounts</h2>
         <p className="text-sm text-cream-300/70 mt-1">
-          Give Naxie read-only access to your own accounts — used for the morning digest (unread mail, upcoming
-          events) and, for documents, the knowledge base.
+          Give Naxie access to your own accounts — used for the morning digest (unread mail, upcoming events),
+          the knowledge base (documents), and, with your approval each time, sending email, scheduling
+          calendar events, and syncing personal tasks.
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <OAuthConnectorCard
           label="Google" icon={<Mail size={16} />} platform="google"
-          scopeHint="Gmail (read) + Calendar (read)"
+          scopeHint="Gmail (read + send) + Calendar (read + edit) + Tasks"
+          requiredScopeMarkers={["gmail.send", "calendar.events", "/auth/tasks"]}
         />
         <OAuthConnectorCard
           label="Microsoft" icon={<Mail size={16} />} platform="microsoft"
-          scopeHint="Outlook Mail + Calendar + OneDrive (read)"
+          scopeHint="Outlook Mail (read + send) + Calendar (read + edit) + To Do + OneDrive"
+          requiredScopeMarkers={["Mail.Send", "Calendars.ReadWrite", "Tasks.ReadWrite"]}
         />
         <LocalDocumentsCard />
       </div>
@@ -51,9 +54,17 @@ export function NaxiePersonalConnectors() {
   );
 }
 
-function OAuthConnectorCard({ label, icon, platform, scopeHint }: {
+function OAuthConnectorCard({ label, icon, platform, scopeHint, requiredScopeMarkers }: {
   label: string; icon: React.ReactNode; scopeHint: string;
   platform: "google" | "microsoft";
+  // Substrings that must all appear in the connection's stored `scope`
+  // string for it to cover send/write/tasks. There's no incremental-auth
+  // flow (oauth-connectors.ts's authorize URL always requests the FULL
+  // current scope set with prompt=consent) — an account connected before
+  // these scopes existed just has an old, narrower `scope` string, and the
+  // only fix is a full reconnect. This check surfaces that instead of
+  // letting a send/create-event call silently 403 later.
+  requiredScopeMarkers: string[];
 }) {
   const [connections, setConnections] = useState<PlatformConnection[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,6 +91,7 @@ function OAuthConnectorCard({ label, icon, platform, scopeHint }: {
   }
 
   const connected = connections && connections.length > 0;
+  const scopeStale = connected && !requiredScopeMarkers.every(marker => (connections![0].scope ?? "").includes(marker));
 
   return (
     <Card>
@@ -100,11 +112,23 @@ function OAuthConnectorCard({ label, icon, platform, scopeHint }: {
           {connected && (
             <div className="text-[11px] text-cream-300/70 mt-1 font-mono truncate">{connections![0].accountName}</div>
           )}
+          {scopeStale && (
+            <div className="text-[11px] text-amber-400/90 mt-1">
+              Connected before send/edit/tasks access existed — reconnect to enable them.
+            </div>
+          )}
         </div>
       </div>
-      <div className="mt-3">
+      <div className="mt-3 flex gap-2">
         {connected ? (
-          <Button variant="subtle" onClick={() => remove(connections![0].id)}>Disconnect</Button>
+          <>
+            {scopeStale && (
+              <Button onClick={connect} disabled={busy}>
+                {busy ? <Loader2 size={13} className="animate-spin" /> : <Plug size={13} />} Reconnect
+              </Button>
+            )}
+            <Button variant="subtle" onClick={() => remove(connections![0].id)}>Disconnect</Button>
+          </>
         ) : (
           <Button onClick={connect} disabled={busy}>
             {busy ? <Loader2 size={13} className="animate-spin" /> : <Plug size={13} />} Connect

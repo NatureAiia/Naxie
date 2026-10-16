@@ -44,7 +44,7 @@ const RULES: { what: string; tools: string[]; re: RegExp }[] = [
   },
   {
     what: "an email was sent",
-    tools: ["email.send"],
+    tools: ["email.send", "google.send_email", "microsoft.send_email"],
     // The third alternative matters most in practice: "The report has been
     // sent to jane@acme.com" names neither the word "email" nor the tool.
     re: new RegExp(
@@ -70,6 +70,16 @@ const RULES: { what: string; tools: string[]; re: RegExp }[] = [
     what: "a message was sent on WhatsApp",
     tools: ["whatsapp.send", "whatsapp.broadcast"],
     re: /\bwhatsapp[.\s_]?(?:send|broadcast)\b|\b(?:sent|delivered|posted)\b[^.\n]{0,40}\b(?:via|on|over|to)\s+whatsapp\b/i,
+  },
+  {
+    what: "a calendar event was created or updated",
+    tools: ["google.create_event", "google.update_event", "microsoft.create_event", "microsoft.update_event"],
+    re: new RegExp(
+      String.raw`\b(?:calendar\s+)?event\b[^.\n]{0,50}\b(?:has been |was |been |successfully )?` + NOT_YET + String.raw`(?:created|scheduled|added|booked|updated|moved|rescheduled)\b`
+      + String.raw`|\b` + NOT_YET + String.raw`(?:scheduled|booked)\b[^.\n]{0,40}\b(?:on|in)\s+(?:your\s+)?(?:google|outlook|microsoft)\s+calendar\b`
+      + String.raw`|\bgoogle\.(?:create|update)_event\b|\bmicrosoft\.(?:create|update)_event\b`,
+      "i",
+    ),
   },
 ];
 

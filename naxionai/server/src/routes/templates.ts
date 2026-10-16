@@ -74,7 +74,7 @@ templatesRouter.get("/news/config", (req, res) => {
       NEWS_HISTORY_DAYS: process.env.NEWS_HISTORY_DAYS ?? null,
     },
     defaults: { africaQueries: DEFAULT_AFRICA_QUERIES, worldQueries: DEFAULT_WORLD_QUERIES, authorityDomains: DEFAULT_HIGH_AUTHORITY, breakingThreshold: 8, historyDays: 7 },
-    feeds: { curated: 22, africaHints: AFRICA_TECH_RSS_HINTS }, // 17 global + 5 Africa
+    feeds: { curated: 24, africaHints: AFRICA_TECH_RSS_HINTS }, // 19 global + 6 Africa (incl. iAfrica)
   });
 });
 templatesRouter.patch("/news/config", requireLayer("admin"), (req, res) => {
@@ -569,6 +569,7 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
     case "email-to-vault": return emailToVaultRunner(inputs, push);
     case "innovation-scan": return innovationScanRunner(inputs, push, progress);
     case "africa-ai-news":   return africaAiNewsRunner(inputs, push, progress);
+    case "africa-tech-alerts": return africaAlertsRunner(inputs, push, progress);
     case "world-ai-news":    return worldAiNewsRunner(inputs, push, progress);
     case "super-intelligence-news": throw new Error("template 'super-intelligence-news' was removed — use 'africa-ai-news' or 'world-ai-news' instead");
     case "events-competition-scan": return eventsCompetitionScanRunner(inputs, push, progress);
@@ -855,7 +856,10 @@ export async function generalTaskRunner(inputs: Record<string, unknown>, push: (
   // persisted) so the operator's Cancel Run stops the local agent loop too,
   // not just delegated runs.
   const signal = inputs._signal instanceof AbortSignal ? inputs._signal : undefined;
-  const r = await planAndExecute(task, push, (patch) => progress?.(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, testMode, signal, taskKind: "insights:general-task", persona: persona?.name, personaId: persona?.id });
+  // Internal callers (e.g. daily-briefing) pass `_skipPeerReview` to opt a
+  // fixed-format, non-user-facing output out of the QA wave's slowest phase.
+  const skipPeerReview = inputs._skipPeerReview === true;
+  const r = await planAndExecute(task, push, (patch) => progress?.(patch as Record<string, unknown>), { personaSystemSuffix: personaSuffix, workMode: persona?.workMode, testMode, signal, taskKind: "insights:general-task", persona: persona?.name, personaId: persona?.id, skipPeerReview });
 
   // If the agent wrote anything to the vault, also commit + push
   if (r.hadWrites) {
@@ -1120,6 +1124,10 @@ const DEFAULT_AFRICA_QUERIES = [
   "Zimbabwe AI technology deployment TechZim",
   "African machine learning research healthcare agriculture fintech",
   "Africa artificial intelligence breakthrough funding 2026",
+  // Added 2026-10-16: the scan missed a North-Africa AI-breach story because no
+  // query covered security or North Africa — keep at least one of each live.
+  "Africa AI cybersecurity breach hacking government database",
+  "North Africa AI technology news Morocco Algeria Tunisia Egypt",
 ];
 // NOTE: SI coverage lives here, inside global AI news — the standalone
 // super-intelligence-news feed was removed 2026-10-12. The first query below
@@ -1133,6 +1141,22 @@ const DEFAULT_WORLD_QUERIES = [
   "artificial intelligence research paper arXiv",
   "global AI regulation policy",
   "tech AI product launch enterprise",
+  // Added 2026-10-16: direct lab + enterprise angles so primary sources
+  // (lab blogs) and deployment news surface instead of only press rewrites.
+  "Anthropic OpenAI DeepMind model release announcement safety research",
+  "enterprise AI deployment regulation funding acquisition",
+];
+
+// Queries for the Africa Tech Alerts scan (africa-tech-alerts): dangerous OR
+// amazing tech in, around and to Africa — threats (breaches, AI-enabled crime,
+// scams, surveillance) and breakthroughs (first-of-its-kind launches, record
+// funding, major rollouts). Separate from the main Africa feed so the daily
+// edition stays broad while alerts stay sharp.
+const DEFAULT_ALERTS_QUERIES = [
+  "Africa AI cyberattack data breach hacking government",
+  "Africa AI breakthrough record funding major launch 2026",
+  "AI fraud deepfake scam surveillance Africa",
+  "Africa first-of-its-kind AI milestone data center satellite",
 ];
 
 const DEFAULT_EVENTS_QUERIES = [
@@ -1149,13 +1173,16 @@ const DEFAULT_EVENTS_QUERIES = [
   "startup competition Africa prize technology innovation",
   "Cape Town Johannesburg tech summit AI 2026",
 ];
-const AFRICA_TECH_RSS_HINTS = ["africa", "african", "zimbabwe", "nairobi", "lagos", "kenya", "nigeria", "south africa", "rwanda", "ethiopia"];
+const AFRICA_TECH_RSS_HINTS = ["africa", "african", "zimbabwe", "nairobi", "lagos", "kenya", "nigeria", "south africa", "rwanda", "ethiopia", "morocco", "algeria", "tunisia", "libya", "egypt", "north africa", "maghreb", "mena", "cybersecurity", "breach", "hack", "iss", "iafrica"];
 const DEFAULT_HIGH_AUTHORITY = [
   "arxiv.org","openai.com","deepmind.google","ai.google","blog.google","huggingface.co",
   "microsoft.com","research.microsoft.com","nvidia.com","blogs.nvidia.com","aws.amazon.com",
   "github.blog","github.com","techcrunch.com","theverge.com","wired.com","arstechnica.com",
   "technologyreview.com","reuters.com","bloomberg.com","nature.com","science.org",
-  "simonwillison.net","techzim.co.zw","disrupt-africa.com","ventureburn.com","techcabal.com","techinafrica.com"
+  "simonwillison.net","techzim.co.zw","disrupt-africa.com","ventureburn.com","techcabal.com","techinafrica.com",
+  // Added 2026-10-16: African AI portals/policy sources + lab/newsletter domains
+  "iafrica.com","issafrica.org","aiafricanews.co.za","africaainews.com","itweb.africa","cioafrica.co","ai4d.ai",
+  "aimagazine.com","artificialintelligence-news.com","therundown.ai","tldr.tech","every.to","anthropic.com","lastweekin.ai"
 ];
 const SPAM_HINTS = ["seo","content farm","sponsored","clickbait","/tag/","/category/"];
 
@@ -1527,7 +1554,7 @@ async function scoreStoriesQuality(stories: StorySource[], push: (m:string)=>voi
   }
 }
 
-  function logNewsMetrics(feed: "africa"|"world"|"events"|"weekend", candidates: StorySource[], picked: StorySource | null, push?: (m:string)=>void) {
+  function logNewsMetrics(feed: "africa"|"world"|"events"|"weekend"|"alerts", candidates: StorySource[], picked: StorySource | null, push?: (m:string)=>void) {
   const breakdown = candidates.slice(0, 8).map((c,i)=> ({ idx:i+1, domain: domainOf(c.url), score: c.score, title: c.title.slice(0,60) }));
   const detail = `${feed} candidates=${candidates.length} picked=${picked?.url ?? "none"} score=${picked?.score ?? "?"} domains=${breakdown.map(b=>b.domain).join(",")}`;
   try { logAudit({ level: "info", actor: "news", action: `${feed}.pick`, target: picked?.url ?? "none", detail, result: picked ? "success" : "failure" }); } catch {}
@@ -1541,7 +1568,7 @@ async function scoreStoriesQuality(stories: StorySource[], push: (m:string)=>voi
   if (push) push(`[metrics] ${detail}`);
 }
 
-function writeNewsVault(feed: "africa"|"world"|"events"|"weekend", card: { postText: string; story: string }, picked: StorySource) {
+function writeNewsVault(feed: "africa"|"world"|"events"|"weekend"|"alerts", card: { postText: string; story: string }, picked: StorySource) {
   try {
     const date = new Date().toISOString().slice(0, 10);
     const stamp = new Date().toISOString().slice(0, 16).replace(/:/, "");
@@ -1552,7 +1579,7 @@ function writeNewsVault(feed: "africa"|"world"|"events"|"weekend", card: { postT
     // also append to drafts history for dedupe already covers this path
   } catch (e:any) { console.warn(`[news] vault write failed: ${e?.message}`); }
 }
-function writeNewsDraft(feed: "africa"|"world"|"events"|"weekend", candidates: StorySource[], reason: string) {
+function writeNewsDraft(feed: "africa"|"world"|"events"|"weekend"|"alerts", candidates: StorySource[], reason: string) {
   try {
     const stamp = new Date().toISOString().slice(0, 16).replace(/:/, "");
     const path = `_naxion/news/drafts/${stamp}-${feed}-below-threshold.md`;
@@ -1652,6 +1679,28 @@ async function gatherWorldStories(push: (m: string) => void, onStage?: (stage: "
   return merged.slice(0, 12);
 }
 
+// Africa Tech Alerts pool (africa-tech-alerts): same quality pipeline as the
+// main Africa feed (RSS + web + dedupe + enrich + Africa-weighted rank) but
+// swept with threat/breakthrough queries so dangerous or amazing tech gets its
+// own card instead of competing with the daily edition's broad startup/policy
+// mix. Shares claimed-today dedupe so the two editions never post one story.
+async function gatherAlertsStories(push: (m: string) => void, onStage?: (stage: "sweep" | "dedupe" | "enrich" | "rank") => void): Promise<StorySource[]> {
+  push("[alerts] quality pipeline: RSS (≤48h) + threat/breakthrough search → dedupe → enrich → quality rank");
+  const [rss, web] = await Promise.all([
+    fetchRssTier(push, true),
+    scrapeStoriesForQueries([...new Set(DEFAULT_ALERTS_QUERIES)], push, "alerts"),
+  ]);
+  onStage?.("sweep");
+  let merged: StorySource[] = [...rss, ...web];
+  merged = await dedupeAndFilter(merged, push);
+  onStage?.("dedupe");
+  merged = await enrichTopStories(merged, push, 6);
+  onStage?.("enrich");
+  merged = await scoreStoriesQuality(merged, push, true);
+  onStage?.("rank");
+  return merged.slice(0, 12);
+}
+
 
 async function gatherEventsStories(push: (m: string) => void, onStage?: (stage: "sweep" | "dedupe" | "enrich") => void): Promise<StorySource[]> {
   push("[events] pipeline: RSS (≤48h) + events web search → dedupe → enrich");
@@ -1743,7 +1792,7 @@ async function buildBreakingNewsCard(opts: {
 
 // Shared breaking-news pipeline — africa/world/si differ only in feed config
 // (queries, headers, prompts). Single place for gate → card → vault → post → claim.
-type BreakingFeed = "africa" | "world";
+type BreakingFeed = "africa" | "world" | "alerts";
 async function breakingNewsPipeline(opts: {
   kind: string; feed: BreakingFeed; chatId: string; videoUrl?: string; dailyDigest: boolean;
   stages: string[]; sweepMessage: string;
@@ -1817,6 +1866,29 @@ async function africaAiNewsRunner(inputs: Record<string, unknown>, push: (m: str
     sourceLabel: "web + innovation leads (RSS ≤48h + web + leads)",
     systemPrompt: "You are the editor for an Africa AI and Super Intelligence news channel. Pick a fresh, newsworthy Africa/technology story and write a factual Telegram card. Use 'Super Intelligence (SI)' when reporting the US executive-branch terminology in Executive Order 14434; for the broader global field, keep the terminology used by the source (often AI/artificial intelligence). Do not imply the US directive renames technology or usage outside its stated executive-branch scope. No hype or invented facts/links; keep it warm and credible.",
     postedMessage: "Posted Africa BREAKING NEWS to",
+  });
+}
+
+// Africa Tech Alerts — BREAKING card for dangerous OR amazing tech in, around
+// and to Africa as a whole (breaches, AI-enabled crime, surveillance scares on
+// one side; first-of-its-kind breakthroughs, record funding, major rollouts on
+// the other). Same gate → card → vault → post → claim pipeline as Africa/World.
+async function africaAlertsRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: ProgressFn) {
+  const chatId = await resolveTemplateChatId(inputs);
+  const videoUrl = String(inputs.videoUrl ?? "").trim() || undefined;
+  const dailyDigest = inputs.dailyDigest === true;
+  return breakingNewsPipeline({
+    kind: "africa-tech-alerts", feed: "alerts", chatId, videoUrl, dailyDigest, push, progress,
+    stages: ["Sweep threats + breakthroughs", "Dedupe + enrich", "Quality rank", "Build alerts card", "Post to Telegram"],
+    sweepMessage: "Sweeping for dangerous or amazing tech in, around and to Africa.",
+    gather: gatherAlertsStories,
+    emptyNote: "No fresh Africa tech alerts today — skipping the post.",
+    headerBreaking: "🚨 BREAKING — Africa Tech Alerts 🚨", headerDaily: "⚡ AFRICA TECH ALERTS — Daily",
+    whyHeader: "Why it matters",
+    hashtagsBreaking: "#Africa #TechAlerts #Breaking", hashtagsDaily: "#Africa #TechAlerts #AINews",
+    sourceLabel: "RSS ≤48h + web search (threats + breakthroughs)",
+    systemPrompt: "You are the alerts editor for an Africa tech channel. Pick the single most urgent or most astonishing story — a DANGEROUS one (breach, hack, AI-enabled crime, scam, surveillance abuse, outage) or an AMAZING one (breakthrough, first-of-its-kind launch, record funding, major rollout) happening in, around or to Africa — and write a factual Telegram card. No hype or invented facts/links; keep it sharp and credible.",
+    postedMessage: "Posted Africa Tech Alerts to",
   });
 }
 
@@ -2045,7 +2117,7 @@ async function eveningRecapRunner(inputs: Record<string, unknown>, push: (m: str
   const staged = stagedProgress(progress, ["Read today's cards", "Stitch evening digest", "Post to Telegram"]);
   const date = new Date().toISOString().slice(0, 10);
   const sections: { feed: string; body: string }[] = [];
-  for (const feed of ["africa", "world", "events"]) {
+  for (const feed of ["africa", "alerts", "world", "events"]) {
     try {
       const p = resolve(config.vaultPath, "_naxion/news", `${date}-${feed}.md`);
       if (!_exs(p)) { push(`[recap] no ${feed} card today — skipping section`); continue; }
@@ -2065,6 +2137,7 @@ async function eveningRecapRunner(inputs: Record<string, unknown>, push: (m: str
     `Format (plain text, no markdown, no angle brackets):\n` +
     `HEADER: 🌙 TODAY IN AI — ${date}\n` +
     `AFRICA: one line (top Africa story + link)\n` +
+    `ALERTS: one line (top threat/breakthrough + link), or "no alerts today"\n` +
     `WORLD: one line (top world story + link)\n` +
     `EVENTS: one line (most urgent deadline/event + link), or "no events today"\n` +
     `SIGNOFF: one short warm line (e.g. see you tomorrow 07:30)\n\n` +
@@ -2074,13 +2147,13 @@ async function eveningRecapRunner(inputs: Record<string, unknown>, push: (m: str
     { maxTokens: 800 },
   )).trim();
   const grab = (label: string) => {
-    const m = digest.match(new RegExp(`^[\\s>*#-]*${label}\\s*:?\\s*([\\s\\S]*?)(?=\\n[\\s>*#-]*(?:HEADER|AFRICA|WORLD|EVENTS|SIGNOFF)\\s*:|$)`, "im"));
+    const m = digest.match(new RegExp(`^[\\s>*#-]*${label}\\s*:?\\s*([\\s\\S]*?)(?=\\n[\\s>*#-]*(?:HEADER|AFRICA|ALERTS|WORLD|EVENTS|SIGNOFF)\\s*:|$)`, "im"));
     return (m?.[1] ?? "").replace(/```[a-z]*\n?/gi, "").trim().replace(/^["']|["']$/g, "").trim();
   };
-  const clean = (t: string) => t.split("\n").map(l => l.replace(/^\s*(?:HEADER|AFRICA|WORLD|EVENTS|SIGNOFF)\s*:?\s*/i, "").trimEnd()).filter(l => !/^\s*(?:HEADER|AFRICA|WORLD|EVENTS|SIGNOFF)\s*:?\s*$/i.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const clean = (t: string) => t.split("\n").map(l => l.replace(/^\s*(?:HEADER|AFRICA|ALERTS|WORLD|EVENTS|SIGNOFF)\s*:?\s*/i, "").trimEnd()).filter(l => !/^\s*(?:HEADER|AFRICA|ALERTS|WORLD|EVENTS|SIGNOFF)\s*:?\s*$/i.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
   const postText = clean([
     grab("HEADER") || `🌙 TODAY IN AI — ${date}`, "",
-    grab("AFRICA"), grab("WORLD"), grab("EVENTS"), "",
+    grab("AFRICA"), grab("ALERTS"), grab("WORLD"), grab("EVENTS"), "",
     grab("SIGNOFF"),
   ].filter(Boolean).join("\n"));
   staged.completeStep(1);
@@ -2341,118 +2414,150 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
   const contextParts: string[] = [];
   const staged = stagedProgress(progress, ["Pull activity", "Day shape", "Inbox triage", "Approvals + scan", "Write briefing"]);
 
-  // Real activity for the window — the agents' own completed jobs, straight
-  // from the job store (in-memory + _naxion/jobs JSONL).
-  try {
-    const prim = findPrimitive("calendar.activity");
-    if (prim) {
-      const act: any = await prim.handler({ from, to });
-      const days: any[] = act?.days ?? act?.activity ?? [];
-      const total = days.reduce((n, d) => n + (d.jobs?.length ?? d.count ?? 0), 0);
-      if (total > 0) {
-        // Summarise PER DAY, NEWEST first. The old flat `slice(0,60)` over
-        // oldest-first job lines let a busy early day (37+ jobs) fill the cap so
-        // recent days — the ones a daily brief cares about most — were silently
-        // dropped: the brief reported "activity covers Jul 22-23 only" and "no
-        // tasks for Jul 26" while 24-27 actually had 100+ jobs (live 2026-07-27).
-        const sorted = [...days].sort((a: any, b: any) => String(b.date).localeCompare(String(a.date)));
-        const perDay = sorted.map((d: any) => {
-          const jobs = d.jobs ?? [];
-          const sample = jobs.slice(0, 6).map((j: any) => `  - ${j.title ?? j.template ?? j.kind ?? "task"} (${j.status ?? "?"})`);
-          const more = jobs.length > 6 ? `\n  - …and ${jobs.length - 6} more` : "";
-          return `**${d.date} — ${jobs.length} job${jobs.length === 1 ? "" : "s"}**\n${sample.join("\n")}${more}`;
-        });
-        contextParts.push(`### Activity — ${from} → ${to} (${total} jobs across ${sorted.length} days)\n${perDay.join("\n")}`);
-        push(`Pulled ${total} jobs across ${sorted.length} days.`);
-      } else {
-        contextParts.push(`### Activity — last 5 days (${from} → ${to})\nNo agent jobs ran in this window.`);
-        push("No activity in the last 5 days.");
-      }
-    }
-  } catch (e: any) { push(`Activity lookup failed: ${String(e?.message ?? e).slice(0, 100)}`); }
+  // Steps 1-5 below are independent reads (job store, calendar, inbox,
+  // approvals, memory) with no data dependency on each other — they were
+  // previously five sequential `await`s, which was most of what pushed
+  // daily-briefing's wall-clock past its 600s perf budget (678.3s avg,
+  // 2026-10-14 reflection). Running them concurrently via Promise.all costs
+  // nothing (each result is pushed/ordered afterward exactly as before) and
+  // collapses their cost to the slowest single one instead of the sum.
+  const [activityResult, dayShapeResult, inboxResult, approvalsResult, top3Result, scanResult] = await Promise.all([
+    (async () => {
+      try {
+        const prim = findPrimitive("calendar.activity");
+        if (!prim) return null;
+        const act: any = await prim.handler({ from, to });
+        const days: any[] = act?.days ?? act?.activity ?? [];
+        const total = days.reduce((n, d) => n + (d.jobs?.length ?? d.count ?? 0), 0);
+        if (total > 0) {
+          // Summarise PER DAY, NEWEST first. The old flat `slice(0,60)` over
+          // oldest-first job lines let a busy early day (37+ jobs) fill the cap so
+          // recent days — the ones a daily brief cares about most — were silently
+          // dropped: the brief reported "activity covers Jul 22-23 only" and "no
+          // tasks for Jul 26" while 24-27 actually had 100+ jobs (live 2026-07-27).
+          const sorted = [...days].sort((a: any, b: any) => String(b.date).localeCompare(String(a.date)));
+          const perDay = sorted.map((d: any) => {
+            const jobs = d.jobs ?? [];
+            const sample = jobs.slice(0, 6).map((j: any) => `  - ${j.title ?? j.template ?? j.kind ?? "task"} (${j.status ?? "?"})`);
+            const more = jobs.length > 6 ? `\n  - …and ${jobs.length - 6} more` : "";
+            return `**${d.date} — ${jobs.length} job${jobs.length === 1 ? "" : "s"}**\n${sample.join("\n")}${more}`;
+          });
+          return { part: `### Activity — ${from} → ${to} (${total} jobs across ${sorted.length} days)\n${perDay.join("\n")}`, msg: `Pulled ${total} jobs across ${sorted.length} days.` };
+        }
+        return { part: `### Activity — last 5 days (${from} → ${to})\nNo agent jobs ran in this window.`, msg: "No activity in the last 5 days." };
+      } catch (e: any) { return { err: `Activity lookup failed: ${String(e?.message ?? e).slice(0, 100)}` }; }
+    })(),
+    // Today's shape — meetings, Naxie runs, dated commitments, carryover —
+    // via calendar.plan_day's single structured call (it already joins iCal +
+    // schedules + memory + yesterday's failed/awaiting jobs).
+    (async () => {
+      try {
+        const prim = findPrimitive("calendar.plan_day");
+        if (!prim) return null;
+        const day: any = await prim.handler({ date: to });
+        const { formatDayShape } = await import("../lib/briefing-evidence.js");
+        const n = (day?.meetings ?? []).length;
+        return { part: formatDayShape(day, to), msg: n ? `${n} meeting(s) on today's calendar.` : "Nothing on today's calendar." };
+      } catch (e: any) { return { err: `Day-shape lookup failed: ${String(e?.message ?? e).slice(0, 100)}` }; }
+    })(),
+    // Inbox triage — pending items only (snoozed/resolved stay out). The
+    // brief must never claim "inbox is quiet" without looking here first.
+    (async () => {
+      try {
+        const { listTriage } = await import("../lib/email.js");
+        const { formatInboxTriage } = await import("../lib/briefing-evidence.js");
+        const store = listTriage() as Record<string, any>;
+        const { count, block } = formatInboxTriage(store);
+        return { part: block || undefined, count, msg: count ? `${count} email(s) waiting in triage.` : "Inbox triage is clear." };
+      } catch (e: any) { return { err: `Inbox lookup failed: ${String(e?.message ?? e).slice(0, 100)}` }; }
+    })(),
+    // Waiting on you — approval-parked jobs + OrgTasks. Read directly (not
+    // via the org.approvals_pending primitive, which is master-employee-gated
+    // and would refuse this headless caller).
+    (async () => {
+      try {
+        const awaiting = listJobs().filter((j: any) => j.status === "awaiting-approval").slice(0, 8);
+        const { listOrgTasks } = await import("../lib/org-tasks.js");
+        const waiting = (listOrgTasks({ status: "waiting-on-approval" } as any) as any[]).slice(0, 8);
+        const { formatWaiting } = await import("../lib/briefing-evidence.js");
+        const block = formatWaiting(awaiting, waiting);
+        return block ? { part: block, msg: `${awaiting.length + waiting.length} item(s) waiting on approval.` } : null;
+      } catch (e: any) { return { err: `Approvals lookup failed: ${String(e?.message ?? e).slice(0, 100)}` }; }
+    })(),
+    // Yesterday's Top 3 — follow-through check. The prior briefing's focus
+    // items return as evidence; the synthesiser judges each kept / carried /
+    // dropped against the activity above, so unkept promises resurface.
+    (async () => {
+      try {
+        const { previousTop3 } = await import("../lib/briefing-memory.js");
+        const prior = previousTop3(to);
+        if (!prior.length) return null;
+        return {
+          part: `### Yesterday's Top 3\n${prior.map((t) => `  - ${t}`).join("\n")}`,
+          followup: `\n- Under "## Open loops", FIRST account for each of yesterday's Top 3 (kept / carried / dropped — judge from the activity evidence, never assume). Carried items reappear in today's Top 3 only if still genuinely top-3.`,
+        };
+      } catch { return null; /* first run (or a failed read) simply has no follow-up */ }
+    })(),
+    // Latest innovation scan (48h) — the research employee's daily R&D report.
+    (async () => {
+      try {
+        const { latestJobByTemplate } = await import("../lib/job-store.js");
+        const scan = latestJobByTemplate("innovation-scan", Date.now() - 48 * 3600_000);
+        if (scan?.answer && looksLikeInnovationReport(scan.answer)) {
+          return {
+            part: `### Innovation scan (job ${scan.id}, by ${scan.persona ?? "research"}, finished ${scan.finishedAt ?? scan.startedAt})\n${scan.answer.slice(0, 6000)}`,
+            msg: `Attaching the latest innovation scan (${scan.id.slice(0, 8)}, ${scan.persona ?? "research"}).`,
+            scanJobId: scan.id, scanInvalid: false,
+          };
+        } else if (scan?.answer) {
+          // The latest scan exists but its content ISN'T an opportunities report
+          // (e.g. a drafted welcome email — live 2026-07-27). Do NOT surface it as
+          // "opportunities"; flag it so the brief tells the reader to re-run rather
+          // than presenting off-topic content as R&D findings.
+          return { msg: `Latest innovation scan (${scan.id.slice(0, 8)}) isn't a valid opportunities report — flagging, not summarising.`, scanJobId: scan.id, scanInvalid: true };
+        }
+        return { msg: "No innovation scan in the last 48h." };
+      } catch { return null; /* briefing must never fail on the attachment */ }
+    })(),
+  ]);
+
+  if (activityResult?.part) contextParts.push(activityResult.part);
+  push(activityResult?.msg ?? activityResult?.err ?? "Activity lookup produced nothing.");
   staged.completeStep(0);
 
-  // Today's shape — meetings, Naxie runs, dated commitments, carryover — via
-  // calendar.plan_day's single structured call (it already joins iCal +
-  // schedules + memory + yesterday's failed/awaiting jobs). Without this the
-  // brief had no idea what the day looks like: no meetings, no shape.
-  try {
-    const prim = findPrimitive("calendar.plan_day");
-    if (prim) {
-      const day: any = await prim.handler({ date: to });
-      const { formatDayShape } = await import("../lib/briefing-evidence.js");
-      contextParts.push(formatDayShape(day, to));
-      const n = (day?.meetings ?? []).length;
-      push(n ? `${n} meeting(s) on today's calendar.` : "Nothing on today's calendar.");
-    }
-  } catch (e: any) { push(`Day-shape lookup failed: ${String(e?.message ?? e).slice(0, 100)}`); }
+  if (dayShapeResult?.part) contextParts.push(dayShapeResult.part);
+  if (dayShapeResult?.msg ?? dayShapeResult?.err) push(dayShapeResult?.msg ?? dayShapeResult!.err!);
   staged.completeStep(1);
 
-  // Inbox triage — pending items only (snoozed/resolved stay out). The brief
-  // must never claim "inbox is quiet" without looking here first.
   let inboxCount = 0;
-  try {
-    const { listTriage } = await import("../lib/email.js");
-    const { formatInboxTriage } = await import("../lib/briefing-evidence.js");
-    const store = listTriage() as Record<string, any>;
-    const { count, block } = formatInboxTriage(store);
-    inboxCount = count;
-    if (block) contextParts.push(block);
-    push(count ? `${count} email(s) waiting in triage.` : "Inbox triage is clear.");
-  } catch (e: any) { push(`Inbox lookup failed: ${String(e?.message ?? e).slice(0, 100)}`); }
+  if (inboxResult?.err) push(inboxResult.err);
+  else if (inboxResult) {
+    inboxCount = inboxResult.count ?? 0;
+    if (inboxResult.part) contextParts.push(inboxResult.part);
+    if (inboxResult.msg) push(inboxResult.msg);
+  }
   staged.completeStep(2);
 
-  // Waiting on you — approval-parked jobs + OrgTasks. Read directly (not via
-  // the org.approvals_pending primitive, which is master-employee-gated and
-  // would refuse this headless caller).
-  try {
-    const awaiting = listJobs().filter((j: any) => j.status === "awaiting-approval").slice(0, 8);
-    const { listOrgTasks } = await import("../lib/org-tasks.js");
-    const waiting = (listOrgTasks({ status: "waiting-on-approval" } as any) as any[]).slice(0, 8);
-    const { formatWaiting } = await import("../lib/briefing-evidence.js");
-    const block = formatWaiting(awaiting, waiting);
-    if (block) {
-      contextParts.push(block);
-      push(`${awaiting.length + waiting.length} item(s) waiting on approval.`);
-    }
-  } catch (e: any) { push(`Approvals lookup failed: ${String(e?.message ?? e).slice(0, 100)}`); }
+  if (approvalsResult?.err) push(approvalsResult.err);
+  else if (approvalsResult?.part) {
+    contextParts.push(approvalsResult.part);
+    push(approvalsResult.msg ?? "");
+  }
 
-  // Yesterday's Top 3 — follow-through check. The prior briefing's focus
-  // items return as evidence; the synthesiser judges each kept / carried /
-  // dropped against the activity above, so unkept promises resurface.
   let followupInstruction = "";
-  try {
-    const { previousTop3 } = await import("../lib/briefing-memory.js");
-    const prior = previousTop3(to);
-    if (prior.length) {
-      contextParts.push(`### Yesterday's Top 3\n${prior.map((t) => `  - ${t}`).join("\n")}`);
-      followupInstruction = `\n- Under "## Open loops", FIRST account for each of yesterday's Top 3 (kept / carried / dropped — judge from the activity evidence, never assume). Carried items reappear in today's Top 3 only if still genuinely top-3.`;
-    }
-  } catch { /* first run (or a failed read) simply has no follow-up */ }
+  if (top3Result) {
+    contextParts.push(top3Result.part);
+    followupInstruction = top3Result.followup;
+  }
 
-  // Latest innovation scan (48h) — the research employee's daily R&D report.
   let scanJobId = "";
   let scanInvalid = false;
-  try {
-    const { latestJobByTemplate } = await import("../lib/job-store.js");
-    const scan = latestJobByTemplate("innovation-scan", Date.now() - 48 * 3600_000);
-    if (scan?.answer && looksLikeInnovationReport(scan.answer)) {
-      scanJobId = scan.id;
-      push(`Attaching the latest innovation scan (${scan.id.slice(0, 8)}, ${scan.persona ?? "research"}).`);
-      contextParts.push(
-        `### Innovation scan (job ${scan.id}, by ${scan.persona ?? "research"}, finished ${scan.finishedAt ?? scan.startedAt})\n${scan.answer.slice(0, 6000)}`);
-    } else if (scan?.answer) {
-      // The latest scan exists but its content ISN'T an opportunities report
-      // (e.g. a drafted welcome email — live 2026-07-27). Do NOT surface it as
-      // "opportunities"; flag it so the brief tells the reader to re-run rather
-      // than presenting off-topic content as R&D findings.
-      scanInvalid = true;
-      scanJobId = scan.id;
-      push(`Latest innovation scan (${scan.id.slice(0, 8)}) isn't a valid opportunities report — flagging, not summarising.`);
-    } else {
-      push("No innovation scan in the last 48h.");
-    }
-  } catch { /* briefing must never fail on the attachment */ }
+  if (scanResult) {
+    if (scanResult.part) contextParts.push(scanResult.part);
+    if (scanResult.msg) push(scanResult.msg);
+    scanJobId = scanResult.scanJobId ?? "";
+    scanInvalid = scanResult.scanInvalid ?? false;
+  }
   staged.completeStep(3);
 
   const attachmentBlock = contextParts.length
@@ -2496,7 +2601,11 @@ async function dailyBriefingRunner(inputs: Record<string, unknown>, push: (m: st
   // and inheriting a random specialist produces refusals.
   const personaId = (typeof inputs._personaId === "string" && inputs._personaId.trim()) || "naxie";
   staged.setPhase("synthesizing");
-  const brief = await generalTaskRunner({ task, save_as_template: false, _personaId: personaId }, push, progress);
+  // Skip peer.review (30-90s+) for this template: it's a fixed-format
+  // internal digest, not user-facing prose that needs a second opinion, and
+  // it was the single slowest step pushing daily-briefing over its perf
+  // budget (678.3s avg vs. 600s, 2026-10-14 reflection).
+  const brief = await generalTaskRunner({ task, save_as_template: false, _personaId: personaId, _skipPeerReview: true }, push, progress);
   // Remember today's Top 3 for tomorrow's follow-through check. Best-effort:
   // memory must never fail a briefing that already succeeded.
   try {

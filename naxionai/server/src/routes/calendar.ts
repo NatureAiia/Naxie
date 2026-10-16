@@ -141,6 +141,34 @@ calendarRouter.get("/agenda", async (req, res) => {
       } catch (e: any) { meetingsError = String(e?.message ?? e).slice(0, 200); }
     }
 
+    // Real Google/Microsoft Calendar events for this day — lib-to-lib, not
+    // through the agent/primitive pipeline (this is a page load, not an agent
+    // action). Both list functions already swallow their own errors to [],
+    // so a missing/expired connection just means no external events, same
+    // posture as the iCal block above.
+    let externalEvents: any[] = [];
+    try {
+      const { listGoogleEvents, listMicrosoftEvents } = await import("../lib/external-calendar.js");
+      const [google, microsoft] = await Promise.all([listGoogleEvents(50), listMicrosoftEvents(50)]);
+      externalEvents = [...google, ...microsoft]
+        .filter(e => e.start && localYmd(new Date(e.start)) === date)
+        .sort((a, b) => String(a.start).localeCompare(String(b.start)));
+    } catch { /* external calendars optional */ }
+
+    // Conflict detection (lib/calendar-conflict.ts) over the FULL merged set
+    // for the day — iCal meetings + real external events — mapped into the
+    // CalEvent shape it already expects. This logic existed but was never
+    // wired to anything; nothing here changes its behavior.
+    let conflicts: any[] = [];
+    try {
+      const { detectCalendarConflicts } = await import("../lib/calendar-conflict.js");
+      const merged = [
+        ...meetings.map((m: any) => ({ summary: m.summary, start: m.start, end: m.end, location: m.location, description: m.description })),
+        ...externalEvents.map((e: any) => ({ summary: `${e.summary} (${e.source})`, start: e.start, end: e.end })),
+      ];
+      conflicts = detectCalendarConflicts(merged);
+    } catch { /* conflict detection best-effort */ }
+
     // Dated commitments agents/users added via calendar.add_event (stored as
     // dated memory facts) — the write path for "put it on the calendar".
     let events: { date: string; title: string; subject: string }[] = [];
@@ -160,7 +188,7 @@ calendarRouter.get("/agenda", async (req, res) => {
       }).map((s: any) => ({ id: s.id, templateId: s.templateId, label: s.label, cadence: s.cadence, enabled: s.enabled }));
     } catch { /* schedules optional */ }
 
-    res.json({ date, activity: jobs, meetings, meetingsError, schedules, events });
+    res.json({ date, activity: jobs, meetings, meetingsError, schedules, events, externalEvents, conflicts });
   } catch (e: any) {
     res.status(500).json({ error: String(e?.message ?? e).slice(0, 300) });
   }

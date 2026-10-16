@@ -496,7 +496,7 @@ export const api = {
   postFeedback: (body: { jobId: string; rating: "up" | "down"; note?: string; persona?: string; template?: string; score?: number }) => req<{ ok: true; path: string }>("/api/feedback", { method: "POST", body: JSON.stringify(body) }),
   retryFromFeedback: (jobId: string, note?: string) => req<{ newJobId: string; originalJobId: string }>("/api/feedback/retry", { method: "POST", body: JSON.stringify({ jobId, ...(note ? { note } : {}) }) }),
   calendarActivity: (from?: string, to?: string) => req<{ from: string; to: string; days: { date: string; jobs: { id: string; kind: string; template?: string; title?: string; personaName?: string; status: string; startedAt: string; finishedAt?: string; durationSec?: number; scoreOrNull?: number | null }[] }[] }>(`/api/calendar/activity${from || to ? "?" + new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) }).toString() : ""}`),
-  calendarAgenda: (date: string) => req<{ date: string; activity: any[]; meetings: { summary: string; start: string; end?: string; location?: string }[]; meetingsError?: string; schedules: any[] }>(`/api/calendar/agenda?date=${encodeURIComponent(date)}`),
+  calendarAgenda: (date: string) => req<{ date: string; activity: any[]; meetings: { summary: string; start: string; end?: string; location?: string }[]; meetingsError?: string; schedules: any[]; events?: any[]; externalEvents: { summary: string; start?: string; end?: string; account: string; source: "google" | "microsoft"; id?: string }[]; conflicts: { eventA: { summary: string }; eventB: { summary: string }; overlapMinutes: number }[] }>(`/api/calendar/agenda?date=${encodeURIComponent(date)}`),
   brainSave: (path: string, content: string) => req<{ ok: true; path: string; bytes: number }>("/api/brain/file", { method: "POST", body: JSON.stringify({ path, content }) }),
   brainEnsureSidecar: (path: string, force = false) => req<{ ok: true; sidecarPath: string; sourcePath: string; regenerated: boolean; reason?: string; bytes?: number }>("/api/brain/ensure-sidecar", { method: "POST", body: JSON.stringify({ path, force }) }),
 
@@ -862,6 +862,10 @@ export const api = {
   addMyTaskList: (name: string) => req<{ list: MyTaskList }>("/api/my-tasks/lists", { method: "POST", body: JSON.stringify({ name }) }),
   renameMyTaskList: (id: string, name: string) => req<{ list: MyTaskList }>(`/api/my-tasks/lists/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   removeMyTaskList: (id: string) => req<{ ok: true }>(`/api/my-tasks/lists/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setMyTaskListSync: (id: string, sync: { source: "google" | "microsoft"; externalListId: string } | null) =>
+    req<{ list: MyTaskList }>(`/api/my-tasks/lists/${encodeURIComponent(id)}/sync`, { method: "PATCH", body: JSON.stringify(sync ?? {}) }),
+  myTaskExternalLists: (source: "google" | "microsoft") =>
+    req<{ lists: { id: string; name: string }[] }>(`/api/my-tasks/external-lists/${source}`),
   myTaskItems: (filter?: { listId?: string; myDay?: boolean; important?: boolean; completed?: boolean }) => {
     const p = new URLSearchParams();
     if (filter?.listId) p.set("listId", filter.listId);
@@ -1109,7 +1113,7 @@ export type MyTaskItem = {
   createdAt: string; order: number;
   automation?: TaskAutomation;
 };
-export type MyTaskList = { id: string; name: string; color?: string; order: number; createdAt: string };
+export type MyTaskList = { id: string; name: string; color?: string; order: number; createdAt: string; syncExternal?: { source: "google" | "microsoft"; externalListId: string } };
 
 export type ConnectorTemplate = {
   id: string; label: string; description: string;

@@ -15,6 +15,8 @@ import { ensureWorker, ensureExtraWorker } from "../lib/worker-manager.js";
 import { isHermesPrimary, isHermesCodeTask, getHermesModelOverride, isCrosscheckEnabled } from "../lib/executor-mode.js";
 import { detectsShonaOrNdebele, shonaLanguageDirective, getShonaNdebeleMatches } from "../lib/shona-glossary.js";
 import { recordChatExchange, listChatHistory } from "../lib/chat-history.js";
+import { noteFact, recallSubject } from "../lib/memory.js";
+import { parseRememberCommand } from "../lib/remember-command.js";
 import { loadJobById } from "../lib/job-store.js";
 import { SENSITIVE_APPROVAL_TOOLS, planSensitiveTools } from "../lib/agent.js";
 
@@ -176,6 +178,8 @@ chatRouter.post("/", async (req, res) => {
 });
 
 async function handleChat(req: any, res: any) {
+  const human = callerOf(req);
+  const historyUserId = human?.id ?? "local";
   const messages = (req.body?.messages ?? []) as ChatMessage[];
   if (messages.length === 0) return res.status(400).json({ error: "messages required" });
   const last = messages[messages.length - 1];
@@ -212,6 +216,42 @@ async function handleChat(req: any, res: any) {
         error: `Your role can't run ${check.capability} tasks${check.note ? ` — ${check.note}` : ""}. Ask an admin or someone in the right department to handle this.`,
         restrictedCapability: check.capability,
       });
+    }
+  }
+
+  // 2.S EXPLICIT MEMORY FAST-PATH. Check for "remember this: <fact>" commands.
+  // These are processed as a high-priority a-priori action before routing,
+  // allowing the operator to store durable facts without involving the
+  // full planning/execution cycle.
+  if (process.env.NAXION_EXPLICIT_REMEMBER !== "0") {
+    const fact = parseRememberCommand(text);
+    if (fact) {
+      try {
+        const existing = recallSubject("operator", 100).map(f => f.fact.toLowerCase());
+        if (existing.includes(fact.toLowerCase())) {
+          recordChatExchange(historyUserId, {
+            prompt: text,
+            response: `I already remember that: "${fact}"`,
+            kind: "message",
+          });
+          return res.json({
+            kind: "message",
+            text: `I already remember that: "${fact}"`,
+          });
+        }
+        noteFact({ subject: "operator", fact, source: "explicit-remember" });
+        recordChatExchange(historyUserId, {
+          prompt: text,
+          response: `Remembered: "${fact}"`,
+          kind: "message",
+        });
+        return res.json({
+          kind: "message",
+          text: `Remembered: "${fact}"`,
+        });
+      } catch (e: any) {
+        console.warn(`[chat] explicit-remember failed: ${e?.message ?? e}`);
+      }
     }
   }
 

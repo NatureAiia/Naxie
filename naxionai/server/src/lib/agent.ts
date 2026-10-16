@@ -141,7 +141,7 @@ const SOCIAL_TASK_RE = new RegExp(`\\b${SOCIAL_ACTION}\\b[^]{0,60}?\\b${SOCIAL_P
 // flipping a system-access toggle, however low-risk the specific action
 // looks, because this tool set didn't exist before and the operator asked
 // for a human in the loop on all of it, not just the destructive half.
-export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "system_control", "manage_clipboard", "git_pull", "personas.manage", "system.admin", "whatsapp.send", "whatsapp.broadcast", "whatsapp.cloud_send", "pentest.scan"]);
+export const SENSITIVE_APPROVAL_TOOLS = new Set(["db.query", "connector.call", "mcp.call", "email.send", "code.exec", "browser.harness_exec", "social.post", "buffer.post", "system_control", "manage_clipboard", "git_pull", "personas.manage", "system.admin", "whatsapp.send", "whatsapp.broadcast", "whatsapp.cloud_send", "pentest.scan", "google.send_email", "microsoft.send_email", "google.create_event", "google.update_event", "microsoft.create_event", "microsoft.update_event"]);
 
 // Crown Job priority (org-tasks.ts's OrgTaskPriority) bypasses ONLY the
 // generic sensitive-tool checkpoint below (opts.skipApprovalGate) — the same
@@ -1421,7 +1421,7 @@ export async function planAndExecute(
   task: string,
   push: (msg: string) => void,
   onProgress?: (patch: Partial<AgentResult> & { phase?: string }) => void,
-  opts: { personaSystemSuffix?: string; autoReview?: boolean; preplan?: Plan; workMode?: "agent" | "hybrid"; testMode?: boolean; signal?: AbortSignal; skipApprovalGate?: boolean; taskKind?: string; persona?: string; personaId?: string; scopeId?: string; toolAllowlist?: string[] } = {},
+  opts: { personaSystemSuffix?: string; autoReview?: boolean; preplan?: Plan; workMode?: "agent" | "hybrid"; testMode?: boolean; signal?: AbortSignal; skipApprovalGate?: boolean; taskKind?: string; persona?: string; personaId?: string; scopeId?: string; toolAllowlist?: string[]; skipPeerReview?: boolean } = {},
 ): Promise<AgentResult> {
   // Legacy "human" workMode (pre agents+hybrid-only system) is treated as
   // hybrid — you + agents working together. No human-only parking anymore.
@@ -2306,7 +2306,9 @@ export async function planAndExecute(
     }
 
     // ---- Phase B: peer.review, only when the draft didn't clearly pass ----
-    if (!plannerAlreadyReviewed) {
+    if (opts.skipPeerReview) {
+      push(`Peer review skipped for this task (fixed-format internal output, not user-facing prose needing a second opinion).`);
+    } else if (!plannerAlreadyReviewed) {
       const qScore = (runs.find(r => r.step.tool === "quality.check" && r.ok)?.result as any)?.score ?? 0;
       const qPass = (runs.find(r => r.step.tool === "quality.check" && r.ok)?.result as any)?.pass === true;
       const sPass = (runs.find(r => r.step.tool === "security.scan" && r.ok)?.result as any)?.pass !== false;

@@ -456,11 +456,16 @@ Be terse. "good" = ship it, "needs-work" = fixable issues, "bad" = misleading or
   // could emit an unbounded "revised_answer" and run to the wall-time cap.
   const reviewMaxTokens = longAnswer ? 400 : 1200;
   // Mirror quality.check resilience: try the extraction profile first (may
-  // route to OpenRouter), fall back to LOCAL Ollama on a transient cloud
-  // failure (429 / rate limit / 5xx / transport). temperature:0 pins verdicts
-  // so peer review noise doesn't masquerade as quality drift. 300s wall-time
-  // cap kills the same long-tail OR-retry loops that produced 91-minute
-  // grader hangs in prior runs.
+  // route to OpenRouter), fall back to LOCAL Ollama on ANY first-attempt
+  // failure, not just the transient ones (429 / rate limit / 5xx /
+  // transport). Narrowly gating the fallback to that regex meant a
+  // non-transient error (e.g. local Ollama overloaded with a message the
+  // regex didn't recognise) rethrew immediately and failed the whole step —
+  // the 2026-10-14 reflection flagged exactly one such failed run. The
+  // fallback attempt is still bounded by the same 300s outer wall-time cap,
+  // so broadening it costs nothing on the unlucky path where both attempts
+  // fail. temperature:0 pins verdicts so peer review noise doesn't
+  // masquerade as quality drift.
   const reviewPrompt = `Task: ${task}\n\nDraft answer:\n${answerForReview}`;
   let raw: string = "";
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -469,9 +474,7 @@ Be terse. "good" = ship it, "needs-work" = fixable issues, "bad" = misleading or
       (async () => {
         try {
           return await ollamaGenerate(reviewPrompt, sys, { profile: "extraction", temperature: 0, maxTokens: reviewMaxTokens });
-        } catch (e: any) {
-          const msg = String(e?.message ?? e);
-          if (!/429|rate[\s-]?limit|fetch\s+failed|terminated|ECONNRESET|HTTP\s+5\d\d|timeout|other\s+side\s+closed/i.test(msg)) throw e;
+        } catch {
           return await ollamaGenerate(reviewPrompt, sys, { profile: undefined, temperature: 0, maxTokens: reviewMaxTokens });
         }
       })(),

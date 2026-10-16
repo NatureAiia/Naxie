@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sun, Star, Plus, Trash2, X, Repeat, Bell, CalendarDays, ChevronDown, ChevronRight, List as ListIcon, Zap, Pause, Search } from "lucide-react";
+import { Sun, Star, Plus, Trash2, X, Repeat, Bell, CalendarDays, ChevronDown, ChevronRight, List as ListIcon, Zap, Pause, Search, Cloud, CloudOff } from "lucide-react";
 import {
   Inbox, Send, Loader2, CheckCircle2, XCircle, Play, Paperclip, Bot,
   User as UserIcon, Clock, AlertTriangle, RotateCcw, Download,
@@ -87,6 +87,17 @@ export function MyTasks() {
     } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
   }
 
+  const [syncEditorFor, setSyncEditorFor] = useState<string | null>(null);
+
+  async function setListSync(listId: string, sync: { source: "google" | "microsoft"; externalListId: string } | null) {
+    try {
+      const r = await api.setMyTaskListSync(listId, sync);
+      setLists(prev => prev.map(l => l.id === listId ? r.list : l));
+      setSyncEditorFor(null);
+      showToast(sync ? "List will sync" : "Sync disabled", "success");
+    } catch (e: any) { showToast(e?.message ?? String(e), "error"); }
+  }
+
   function patchLocal(item: MyTaskItem) {
     setItems(prev => prev.map(i => i.id === item.id ? item : i));
     setSelected(item);
@@ -118,13 +129,23 @@ export function MyTasks() {
         </button>
         <div className="pt-2 mt-2 border-t border-ink-800 space-y-1">
           {lists.map(l => (
-            <div key={l.id} className={`group flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${view === `list:${l.id}` ? "bg-ink-800 text-cream-50" : "text-cream-300/80 hover:bg-ink-900"}`}>
-              <button type="button" onClick={() => setView(`list:${l.id}`)} className="flex-1 flex items-center gap-2 text-left min-w-0">
-                <ListIcon size={15} className="shrink-0" /> <span className="truncate">{l.name}</span>
-              </button>
-              <button type="button" onClick={() => removeList(l.id, l.name)} className="opacity-0 group-hover:opacity-100 text-cream-300/40 hover:text-coral-400 shrink-0">
-                <Trash2 size={13} />
-              </button>
+            <div key={l.id}>
+              <div className={`group flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${view === `list:${l.id}` ? "bg-ink-800 text-cream-50" : "text-cream-300/80 hover:bg-ink-900"}`}>
+                <button type="button" onClick={() => setView(`list:${l.id}`)} className="flex-1 flex items-center gap-2 text-left min-w-0">
+                  <ListIcon size={15} className="shrink-0" /> <span className="truncate">{l.name}</span>
+                </button>
+                <button type="button" onClick={() => setSyncEditorFor(syncEditorFor === l.id ? null : l.id)}
+                  title={l.syncExternal ? `Syncing with ${l.syncExternal.source === "google" ? "Google Tasks" : "Microsoft To Do"}` : "Not synced"}
+                  className={`opacity-0 group-hover:opacity-100 shrink-0 ${l.syncExternal ? "!opacity-100 text-leaf-400" : "text-cream-300/40 hover:text-cream-100"}`}>
+                  {l.syncExternal ? <Cloud size={13} /> : <CloudOff size={13} />}
+                </button>
+                <button type="button" onClick={() => removeList(l.id, l.name)} className="opacity-0 group-hover:opacity-100 text-cream-300/40 hover:text-coral-400 shrink-0">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+              {syncEditorFor === l.id && (
+                <ListSyncEditor list={l} onSet={(sync) => setListSync(l.id, sync)} onClose={() => setSyncEditorFor(null)} />
+              )}
             </div>
           ))}
           {addingList ? (
@@ -547,5 +568,67 @@ function AutomationModal({ item, onClose, onSaved }: { item: MyTaskItem; onClose
         <Button onClick={() => void save()} disabled={saving}>{a ? "Save" : "Create automation"}</Button>
       </div>
     </Modal>
+  );
+}
+
+// Inline "sync this list" picker, opened from the cloud icon next to a list
+// in the sidebar. Opt-in per list (task-sync.ts never touches a list unless
+// told to here) — picking a platform fetches that platform's real task
+// lists (empty if not connected) so the operator maps to a specific one,
+// never a silent default.
+function ListSyncEditor({ list, onSet, onClose }: {
+  list: MyTaskList;
+  onSet: (sync: { source: "google" | "microsoft"; externalListId: string } | null) => void;
+  onClose: () => void;
+}) {
+  const [source, setSource] = useState<"google" | "microsoft">(list.syncExternal?.source ?? "google");
+  const [externalLists, setExternalLists] = useState<{ id: string; name: string }[] | null>(null);
+  const [externalListId, setExternalListId] = useState(list.syncExternal?.externalListId ?? "");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    setExternalLists(null);
+    api.myTaskExternalLists(source).then(r => setExternalLists(r.lists)).catch(() => setExternalLists([])).finally(() => setLoading(false));
+  }, [source]);
+
+  return (
+    <div className="mx-2 mb-2 p-2.5 rounded-lg bg-ink-900/70 border border-ink-800 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-wider text-cream-300/60">Sync with</span>
+        <button type="button" onClick={onClose} className="text-cream-300/40 hover:text-cream-100"><X size={12} /></button>
+      </div>
+      <div className="flex gap-1.5">
+        <button type="button" onClick={() => setSource("google")}
+          className={`flex-1 text-xs px-2 py-1.5 rounded-lg border ${source === "google" ? "border-violet-500/60 bg-violet-500/10 text-cream-100" : "border-ink-800 text-cream-300/60"}`}>
+          Google Tasks
+        </button>
+        <button type="button" onClick={() => setSource("microsoft")}
+          className={`flex-1 text-xs px-2 py-1.5 rounded-lg border ${source === "microsoft" ? "border-violet-500/60 bg-violet-500/10 text-cream-100" : "border-ink-800 text-cream-300/60"}`}>
+          Microsoft To Do
+        </button>
+      </div>
+      {loading ? (
+        <div className="text-[11px] text-cream-300/50">Loading lists…</div>
+      ) : !externalLists?.length ? (
+        <div className="text-[11px] text-cream-300/50">
+          No {source === "google" ? "Google" : "Microsoft"} account connected, or it has no task lists — connect under Settings &gt; Connectors first.
+        </div>
+      ) : (
+        <select value={externalListId} onChange={e => setExternalListId(e.target.value)}
+          className="w-full bg-ink-950 border border-ink-800 text-xs text-cream-100 rounded-lg px-2 py-1.5">
+          <option value="">Choose a list…</option>
+          {externalLists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+        </select>
+      )}
+      <div className="flex justify-between gap-2 pt-1">
+        {list.syncExternal ? (
+          <Button variant="subtle" onClick={() => onSet(null)}>Stop syncing</Button>
+        ) : <span />}
+        <Button onClick={() => externalListId && onSet({ source, externalListId })} disabled={!externalListId}>
+          {list.syncExternal ? "Update" : "Enable sync"}
+        </Button>
+      </div>
+    </div>
   );
 }

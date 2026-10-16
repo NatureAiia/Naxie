@@ -45,7 +45,7 @@ describe("built-in templates", () => {
   });
 
   it("keeps Telegram chatId optional on all news templates", () => {
-    for (const id of ["africa-ai-news", "world-ai-news", "events-competition-scan", "deadline-reminders", "evening-recap", "weekend-digest"]) {
+    for (const id of ["africa-ai-news", "africa-tech-alerts", "world-ai-news", "events-competition-scan", "deadline-reminders", "evening-recap", "weekend-digest"]) {
       const t = templates.find(x => x.id === id);
       expect(t, id).toBeDefined();
       const chat = (t!.inputs ?? []).find(i => i.name === "chatId");

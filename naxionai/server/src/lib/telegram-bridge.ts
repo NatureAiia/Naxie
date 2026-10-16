@@ -201,8 +201,20 @@ export function markdownToSpeech(md: string, maxChars = 3500): string {
     .replace(/https?:\S+/g, "")              // bare URLs are unpronounceable
     .replace(/[|]/g, " ")                    // tables
     .replace(/\s+/g, " ")
+    .trim()
+    // TTS punctuation policy: the voice may only speak comma and full-stop
+    // pauses — every other mark (! ? : ; " ' - ( ) …) is unpronounceable or
+    // read aloud literally. Dashes/colons/semicolons become comma pauses
+    // first so phrasing survives, hyphens become spaces (read-aloud →
+    // read aloud, not readaloud), then everything except , and . is stripped.
+    .replace(/…/g, ".")
+    .replace(/\s*[—–:;]\s*/g, ", ")
+    .replace(/[-‐‑]/g, " ")
+    .replace(/[^\p{L}\p{N}\s,.]/gu, "")
+    .replace(/\s+([,.])/g, "$1")
+    .replace(/\s+/g, " ")
     .trim();
-  return s.length > maxChars ? s.slice(0, maxChars).trimEnd() + "…" : s;
+  return s.length > maxChars ? s.slice(0, maxChars).trimEnd() + "." : s;
 }
 
 // Send an audio file (mp3/wav) as a Telegram audio message. Multipart upload

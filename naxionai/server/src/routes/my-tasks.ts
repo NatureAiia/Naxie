@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { callerOf, callerLayer } from "../lib/access.js";
 import {
-  listLists, addList, renameList, removeList,
+  listLists, addList, renameList, removeList, setListSync,
   listItems, addItem, updateItem, removeItem, toggleItem, setMyDay,
   addStep, toggleStep, removeStep,
   getAutomationItem, setAutomation, removeAutomation, getAutomationStatus,
@@ -44,6 +44,44 @@ myTasksRouter.delete("/lists/:id", (req, res) => {
   const ok = removeList(ownerOf(req), String(req.params.id));
   if (!ok) return res.status(404).json({ error: "list not found" });
   res.json({ ok: true });
+});
+
+// Opt a list in/out of Google Tasks / Microsoft To Do sync (task-sync.ts).
+// Body: { source: "google"|"microsoft", externalListId } to enable, or
+// {} / { source: null } to disable. The id picker (GET below) lists the
+// operator's actual external lists to choose from.
+myTasksRouter.patch("/lists/:id/sync", (req, res) => {
+  const b = req.body ?? {};
+  const source = b.source === "google" || b.source === "microsoft" ? b.source : null;
+  const sync = source && b.externalListId ? { source, externalListId: String(b.externalListId) } : null;
+  const list = setListSync(ownerOf(req), String(req.params.id), sync);
+  if (!list) return res.status(404).json({ error: "list not found" });
+  res.json({ list });
+});
+
+// Lists the operator's actual Google Tasks / Microsoft To Do lists, to
+// populate the "sync with..." picker. Returns [] (not an error) if that
+// platform isn't connected.
+myTasksRouter.get("/external-lists/:source", async (req, res) => {
+  const source = req.params.source;
+  if (source !== "google" && source !== "microsoft") return res.status(400).json({ error: "source must be google or microsoft" });
+  try {
+    const { getValidAccessTokens } = await import("../lib/oauth-connectors.js");
+    const tokens = await getValidAccessTokens(source);
+    if (!tokens.length) return res.json({ lists: [] });
+    const url = source === "google"
+      ? "https://tasks.googleapis.com/tasks/v1/users/@me/lists"
+      : "https://graph.microsoft.com/v1.0/me/todo/lists";
+    const r = await fetch(url, { headers: { authorization: `Bearer ${tokens[0].token}` } });
+    if (!r.ok) return res.status(502).json({ error: `${source} task list fetch failed (${r.status})` });
+    const data: any = await r.json();
+    const lists = source === "google"
+      ? (data.items ?? []).map((l: any) => ({ id: l.id, name: l.title }))
+      : (data.value ?? []).map((l: any) => ({ id: l.id, name: l.displayName }));
+    res.json({ lists });
+  } catch (e: any) {
+    res.status(502).json({ error: String(e?.message ?? e).slice(0, 300) });
+  }
 });
 
 // GET /api/my-tasks/items?listId=&myDay=1&important=1&completed=0

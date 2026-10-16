@@ -126,10 +126,17 @@ export function removeConnection(id: string): boolean {
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
-const GOOGLE_SCOPES = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email";
+// Widened 2026-10-15 to add send/write/tasks scopes (gmail.send,
+// calendar.events, tasks) alongside the original read-only set — there's no
+// incremental-auth path (see buildAuthorizeUrl's prompt=consent below), so an
+// account connected under the OLD narrower scope string must fully reconnect
+// before google.send_email/create_event/task-sync will work for it; a stale
+// token just 403s from Google until then.
+const GOOGLE_SCOPES = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.email";
 
 const MS_GRAPH_BASE = "https://graph.microsoft.com/v1.0";
-const MS_SCOPES = "offline_access Mail.Read Calendars.Read Files.Read User.Read";
+// Same widening as GOOGLE_SCOPES above, for the same reason.
+const MS_SCOPES = "offline_access Mail.Read Mail.Send Calendars.Read Calendars.ReadWrite Tasks.ReadWrite Files.Read User.Read";
 function msAuthority(path: string): string {
   return `https://login.microsoftonline.com/${config.microsoftTenantId}/oauth2/v2.0/${path}`;
 }
@@ -185,6 +192,7 @@ export function buildAuthorizeUrl(platform: OauthPlatform): string {
     response_type: "code",
     response_mode: "query",
     scope: MS_SCOPES,
+    prompt: "consent", // force a fresh consent screen for the full current scope set — same reasoning as Google's prompt=consent above
     state,
   });
   return `${msAuthority("authorize")}?${params.toString()}`;
@@ -342,4 +350,20 @@ export async function getValidAccessTokens(platform: OauthPlatform): Promise<{ i
   return results
     .filter((r): r is PromiseFulfilledResult<{ id: string, token: string, accountName: string | undefined }> => r.status === "fulfilled")
     .map(r => r.value);
+}
+
+// Shared by every write primitive (google.send_email, google.create_event,
+// etc.) that needs exactly one account's token: picks the sole connected
+// account, the one matching `accountName` if given, or throws rather than
+// silently guessing which real external account to act on — "ask if
+// ambiguous" per the operator's instruction, not a default pick.
+export function pickAccount<T extends { accountName?: string }>(platform: OauthPlatform, tokens: T[], accountName?: string): T {
+  if (!tokens.length) throw new Error(`No ${platform === "google" ? "Google" : "Microsoft"} account connected — connect one in Settings > Connectors first.`);
+  if (accountName) {
+    const match = tokens.find(t => t.accountName === accountName);
+    if (!match) throw new Error(`No connected ${platform} account named "${accountName}" — connected: ${tokens.map(t => t.accountName).join(", ")}`);
+    return match;
+  }
+  if (tokens.length === 1) return tokens[0];
+  throw new Error(`Multiple ${platform} accounts are connected (${tokens.map(t => t.accountName).join(", ")}) — specify accountName.`);
 }
