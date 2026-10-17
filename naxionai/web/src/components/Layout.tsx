@@ -32,8 +32,10 @@ import {
   Wallet,
   Briefcase,
   Settings,
+  Radar,
   ShieldAlert,
   BookOpen,
+  Dna,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { GlitterBackground } from "./GlitterBackground";
@@ -92,6 +94,7 @@ const agentsNav: NavItem[] = [];
 
 const workspaceNav: NavItem[] = [
   pageNav("inbox", Inbox, { badgeKey: "approvals" }),
+  pageNav("ambient", Radar),
   pageNav("council", Waypoints),
   pageNav("schedules", EventFolderIcon),
   pageNav("dailyReports", ChangelogIcon),
@@ -135,6 +138,7 @@ const systemNav: NavItem[] = [
 // out of connectNav so it stays visible without expanding a group — a
 // pentest trigger is not something you want buried.
 const securityScanNav: NavItem = pageNav("security", ShieldAlert, { iconColor: "text-coral-400" });
+const somaticOraNav: NavItem = pageNav("somatic-ora", Dna, { iconColor: "text-violet-400" });
 
 export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -389,50 +393,50 @@ export function Layout({ children }: { children: ReactNode }) {
             className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
           />
         )}
-<aside
+        <aside
            id="main-navigation"
            aria-label="Main navigation"
            hidden={isSmallScreen && !mobileNavOpen}
            style={isSmallScreen && !mobileNavOpen ? { display: "none" } : undefined}
            className={`${isSmallScreen ? "fixed inset-y-0 left-0 z-50 w-72 shadow-2xl" : `shrink-0 ${collapsed ? "w-16" : "w-60"}`} bg-ink-900 border-r border-ink-800 flex flex-col transition-[width,transform] duration-200 overflow-hidden shadow-[0_0_40px_-10px_rgba(167,139,250,0.15)]`}
          >
-          <div
-            className={`flex items-center ${compactNav ? "flex-col gap-2 px-2 py-4" : "justify-between px-4 py-4 tablet:px-5 tablet:py-5"}`}
-          >
-            <Link to="/naxie" onClick={() => setMobileNavOpen(false)} className={`flex items-center gap-2.5 min-w-0 ${compactNav ? "justify-center" : ""} group`}>
-              <div className="drop-shadow-[0_0_12px_rgba(167,139,250,0.4)] group-hover:drop-shadow-[0_0_20px_rgba(167,139,250,0.6)] transition-all nw-nav-glow">
-                <BrandMark size={26} />
-              </div>
-              {!compactNav && (
-                <div className="w-[168px] h-8">
-                  <PixelDriftText text="NaxionAI" />
-                </div>
-              )}
-            </Link>
-            <div className={`flex items-center gap-1 ${compactNav ? "" : "shrink-0"}`}>
-              {!isSmallScreen && <button
-                type="button"
-                onClick={() => setCollapsed((c) => !c)}
-                title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                aria-label="Toggle sidebar"
-                className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0 hover:shadow-[0_0_12px_-3px_rgba(167,139,250,0.4)]"
-              >
-                {collapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
-              </button>}
-              {isSmallScreen && <button type="button" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" className="grid place-items-center w-9 h-9 rounded-md text-cream-300 hover:bg-ink-800"><X size={18} /></button>}
-            </div>
-          </div>
+           <div
+             className={`flex items-center ${compactNav ? "flex-col gap-2 px-2 py-4" : "justify-between px-4 py-4 tablet:px-5 tablet:py-5"}`}
+           >
+             <Link to="/naxie" onClick={() => setMobileNavOpen(false)} className={`flex items-center gap-2.5 min-w-0 ${compactNav ? "justify-center" : ""} group`}>
+               <div className="drop-shadow-[0_0_12px_rgba(167,139,250,0.4)] group-hover:drop-shadow-[0_0_20px_rgba(167,139,250,0.6)] transition-all nw-nav-glow">
+                 <BrandMark size={26} />
+               </div>
+               {!compactNav && (
+                 <div className="w-[168px] h-8">
+                   <PixelDriftText text="NaxionAI" />
+                 </div>
+               )}
+             </Link>
+             <div className={`flex items-center gap-1 ${compactNav ? "" : "shrink-0"}`}>
+               {!isSmallScreen && <button
+                 type="button"
+                 onClick={() => setCollapsed((c) => !c)}
+                 title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                 aria-label="Toggle sidebar"
+                 className="grid place-items-center w-7 h-7 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors shrink-0 hover:shadow-[0_0_12px_-3px_rgba(167,139,250,0.4)]"
+               >
+                 {collapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+               </button>}
+               {isSmallScreen && <button type="button" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" className="grid place-items-center w-9 h-9 rounded-md text-cream-300 hover:bg-ink-800"><X size={18} /></button>}
+             </div>
+           </div>
 
-          {!compactNav && (
-            <div className="px-4 pb-4 tablet:px-5">
-              <div className="w-full aspect-square rounded-full overflow-hidden border border-ink-700">
-                <img src="/brand/logo.jpg" alt="Naxie" className="w-full h-full object-cover" />
-              </div>
-            </div>
-          )}
+           {!compactNav && (
+             <div className="px-4 pb-4 tablet:px-5">
+               <div className="w-full aspect-square rounded-full overflow-hidden border border-ink-700">
+                 <img src="/brand/logo.jpg" alt="Naxie" className="w-full h-full object-cover" />
+               </div>
+             </div>
+           )}
 
-          <nav aria-label="Primary" className={`flex-1 space-y-0.5 overflow-y-auto scrollbar-thin ${compactNav ? "px-2" : "px-3"}`}>
-            {primaryNav.map(n => renderNavItem(n, { glow: true }))}
+           <nav aria-label="Primary" className={`flex-1 space-y-0.5 overflow-y-auto scrollbar-thin ${compactNav ? "px-2" : "px-3"}`}>
+             {primaryNav.map(n => renderNavItem(n, { glow: true }))}
 {compactNav ? (
                 <>
                   {workspaceNav.map(renderNavItem)}
@@ -441,6 +445,7 @@ export function Layout({ children }: { children: ReactNode }) {
                   {connectNav.map(renderNavItem)}
                   {systemNav.map(renderNavItem)}
                   {renderNavItem(securityScanNav, { glow: true })}
+                  {renderNavItem(somaticOraNav, { glow: true })}
                 </>
               ) : (
                 <>
@@ -450,109 +455,110 @@ export function Layout({ children }: { children: ReactNode }) {
                   {renderGroup("connect", "Connect", Puzzle, connectNav)}
                   {renderGroup("system", "System", Settings, systemNav)}
                   {renderNavItem(securityScanNav, { glow: true })}
+                  {renderNavItem(somaticOraNav, { glow: true })}
                 </>
               )}
-          </nav>
+           </nav>
 
-          <div className="px-3 py-3 border-t border-ink-800">
-            {!compactNav && <OfflineFooterLabel />}
-          </div>
-        </aside>
+           <div className="px-3 py-3 border-t border-ink-800">
+             {!compactNav && <OfflineFooterLabel />}
+           </div>
+         </aside>
 
-        <main className="flex-1 flex flex-col overflow-hidden">
-          <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 tablet:px-6 tablet:py-2 border-b border-ink-800 shadow-[0_0_30px_-10px_rgba(167,139,250,0.1)]">
-            <div className="flex items-center gap-2.5 min-w-0">
-              {isSmallScreen && <button type="button" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileNavOpen} className="grid place-items-center w-9 h-9 -ml-2 rounded-md text-cream-200 hover:bg-ink-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"><Menu size={18} /></button>}
-              {user ? (
-                <>
-                  <div className="w-7 h-7 shrink-0 rounded-full bg-gradient-to-br from-violet-500 to-coral-500 grid place-items-center text-[11px] font-semibold text-white shadow-[0_0_12px_-2px_rgba(167,139,250,0.5)]">
-                    {user.name
-                      .split(" ")
-                      .map((p) => p[0])
-                      .slice(0, 2)
-                      .join("")
-                      .toUpperCase()}
-                  </div>
-                  <div className="text-sm text-cream-200 truncate">
-                    {user.name} <span className="text-cream-300/50 hidden tablet:inline">· {user.email}</span>
-                  </div>
-                  <span className="hidden tablet:inline text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/70">
-                    {user.role}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={signOut}
-                    title="Sign out"
-                    className="ml-1 shrink-0 text-cream-300/50 hover:text-coral-400 p-1"
-                  >
-                    <LogOut size={14} />
-                  </button>
-                </>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {persona && (
-                <Link
-                  to="/office"
-                  className="nw-shiny-pill flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border bg-violet-500/10 border-violet-500/30 text-violet-300 shadow-[0_0_12px_-3px_rgba(167,139,250,0.4)] hover:shadow-[0_0_16px_-2px_rgba(167,139,250,0.5)] transition-shadow"
-                  title="Active persona"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0 drop-shadow-[0_0_4px_rgba(167,139,250,0.6)]" />
-                  <span className="truncate max-w-[8rem] tablet:max-w-none">{persona.name}</span>
-                  <span className="opacity-60 hidden tablet:inline">· {persona.role}</span>
-                </Link>
-              )}
-              <div
-                className={`nw-shiny-pill flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border ${statusOk ? "bg-leaf-500/10 border-leaf-500/30 text-leaf-400 shadow-[0_0_12px_-3px_rgba(34,197,94,0.3)]" : "bg-flame-500/10 border-flame-500/30 text-flame-400 shadow-[0_0_12px_-3px_rgba(239,68,68,0.3)]"}`}
-              >
-                <span
-                  className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${statusOk ? "bg-leaf-500" : "bg-flame-500 animate-pulse"}`}
-                />
-                <span className="hidden tablet:inline">{statusLabel}</span>
-              </div>
-              <OfflineToggle />
-              <button
-                type="button"
-                onClick={() => {
-                  const ev = new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true, bubbles: true });
-                  document.dispatchEvent(ev);
-                }}
-                className="flex items-center gap-2 text-xs px-3 py-1.5 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors hover:shadow-[0_0_12px_-3px_rgba(167,139,250,0.3)]"
-                title="Open command palette"
-              >
-                <SearchIcon size={12} />
-                <span className="hidden tablet:inline">Search</span>
-                <span className="hidden tablet:flex items-center gap-0.5">
-                  <MetaKey />
-                  <Kbd>K</Kbd>
-                </span>
-              </button>
-            </div>
-          </header>
-          <a href="#main-content" className="skip-link">Skip to main content</a>
-          <div id="main-content" tabIndex={-1} className={`flex-1 scrollbar-thin ${clearBackground ? "overflow-y-auto tablet:overflow-hidden" : "overflow-auto"}`}>
-            {/* key re-keys the wrapper on route change, restarting the
-              nw-page-enter animation. Reduced-motion users get an instant
-              swap (the keyframe collapses to no-op in CSS). Naxie gets a
-              full-bleed, full-height canvas instead of the max-w-6xl reading
-              column — it hosts the knowledge-graph "brain", not prose. */}
-            <div
-              key={location.pathname.split("/")[1] || "/"}
-              className={
-                clearBackground
-                  ? "px-6 py-6 tablet:h-full tablet:px-8 tablet:py-6 nw-page-enter"
-                  : "max-w-[88rem] mx-auto px-8 py-8 tablet:px-10 tablet:py-8 nw-page-enter"
-              }
-            >
-              {children}
-            </div>
-          </div>
-          <TerminalDrawer />
-        </main>
-        <CommandPalette />
-        <ToastRack />
-        <NaxieWidget />
-      </div>
-    </TerminalProvider>
-  );
+         <main className="flex-1 flex flex-col overflow-hidden">
+           <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 tablet:px-6 tablet:py-2 border-b border-ink-800 shadow-[0_0_30px_-10px_rgba(167,139,250,0.1)]">
+             <div className="flex items-center gap-2.5 min-w-0">
+               {isSmallScreen && <button type="button" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileNavOpen} className="grid place-items-center w-9 h-9 -ml-2 rounded-md text-cream-200 hover:bg-ink-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"><Menu size={18} /></button>}
+               {user ? (
+                 <>
+                   <div className="w-7 h-7 shrink-0 rounded-full bg-gradient-to-br from-violet-500 to-coral-500 grid place-items-center text-[11px] font-semibold text-white shadow-[0_0_12px_-2px_rgba(167,139,250,0.5)]">
+                     {user.name
+                       .split(" ")
+                       .map((p) => p[0])
+                       .slice(0, 2)
+                       .join("")
+                       .toUpperCase()}
+                   </div>
+                   <div className="text-sm text-cream-200 truncate">
+                     {user.name} <span className="text-cream-300/50 hidden tablet:inline">· {user.email}</span>
+                   </div>
+                   <span className="hidden tablet:inline text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-ink-800 text-cream-300/70">
+                     {user.role}
+                   </span>
+                   <button
+                     type="button"
+                     onClick={signOut}
+                     title="Sign out"
+                     className="ml-1 shrink-0 text-cream-300/50 hover:text-coral-400 p-1"
+                   >
+                     <LogOut size={14} />
+                   </button>
+                 </>
+               ) : null}
+             </div>
+             <div className="flex flex-wrap items-center gap-2">
+               {persona && (
+                 <Link
+                   to="/office"
+                   className="nw-shiny-pill flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border bg-violet-500/10 border-violet-500/30 text-violet-300 shadow-[0_0_12px_-3px_rgba(167,139,250,0.4)] hover:shadow-[0_0_16px_-2px_rgba(167,139,250,0.5)] transition-shadow"
+                   title="Active persona"
+                 >
+                   <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0 drop-shadow-[0_0_4px_rgba(167,139,250,0.6)]" />
+                   <span className="truncate max-w-[8rem] tablet:max-w-none">{persona.name}</span>
+                   <span className="opacity-60 hidden tablet:inline">· {persona.role}</span>
+                 </Link>
+               )}
+               <div
+                 className={`nw-shiny-pill flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border ${statusOk ? "bg-leaf-500/10 border-leaf-500/30 text-leaf-400 shadow-[0_0_12px_-3px_rgba(34,197,94,0.3)]" : "bg-flame-500/10 border-flame-500/30 text-flame-400 shadow-[0_0_12px_-3px_rgba(239,68,68,0.3)]"}`}
+               >
+                 <span
+                   className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${statusOk ? "bg-leaf-500" : "bg-flame-500 animate-pulse"}`}
+                 />
+                 <span className="hidden tablet:inline">{statusLabel}</span>
+               </div>
+               <OfflineToggle />
+               <button
+                 type="button"
+                 onClick={() => {
+                   const ev = new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true, bubbles: true });
+                   document.dispatchEvent(ev);
+                 }}
+                 className="flex items-center gap-2 text-xs px-3 py-1.5 border border-ink-700 hover:border-violet-500/40 rounded-md text-cream-300 hover:text-cream-100 transition-colors hover:shadow-[0_0_12px_-3px_rgba(167,139,250,0.3)]"
+                 title="Open command palette"
+               >
+                 <SearchIcon size={12} />
+                 <span className="hidden tablet:inline">Search</span>
+                 <span className="hidden tablet:flex items-center gap-0.5">
+                   <MetaKey />
+                   <Kbd>K</Kbd>
+                 </span>
+               </button>
+             </div>
+           </header>
+           <a href="#main-content" className="skip-link">Skip to main content</a>
+           <div id="main-content" tabIndex={-1} className={`flex-1 scrollbar-thin ${clearBackground ? "overflow-y-auto tablet:overflow-hidden" : "overflow-auto"}`}>
+             {/* key re-keys the wrapper on route change, restarting the
+               nw-page-enter animation. Reduced-motion users get an instant
+               swap (the keyframe collapses to no-op in CSS). Naxie gets a
+               full-bleed, full-height canvas instead of the max-w-6xl reading
+               column — it hosts the knowledge-graph "brain", not prose. */}
+             <div
+               key={location.pathname.split("/")[1] || "/"}
+               className={
+                 clearBackground
+                   ? "px-6 py-6 tablet:h-full tablet:px-8 tablet:py-6 nw-page-enter"
+                   : "max-w-[88rem] mx-auto px-8 py-8 tablet:px-10 tablet:py-8 nw-page-enter"
+               }
+             >
+               {children}
+             </div>
+           </div>
+           <TerminalDrawer />
+         </main>
+         <CommandPalette />
+         <ToastRack />
+         <NaxieWidget />
+       </div>
+     </TerminalProvider>
+   );
 }

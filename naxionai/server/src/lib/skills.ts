@@ -211,6 +211,11 @@ const SKILL_KEYWORDS: { skill: string; patterns: RegExp[] }[] = [
   { skill: "risk-assessment",        patterns: [/\brisk\s+(?:assessment|analysis|register)\b/i, /\bidentify\s+risks?\b/i] },
   { skill: "fact-check",             patterns: [/\bfact[\s-]?check\b/i, /\bverify\s+(?:a\s+|the\s+|this\s+)?claim\b/i, /\bis\s+it\s+true\s+that\b/i] },
   { skill: "comparison",             patterns: [/\bcompare\s+\S+\s+(?:to|with|vs\.?|and|versus)\s+\S/i, /\bside[\s-]by[\s-]side\b/i] },
+  // data-analysis fires on "analyze my sales/stock/CSV/spreadsheet" asks.
+  // Deliberately requires an analysis verb AND a data noun — a bare
+  // "analyze this" stays with general-task, and "sales report" (a writing
+  // task) must not hijack into a Python pipeline.
+  { skill: "data-analysis",          patterns: [/\banaly[sz]e\s+(?:my\s+|the\s+|this\s+)?(?:sales|stock|inventory|hr|data|dataset|csv|spreadsheet|excel|xlsx)\b/i, /\b(?:csv|spreadsheet|excel|xlsx)\s+(?:analysis|report)\b/i, /\bstock\s+check\b/i] },
   { skill: "contract-summary",       patterns: [/\bcontract\b/i, /\bagreement\b/i, /\bterms\s+of\s+service\b/i, /\btos\b/i, /\bnda\b/i] },
   { skill: "local-doc-summary",      patterns: [/\b(?:what(?:'?s|\s+is|\s+does)\s+in\s+this\b|summari[sz]e\s+this\s+(?:doc|file|pdf))/i] },
   // pc-doc-handling fires for "move/copy/save/file/import/add X to my vault/
@@ -315,7 +320,7 @@ const SKILL_KEYWORDS: { skill: string; patterns: RegExp[] }[] = [
   { skill: "project-plan",               patterns: [/\bproject\s+plan\b/i, /\bproject\s+(?:roadmap|timeline|schedule|milestones?)\b/i, /\bwork\s+breakdown\b/i, /\bWBS\b/i] },
   { skill: "raid-log",                   patterns: [/\bRAID\s+(?:log|register)\b/i, /\brisks?,?\s+assumptions?,?\s+issues?,?\s+(?:and\s+)?dependencies\b/i] },
   { skill: "fulfillment-plan",           patterns: [/\b(?:fulfil?lment|shipment|shipping|delivery|consignment)\s+(?:plan|schedule)\b/i, /\b(?:ship|fulfil?l)\s+(?:an?\s+|the\s+)?order\b/i, /\bfreight\s+(?:plan|booking)\b/i, /\bincoterm/i] },
-  { skill: "inventory-analysis",         patterns: [/\binventory\s+(?:analysis|review|report|level|management|count)\b/i, /\b(?:re[\s-]?order|restock|stock)\s+(?:point|analysis|level|recommendation|report)\b/i, /\bsafety stock\b/i, /\bstock[\s-]?out\b/i, /\bEOQ\b/i, /\bdays of (?:cover|stock)\b/i] },
+  { skill: "inventory-analysis",         patterns: [/\binventory\s+(?:analysis|review|report|level|management|count)\b/i, /\b(?:re[\s-]?order|restock|stock)\s+(?:point|analysis|levels?|check|recommendation|report)\b/i, /\bsafety stock\b/i, /\bstock[\s-]?out\b/i, /\bEOQ\b/i, /\bdays of (?:cover|stock)\b/i, /\bcheck\s+(?:my\s+|the\s+)?stock\b/i] },
   { skill: "logistics-exception",        patterns: [/\b(?:logistics?|shipment|delivery|order)\s+(?:exception|issue|problem|delay|incident)\b/i, /\b(?:lost|damaged|delayed|stuck|held|missing)\s+(?:shipment|order|consignment|package|delivery)\b/i, /\bcustoms\s+hold\b/i] },
   // ─── 2026-06-10: keyword triggers for skills that previously routed ONLY via
   // generic applies_to intents (so they were effectively never picked). Each

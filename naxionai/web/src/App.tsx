@@ -47,11 +47,13 @@ const Hermes = lazy(() => import("./pages/Hermes").then(m => ({ default: m.Herme
 const Brands = lazy(() => import("./pages/Brands").then(m => ({ default: m.Brands })));
 const GithubAccounts = lazy(() => import("./pages/GithubAccounts").then(m => ({ default: m.GithubAccounts })));
 const Pentest = lazy(() => import("./pages/Pentest").then(m => ({ default: m.Pentest })));
+const SomaticOra = lazy(() => import("./pages/SomaticOra").then(m => ({ default: m.SomaticOra })));
 
 // Govern — Policies is a nav item in the System group; OrgDashboard merged into CommandCenter
 
-// Ambient Watch — now a tab inside My Work (see pages/MyWork.tsx), not its own page.
-const AmbientRedirect = () => <Navigate to="/my-work?tab=ambient" replace />;
+// Ambient Watch — standalone page under Workspace; also embedded as the
+// Ambient tab inside My Work so both paths stay live.
+const AmbientWatch = lazy(() => import("./pages/AmbientWatch").then(m => ({ default: m.AmbientWatch })));
 
 // Misc / unchanged
 const DocEditor = lazy(() => import("./pages/DocEditor").then(m => ({ default: m.DocEditor })));
@@ -141,6 +143,7 @@ function AppShell() {
         <Route path="/hermes-bridge" element={<Navigate to="/hermes" replace />} />
         <Route path="/github-accounts" element={<GithubAccounts />} />
         <Route path="/pentest" element={<Pentest />} />
+        <Route path="/somatic-ora" element={<SomaticOra />} />
 
         {/* Govern */}
         <Route path="/policies" element={<Policies />} />
@@ -149,8 +152,8 @@ function AppShell() {
         <Route path="/admin/notifications" element={<Navigate to="/audit" replace />} />
         <Route path="/admin/email-telegram" element={<Navigate to="/connectors" replace />} />
 
-        {/* Ambient Watch moved into My Work as a tab */}
-        <Route path="/ambient" element={<AmbientRedirect />} />
+        {/* Ambient Watch lives standalone under Workspace */}
+        <Route path="/ambient" element={<AmbientWatch />} />
 
         {/* Misc, unchanged */}
         <Route path="/edit" element={<DocEditor />} />

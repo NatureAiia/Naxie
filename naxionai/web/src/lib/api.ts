@@ -946,6 +946,40 @@ export const api = {
     if (params?.jobId) q.set("jobId", params.jobId);
     return req<{ events: any[]; total: number }>(`/api/audit?${q.toString()}`);
   },
+  // Ambient Watch — background watcher (jobs, schedules, planner reminders,
+  // commits, email triage, webhooks, flows → judge → nudge).
+  ambientStatus: () => req<{
+    enabled: boolean;
+    engine: SchedulerEngine | null;
+    sources: Record<AmbientSource, boolean>;
+    channels: { toast: boolean; telegram: boolean; email: boolean };
+    email: {
+      configured: boolean; running: boolean; outboundTransport: "mailjet" | "smtp";
+      inboundMode: string | null; inboundEnabled: boolean; user: string | null; triageMode: boolean | null;
+    } | null;
+    counts: { total: number; last24h: number; pushed: number; deferred: number };
+  }>("/api/ambient/status"),
+  ambientEvents: (opts?: { source?: AmbientSource; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (opts?.source) q.set("source", opts.source);
+    if (opts?.limit) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    return req<{ events: AmbientEvent[] }>(`/api/ambient/events${qs ? `?${qs}` : ""}`);
+  },
+  ambientConfig: () => req<{ config: AmbientConfig }>("/api/ambient/config"),
+  updateAmbientConfig: (patch: Partial<AmbientConfig>) =>
+    req<{ config: AmbientConfig }>("/api/ambient/config", { method: "PATCH", body: JSON.stringify(patch) }),
+  testAmbient: (source?: AmbientSource) =>
+    req<{ event: AmbientEvent }>("/api/ambient/test", { method: "POST", body: JSON.stringify(source ? { source } : {}) }),
+  runAmbientScan: () => req<{ ok: true }>("/api/ambient/scan", { method: "POST" }),
+  clearAmbientEvents: () => req<{ cleared: number }>("/api/ambient/events", { method: "DELETE" }),
+  // Email bridge — status + one-off test send (outbound Mailjet/SMTP).
+  emailStatus: () => req<{
+    configured: boolean; running: boolean; outboundTransport: "mailjet" | "smtp";
+    inboundMode: string | null; inboundEnabled: boolean; user: string | null; from: string | null;
+    allowedSenders: string[]; pollMs: number | null;
+  }>("/api/email/status"),
+  sendTestEmail: (to: string) => req<{ ok: true; to: string }>("/api/email/test", { method: "POST", body: JSON.stringify({ to }) }),
   // SkillForge.
   draftSkill: (intent: string, taskSample: string, failureReason?: string) =>
     req<{ skill: any; raw: string }>("/api/skill-forge/draft", { method: "POST", body: JSON.stringify({ intent, taskSample, failureReason }) }),
@@ -1493,6 +1527,23 @@ export type Cadence = {
 
 export type ScheduleDelivery = { email?: string; telegramChatId?: string; voiceNote?: boolean };
 export type ScheduleRun = { id: string; title: string; status: string; startedAt: string; finishedAt?: string };
+
+// Ambient Watch — mirrors server/src/lib/ambient.ts.
+export type AmbientSource = "job" | "schedule" | "calendar" | "github" | "email" | "webhook" | "flow";
+export type AmbientSeverity = "info" | "attention" | "urgent";
+export type AmbientEvent = {
+  id: string; at: string; source: AmbientSource; title: string; detail?: string;
+  severity: AmbientSeverity; link?: { jobId?: string; scheduleId?: string; url?: string };
+  notified: string[]; judgeNote?: string;
+};
+export type AmbientConfig = {
+  enabled: boolean;
+  sources: Record<AmbientSource, boolean>;
+  channels: { toast: boolean; telegram: boolean; email: boolean };
+  quietHours: { start: string; end: string } | null;
+  digest: { enabled: boolean; hour: number; minute: number };
+  emailTo?: string;
+};
 export type Schedule = {
   id: string;
   name: string;

@@ -73,6 +73,7 @@ import { startOrgDaemon, stopOrgDaemon } from "./lib/org-daemon.js";
 import { hydrateMemoryFromSupabaseIfLocalEmpty } from "./lib/memory.js";
 import { governanceRouter } from "./routes/governance.js";
 import { emailRouter } from "./routes/email.js";
+import { ambientRouter } from "./routes/ambient.js";
 import { externalAgentsRouter } from "./routes/external-agents.js";
 import { feedbackRouter } from "./routes/feedback.js";
 import { exportsRouter } from "./routes/exports.js";
@@ -322,6 +323,7 @@ app.post("/api/security/unblock", (req, res) => {
   res.json({ ok: true, unblocked: unblockIp(ip) });
 });
 app.use("/api/email", emailRouter);
+app.use("/api/ambient", ambientRouter);
 app.use("/api/external-agents", externalAgentsRouter);
 app.use("/api/feedback", feedbackRouter);
 app.use("/api/exports", exportsRouter);
@@ -748,6 +750,18 @@ const server = app.listen(config.port, config.bindHost, async () => {
   // Extension health scheduler — hourly test-all + alert (primary-only).
   if (config.role === "primary") {
     try { startExtensionHealthScheduler(); } catch (e: any) { console.warn(`  ⚠ extension health scheduler failed: ${e?.message ?? e}`); }
+  }
+
+  // Ambient Watch — the proactive background watcher (jobs, schedules,
+  // planner reminders, commits, email triage, webhooks, flows → judge →
+  // nudge). Primary-only, same reasoning as the github watcher above.
+  // Disable with NAXION_AMBIENT=0. Interval via NAXION_AMBIENT_INTERVAL_SECONDS.
+  if (process.env.NAXION_AMBIENT !== "0" && config.role === "primary") {
+    try {
+      const { startAmbientWatcher } = await import("./lib/ambient.js");
+      startAmbientWatcher();
+      console.log(`  ⓘ ambient watch armed (${process.env.NAXION_AMBIENT_INTERVAL_SECONDS ?? "60"}s interval)`);
+    } catch (e: any) { console.warn(`  ⚠ ambient watch failed: ${e?.message ?? e}`); }
   }
 
   // Git-commit watcher + project-status check — the first two engines

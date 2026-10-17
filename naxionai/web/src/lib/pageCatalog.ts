@@ -3,6 +3,7 @@ export const PAGE_CATALOG = {
   naxie: { label: "Naxie", path: "/naxie", keywords: "home overview voice assistant" },
   office: { label: "Office", path: "/office", keywords: "agents personas roles workforce roster" },
   inbox: { label: "My Inbox", path: "/my-work", keywords: "approvals handoffs assignments review" },
+  ambient: { label: "Ambient Watch", path: "/ambient", keywords: "background watcher proactive notifications digest quiet hours" },
   council: { label: "Council", path: "/council", keywords: "board meeting orchestrate debate" },
   schedules: { label: "Schedules", path: "/schedules", keywords: "recurring automations cadence" },
   dailyReports: { label: "Daily Reports", path: "/daily-reports", keywords: "digest rollup" },
@@ -25,7 +26,8 @@ export const PAGE_CATALOG = {
   models: { label: "Models", path: "/models", keywords: "AI providers deployments" },
   cost: { label: "Cost", path: "/cost", keywords: "usage spend tokens" },
   policies: { label: "Policies", path: "/policies", keywords: "governance guardrails compliance" },
-  security: { label: "Security Scan", path: "/pentest", keywords: "security test pentest" },
+  security: { label: "Strix Atom", path: "/pentest", keywords: "security test pentest" },
+  "somatic-ora": { label: "SOMATIC-ORA", path: "/somatic-ora", keywords: "somatic ora" },
   whatsapp: { label: "WhatsApp", path: "/whatsapp", keywords: "messaging channel" },
 } as const;
 

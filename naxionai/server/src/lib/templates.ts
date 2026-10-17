@@ -287,6 +287,34 @@ export const templates: Template[] = [
     estimateSeconds: 90,
     hidden: true,
   },
+  {
+    id: "analyze-spreadsheet",
+    role: "Insights",
+    title: "Analyze a spreadsheet",
+    description: "End-to-end analysis of a CSV/XLSX: profile, clean, explore, chart, and write a findings memo with charts saved to the vault. Pair with a Schedule for recurring reports.",
+    icon: "chart",
+    agent: "naxie-agent",
+    inputs: [
+      { name: "file", label: "File (vault path, upload, or local path)", type: "text", required: true, placeholder: "_naxion/social/sales.csv or C:\\data\\sales.xlsx" },
+      { name: "goal", label: "What question should the analysis answer?", type: "textarea", placeholder: "e.g. which products drive revenue and what's trending down" },
+    ],
+    requiresApproval: false,
+    estimateSeconds: 120,
+  },
+  {
+    id: "stock-check",
+    role: "Operations",
+    title: "Stock level check",
+    description: "Reads a stock/inventory CSV, computes days-of-cover per SKU against reorder levels, and reports what needs reordering now vs soon. Pair with a weekly Schedule per store.",
+    icon: "box",
+    agent: "naxie-agent",
+    inputs: [
+      { name: "file", label: "Stock CSV (vault path, upload, or local path)", type: "text", required: true, placeholder: "e.g. _naxion/business/stock.csv" },
+      { name: "coverDays", label: "Alert when cover drops below (days)", type: "number", default: 14 },
+    ],
+    requiresApproval: false,
+    estimateSeconds: 60,
+  },
 ];
 
 export const roles = [

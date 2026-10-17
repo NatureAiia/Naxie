@@ -125,6 +125,12 @@ const ACTION_PATTERNS: { re: RegExp; templateId: string }[] = [
   { re: /\b(?:search|find|look\s*up|look\s+for|hunt|grep)\s+(?:my\s+|the\s+)?(?:notes?|vault|brain|knowledge|second\s+brain)\b/i, templateId: "search-brain" },
   { re: /\b(?:what\s+do\s+I\s+know\s+about|do\s+I\s+have\s+(?:any\s+)?notes?\s+(?:about|on))\b/i, templateId: "search-brain" },
   { re: /\b(?:browse|open|show)\s+(?:my\s+)?vault\b/i, templateId: "browse-vault" },
+  { re: /\bstock\s+(?:level\s+)?check\b/i, templateId: "stock-check" },
+  { re: /\bcheck\s+(?:my\s+|the\s+)?stock\b/i, templateId: "stock-check" },
+  // Analyze-spreadsheet deliberately excludes a "report" tail ("analyze my
+  // sales report" reads as a writing task) — those fall through to the
+  // planner, which still loads the data-analysis skill via keywords.
+  { re: /\banaly[sz]e\s+(?:my\s+|the\s+|this\s+)?(?:sales|stock\s+(?:data|levels?)?|inventory|data|dataset|csv|spreadsheet|excel)(?!\s+report\b)\b/i, templateId: "analyze-spreadsheet" },
 ];
 
 chatRouter.post("/", async (req, res) => {
@@ -252,6 +258,46 @@ async function handleChat(req: any, res: any) {
       } catch (e: any) {
         console.warn(`[chat] explicit-remember failed: ${e?.message ?? e}`);
       }
+    }
+  }
+
+  // 2.T TRANSLATE FAST-PATH. Short explicit "translate X to Shona"
+  // commands go straight to the NLLB primitive — deterministic,
+  // sub-second, near-zero cost vs the full plan-execute-synth pipeline.
+  // Conservative on purpose: the fast-path fires ONLY when the source is
+  // unambiguous (English-looking input → Shona/Ndebele). Anything else
+  // (unknown source, Shona-looking input) falls through to the agent +
+  // translation.md skill — a wrong src_lang produces fluent garbage, and
+  // guessing wrong here is worse than spending the LLM call.
+  if (process.env.NAXION_TRANSLATE !== "0") {
+    try {
+      const { parseTranslateCommand, translateText } = await import("../lib/translate.js");
+      const t = parseTranslateCommand(text);
+      if (t && t.text.length <= 500) {
+        const looksLocal = detectsShonaOrNdebele(t.text);
+        if (t.to === "english" && !looksLocal) {
+          recordChatExchange(historyUserId, { prompt: text, response: "That looks like English already — nothing to translate.", kind: "message" });
+          return res.json({ kind: "message", text: "That looks like English already — nothing to translate." });
+        }
+        if (t.to !== "english" && !looksLocal) {
+          const r = await translateText({ text: t.text, from: "english", to: t.to });
+          recordChatExchange(historyUserId, { prompt: text, response: r.text, kind: "message" });
+          try {
+            const { appendTranslation } = await import("../lib/translation-history.js");
+            appendTranslation(historyUserId, { text: t.text, translated: r.text, from: "english", to: t.to, model: r.model });
+          } catch { /* history best-effort */ }
+          return res.json({ kind: "message", text: r.text });
+        }
+        // Ambiguous source → fall through to the agent (LLM + skill).
+      }
+    } catch (e: any) {
+      // NLLB failure (no token, cold model, timeout) falls through to the
+      // agent so the user still gets an LLM translation — unless the error
+      // is a same-language guard, which is an answer in itself.
+      if (String(e?.message ?? e).startsWith("already ")) {
+        return res.json({ kind: "message", text: String(e.message).replace(/^already (\w+).*$/, "That's already $1 — nothing to translate.") });
+      }
+      console.warn(`[chat] translate fast-path failed, falling through: ${String(e?.message ?? e).slice(0, 120)}`);
     }
   }
 
@@ -2002,6 +2048,19 @@ function inferInputs(templateId: string, text: string): Record<string, any> {
   } else if (templateId === "publish-folder") {
     const m = text.match(/publish\s+(?:the\s+)?(?:folder\s+)?["']?([^"']+?)["']?(?:\s+to\s+github|$)/i);
     if (m) out.path = m[1].trim();
+  } else if (templateId === "analyze-spreadsheet" || templateId === "stock-check") {
+    // File: quoted path or a bare *.csv/*.xlsx token. Absent → the
+    // missing-input gate asks back ("which file?"), which is the honest
+    // move rather than guessing among several spreadsheets.
+    const m = text.match(/["']([^"']+?\.(?:csv|xlsx|xls))["']/i) || text.match(/(\S+\.(?:csv|xlsx|xls))/i);
+    if (m) out.file = m[1].trim();
+    if (templateId === "analyze-spreadsheet") {
+      const goal = text.replace(m?.[0] ?? "", "").replace(/^\s*(?:please\s+)?(?:analy[sz]e|run(?:\s+an?)?\s+analysis\s+(?:of|on))\s+(?:my\s+|the\s+|this\s+)?/i, "").trim();
+      if (goal) out.goal = goal.slice(0, 500);
+    } else {
+      const d = text.match(/(\d+)\s*days?/);
+      if (d) out.coverDays = Number(d[1]);
+    }
   }
   return out;
 }
@@ -2011,6 +2070,7 @@ function friendlyInputs(templateId: string, inputs: Record<string, any>): string
   if (templateId === "search-brain" && inputs.query) return ` — query: *${inputs.query}*`;
   if (templateId === "run-digest" && inputs.lookbackDays) return ` (lookback ${inputs.lookbackDays}d)`;
   if (templateId === "add-note" && inputs.title) return ` titled *${inputs.title}*`;
+  if ((templateId === "analyze-spreadsheet" || templateId === "stock-check") && inputs.file) return ` — file: *${inputs.file}*`;
   return "";
 }
 

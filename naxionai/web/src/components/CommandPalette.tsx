@@ -7,7 +7,7 @@ import {
   UserCircle, PlusCircle, Search as SearchIcon, Calendar,
   Plug, PiggyBank, Brain, LayoutDashboard,
   Webhook, GitBranch,
-  ShieldAlert,
+  ShieldAlert, Dna, Radar,
 } from "lucide-react";
 import { Kbd, MetaKey } from "./Kbd";
 import { matIcon } from "./FileIcon";
@@ -83,12 +83,13 @@ export function CommandPalette() {
   }
 
   const pageIcons: Record<PageId, Item["icon"]> = {
-    naxie: Sparkles, office: UserCircle, inbox: Users, council: MessageSquare, schedules: Calendar,
+    naxie: Sparkles, office: UserCircle, inbox: Users, ambient: Radar, council: MessageSquare, schedules: Calendar,
     dailyReports: ChangelogIcon, command: LayoutDashboard, brands: Plug, planner: Calendar,
     myFinances: PiggyBank, businessFinance: PiggyBank, memory: Brain, library: BookOpen,
     templates: TemplateIcon, skills: Sparkles, extensions: Plug, connectors: Plug, mcp: Plug,
     hermes: Plug, github: GitBranch, automation: Webhook, ide: Terminal, models: Brain,
     cost: PiggyBank, policies: CertificateIcon, security: ShieldAlert, whatsapp: Plug,
+    "somatic-ora": Dna,
   };
   const libraryPages = new Set<PageId>(["memory", "library", "templates", "skills", "extensions", "connectors", "mcp", "hermes", "github", "policies", "security", "whatsapp"]);
   const pageItems: Item[] = (Object.entries(PAGE_CATALOG) as [PageId, typeof PAGE_CATALOG[PageId]][]).map(([id, page]) => ({

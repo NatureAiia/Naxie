@@ -12,7 +12,7 @@ Original requester reads the back-translation, sees their intent preserved, and 
 
 ## Process
 
-1. **Identify source and target languages explicitly.** If the customer didn't specify the target, surface what you inferred and ask if uncertain.
+1. **Identify source and target languages explicitly.** If the customer didn't specify the target, surface what you inferred and ask if uncertain. Short English→Shona/Ndebele asks are served by the NLLB fast-path before you see them — if one reaches you, treat it as needing the full workflow below, not a retry of the primitive.
 2. **Translate the INPUT** (what they sent us). Preserve tone — formal stays formal, casual stays casual, frustrated stays frustrated (don't soften without permission).
 3. **Note cultural / regional considerations** that affect how the message lands — honorifics, indirectness norms, formality level, common phrasings.
 4. **Draft the RESPONSE in the target language.** Match the appropriate register; address them as they addressed you (formal vs informal "you").

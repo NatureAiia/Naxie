@@ -368,8 +368,8 @@ function ContextModal({ brand, onClose, onSaved }: { brand: Brand; onClose: () =
     setCompacting(true);
     try {
       const r = await api.compactBrandContext(brand.id);
-      if (r.changed) showToast(`Compacted ${brand.name} profile`, "success");
-      else showToast(r.skipped ?? "No changes found", "info");
+      if (r.result.changed) showToast(`Compacted ${brand.name} profile`, "success");
+      else showToast(r.result.skipped ?? "No changes found", "info");
       onSaved();
     } catch (e: any) { showToast(e?.message ?? "Compaction failed", "error"); }
     finally { setCompacting(false); }

@@ -577,6 +577,8 @@ async function runner(templateId: string, inputs: Record<string, unknown>, push:
     case "evening-recap": return eveningRecapRunner(inputs, push, progress);
     case "weekend-digest": return weekendDigestRunner(inputs, push, progress);
     case "brand-signal-scan": return brandSignalScanRunner(inputs, push, progress);
+    case "analyze-spreadsheet": return analyzeSpreadsheetRunner(inputs, push, progress);
+    case "stock-check": return stockCheckRunner(inputs, push, progress);
     case "general-task":   return generalTaskRunner(inputs, push, progress);
     case "board-meeting":  return boardMeetingRunner(inputs, push, progress, meta);
     default: throw new Error(`no runner for ${templateId}`);
@@ -835,8 +837,41 @@ async function addNoteRunner(inputs: Record<string, unknown>, push: (m: string) 
   }
 }
 
-export async function generalTaskRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void) {
-  const task = String(inputs.task ?? "").trim().slice(0, 8000);
+// Analyze-spreadsheet + stock-check runners — thin wrappers over
+// generalTaskRunner. The playbook itself lives in the data-analysis /
+// inventory-analysis skills (auto-loaded by the planner via skill
+// matching); the runner's job is only to build a self-contained task so
+// the agent starts with file + goal + output conventions pinned, instead
+// of a bare "analyze X" that meanders. Template autosave is off — the
+// template already exists, no need to mint a custom copy per run.
+async function analyzeSpreadsheetRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void) {
+  const file = String(inputs.file ?? "").trim();
+  if (!file) throw new Error("missing 'file' input (vault path, upload, or local path to the CSV/XLSX)");
+  const goal = String(inputs.goal ?? "").trim().slice(0, 2000) || "profile, clean, explore, and report the key findings";
+  const task = `Analyze the spreadsheet at "${file}" and answer: ${goal}\n\n` +
+    `Follow the data-analysis skill playbook: locate the file (vault.read, upload context, or local folder — for .xlsx pick the right sheet, never assume sheet 1); ` +
+    `profile it (shape, dtypes, nulls, dupes, ranges) and print a compact profile; clean it per the HR checklist (drop redundant columns, rename headers, drop exact dupes, decide per-column what NaNs mean) and save a cleaned copy as <name>.cleaned.csv next to the original — never modify the source file; ` +
+    `explore with pandas (distributions, top-N categoricals, trends if dated, correlation map) — compute every number with executed Python (the \`python\` binary has pandas/sklearn/matplotlib), never eyeball aggregates; ` +
+    `save 2-4 charts (one message per chart, matplotlib Agg backend — headless, no display) as PNGs under _naxion/analysis/<slug>/; ` +
+    `if the goal asks for prediction, train the simplest model that beats a naive baseline, report the comparison honestly, and persist model + rerun script under _naxion/models/<slug>/; ` +
+    `finish with a findings memo (headline numbers, drivers with evidence, chart list, caveats/assumptions, recommended actions) written to the vault. ` +
+    `Keep raw rows out of the prompt — summaries and profiles only, at most ~20 sample rows for illustration.`;
+  return generalTaskRunner({ ...inputs, task, save_as_template: false }, push, progress);
+}
+
+async function stockCheckRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void) {
+  const file = String(inputs.file ?? "").trim();
+  if (!file) throw new Error("missing 'file' input (vault path, upload, or local path to the stock CSV)");
+  const coverDays = Math.min(365, Math.max(1, parseInt(String((inputs as any).coverDays ?? "14"), 10) || 14));
+  const task = `Stock level check on "${file}". Alert threshold: reorder when days-of-cover drops below ${coverDays} days.\n\n` +
+    `Follow the inventory-analysis skill math: per SKU compute average daily usage (units sold / days in period), days-of-cover (on-hand / daily usage), and where lead-time data exists, reorder point = (daily usage × lead-time days) + safety stock. ` +
+    `Read the CSV with pandas (the \`python\` binary has pandas/openpyxl), resolve column names flexibly (SKU/item/product/code, qty/on-hand/stock, sold/sales/usage, lead-time). ` +
+    `Output the skill's action-list shape: REORDER NOW table (SKU, on hand, daily usage, days cover, order qty, by when), a WATCH table (will breach within ~2× threshold), and overstock/dead-stock flags. ` +
+    `State assumptions (usage period, lead times used). Write the report to the vault. Compute, don't estimate — every number from executed code.`;
+  return generalTaskRunner({ ...inputs, task, save_as_template: false }, push, progress);
+}
+
+export async function generalTaskRunner(inputs: Record<string, unknown>, push: (m: string) => void, progress?: (p: Record<string, unknown>) => void) {  const task = String(inputs.task ?? "").trim().slice(0, 8000);
   if (!task) throw new Error("missing 'task' input");
   const saveAs = inputs.save_as_template !== false;
   const testMode = inputs.testMode === true;
